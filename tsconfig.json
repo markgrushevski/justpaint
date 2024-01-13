@@ -1,0 +1,26 @@
+{
+    "include": ["src"],
+    "compilerOptions": {
+        "noEmit": true,
+        "strict": true,
+        "skipLibCheck": true,
+        "isolatedModules": true,
+        "esModuleInterop": true,
+        "verbatimModuleSyntax": true,
+        "allowImportingTsExtensions": true,
+        "allowSyntheticDefaultImports": true,
+        "forceConsistentCasingInFileNames": true,
+        "baseUrl": ".",
+        "rootDir": ".",
+        "paths": {
+            "@app": ["./src/app"],
+            "@components": ["./src/components"],
+            "@shared/*": ["./src/shared/*"]
+        },
+        "module": "esnext",
+        "target": "esnext",
+        "moduleResolution": "bundler",
+        "lib": ["DOM", "DOM.Iterable", "ESNext"],
+        "types": ["vite/client"]
+    }
+}
