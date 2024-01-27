@@ -1,0 +1,23 @@
+{
+    "include": ["src"],
+    "compilerOptions": {
+        "noEmit": true,
+        "strict": true,
+        "skipLibCheck": true,
+        "isolatedModules": true,
+        "esModuleInterop": true,
+        "verbatimModuleSyntax": true,
+        "allowImportingTsExtensions": true,
+        "allowSyntheticDefaultImports": true,
+        "forceConsistentCasingInFileNames": true,
+        "baseUrl": ".",
+        "rootDir": ".",
+        "module": "esnext",
+        "target": "esnext",
+        "moduleResolution": "nodenext",
+        "lib": ["ESNext"],
+        "allowJs": true,
+        "checkJs": true,
+    }
+}
+
