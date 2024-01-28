@@ -1,22 +1,44 @@
 <script setup lang="ts">
-import { PaintTools, TheCanvas, PaintToolSettings, WorkHandlers } from '@components';
+import {
+    PaintTools,
+    PaintToolSettings,
+    SettingsBar,
+    TheCanvas,
+    WorkHandlers,
+    SystemBar,
+    StatusBar,
+    WorkBar,
+    WorkArea,
+    ToolsBar
+} from '@components';
 </script>
 
 <template>
-    <header class="toolbar">
-        <div class="toolbar__line-1">
-            <PaintTools />
-            <WorkHandlers />
-        </div>
+    <SystemBar>
+        <div class="title">New Project</div>
+        <div class="weather">0</div>
+        <div class="time">{{ Date.now() }}</div>
+    </SystemBar>
 
-        <div class="toolbar__line-2">
-            <PaintToolSettings />
-        </div>
-    </header>
-    <main class="main">
+    <WorkBar>
+        <WorkHandlers />
+    </WorkBar>
+
+    <ToolsBar>
+        <PaintTools />
+    </ToolsBar>
+
+    <SettingsBar>
+        <PaintToolSettings />
+    </SettingsBar>
+
+    <WorkArea>
         <TheCanvas />
-    </main>
-    <footer style="height: 60px"></footer>
+    </WorkArea>
+
+    <StatusBar>
+        <div class="notifications">Notifications: ...</div>
+    </StatusBar>
 </template>
 
 <style>
@@ -27,32 +49,33 @@ import { PaintTools, TheCanvas, PaintToolSettings, WorkHandlers } from '@compone
 body {
     margin: 0;
 
-    --color-text: hsl(34deg 57% 70%);
-    --color-tool: hsl(34deg 24% 40%);
-    --color-bg: hsl(32deg 23% 16%);
+    --color-text: hsl(200deg 60% 70%);
+    --color-tool: hsl(200deg 35% 40%);
+    --color-bg: hsl(200deg 30% 15%);
 
-    /* --test-text: hsl(245deg 100% 55%);
-    --test-tool: hsl(245deg 100% 40%);
-    --test-bg: hsl(245deg 100% 30%);
+    /*--test-text: #e4ecef;
+    --test-tool: #ed7e5a;
+    --test-bg: #fdfeff;
 
     --color-text: var(--test-text);
     --color-tool: var(--test-tool);
-    --color-bg: var(--test-bg); */
+    --color-bg: var(--test-bg);*/
 
     background-color: var(--color-bg);
     color: var(--color-text);
 }
 
-input {
-    display: inline-block;
-}
-
 #app {
-    padding: 16px;
     width: 100vw;
     height: 100vh;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: 1.5em 2em auto 1.5em;
+    grid-template-columns: 2em 2em auto;
+    grid-template-areas:
+        'system-bar system-bar system-bar'
+        'work-bar work-bar work-bar'
+        'tools-bar settings-bar work-area'
+        'status-bar status-bar status-bar';
 }
 
 .toolbar {
