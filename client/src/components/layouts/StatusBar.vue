@@ -9,5 +9,7 @@
     grid-area: status-bar;
 
     display: flex;
+    align-items: center;
+    justify-content: end;
 }
 </style>

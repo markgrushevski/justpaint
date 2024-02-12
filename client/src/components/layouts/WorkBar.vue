@@ -7,6 +7,9 @@
 <style>
 .work-bar {
     grid-area: work-bar;
+
     display: flex;
+    align-items: center;
+    justify-content: end;
 }
 </style>
