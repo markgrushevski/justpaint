@@ -7,7 +7,10 @@
 <style>
 .tools-bar {
     grid-area: tools-bar;
+
     display: flex;
+    align-items: center;
+    justify-content: start;
     flex-direction: column;
 }
 </style>
