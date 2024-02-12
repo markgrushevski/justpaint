@@ -46,6 +46,15 @@ import {
     box-sizing: border-box;
 }
 
+html,
+body {
+    font-size: 16px;
+}
+
+input {
+    font-size: 1em;
+}
+
 body {
     margin: 0;
 
@@ -69,8 +78,8 @@ body {
     width: 100vw;
     height: 100vh;
     display: grid;
-    grid-template-rows: 1.5em 2em auto 1.5em;
-    grid-template-columns: 2em 2em auto;
+    grid-template-rows: 40px 60px auto 40px;
+    grid-template-columns: 60px 60px auto;
     grid-template-areas:
         'system-bar system-bar system-bar'
         'work-bar work-bar work-bar'
