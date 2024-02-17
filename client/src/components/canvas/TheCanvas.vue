@@ -1,41 +1,38 @@
 <script setup lang="ts">
 import { useCanvasStore } from '@shared/stores';
-import { onBeforeMount, onMounted, ref } from 'vue';
+import { onBeforeMount, ref, watch } from 'vue';
 
 const canvasStore = useCanvasStore();
 
-const canvas = ref();
-
-const showCanvas = ref(false);
-const canvasWidth = ref(200);
-const canvasHeight = ref(200);
+const canvas = ref<HTMLCanvasElement | null>(null);
 
 onBeforeMount(() => {
-    canvasWidth.value = +(document.body.clientWidth * 0.7).toFixed(0);
-    canvasHeight.value = +(document.body.clientHeight * 0.7).toFixed(0);
-    showCanvas.value = true;
+    canvasStore.canvasWidth = Math.round(document.body.clientWidth * 0.7);
+    canvasStore.canvasHeight = Math.round(document.body.clientHeight * 0.7);
+    canvasStore.showCanvas = true;
 });
 
-onMounted(() => {
-    canvasStore.setCanvas(canvas.value);
+const stopWatch = watch(canvas, () => {
+    if (canvas.value instanceof HTMLCanvasElement) {
+        canvasStore.setCanvas(canvas.value);
+        stopWatch();
+    }
 });
 </script>
 
 <template>
     <canvas
-        v-if="showCanvas"
+        v-if="canvasStore.showCanvas"
         ref="canvas"
         class="canvas"
-        :width="canvasWidth + 'px'"
-        :height="canvasHeight + 'px'"
-        @mousedown=""
-        @mousemove=""
-        @mouseup=""
+        :width="canvasStore.canvasWidth + 'px'"
+        :height="canvasStore.canvasHeight + 'px'"
     ></canvas>
 </template>
 
 <style>
 .canvas {
     background-color: white;
+    /*box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.1);*/
 }
 </style>

@@ -1,3 +1,3 @@
-export type Tool = 'pen' | 'eraser' | 'line' | 'square' | 'triangle' | 'circle';
-export type WorkHandler = 'undo' | 'redo' | 'save';
-export type ToolbarItem = Tool & WorkHandler;
+export type ToolName = 'Pen' | 'Eraser' | 'Line' | 'Square' | 'Triangle' | 'Circle';
+export type WorkHandlerName = 'Undo' | 'Redo' | 'Save';
+export type ToolbarItem = ToolName & WorkHandlerName;
