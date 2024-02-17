@@ -1,9 +1,9 @@
-import { CanvasTool, Eraser, Pen } from '@shared/lib';
+import { CanvasTool, Eraser, Pen, Square } from '@shared/lib';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
 export const useToolsStore = defineStore('tools', () => {
-    const toolsClasses = ref([Pen, Eraser]);
+    const toolsClasses = ref([Eraser, Pen, Square]);
     const tool = ref<CanvasTool | null>(null);
 
     const lineWeight = ref(1);

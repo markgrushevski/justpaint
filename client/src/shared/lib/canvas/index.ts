@@ -1,1 +1,1 @@
-export { CanvasTool, Pen, Eraser } from './CanvasTool.ts';
+export * from './CanvasTool.ts';
