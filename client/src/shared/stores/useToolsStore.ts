@@ -1,8 +1,9 @@
-import type { CanvasTool } from '@shared/lib';
+import { CanvasTool, Eraser, Pen } from '@shared/lib';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
 export const useToolsStore = defineStore('tools', () => {
+    const toolsClasses = ref([Pen, Eraser]);
     const tool = ref<CanvasTool | null>(null);
 
     const lineWeight = ref(1);
@@ -21,5 +22,5 @@ export const useToolsStore = defineStore('tools', () => {
         if (value.match(/#[\da-f]{6}/i)) color.value = value;
     }
 
-    return { tool, lineWeight, color, setTool, setLineWeight, setColor };
+    return { toolsClasses, tool, lineWeight, color, setTool, setLineWeight, setColor };
 });

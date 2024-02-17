@@ -1,1 +1,1 @@
-export { useAppFetch } from './useAppFetch.ts';
+export { Fetch } from './Fetch.ts';
