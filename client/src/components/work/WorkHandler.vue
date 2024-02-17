@@ -29,19 +29,19 @@ defineProps<{
 
 <style>
 .work-handlers__handler {
-    width: 1.75em;
-    height: 1.75em;
+    width: 1.75rem;
+    height: 1.75rem;
 }
 
 .work-handlers__handler > * {
     width: 100%;
     height: 100%;
-    fill: var(--color-tool);
+    fill: var(--color-accent);
     cursor: pointer;
 }
 
 .work-handlers__handler_active > *,
 .work-handlers__handler:hover > * {
-    fill: var(--color-text);
+    fill: var(--color-accent_active);
 }
 </style>

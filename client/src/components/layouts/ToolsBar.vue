@@ -10,7 +10,7 @@
 
     display: flex;
     align-items: center;
-    justify-content: start;
+    justify-content: flex-start;
     flex-direction: column;
 }
 </style>
