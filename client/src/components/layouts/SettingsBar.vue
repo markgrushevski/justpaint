@@ -10,8 +10,12 @@
 
     display: flex;
     align-items: center;
-    justify-content: start;
+    justify-content: flex-start;
     flex-direction: column;
+
+    border-inline: var(--border-width) solid var(--color-accent);
+
+    font-size: 14px;
 
     text-align: center;
 }
@@ -19,11 +23,12 @@
 .settings-bar input {
     border: 0;
 
-    border-radius: 1px;
+    border-radius: var(--border-radius);
 
     color: var(--color-text);
-    outline-color: var(--color-text);
-    background-color: var(--color-tool);
+    outline-color: var(--color-accent);
+    outline-width: 2px;
+    background-color: var(--color-background);
 }
 
 .settings-bar input[type='color'] {

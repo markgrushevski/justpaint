@@ -17,7 +17,7 @@ import {
     <SystemBar>
         <div class="title">New Project</div>
         <div class="weather">0</div>
-        <div class="time">{{ Date.now() }}</div>
+        <div class="time">{{ new Date(Date.now()).getHours() }}:{{ new Date(Date.now()).getMinutes() }}</div>
     </SystemBar>
 
     <WorkBar>
@@ -44,6 +44,10 @@ import {
 <style>
 * {
     box-sizing: border-box;
+    font-family: 'Nunito', sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 500;
+    font-style: normal;
 }
 
 html,
@@ -55,28 +59,40 @@ input {
     font-size: 1em;
 }
 
+:root {
+    --color-backdrop: #f6f6f7;
+
+    --color-accent_active: #76a573;
+    --color-text_active: #000000;
+    --color-background_active: #ffffff;
+
+    --color-accent: #9bbd98;
+    --color-text: #202020;
+    --color-background: #f6f6f7;
+
+    /*--cambridge-blue: #9abd97;
+    --celadon: #b6d7b9;
+    --dark-moss-green: #646536;
+    --tea-green: #d0f1bf;*/
+
+    --border-width: 2px;
+    --border-radius: 0;
+}
+
 body {
     margin: 0;
 
-    --color-text: hsl(200deg 60% 70%);
-    --color-tool: hsl(200deg 35% 40%);
-    --color-bg: hsl(200deg 30% 15%);
+    width: 100vw;
+    height: 100vh;
 
-    /*--test-text: #e4ecef;
-    --test-tool: #ed7e5a;
-    --test-bg: #fdfeff;
-
-    --color-text: var(--test-text);
-    --color-tool: var(--test-tool);
-    --color-bg: var(--test-bg);*/
-
-    background-color: var(--color-bg);
+    background-color: var(--color-backdrop);
     color: var(--color-text);
 }
 
 #app {
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
+
     display: grid;
     grid-template-rows: 40px 60px auto 40px;
     grid-template-columns: 60px 60px auto;
@@ -87,25 +103,18 @@ body {
         'status-bar status-bar status-bar';
 }
 
-.toolbar {
-    display: flex;
-    flex-direction: column;
+.system-bar,
+.work-bar,
+.status-bar {
+    padding: 8px;
 }
 
-.toolbar > * {
-    border-bottom: 6px solid var(--color-tool);
+.tools-bar,
+.settings-bar {
+    padding: 8px;
 }
 
-.toolbar__line-1 {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.main {
-    flex-grow: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.work-bar {
+    border-block: var(--border-width) solid var(--color-accent);
 }
 </style>

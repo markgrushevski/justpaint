@@ -3,7 +3,7 @@ import WorkHandler from './WorkHandler.vue';
 </script>
 
 <template>
-    <WorkHandler title="Undo" type="undo" />
-    <WorkHandler title="Redo" type="redo" />
-    <WorkHandler title="Save" type="save" />
+    <WorkHandler title="Undo" type="Undo" />
+    <WorkHandler title="Redo" type="Redo" />
+    <WorkHandler title="Save" type="Save" />
 </template>
