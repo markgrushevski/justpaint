@@ -1,7 +1,5 @@
 <script lang="ts" setup>
-import { CanvasTool } from '@shared/lib';
 import { useCanvasStore, useToolsStore } from '@shared/stores';
-import type { ToolName } from '@shared/types';
 import { ToolbarIcon } from '@shared/ui';
 
 const canvasStore = useCanvasStore();
@@ -26,7 +24,6 @@ const toolsNamesBySVGPathValues: Record<string, string> = {
             :icon-path-value="toolsNamesBySVGPathValues[ToolClass.name]"
             :is-active="ToolClass.name === toolsStore.tool?.constructor.name"
             :title="ToolClass.name"
-            :type="ToolClass.name"
             class="toolbar__paint-tool"
             @click="toolsStore.setTool(new ToolClass(canvasStore.canvas))"
         />
