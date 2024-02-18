@@ -15,9 +15,11 @@ import {
 
 <template>
     <SystemBar>
-        <div class="title">New Project</div>
-        <div class="weather">0</div>
-        <div class="time">{{ new Date(Date.now()).getHours() }}:{{ new Date(Date.now()).getMinutes() }}</div>
+        <div class="system-bar__work-title">My Work 1</div>
+        <div class="system-bar__weather">0</div>
+        <div class="system-bar__time">
+            {{ new Date(Date.now()).getHours() }}:{{ new Date(Date.now()).getMinutes() }}
+        </div>
     </SystemBar>
 
     <WorkBar>
@@ -60,22 +62,27 @@ input {
 }
 
 :root {
-    --color-backdrop: #f6f6f7;
+    --color-backdrop: rgb(46, 52, 64);
 
-    --color-accent_active: #76a573;
+    --color-accent_active: rgb(136, 192, 208);
+    --color-text_active: rgb(216, 222, 233);
+    --color-background_active: rgb(76, 86, 106);
+
+    --color-accent: rgb(97, 110, 136);
+    --color-text: rgb(216, 222, 233);
+    --color-background: rgb(59, 66, 82);
+
+    /*--color-backdrop: #f6f6f7;*/
+
+    /*--color-accent_active: #76a573;
     --color-text_active: #000000;
-    --color-background_active: #ffffff;
+    --color-background_active: #ffffff;*/
 
-    --color-accent: #9bbd98;
+    /*--color-accent: #9bbd98;
     --color-text: #202020;
-    --color-background: #f6f6f7;
+    --color-background: #f6f6f7;*/
 
-    /*--cambridge-blue: #9abd97;
-    --celadon: #b6d7b9;
-    --dark-moss-green: #646536;
-    --tea-green: #d0f1bf;*/
-
-    --border-width: 2px;
+    --border-width: 1px;
     --border-radius: 0;
 }
 
@@ -94,8 +101,8 @@ body {
     height: 100%;
 
     display: grid;
-    grid-template-rows: 40px 60px auto 40px;
-    grid-template-columns: 60px 60px auto;
+    grid-template-rows: 2.5em 2.5em auto 2em;
+    grid-template-columns: 3.5em 4em auto;
     grid-template-areas:
         'system-bar system-bar system-bar'
         'work-bar work-bar work-bar'
@@ -104,17 +111,20 @@ body {
 }
 
 .system-bar,
-.work-bar,
 .status-bar {
+    padding: 8px 10px;
+}
+
+.work-bar,
+.tools-bar {
     padding: 8px;
 }
 
-.tools-bar,
 .settings-bar {
-    padding: 8px;
+    padding: 10px 8px;
 }
 
 .work-bar {
-    border-block: var(--border-width) solid var(--color-accent);
+    border-bottom: var(--border-width) dashed var(--color-accent);
 }
 </style>

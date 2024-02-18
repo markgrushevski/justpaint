@@ -7,21 +7,21 @@ export abstract class CanvasTool {
 
     protected constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
+        this.ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+        if (!this.ctx) throw new Error('CanvasRenderingContext2D not found');
+        this.mouseDown = false;
         this.destroy();
         this.listen();
     }
 
-    protected canvas: HTMLCanvasElement;
-    protected ctx: CanvasRenderingContext2D | null;
-    protected mouseDown: boolean;
-    protected mousePosition: { x: number; y: number };
+    #mousePosition: { x: number; y: number } = { x: 0, y: 0 };
 
-    protected getMousePosition(ev: MouseEvent): { x: number; y: number } {
-        return {
-            x: ev.pageX - ev.target?.offsetLeft,
-            y: ev.pageY - ev.target?.offsetTop
-        };
+    protected canvas: HTMLCanvasElement;
+    protected ctx: CanvasRenderingContext2D;
+    protected mouseDown: boolean;
+
+    public get mousePosition(): { x: number; y: number } {
+        return this.#mousePosition;
     }
 
     public destroy() {
@@ -37,7 +37,11 @@ export abstract class CanvasTool {
         this.canvas.onmouseleave = this.mouseLeaveHandler.bind(this);
         this.canvas.onmouseup = this.mouseUpHandler.bind(this);
 
-        this.canvas.addEventListener('mousemove');
+        this.canvas.addEventListener('mousemove', (ev) => {
+            this.#mousePosition.x = ev.pageX - ev.target?.offsetLeft;
+            this.#mousePosition.y = ev.pageY - ev.target?.offsetTop;
+            //console.log('mousemove', this.#mousePosition);
+        });
     }
 }
 
@@ -47,16 +51,14 @@ export class Eraser extends CanvasTool {
     }
 
     protected mouseDownHandler(ev: MouseEvent) {
-        const mousePosition = this.getMousePosition(ev);
         this.mouseDown = true;
-        this.ctx?.beginPath();
-        this.ctx?.moveTo(mousePosition.x, mousePosition.y);
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.mousePosition.x, this.mousePosition.y);
     }
 
     protected mouseMoveHandler(ev: MouseEvent) {
         if (this.mouseDown) {
-            const mousePosition = this.getMousePosition(ev);
-            this.draw(mousePosition.x, mousePosition.y);
+            this.draw(this.mousePosition.x, this.mousePosition.y);
         }
     }
 
@@ -69,8 +71,9 @@ export class Eraser extends CanvasTool {
     }
 
     protected draw(x: number, y: number) {
-        this.ctx?.lineTo(x, y);
-        this.ctx?.stroke();
+        this.ctx.lineTo(x, y);
+        this.ctx.stroke();
+        this.ctx.strokeStyle = '#ffffff';
     }
 }
 
@@ -80,16 +83,14 @@ export class Pen extends CanvasTool {
     }
 
     protected mouseDownHandler(ev: MouseEvent) {
-        const mousePosition = this.getMousePosition(ev);
         this.mouseDown = true;
-        this.ctx?.beginPath();
-        this.ctx?.moveTo(mousePosition.x, mousePosition.y);
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.mousePosition.x, this.mousePosition.y);
     }
 
     protected mouseMoveHandler(ev: MouseEvent) {
         if (this.mouseDown) {
-            const mousePosition = this.getMousePosition(ev);
-            this.draw(mousePosition.x, mousePosition.y);
+            this.draw(this.mousePosition.x, this.mousePosition.y);
         }
     }
 
@@ -102,12 +103,12 @@ export class Pen extends CanvasTool {
     }
 
     protected draw(x: number, y: number) {
-        this.ctx?.lineTo(x, y);
-        this.ctx?.stroke();
+        this.ctx.lineTo(x, y);
+        this.ctx.stroke();
     }
 }
 
-export class Square extends CanvasTool {
+export class Line extends CanvasTool {
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas);
     }
@@ -115,22 +116,117 @@ export class Square extends CanvasTool {
     #startX: number = 0;
     #startY: number = 0;
 
+    #saved: string = '';
+
     protected mouseDownHandler(ev: MouseEvent) {
-        const mousePosition = this.getMousePosition(ev);
         this.mouseDown = true;
-        this.ctx?.beginPath();
-        this.#startX = mousePosition.x;
-        this.#startY = mousePosition.y;
+        this.#saved = this.canvas.toDataURL();
+        this.#startX = this.mousePosition.x;
+        this.#startY = this.mousePosition.y;
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.#startX, this.#startY);
     }
 
     protected mouseMoveHandler(ev: MouseEvent) {
         if (this.mouseDown) {
-            const mousePosition = this.getMousePosition(ev);
-            const currentX = mousePosition.x;
-            const currentY = mousePosition.y;
-            const width = currentX - this.#startX;
-            const height = currentY - this.#startY;
-            this.draw(mousePosition.x, mousePosition.y, width, height);
+            this.draw(this.mousePosition.x, this.mousePosition.y);
+        }
+    }
+
+    protected mouseLeaveHandler(ev: MouseEvent) {
+        this.mouseDown = false;
+    }
+
+    protected mouseUpHandler(ev: MouseEvent) {
+        this.mouseDown = false;
+    }
+
+    protected draw(x: number, y: number) {
+        const image = new Image();
+        image.src = this.#saved;
+        image.onload = () => {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.beginPath();
+            this.ctx.moveTo(this.#startX, this.#startY);
+            this.ctx.lineTo(x, y);
+            this.ctx.stroke();
+        };
+    }
+}
+
+export class Circle extends CanvasTool {
+    public constructor(canvas: HTMLCanvasElement) {
+        super(canvas);
+    }
+
+    #startX: number = 0;
+    #startY: number = 0;
+
+    #saved: string = '';
+
+    protected mouseDownHandler(ev: MouseEvent) {
+        this.mouseDown = true;
+        this.#saved = this.canvas.toDataURL();
+        this.#startX = this.mousePosition.x;
+        this.#startY = this.mousePosition.y;
+        this.ctx.beginPath();
+    }
+
+    protected mouseMoveHandler(ev: MouseEvent) {
+        if (this.mouseDown) {
+            const width = this.mousePosition.x - this.#startX;
+            const height = this.mousePosition.y - this.#startY;
+            const r = Math.sqrt(width ** 2 + height ** 2);
+            this.draw(this.#startX, this.#startY, r);
+        }
+    }
+
+    protected mouseLeaveHandler(ev: MouseEvent) {
+        this.mouseDown = false;
+    }
+
+    protected mouseUpHandler(ev: MouseEvent) {
+        this.mouseDown = false;
+    }
+
+    protected draw(x: number, y: number, r: number) {
+        const image = new Image();
+        image.src = this.#saved;
+        image.onload = () => {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, r, 0, 2 * Math.PI);
+            this.ctx.fill();
+            this.ctx.stroke();
+        };
+    }
+}
+
+export class Triangle extends CanvasTool {
+    public constructor(canvas: HTMLCanvasElement) {
+        super(canvas);
+    }
+
+    #startX: number = 0;
+    #startY: number = 0;
+
+    #saved: string = '';
+
+    protected mouseDownHandler(ev: MouseEvent) {
+        this.mouseDown = true;
+        this.#saved = this.canvas.toDataURL();
+        this.#startX = this.mousePosition.x;
+        this.#startY = this.mousePosition.y;
+        this.ctx.beginPath();
+    }
+
+    protected mouseMoveHandler(ev: MouseEvent) {
+        if (this.mouseDown) {
+            const width = this.mousePosition.x - this.#startX;
+            const height = this.mousePosition.y - this.#startY;
+            this.draw(this.#startX, this.#startY, width, height);
         }
     }
 
@@ -143,6 +239,80 @@ export class Square extends CanvasTool {
     }
 
     protected draw(x: number, y: number, w: number, h: number) {
-        const mousePosition = this.getMousePosition(ev);
+        const image = new Image();
+        image.src = this.#saved;
+        image.onload = () => {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.beginPath();
+            this.ctx.rect(x, y, w, h);
+            this.ctx.fill();
+            this.ctx.stroke();
+        };
     }
+}
+
+export class Square extends CanvasTool {
+    public constructor(canvas: HTMLCanvasElement) {
+        super(canvas);
+    }
+
+    #startX: number = 0;
+    #startY: number = 0;
+
+    #saved: string = '';
+
+    protected mouseDownHandler(ev: MouseEvent) {
+        this.#saved = this.canvas.toDataURL();
+        this.mouseDown = true;
+        this.ctx.beginPath();
+        this.#startX = this.mousePosition.x;
+        this.#startY = this.mousePosition.y;
+    }
+
+    protected mouseMoveHandler(ev: MouseEvent) {
+        if (this.mouseDown) {
+            const width = this.mousePosition.x - this.#startX;
+            const height = this.mousePosition.y - this.#startY;
+            this.draw(this.#startX, this.#startY, width, height);
+        }
+    }
+
+    protected mouseLeaveHandler(ev: MouseEvent) {
+        this.mouseDown = false;
+    }
+
+    protected mouseUpHandler(ev: MouseEvent) {
+        this.mouseDown = false;
+    }
+
+    protected draw(x: number, y: number, w: number, h: number) {
+        const image = new Image();
+        image.src = this.#saved;
+        image.onload = () => {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.beginPath();
+            this.ctx.rect(x, y, w, h);
+            this.ctx.fill();
+            this.ctx.stroke();
+        };
+    }
+
+    /* #prevStartX: number = 0;
+    #prevStartY: number = 0;
+    
+    #prevEndW: number = 0;
+    #prevEndH: number = 0;
+    
+    protected _draw(x: number, y: number, w: number, h: number) {
+        this.ctx.clearRect(this.#prevStartX, this.#prevStartY, this.#prevEndW, this.#prevEndH);
+        this.ctx.beginPath();
+        this.ctx.rect(x, y, w, h);
+        this.ctx.fill();
+        this.#prevStartX = x;
+        this.#prevStartY = y;
+        this.#prevEndW = w;
+        this.#prevEndH = h;
+    } */
 }

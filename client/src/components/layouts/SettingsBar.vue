@@ -13,6 +13,8 @@
     justify-content: flex-start;
     flex-direction: column;
 
+    gap: 1em;
+
     border-inline: var(--border-width) solid var(--color-accent);
 
     font-size: 14px;
@@ -32,18 +34,24 @@
 }
 
 .settings-bar input[type='color'] {
-    width: 40px;
-    height: 40px;
+    width: 2.5em;
+    height: 2.5em;
 }
 
 .settings-bar input[type='number'] {
     padding: 3px 7px;
-    width: 50px;
+    width: 3em;
 }
 
 .settings-bar input:focus-visible,
 .settings-bar input:focus-within,
 .settings-bar input:focus {
     outline-style: solid;
+}
+
+.settings-bar input[type='number']:focus-visible,
+.settings-bar input[type='number']:focus-within,
+.settings-bar input[type='number']:focus {
+    min-width:;
 }
 </style>
