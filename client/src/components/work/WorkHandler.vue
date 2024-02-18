@@ -12,8 +12,8 @@ defineProps<{ iconPathValue: string; isActive?: boolean }>();
 
 <style>
 .work-handlers__handler {
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 1.75em;
+    height: 1.75em;
 }
 
 .work-handlers__handler > * {
