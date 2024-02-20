@@ -7,7 +7,7 @@
         "types": "vue-tsc",
         "types:watch": "vue-tsc --watch",
         "dev": "vite",
-        "build": "vue-tsc && vite build",
+        "build": "vite build",
         "preview": "vite preview",
         "lint:prettier": "npx prettier --write **/*.{vue,ts,json,md,html}",
         "lint:stylelint": "npx stylelint --fix **/*.{vue,css}",
