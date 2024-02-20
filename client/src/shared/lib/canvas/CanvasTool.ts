@@ -40,8 +40,12 @@ export abstract class CanvasTool {
         this.canvas.addEventListener('mousemove', (ev) => {
             this.#mousePosition.x = ev.pageX - ev.target?.offsetLeft;
             this.#mousePosition.y = ev.pageY - ev.target?.offsetTop;
-            //console.log('mousemove', this.#mousePosition);
+            console.log('mousemove', this.#mousePosition);
         });
+
+        /* this.canvas.addEventListener('mousedown', (ev) => {
+            console.log('mousedown', this.#mousePosition);
+        }); */
     }
 }
 
