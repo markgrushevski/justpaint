@@ -7,21 +7,51 @@ export abstract class CanvasTool {
 
     protected constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
+
         this.ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
         if (!this.ctx) throw new Error('CanvasRenderingContext2D not found');
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'high';
+
         this.mouseDown = false;
+
         this.destroy();
         this.listen();
     }
 
     #mousePosition: { x: number; y: number } = { x: 0, y: 0 };
-
     protected canvas: HTMLCanvasElement;
     protected ctx: CanvasRenderingContext2D;
     protected mouseDown: boolean;
 
     public get mousePosition(): { x: number; y: number } {
         return this.#mousePosition;
+    }
+
+    public get strokeColor(): typeof this.ctx.strokeStyle {
+        return this.ctx.strokeStyle;
+    }
+
+    public get fillColor(): typeof this.ctx.fillStyle {
+        return this.ctx.fillStyle;
+    }
+
+    public get lineWeight() {
+        return this.ctx.lineWidth;
+    }
+
+    public set strokeColor(color: string) {
+        this.ctx.strokeStyle = color;
+    }
+
+    public set fillColor(color: string) {
+        this.ctx.fillStyle = color;
+    }
+
+    public set lineWeight(number: number) {
+        this.ctx.lineWidth = number;
     }
 
     public destroy() {
@@ -37,15 +67,39 @@ export abstract class CanvasTool {
         this.canvas.onmouseleave = this.mouseLeaveHandler.bind(this);
         this.canvas.onmouseup = this.mouseUpHandler.bind(this);
 
+        this.canvas.addEventListener('mousedown', (ev) => {
+            console.log('Down');
+        });
+
         this.canvas.addEventListener('mousemove', (ev) => {
             this.#mousePosition.x = ev.pageX - ev.target?.offsetLeft;
             this.#mousePosition.y = ev.pageY - ev.target?.offsetTop;
-            console.log('mousemove', this.#mousePosition);
+            console.log('Move');
         });
 
-        /* this.canvas.addEventListener('mousedown', (ev) => {
-            console.log('mousedown', this.#mousePosition);
-        }); */
+        this.canvas.addEventListener('mouseleave', (ev) => {
+            console.log('Leave');
+        });
+
+        this.canvas.addEventListener('mouseup', (ev) => {
+            console.log('Up');
+        });
+
+        this.canvas.addEventListener('touchmove', (ev) => {
+            console.log('touch Move');
+        });
+
+        this.canvas.addEventListener('touchstart', (ev) => {
+            console.log('touch Start');
+        });
+
+        this.canvas.addEventListener('touchend', (ev) => {
+            console.log('touch End');
+        });
+
+        this.canvas.addEventListener('touchcancel', (ev) => {
+            console.log('touch Cancel');
+        });
     }
 }
 

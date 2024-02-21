@@ -1,12 +1,22 @@
 <script setup lang="ts">
+import { CanvasTool } from '@shared/lib';
 import { useToolsStore } from '@shared/stores';
 import { computed } from 'vue';
 
 const toolsStore = useToolsStore();
 
-const color = computed({
+const strokeColor = computed({
     get() {
-        return toolsStore.color;
+        return toolsStore.tool?.strokeColor ?? '#000000';
+    },
+    set(value) {
+        toolsStore.setColor(value);
+    }
+});
+
+const fillColor = computed({
+    get() {
+        return toolsStore.tool?.fillColor ?? '#000000';
     },
     set(value) {
         toolsStore.setColor(value);
@@ -15,7 +25,7 @@ const color = computed({
 
 const lineWeight = computed({
     get() {
-        return toolsStore.lineWeight;
+        return toolsStore.tool?.lineWeight ?? 1;
     },
     set(value) {
         toolsStore.setLineWeight(value);
@@ -26,7 +36,8 @@ const minWidth = computed(() => `${lineWeight.value}`.length + 4 + 'ch');
 </script>
 
 <template>
-    <input v-model="color" title="Color picker" type="color" />
+    <input v-model="fillColor" title="Fill color" type="color" />
+    <input v-model="strokeColor" title="Stroke color" type="color" />
     <div title="Line weight"><input v-model.trim="lineWeight" type="number" min="1" /></div>
 </template>
 
