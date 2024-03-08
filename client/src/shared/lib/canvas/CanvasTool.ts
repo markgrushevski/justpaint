@@ -22,8 +22,10 @@ export abstract class CanvasTool {
     }
 
     #mousePosition: { x: number; y: number } = { x: 0, y: 0 };
+
     protected canvas: HTMLCanvasElement;
     protected ctx: CanvasRenderingContext2D;
+    protected savedCanvasDataUrl: string;
     protected mouseDown: boolean;
 
     public get mousePosition(): { x: number; y: number } {
@@ -34,31 +36,24 @@ export abstract class CanvasTool {
         return this.ctx.strokeStyle;
     }
 
-    public get fillColor(): typeof this.ctx.fillStyle {
-        return this.ctx.fillStyle;
-    }
-
-    public get lineWeight() {
-        return this.ctx.lineWidth;
-    }
-
     public set strokeColor(color: string) {
         this.ctx.strokeStyle = color;
+    }
+
+    public get fillColor(): typeof this.ctx.fillStyle {
+        return this.ctx.fillStyle;
     }
 
     public set fillColor(color: string) {
         this.ctx.fillStyle = color;
     }
 
-    public set lineWeight(number: number) {
-        this.ctx.lineWidth = number;
+    public get lineWeight() {
+        return this.ctx.lineWidth;
     }
 
-    public destroy() {
-        this.canvas.onmousedown = null;
-        this.canvas.onmousemove = null;
-        this.canvas.onmouseleave = null;
-        this.canvas.onmouseup = null;
+    public set lineWeight(number: number) {
+        this.ctx.lineWidth = number;
     }
 
     public listen() {
@@ -83,6 +78,16 @@ export abstract class CanvasTool {
 
         this.canvas.addEventListener('mouseup', (ev) => {
             console.log('Up');
+            const image = new Image();
+            image.src = this.savedCanvasDataUrl;
+            image.onload = () => {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.#startX, this.#startY);
+                this.ctx.lineTo(x, y);
+                this.ctx.stroke();
+            };
         });
 
         this.canvas.addEventListener('touchmove', (ev) => {
@@ -100,6 +105,13 @@ export abstract class CanvasTool {
         this.canvas.addEventListener('touchcancel', (ev) => {
             console.log('touch Cancel');
         });
+    }
+
+    public destroy() {
+        this.canvas.onmousedown = null;
+        this.canvas.onmousemove = null;
+        this.canvas.onmouseleave = null;
+        this.canvas.onmouseup = null;
     }
 }
 
