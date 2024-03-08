@@ -36,9 +36,9 @@ const minWidth = computed(() => `${lineWeight.value}`.length + 4 + 'ch');
 </script>
 
 <template>
-    <input v-model="fillColor" title="Fill color" type="color" />
-    <input v-model="strokeColor" title="Stroke color" type="color" />
-    <div title="Line weight"><input v-model.trim="lineWeight" type="number" min="1" /></div>
+    <input v-model.lazy="fillColor" title="Fill color" type="color" />
+    <input v-model.lazy="strokeColor" title="Stroke color" type="color" />
+    <div title="Line weight"><input v-model.lazy.trim="lineWeight" type="number" min="1" /></div>
 </template>
 
 <style scoped>
