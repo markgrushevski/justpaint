@@ -6,9 +6,7 @@ import { defineConfig } from 'vite';
 // prettier-ignore
 export default defineConfig({
     plugins: [ vue() ],
-    server: {
-        port: 7777
-    },
+    server: { port: 7777 },
     build: { sourcemap: true },
     esbuild: { sourcemap: 'external' },
     css: { postcss: { plugins: [ autoprefixer ] }, devSourcemap: true },

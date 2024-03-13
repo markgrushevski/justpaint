@@ -11,7 +11,5 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-
-    border-block-start: var(--border-width) dashed var(--color-accent);
 }
 </style>

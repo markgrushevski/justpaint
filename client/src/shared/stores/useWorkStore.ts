@@ -1,14 +1,14 @@
-import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { defineStore } from 'pinia'
+import { computed, ref } from 'vue'
 
 export const useWorkStore = defineStore('work', () => {
-    const workHandlers = ref(['Undo', 'Redo', 'Save']);
+    const workHandlers = ref(['Undo', 'Redo', 'Save', 'Load'])
 
-    const paintHistoryList = ref([]);
+    const paintHistoryList = ref([])
 
     function makeHistoryStep() {
-        paintHistoryList.value.push();
+        paintHistoryList.value.push()
     }
 
-    return { workHandlers };
-});
+    return { workHandlers }
+})
