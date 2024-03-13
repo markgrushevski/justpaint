@@ -1,9 +1,9 @@
 <script lang="ts" setup>
-import { useCanvasStore, useToolsStore } from '@shared/stores';
-import { ToolbarIcon } from '@shared/ui';
+import { useCanvasStore, useToolsStore } from '@shared/stores'
+import { ToolbarIcon } from '@shared/ui'
 
-const canvasStore = useCanvasStore();
-const toolsStore = useToolsStore();
+const canvasStore = useCanvasStore()
+const toolsStore = useToolsStore()
 
 const toolsNamesBySVGPathValues: Record<string, string> = {
     Eraser: 'M16.24,3.56L21.19,8.5C21.97,9.29 21.97,10.55 21.19,11.34L12,20.53C10.44,22.09 7.91,22.09 6.34,20.53L2.81,17C2.03,16.21 2.03,14.95 2.81,14.16L13.41,3.56C14.2,2.78 15.46,2.78 16.24,3.56M4.22,15.58L7.76,19.11C8.54,19.9 9.8,19.9 10.59,19.11L14.12,15.58L9.17,10.63L4.22,15.58Z',
@@ -12,7 +12,7 @@ const toolsNamesBySVGPathValues: Record<string, string> = {
     Square: 'M3,3H21V21H3V3M5,5V19H19V5H5Z',
     Circle: 'M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z',
     Triangle: 'M12,2L1,21H23M12,6L19.53,19H4.47'
-};
+}
 </script>
 
 <template>

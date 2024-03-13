@@ -2,10 +2,16 @@ import { CanvasEventHandler } from './models'
 
 export abstract class CanvasTool extends CanvasEventHandler {
     protected abstract mouseDownHandler(ev: MouseEvent): void
+
     protected abstract mouseMoveHandler(ev: MouseEvent): void
+
     protected abstract mouseLeaveHandler(ev: MouseEvent): void
+
     protected abstract mouseUpHandler(ev: MouseEvent): void
+
     protected abstract draw(...args: unknown[]): void
+
+    protected static name = 'CanvasTool'
 
     protected constructor(canvas: HTMLCanvasElement) {
         super()
@@ -104,6 +110,8 @@ export abstract class CanvasTool extends CanvasEventHandler {
 }
 
 export class Pen extends CanvasTool {
+    public static name = 'Pen'
+
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
     }
@@ -130,6 +138,8 @@ export class Pen extends CanvasTool {
 }
 
 export class Eraser extends CanvasTool {
+    public static name = 'Eraser'
+
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
     }
@@ -162,6 +172,8 @@ export class Eraser extends CanvasTool {
 }
 
 export class Line extends CanvasTool {
+    public static name = 'Line'
+
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
     }
@@ -204,6 +216,8 @@ export class Line extends CanvasTool {
 }
 
 export class Circle extends CanvasTool {
+    public static name = 'Circle'
+
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
     }
@@ -248,6 +262,8 @@ export class Circle extends CanvasTool {
 }
 
 export class Triangle extends CanvasTool {
+    public static name = 'Triangle'
+
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
     }
@@ -291,6 +307,8 @@ export class Triangle extends CanvasTool {
 }
 
 export class Square extends CanvasTool {
+    public static name = 'Square'
+
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
     }

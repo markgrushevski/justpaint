@@ -46,10 +46,4 @@
 .settings-bar input:focus {
     outline-style: solid;
 }
-
-.settings-bar input[type='number']:focus-visible,
-.settings-bar input[type='number']:focus-within,
-.settings-bar input[type='number']:focus {
-    min-width:;
-}
 </style>
