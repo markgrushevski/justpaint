@@ -62,25 +62,35 @@ input {
 }
 
 :root {
-    --color-backdrop: rgb(46, 52, 64);
+    /*--color-backdrop: hsl(220, 16%, 22%);
 
-    --color-accent_active: rgb(136, 192, 208);
-    --color-text_active: rgb(216, 222, 233);
-    --color-background_active: rgb(76, 86, 106);
+    --color-accent_active: hsl(193, 43%, 67%);
+    --color-text_active: hsl(219, 28%, 88%);
+    --color-background_active: hsl(220, 16%, 36%);
 
-    --color-accent: rgb(97, 110, 136);
-    --color-text: rgb(216, 222, 233);
-    --color-background: rgb(59, 66, 82);
+    --color-accent: hsl(220, 17%, 46%);
+    --color-text: hsl(219, 28%, 88%);
+    --color-background: hsl(222, 16%, 28%);*/
 
-    /*--color-backdrop: #f6f6f7;*/
+    --color-backdrop: hsl(110, 1%, 15%);
 
-    /*--color-accent_active: #76a573;
-    --color-text_active: #000000;
-    --color-background_active: #ffffff;*/
+    --color-accent_active: hsl(110, 5%, 40%);
+    --color-text_active: #ffffff;
+    --color-background_active: hsl(110, 1%, 25%);
 
-    /*--color-accent: #9bbd98;
-    --color-text: #202020;
-    --color-background: #f6f6f7;*/
+    --color-accent: hsl(110, 5%, 30%);
+    --color-text: #f0f0f0;
+    --color-background: hsl(110, 1%, 20%);
+
+    /*--color-backdrop: #282a2c;
+
+    --color-accent_active: #b0b8c0;
+    --color-text_active: #ffffff;
+    --color-background_active: #303234;
+
+    --color-accent: #808890;
+    --color-text: #f0f0f0;
+    --color-background: #282a2c;*/
 
     --border-width: 1px;
     --border-radius: 0;
@@ -102,29 +112,38 @@ body {
 
     display: grid;
     grid-template-rows: 2.5em 2.5em auto 2em;
-    grid-template-columns: 3.5em 4em auto;
+    grid-template-columns: min-content auto 3.5em;
     grid-template-areas:
         'system-bar system-bar system-bar'
         'work-bar work-bar work-bar'
-        'tools-bar settings-bar work-area'
+        'settings-bar work-area tools-bar'
         'status-bar status-bar status-bar';
 }
 
-.system-bar,
-.status-bar {
+.system-bar {
     padding: 8px 10px;
 }
 
-.work-bar,
+.work-bar {
+    padding: 8px;
+    border-block: var(--border-width) solid var(--color-accent);
+}
+
 .tools-bar {
     padding: 8px;
+    border-inline-start: var(--border-width) solid var(--color-accent);
+}
+
+.work-area {
 }
 
 .settings-bar {
     padding: 10px 8px;
+    border-inline-end: var(--border-width) solid var(--color-accent);
 }
 
-.work-bar {
-    border-bottom: var(--border-width) dashed var(--color-accent);
+.status-bar {
+    padding: 8px 10px;
+    border-block-start: var(--border-width) solid var(--color-accent);
 }
 </style>
