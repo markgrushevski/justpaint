@@ -62,27 +62,19 @@ input {
 }
 
 :root {
-    /*--color-backdrop: hsl(220, 16%, 22%);
-
-    --color-accent_active: hsl(193, 43%, 67%);
-    --color-text_active: hsl(219, 28%, 88%);
-    --color-background_active: hsl(220, 16%, 36%);
-
-    --color-accent: hsl(220, 17%, 46%);
-    --color-text: hsl(219, 28%, 88%);
-    --color-background: hsl(222, 16%, 28%);*/
-
-    /*--color-backdrop: hsl(110, 1%, 15%);
+    --color-backdrop: hsl(110, 1%, 15%);
 
     --color-accent_active: hsl(110, 5%, 40%);
     --color-text_active: #ffffff;
+    --color-borders_active: hsl(110, 5%, 40%);
     --color-background_active: hsl(110, 1%, 25%);
 
     --color-accent: hsl(110, 5%, 30%);
     --color-text: #f0f0f0;
-    --color-background: hsl(110, 1%, 20%);*/
+    --color-borders: hsl(110, 5%, 30%);
+    --color-background: hsl(110, 1%, 20%);
 
-    --color-backdrop: #ffffff;
+    /*--color-backdrop: #ffffff;
 
     --color-accent_active: #10c0ff;
     --color-text_active: #10c0ff;
@@ -92,7 +84,7 @@ input {
     --color-accent: #f2a279;
     --color-text: #f2a279;
     --color-borders: #f2a279;
-    --color-background: #ffffff;
+    --color-background: #ffffff;*/
 
     --color-1: #373f51;
     --color-2: #1d201f;
