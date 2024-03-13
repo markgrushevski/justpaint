@@ -15,8 +15,6 @@
 
     gap: 1em;
 
-    border-inline: var(--border-width) dashed var(--color-accent);
-
     font-size: 14px;
 
     text-align: center;
