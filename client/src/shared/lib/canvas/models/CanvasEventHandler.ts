@@ -1,4 +1,6 @@
 export abstract class CanvasEventHandler {
+    protected static name = 'CanvasEventHandler'
+
     protected constructor() {}
 
     protected abstract handleMouseDown(ev: MouseEvent): void

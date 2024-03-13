@@ -1,12 +1,12 @@
-import vue from '@vitejs/plugin-vue';
-import autoprefixer from 'autoprefixer';
-import { fileURLToPath, URL } from 'node:url';
-import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue'
+import autoprefixer from 'autoprefixer'
+import { fileURLToPath, URL } from 'node:url'
+import { defineConfig } from 'vite'
 // @formatter:off
 // prettier-ignore
 export default defineConfig({
-    plugins: [ vue() ],
-    server: { port: 7777 },
+    plugins: [ vue({isProduction: false}) ],
+    server: { port: 7777},
     build: { sourcemap: true },
     esbuild: { sourcemap: 'external' },
     css: { postcss: { plugins: [ autoprefixer ] }, devSourcemap: true },

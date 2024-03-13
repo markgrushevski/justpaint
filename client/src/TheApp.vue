@@ -10,7 +10,7 @@ import {
     WorkBar,
     WorkArea,
     ToolsBar
-} from '@components';
+} from '@components'
 </script>
 
 <template>
@@ -72,7 +72,7 @@ input {
     --color-text: hsl(219, 28%, 88%);
     --color-background: hsl(222, 16%, 28%);*/
 
-    --color-backdrop: hsl(110, 1%, 15%);
+    /*--color-backdrop: hsl(110, 1%, 15%);
 
     --color-accent_active: hsl(110, 5%, 40%);
     --color-text_active: #ffffff;
@@ -80,17 +80,26 @@ input {
 
     --color-accent: hsl(110, 5%, 30%);
     --color-text: #f0f0f0;
-    --color-background: hsl(110, 1%, 20%);
+    --color-background: hsl(110, 1%, 20%);*/
 
-    /*--color-backdrop: #282a2c;
+    --color-backdrop: #ffffff;
 
-    --color-accent_active: #b0b8c0;
-    --color-text_active: #ffffff;
-    --color-background_active: #303234;
+    --color-accent_active: #10c0ff;
+    --color-text_active: #10c0ff;
+    --color-borders_active: #f2a279;
+    --color-background_active: #f0f0f0;
 
-    --color-accent: #808890;
-    --color-text: #f0f0f0;
-    --color-background: #282a2c;*/
+    --color-accent: #f2a279;
+    --color-text: #f2a279;
+    --color-borders: #f2a279;
+    --color-background: #ffffff;
+
+    --color-1: #373f51;
+    --color-2: #1d201f;
+    --color-3: #80d4ff;
+    --color-4: #7bc950;
+    --color-5: #f2a279;
+    --color-6: #b84d18;
 
     --border-width: 1px;
     --border-radius: 0;
@@ -126,12 +135,12 @@ body {
 
 .work-bar {
     padding: 8px;
-    border-block: var(--border-width) solid var(--color-accent);
+    border-block: var(--border-width) solid var(--color-borders);
 }
 
 .tools-bar {
     padding: 8px;
-    border-inline-start: var(--border-width) solid var(--color-accent);
+    border-inline-start: var(--border-width) solid var(--color-borders);
 }
 
 .work-area {
@@ -139,11 +148,11 @@ body {
 
 .settings-bar {
     padding: 10px 8px;
-    border-inline-end: var(--border-width) solid var(--color-accent);
+    border-inline-end: var(--border-width) solid var(--color-borders);
 }
 
 .status-bar {
     padding: 8px 10px;
-    border-block-start: var(--border-width) solid var(--color-accent);
+    border-block-start: var(--border-width) solid var(--color-borders);
 }
 </style>
