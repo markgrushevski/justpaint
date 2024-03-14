@@ -5,8 +5,9 @@ import { defineConfig } from 'vite'
 // @formatter:off
 // prettier-ignore
 export default defineConfig({
-    plugins: [ vue({isProduction: false}) ],
-    server: { port: 7777},
+    plugins: [ vue() ],
+    server: { port: 7777 },
+    preview: { port: 7777 },
     build: { sourcemap: true },
     esbuild: { sourcemap: 'external' },
     css: { postcss: { plugins: [ autoprefixer ] }, devSourcemap: true },
