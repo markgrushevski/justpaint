@@ -13,6 +13,16 @@ const toolsNamesBySVGPathValues: Record<string, string> = {
     Circle: 'M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z',
     Triangle: 'M12,2L1,21H23M12,6L19.53,19H4.47'
 }
+
+function getIsActive(ToolClass: (typeof toolsStore.toolsClasses)[number]) {
+    return ToolClass.name === toolsStore.tool?.constructor.name
+}
+
+function handleClick(ToolClass: (typeof toolsStore.toolsClasses)[number]) {
+    if (!getIsActive(ToolClass) && canvasStore.canvas) {
+        toolsStore.setTool(new ToolClass(canvasStore.canvas))
+    }
+}
 </script>
 
 <template>
@@ -21,10 +31,10 @@ const toolsNamesBySVGPathValues: Record<string, string> = {
             v-for="ToolClass in toolsStore.toolsClasses"
             :key="ToolClass.name"
             :icon-path-value="toolsNamesBySVGPathValues[ToolClass.name]"
-            :is-active="ToolClass.name === toolsStore.tool?.constructor.name"
+            :is-active="getIsActive(ToolClass)"
             :title="ToolClass.name"
             class="toolbar__paint-tool"
-            @click="toolsStore.setTool(new ToolClass(canvasStore.canvas))"
+            @click="handleClick(ToolClass)"
         />
     </template>
 </template>

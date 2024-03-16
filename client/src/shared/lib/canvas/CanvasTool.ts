@@ -26,7 +26,7 @@ export abstract class CanvasTool extends CanvasEventHandler {
         this.ctx.imageSmoothingQuality = 'high'
 
         this.mouseDown = false
-
+        console.log(this)
         this.destroy()
         this.listen()
     }
@@ -46,6 +46,8 @@ export abstract class CanvasTool extends CanvasEventHandler {
         touchcancel: null,
         wheel: null */
     }
+
+    protected previousEventContext: unknown = null
 
     protected mousePosition = { x: 0, y: 0 }
 
@@ -73,14 +75,16 @@ export abstract class CanvasTool extends CanvasEventHandler {
     protected listen() {
         Object.entries(this.eventHandlersMap).forEach(([eventName, listener]) => {
             // @ts-expect-error expect that keys must be in canvas instance
-            this.canvas[`on${eventName}`] = listener.bind(this)
+            //this.canvas[`on${eventName}`] = listener.bind(this)
+            this.canvas.addEventListener(eventName, listener)
         })
     }
 
     protected destroy() {
-        Object.entries(this.eventHandlersMap).forEach(([eventName]) => {
+        Object.entries(this.eventHandlersMap).forEach(([eventName, listener]) => {
             // @ts-expect-error expect that keys must be in canvas instance
-            this.canvas[`on${eventName}`] = null
+            //this.canvas[`on${eventName}`] = null
+            this.canvas.removeEventListener(eventName, listener)
         })
     }
 
