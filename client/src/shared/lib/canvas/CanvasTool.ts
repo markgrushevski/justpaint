@@ -1,53 +1,24 @@
-import { CanvasEventHandler } from './models'
+import { CanvasEventHandlerModel, CanvasToolModel } from './models'
 
-export abstract class CanvasTool extends CanvasEventHandler {
+export abstract class CanvasTool extends CanvasToolModel {
     protected abstract mouseDownHandler(ev: MouseEvent): void
-
     protected abstract mouseMoveHandler(ev: MouseEvent): void
-
     protected abstract mouseLeaveHandler(ev: MouseEvent): void
-
     protected abstract mouseUpHandler(ev: MouseEvent): void
-
     protected abstract draw(...args: unknown[]): void
 
     protected static name = 'CanvasTool'
 
     protected constructor(canvas: HTMLCanvasElement) {
-        super()
-
-        this.canvas = canvas
-        this.ctx = canvas.getContext('2d') as CanvasRenderingContext2D
-        if (!this.ctx) throw new Error('CanvasRenderingContext2D not found')
-
-        this.ctx.lineCap = 'round'
-        this.ctx.lineJoin = 'round'
-        this.ctx.imageSmoothingEnabled = true
-        this.ctx.imageSmoothingQuality = 'high'
+        super(canvas)
 
         this.mouseDown = false
-        console.log(this)
+
         this.destroy()
         this.listen()
     }
 
     protected mouseDown: boolean
-    protected canvas: HTMLCanvasElement
-    protected ctx: CanvasRenderingContext2D
-
-    protected eventHandlersMap = {
-        mousedown: this.handleMouseDown,
-        mousemove: this.handleMouseMove,
-        mouseleave: this.handleMouseLeave,
-        mouseup: this.handleMouseUp
-        /* touchmove: null,
-        touchstart: null,
-        touchend: null,
-        touchcancel: null,
-        wheel: null */
-    }
-
-    protected previousEventContext: unknown = null
 
     protected mousePosition = { x: 0, y: 0 }
 
@@ -146,6 +117,11 @@ export class Eraser extends CanvasTool {
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
+
+        this.ctx.lineCap = 'round'
+        this.ctx.lineJoin = 'round'
+        this.ctx.imageSmoothingEnabled = true
+        this.ctx.imageSmoothingQuality = 'high'
     }
 
     protected mouseDownHandler() {
