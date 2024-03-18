@@ -1,6 +1,6 @@
-import { CanvasEventHandler } from './models'
+import { CanvasEventHandlerModel, CanvasWorkModel } from './models'
 
-export class CanvasWork extends CanvasEventHandler {
+export class CanvasWork extends CanvasWorkModel {
     public constructor(canvas: HTMLCanvasElement) {
         super()
 

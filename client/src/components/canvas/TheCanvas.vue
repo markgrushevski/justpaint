@@ -5,11 +5,12 @@ import { onBeforeMount, ref, watch } from 'vue';
 const canvasStore = useCanvasStore();
 
 const canvas = ref<HTMLCanvasElement | null>(null);
+const showCanvas = ref(false);
 
 onBeforeMount(() => {
     canvasStore.canvasWidth = Math.round(document.body.clientWidth * 0.7);
     canvasStore.canvasHeight = Math.round(document.body.clientHeight * 0.7);
-    canvasStore.showCanvas = true;
+    showCanvas.value = true;
 });
 
 const stopWatch = watch(canvas, () => {
@@ -22,7 +23,7 @@ const stopWatch = watch(canvas, () => {
 
 <template>
     <canvas
-        v-if="canvasStore.showCanvas"
+        v-if="showCanvas"
         ref="canvas"
         class="canvas"
         :width="canvasStore.canvasWidth + 'px'"
@@ -33,6 +34,6 @@ const stopWatch = watch(canvas, () => {
 <style>
 .canvas {
     background-color: white;
-    /*box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.1);*/
+    box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.1);
 }
 </style>
