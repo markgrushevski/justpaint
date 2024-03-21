@@ -13,11 +13,18 @@ export class CanvasHistory extends CanvasHistoryModel {
 
     private makeActionHistoryStep() {}
 
-    public undo() {}
+    public historyHandlersMap = {
+        undo: this.handleUndo,
+        redo: this.handleRedo,
+        save: this.handleSave,
+        load: this.handleLoad
+    }
 
-    public redo() {}
+    public handleUndo(ev: UIEvent) {}
 
-    public save() {}
+    public handleRedo(ev: UIEvent) {}
 
-    public load() {}
+    public handleSave(ev: UIEvent) {}
+
+    public handleLoad(ev: UIEvent) {}
 }

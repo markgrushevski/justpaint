@@ -102,7 +102,7 @@ export abstract class CanvasTool extends CanvasToolModel {
 }
 
 export class Pen extends CanvasTool {
-    public static name = 'Pen'
+    public static readonly name = 'Pen'
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
@@ -130,7 +130,7 @@ export class Pen extends CanvasTool {
 }
 
 export class Eraser extends CanvasTool {
-    public static name = 'Eraser'
+    public static readonly name = 'Eraser'
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
@@ -164,7 +164,7 @@ export class Eraser extends CanvasTool {
 }
 
 export class Line extends CanvasTool {
-    public static name = 'Line'
+    public static readonly name = 'Line'
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
@@ -208,7 +208,7 @@ export class Line extends CanvasTool {
 }
 
 export class Circle extends CanvasTool {
-    public static name = 'Circle'
+    public static readonly name = 'Circle'
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
@@ -254,7 +254,7 @@ export class Circle extends CanvasTool {
 }
 
 export class Triangle extends CanvasTool {
-    public static name = 'Triangle'
+    public static readonly name = 'Triangle'
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
@@ -299,7 +299,7 @@ export class Triangle extends CanvasTool {
 }
 
 export class Square extends CanvasTool {
-    public static name = 'Square'
+    public static readonly name = 'Square'
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
