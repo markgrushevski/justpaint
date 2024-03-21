@@ -16,12 +16,17 @@ export const useToolsStore = defineStore('tools', () => {
         }
     }
 
-    function setColor(value: string) {
+    function setStrokeColor(value: string) {
         if (tool.value && value.match(/#[\da-f]{6}/i)) {
             tool.value.strokeColor = value
+        }
+    }
+
+    function setFillColor(value: string) {
+        if (tool.value && value.match(/#[\da-f]{6}/i)) {
             tool.value.fillColor = value
         }
     }
 
-    return { toolsClasses, tool, setTool, setLineWeight, setColor }
+    return { toolsClasses, tool, setTool, setLineWeight, setStrokeColor, setFillColor }
 })

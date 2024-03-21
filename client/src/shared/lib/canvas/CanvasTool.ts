@@ -1,16 +1,21 @@
-import { CanvasEventHandlerModel, CanvasToolModel } from './models'
+import { CanvasToolModel } from './models'
 
 export abstract class CanvasTool extends CanvasToolModel {
+    protected static name = 'CanvasTool'
+
     protected abstract mouseDownHandler(ev: MouseEvent): void
     protected abstract mouseMoveHandler(ev: MouseEvent): void
     protected abstract mouseLeaveHandler(ev: MouseEvent): void
     protected abstract mouseUpHandler(ev: MouseEvent): void
     protected abstract draw(...args: unknown[]): void
 
-    protected static name = 'CanvasTool'
-
     protected constructor(canvas: HTMLCanvasElement) {
         super(canvas)
+
+        this.ctx.lineCap = 'round'
+        this.ctx.lineJoin = 'round'
+        this.ctx.imageSmoothingEnabled = true
+        this.ctx.imageSmoothingQuality = 'high'
 
         this.mouseDown = false
 
@@ -19,6 +24,18 @@ export abstract class CanvasTool extends CanvasToolModel {
     }
 
     protected mouseDown: boolean
+
+    protected eventHandlersMap = {
+        mousedown: this.handleMouseDown,
+        mousemove: this.handleMouseMove,
+        mouseleave: this.handleMouseLeave,
+        mouseup: this.handleMouseUp
+        /* touchmove: null,
+        touchstart: null,
+        touchend: null,
+        touchcancel: null,
+        wheel: null */
+    }
 
     protected mousePosition = { x: 0, y: 0 }
 
@@ -46,16 +63,16 @@ export abstract class CanvasTool extends CanvasToolModel {
     protected listen() {
         Object.entries(this.eventHandlersMap).forEach(([eventName, listener]) => {
             // @ts-expect-error expect that keys must be in canvas instance
-            //this.canvas[`on${eventName}`] = listener.bind(this)
-            this.canvas.addEventListener(eventName, listener)
+            this.canvas[`on${eventName}`] = listener.bind(this)
+            //this.canvas.addEventListener(eventName, CanvasEventHandler.eventHandlersMap[eventName])
         })
     }
 
     protected destroy() {
-        Object.entries(this.eventHandlersMap).forEach(([eventName, listener]) => {
+        Object.entries(this.eventHandlersMap).forEach(([eventName]) => {
             // @ts-expect-error expect that keys must be in canvas instance
-            //this.canvas[`on${eventName}`] = null
-            this.canvas.removeEventListener(eventName, listener)
+            this.canvas[`on${eventName}`] = null
+            //this.canvas.removeEventListener(eventName, CanvasEventHandler.eventHandlersMap[eventName])
         })
     }
 
@@ -63,7 +80,7 @@ export abstract class CanvasTool extends CanvasToolModel {
         return this.ctx.strokeStyle
     }
 
-    public set strokeColor(color: typeof this.ctx.strokeStyle) {
+    public set strokeColor(color: string) {
         this.ctx.strokeStyle = color
     }
 
@@ -71,7 +88,7 @@ export abstract class CanvasTool extends CanvasToolModel {
         return this.ctx.fillStyle
     }
 
-    public set fillColor(color: typeof this.ctx.fillStyle) {
+    public set fillColor(color: string) {
         this.ctx.fillStyle = color
     }
 
@@ -79,7 +96,7 @@ export abstract class CanvasTool extends CanvasToolModel {
         return this.ctx.lineWidth
     }
 
-    public set lineWeight(number: typeof this.ctx.lineWidth) {
+    public set lineWeight(number: number) {
         this.ctx.lineWidth = number
     }
 }
@@ -117,11 +134,6 @@ export class Eraser extends CanvasTool {
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas)
-
-        this.ctx.lineCap = 'round'
-        this.ctx.lineJoin = 'round'
-        this.ctx.imageSmoothingEnabled = true
-        this.ctx.imageSmoothingQuality = 'high'
     }
 
     protected mouseDownHandler() {
