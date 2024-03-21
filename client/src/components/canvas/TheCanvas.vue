@@ -1,24 +1,27 @@
 <script setup lang="ts">
-import { useCanvasStore } from '@shared/stores';
-import { onBeforeMount, ref, watch } from 'vue';
+import { CanvasHistory } from '@shared/lib'
+import { useCanvasHistoryStore, useCanvasStore } from '@shared/stores'
+import { onBeforeMount, ref, watch } from 'vue'
 
-const canvasStore = useCanvasStore();
+const canvasStore = useCanvasStore()
+const historyStore = useCanvasHistoryStore()
 
-const canvas = ref<HTMLCanvasElement | null>(null);
-const showCanvas = ref(false);
+const canvas = ref<HTMLCanvasElement | null>(null)
+const showCanvas = ref(false)
 
 onBeforeMount(() => {
-    canvasStore.canvasWidth = Math.round(document.body.clientWidth * 0.7);
-    canvasStore.canvasHeight = Math.round(document.body.clientHeight * 0.7);
-    showCanvas.value = true;
-});
+    canvasStore.canvasWidth = Math.round(document.body.clientWidth * 0.7)
+    canvasStore.canvasHeight = Math.round(document.body.clientHeight * 0.7)
+    showCanvas.value = true
+})
 
 const stopWatch = watch(canvas, () => {
     if (canvas.value instanceof HTMLCanvasElement) {
-        canvasStore.setCanvas(canvas.value);
-        stopWatch();
+        canvasStore.setCanvas(canvas.value)
+        historyStore.setHistoryHandler(new CanvasHistory(canvas.value))
+        stopWatch()
     }
-});
+})
 </script>
 
 <template>

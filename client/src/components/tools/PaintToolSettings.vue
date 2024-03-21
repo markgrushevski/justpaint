@@ -10,7 +10,7 @@ const strokeColor = computed({
         return toolsStore.tool?.strokeColor ?? '#000000'
     },
     set(value) {
-        toolsStore.setColor(value)
+        toolsStore.setStrokeColor(value)
     }
 })
 
@@ -19,7 +19,7 @@ const fillColor = computed({
         return toolsStore.tool?.fillColor ?? '#000000'
     },
     set(value) {
-        toolsStore.setColor(value)
+        toolsStore.setFillColor(value)
     }
 })
 
