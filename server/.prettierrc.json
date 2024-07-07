@@ -1,5 +1,5 @@
 {
-    "semi": false,
+    "semi": true,
     "singleQuote": true,
     "tabWidth": 4,
     "trailingComma": "none",
@@ -8,7 +8,7 @@
     "arrowParens": "always",
     "bracketSpacing": true,
     "embeddedLanguageFormatting": "auto",
-    "endOfLine": "crlf",
+    "endOfLine": "auto",
     "htmlWhitespaceSensitivity": "css",
     "insertPragma": false,
     "printWidth": 120,

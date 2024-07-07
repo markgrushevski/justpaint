@@ -1,0 +1,6 @@
+export { default as SystemBar } from './SystemBar.vue'
+export { default as WorkBar } from './WorkBar.vue'
+export { default as DrawToolsBar } from './DrawToolsBar.vue'
+export { default as DrawSettingsBar } from './DrawSettingsBar.vue'
+export { default as WorkArea } from './WorkArea.vue'
+export { default as StatusBar } from './StatusBar.vue'

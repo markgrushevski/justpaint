@@ -1,5 +1,14 @@
 <script lang="ts" setup>
-withDefaults(defineProps<{ width?: string; height?: string }>(), { width: '1.5rem', height: '1.5rem' });
+withDefaults(
+    defineProps<{
+        width?: string
+        height?: string
+    }>(),
+    {
+        width: '1.5rem',
+        height: '1.5rem'
+    }
+)
 </script>
 
 <template>
