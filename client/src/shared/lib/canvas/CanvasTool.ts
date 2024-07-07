@@ -1,13 +1,13 @@
 import { CanvasToolModel } from './models'
 
+export type Tool = Pen | Eraser | Line | Circle | Triangle | Square
+
 export abstract class CanvasTool extends CanvasToolModel {
     protected static name = 'CanvasTool'
 
-    protected abstract mouseDownHandler(ev: MouseEvent): void
-    protected abstract mouseMoveHandler(ev: MouseEvent): void
-    protected abstract mouseLeaveHandler(ev: MouseEvent): void
-    protected abstract mouseUpHandler(ev: MouseEvent): void
-    protected abstract draw(...args: unknown[]): void
+    protected abstract drawStartHandler(ev: MouseEvent): void
+    protected abstract drawHandler(ev: MouseEvent): void
+    protected abstract drawEndHandler(ev: MouseEvent): void
 
     protected constructor(canvas: HTMLCanvasElement) {
         super(canvas)
@@ -17,15 +17,19 @@ export abstract class CanvasTool extends CanvasToolModel {
         this.ctx.imageSmoothingEnabled = true
         this.ctx.imageSmoothingQuality = 'high'
 
-        this.mouseDown = false
-
         this.destroy()
         this.listen()
+
+        // todo: for test
+        this.ctx.strokeStyle = '#ff8020'
+        this.ctx.fillStyle = '#8020ff'
     }
 
-    protected mouseDown: boolean
+    protected mouseDown = false
 
-    protected eventHandlersMap = {
+    protected eventHandlersMap: {
+        [P in keyof GlobalEventHandlersEventMap]?: (ev: GlobalEventHandlersEventMap[P]) => void
+    } = {
         mousedown: this.handleMouseDown,
         mousemove: this.handleMouseMove,
         mouseleave: this.handleMouseLeave,
@@ -37,62 +41,96 @@ export abstract class CanvasTool extends CanvasToolModel {
         wheel: null */
     }
 
-    protected mousePosition = { x: 0, y: 0 }
+    protected drawData = {
+        start: {
+            x: 0,
+            y: 0,
+            canvasDataURL: ''
+        },
+        current: {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0
+        }
+    }
 
     protected handleMouseDown(ev: MouseEvent) {
         this.mouseDown = true
-        return this.mouseDownHandler(ev)
+
+        this.drawData.start.canvasDataURL = this.canvas.toDataURL()
+
+        this.drawData.start.x = this.drawData.current.x
+        this.drawData.start.y = this.drawData.current.y
+
+        return this.drawStartHandler(ev)
     }
 
     protected handleMouseMove(ev: MouseEvent) {
-        this.mousePosition.x = ev.pageX - (ev.target as HTMLCanvasElement).offsetLeft
-        this.mousePosition.y = ev.pageY - (ev.target as HTMLCanvasElement).offsetTop
-        return this.mouseMoveHandler(ev)
+        this.drawData.current.x = ev.pageX - (ev.target as HTMLCanvasElement).offsetLeft
+        this.drawData.current.y = ev.pageY - (ev.target as HTMLCanvasElement).offsetTop
+
+        this.drawData.current.width = this.drawData.current.x - this.drawData.start.x
+        this.drawData.current.height = this.drawData.current.y - this.drawData.start.y
+
+        if (this.mouseDown) {
+            return this.drawHandler(ev)
+        }
     }
 
     protected handleMouseLeave(ev: MouseEvent) {
         this.mouseDown = false
-        return this.mouseLeaveHandler(ev)
+
+        return this.drawEndHandler(ev)
     }
 
     protected handleMouseUp(ev: MouseEvent) {
         this.mouseDown = false
-        return this.mouseUpHandler(ev)
+
+        return this.drawEndHandler(ev)
+    }
+
+    protected figureDrawHandler(cb: () => void) {
+        const image = new Image()
+        image.src = this.drawData.start.canvasDataURL
+        image.onload = () => {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+            cb()
+        }
     }
 
     protected listen() {
         Object.entries(this.eventHandlersMap).forEach(([eventName, listener]) => {
-            // @ts-expect-error expect that keys must be in canvas instance
+            // @ts-expect-error expect that keys must be in canvas element
             this.canvas[`on${eventName}`] = listener.bind(this)
-            //this.canvas.addEventListener(eventName, CanvasEventHandler.eventHandlersMap[eventName])
         })
     }
 
     protected destroy() {
         Object.entries(this.eventHandlersMap).forEach(([eventName]) => {
-            // @ts-expect-error expect that keys must be in canvas instance
+            // @ts-expect-error expect that keys must be in canvas element
             this.canvas[`on${eventName}`] = null
-            //this.canvas.removeEventListener(eventName, CanvasEventHandler.eventHandlersMap[eventName])
         })
     }
 
-    public get strokeColor(): typeof this.ctx.strokeStyle {
-        return this.ctx.strokeStyle
+    public get strokeColor(): string {
+        return this.ctx.strokeStyle as string
     }
 
     public set strokeColor(color: string) {
         this.ctx.strokeStyle = color
     }
 
-    public get fillColor(): typeof this.ctx.fillStyle {
-        return this.ctx.fillStyle
+    public get fillColor(): string {
+        return this.ctx.fillStyle as string
     }
 
     public set fillColor(color: string) {
         this.ctx.fillStyle = color
     }
 
-    public get lineWeight(): typeof this.ctx.lineWidth {
+    public get lineWeight(): number {
         return this.ctx.lineWidth
     }
 
@@ -108,25 +146,17 @@ export class Pen extends CanvasTool {
         super(canvas)
     }
 
-    protected mouseDownHandler() {
+    protected drawStartHandler() {
         this.ctx.beginPath()
-        this.ctx.moveTo(this.mousePosition.x, this.mousePosition.y)
+        this.ctx.moveTo(this.drawData.current.x, this.drawData.current.y)
     }
 
-    protected mouseMoveHandler() {
-        if (this.mouseDown) {
-            this.draw(this.mousePosition.x, this.mousePosition.y)
-        }
-    }
-
-    protected mouseLeaveHandler() {}
-
-    protected mouseUpHandler() {}
-
-    protected draw(x: number, y: number) {
-        this.ctx.lineTo(x, y)
+    protected drawHandler() {
+        this.ctx.lineTo(this.drawData.current.x, this.drawData.current.y)
         this.ctx.stroke()
     }
+
+    protected drawEndHandler() {}
 }
 
 export class Eraser extends CanvasTool {
@@ -136,30 +166,21 @@ export class Eraser extends CanvasTool {
         super(canvas)
     }
 
-    protected mouseDownHandler() {
+    protected drawStartHandler() {
         this.ctx.save()
         this.ctx.beginPath()
-        this.ctx.moveTo(this.mousePosition.x, this.mousePosition.y)
+        this.ctx.moveTo(this.drawData.current.x, this.drawData.current.y)
     }
 
-    protected mouseMoveHandler() {
-        if (this.mouseDown) {
-            this.draw(this.mousePosition.x, this.mousePosition.y)
-        }
-    }
-
-    protected mouseLeaveHandler() {
-        this.ctx.restore()
-    }
-
-    protected mouseUpHandler() {
-        this.ctx.restore()
-    }
-
-    protected draw(x: number, y: number) {
-        this.ctx.lineTo(x, y)
+    protected drawHandler() {
+        this.ctx.lineTo(this.drawData.current.x, this.drawData.current.y)
         this.ctx.stroke()
+
         this.strokeColor = '#ffffff'
+    }
+
+    protected drawEndHandler() {
+        this.ctx.restore()
     }
 }
 
@@ -170,41 +191,21 @@ export class Line extends CanvasTool {
         super(canvas)
     }
 
-    #startX: number = 0
-    #startY: number = 0
-
-    #saved: string = ''
-
-    protected mouseDownHandler() {
-        this.#saved = this.canvas.toDataURL()
-        this.#startX = this.mousePosition.x
-        this.#startY = this.mousePosition.y
+    protected drawStartHandler() {
         this.ctx.beginPath()
-        this.ctx.moveTo(this.#startX, this.#startY)
+        this.ctx.moveTo(this.drawData.start.x, this.drawData.start.y)
     }
 
-    protected mouseMoveHandler() {
-        if (this.mouseDown) {
-            this.draw(this.mousePosition.x, this.mousePosition.y)
-        }
-    }
-
-    protected mouseLeaveHandler() {}
-
-    protected mouseUpHandler() {}
-
-    protected draw(x: number, y: number) {
-        const image = new Image()
-        image.src = this.#saved
-        image.onload = () => {
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+    protected drawHandler() {
+        this.figureDrawHandler(() => {
             this.ctx.beginPath()
-            this.ctx.moveTo(this.#startX, this.#startY)
-            this.ctx.lineTo(x, y)
+            this.ctx.moveTo(this.drawData.start.x, this.drawData.start.y)
+            this.ctx.lineTo(this.drawData.current.x, this.drawData.current.y)
             this.ctx.stroke()
-        }
+        })
     }
+
+    protected drawEndHandler() {}
 }
 
 export class Circle extends CanvasTool {
@@ -214,43 +215,26 @@ export class Circle extends CanvasTool {
         super(canvas)
     }
 
-    #startX: number = 0
-    #startY: number = 0
-
-    #saved: string = ''
-
-    protected mouseDownHandler() {
-        this.#saved = this.canvas.toDataURL()
-        this.#startX = this.mousePosition.x
-        this.#startY = this.mousePosition.y
+    protected drawStartHandler() {
         this.ctx.beginPath()
     }
 
-    protected mouseMoveHandler() {
-        if (this.mouseDown) {
-            const width = this.mousePosition.x - this.#startX
-            const height = this.mousePosition.y - this.#startY
-            const r = Math.sqrt(width ** 2 + height ** 2)
-            this.draw(this.#startX, this.#startY, r)
-        }
-    }
+    protected drawHandler() {
+        const centerX = this.drawData.start.x + this.drawData.current.width / 2
+        const centerY = this.drawData.start.y + this.drawData.current.height / 2
 
-    protected mouseLeaveHandler() {}
+        const radiusX = Math.abs(this.drawData.current.width) / 2
+        const radiusY = Math.abs(this.drawData.current.height) / 2
 
-    protected mouseUpHandler() {}
-
-    protected draw(x: number, y: number, r: number) {
-        const image = new Image()
-        image.src = this.#saved
-        image.onload = () => {
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+        this.figureDrawHandler(() => {
             this.ctx.beginPath()
-            this.ctx.arc(x, y, r, 0, 2 * Math.PI)
+            this.ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2)
             this.ctx.fill()
             this.ctx.stroke()
-        }
+        })
     }
+
+    protected drawEndHandler() {}
 }
 
 export class Triangle extends CanvasTool {
@@ -260,42 +244,25 @@ export class Triangle extends CanvasTool {
         super(canvas)
     }
 
-    #startX: number = 0
-    #startY: number = 0
-
-    #saved: string = ''
-
-    protected mouseDownHandler() {
-        this.#saved = this.canvas.toDataURL()
-        this.#startX = this.mousePosition.x
-        this.#startY = this.mousePosition.y
+    protected drawStartHandler() {
         this.ctx.beginPath()
     }
 
-    protected mouseMoveHandler() {
-        if (this.mouseDown) {
-            const width = this.mousePosition.x - this.#startX
-            const height = this.mousePosition.y - this.#startY
-            this.draw(this.#startX, this.#startY, width, height)
-        }
-    }
-
-    protected mouseLeaveHandler() {}
-
-    protected mouseUpHandler() {}
-
-    protected draw(x: number, y: number, w: number, h: number) {
-        const image = new Image()
-        image.src = this.#saved
-        image.onload = () => {
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+    protected drawHandler() {
+        this.figureDrawHandler(() => {
             this.ctx.beginPath()
-            this.ctx.rect(x, y, w, h)
+            this.ctx.rect(
+                this.drawData.start.x,
+                this.drawData.start.y,
+                this.drawData.current.width,
+                this.drawData.current.height
+            )
             this.ctx.fill()
             this.ctx.stroke()
-        }
+        })
     }
+
+    protected drawEndHandler() {}
 }
 
 export class Square extends CanvasTool {
@@ -305,43 +272,25 @@ export class Square extends CanvasTool {
         super(canvas)
     }
 
-    #startX: number = 0
-    #startY: number = 0
-
-    #saved: string = ''
-
-    protected mouseDownHandler() {
-        this.#saved = this.canvas.toDataURL()
-
+    protected drawStartHandler() {
         this.ctx.beginPath()
-        this.#startX = this.mousePosition.x
-        this.#startY = this.mousePosition.y
     }
 
-    protected mouseMoveHandler() {
-        if (this.mouseDown) {
-            const width = this.mousePosition.x - this.#startX
-            const height = this.mousePosition.y - this.#startY
-            this.draw(this.#startX, this.#startY, width, height)
-        }
-    }
-
-    protected mouseLeaveHandler() {}
-
-    protected mouseUpHandler() {}
-
-    protected draw(x: number, y: number, w: number, h: number) {
-        const image = new Image()
-        image.src = this.#saved
-        image.onload = () => {
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-            this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+    protected drawHandler() {
+        this.figureDrawHandler(() => {
             this.ctx.beginPath()
-            this.ctx.rect(x, y, w, h)
+            this.ctx.rect(
+                this.drawData.start.x,
+                this.drawData.start.y,
+                this.drawData.current.width,
+                this.drawData.current.height
+            )
             this.ctx.fill()
             this.ctx.stroke()
-        }
+        })
     }
+
+    protected drawEndHandler() {}
 
     /* #prevStartX: number = 0;
     #prevStartY: number = 0;

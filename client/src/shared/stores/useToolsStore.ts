@@ -1,12 +1,12 @@
-import { CanvasTool, Eraser, Pen as Pen, Line, Circle, Square } from '@shared/lib'
+import { Eraser, Pen, Line, Circle, Square, type Tool } from '@shared/lib'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export const useToolsStore = defineStore('tools', () => {
     const toolsClasses = ref([Eraser, Pen, Line, Circle, Square])
-    const tool = ref<CanvasTool | null>(null)
+    const tool = ref<Tool>()
 
-    function setTool(value: CanvasTool) {
+    function setTool(value: Tool) {
         tool.value = value
     }
 

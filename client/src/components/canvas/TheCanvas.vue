@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { CanvasHistory } from '@shared/lib'
 import { useCanvasHistoryStore, useCanvasStore } from '@shared/stores'
-import { onBeforeMount, ref, watch } from 'vue'
+import { onBeforeMount, onMounted, ref, watch } from 'vue'
 
 const canvasStore = useCanvasStore()
 const historyStore = useCanvasHistoryStore()
@@ -12,6 +12,9 @@ const showCanvas = ref(false)
 onBeforeMount(() => {
     canvasStore.canvasWidth = Math.round(document.body.clientWidth * 0.7)
     canvasStore.canvasHeight = Math.round(document.body.clientHeight * 0.7)
+})
+
+onMounted(() => {
     showCanvas.value = true
 })
 
@@ -28,14 +31,13 @@ const stopWatch = watch(canvas, () => {
     <canvas
         v-if="showCanvas"
         ref="canvas"
-        class="canvas"
         :width="canvasStore.canvasWidth + 'px'"
         :height="canvasStore.canvasHeight + 'px'"
     ></canvas>
 </template>
 
 <style>
-.canvas {
+canvas {
     background-color: white;
     box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.1);
 }

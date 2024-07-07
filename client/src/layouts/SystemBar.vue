@@ -1,15 +1,15 @@
 <script setup lang="ts"></script>
 
 <template>
-    <div class="work-bar"><slot></slot></div>
+    <div class="system-bar"><slot></slot></div>
 </template>
 
 <style>
-.work-bar {
-    grid-area: work-bar;
+.system-bar {
+    grid-area: system-bar;
 
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    gap: 20px;
 }
 </style>
