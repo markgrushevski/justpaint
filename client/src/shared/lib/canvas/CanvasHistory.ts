@@ -1,24 +1,33 @@
-import { CanvasHistoryModel } from './models'
+import { CanvasHistoryModel } from './models';
 
 export class CanvasHistory extends CanvasHistoryModel {
-    public static name = 'CanvasWork'
+    public static name = 'CanvasWork';
 
     public constructor(canvas: HTMLCanvasElement) {
-        super(canvas)
+        super(canvas);
+
+        this.destroy();
+        this.listen();
     }
 
-    private actionHistoryList = []
+    private listen() {
+        this.canvas.addEventListener('click', () => {});
+    }
+
+    public destroy() {}
+
+    private canvasHistoryList = [];
 
     private loadStateToCanvas() {}
 
-    private makeActionHistoryStep() {}
+    private makeCanvasHistoryStep() {}
 
-    public historyHandlersMap = {
+    public eventHandlersMap = {
         undo: this.handleUndo,
         redo: this.handleRedo,
         save: this.handleSave,
         load: this.handleLoad
-    }
+    };
 
     public handleUndo(ev: UIEvent) {}
 

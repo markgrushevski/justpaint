@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useCanvasStore, useToolsStore } from '@shared/stores'
-import { ToolbarIcon } from '@shared/ui'
+import { ActionIcon } from '@shared/ui'
 
 const canvasStore = useCanvasStore()
 const toolsStore = useToolsStore()
@@ -20,20 +20,20 @@ function getIsActive(ToolClass: (typeof toolsStore.toolsClasses)[number]) {
 
 function handleClick(ToolClass: (typeof toolsStore.toolsClasses)[number]) {
     if (!getIsActive(ToolClass) && canvasStore.canvas) {
-        toolsStore.setTool(new ToolClass(canvasStore.canvas))
+        toolsStore.setTool(new ToolClass(canvasStore.canvas, toolsStore.tool))
     }
 }
 </script>
 
 <template>
     <template v-if="canvasStore.canvas">
-        <ToolbarIcon
+        <ActionIcon
             v-for="ToolClass in toolsStore.toolsClasses"
             :key="ToolClass.name"
-            :icon-path-value="toolNameBySVGPathValue[ToolClass.name]"
             :is-active="getIsActive(ToolClass)"
+            :icon-path-value="toolNameBySVGPathValue[ToolClass.name]"
             :title="ToolClass.name"
-            class="toolbar__paint-tool"
+            class="draw-tools-bar__item"
             @click="handleClick(ToolClass)"
         />
     </template>

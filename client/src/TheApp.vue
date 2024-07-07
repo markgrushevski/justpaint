@@ -1,42 +1,28 @@
 <script setup lang="ts">
-import {
-    PaintTools,
-    PaintToolSettings,
-    SettingsBar,
-    TheCanvas,
-    WorkHandlers,
-    SystemBar,
-    StatusBar,
-    WorkBar,
-    WorkArea,
-    ToolsBar
-} from '@components'
+import { DrawSettingsBar, SystemBar, StatusBar, WorkBar, WorkArea, DrawToolsBar } from '@layouts'
+import { DrawTools, WorkHandlers, SystemSettings, DrawSettings, TheCanvas } from '@components'
 </script>
 
 <template>
     <SystemBar>
-        <div class="system-bar__work-title">My Work 1</div>
-        <div class="system-bar__weather">0</div>
-        <div class="system-bar__time">
-            {{ new Date(Date.now()).getHours() }}:{{ new Date(Date.now()).getMinutes() }}
-        </div>
+        <SystemSettings />
     </SystemBar>
 
     <WorkBar>
         <WorkHandlers />
     </WorkBar>
 
-    <ToolsBar>
-        <PaintTools />
-    </ToolsBar>
-
-    <SettingsBar>
-        <PaintToolSettings />
-    </SettingsBar>
+    <DrawToolsBar>
+        <DrawTools />
+    </DrawToolsBar>
 
     <WorkArea>
         <TheCanvas />
     </WorkArea>
+
+    <DrawSettingsBar>
+        <DrawSettings />
+    </DrawSettingsBar>
 
     <StatusBar>
         <div class="notifications">Notifications: ...</div>
@@ -62,7 +48,7 @@ input {
 }
 
 :root {
-    --color-backdrop: hsl(110, 1%, 15%);
+    /* --color-backdrop: hsl(110, 1%, 15%);
 
     --color-accent_active: hsl(110, 5%, 40%);
     --color-text_active: #ffffff;
@@ -72,9 +58,9 @@ input {
     --color-accent: hsl(110, 5%, 30%);
     --color-text: #f0f0f0;
     --color-borders: hsl(110, 5%, 30%);
-    --color-background: hsl(110, 1%, 20%);
+    --color-background: hsl(110, 1%, 20%); */
 
-    /*--color-backdrop: #ffffff;
+    /* --color-backdrop: #ffffff;
 
     --color-accent_active: #10c0ff;
     --color-text_active: #10c0ff;
@@ -84,7 +70,35 @@ input {
     --color-accent: #f2a279;
     --color-text: #f2a279;
     --color-borders: #f2a279;
-    --color-background: #ffffff;*/
+    --color-background: #ffffff; */
+
+    /* --color-backdrop: #ffffff;
+
+    --color-accent_active: #60e0ff;
+    --color-text_active: #20c8ff;
+    --color-borders_active: #20c8ff;
+    --color-background_active: #f0f0f0;
+
+    --color-accent: #30d0ff;
+    --color-text: #10c0ff;
+    --color-borders: #10c0ff;
+    --color-background: #ffffff; */
+
+    --color-accent: hsl(110, 5%, 30%);
+    --color-accent_active: hsl(110, 5%, 40%);
+
+    --color-text: hsl(120, 3%, 75%);
+    --color-text_active: hsl(0, 0%, 100%);
+
+    --color-borders: hsl(110, 5%, 25%);
+    --color-borders_active: hsl(110, 5%, 35%);
+
+    --color-background: hsl(110, 1%, 20%);
+    --color-background_active: hsl(110, 1%, 25%);
+
+    --color-backdrop: hsl(110, 1%, 17%);
+
+    --color-page: hsl(110, 1%, 15%);
 
     --color-1: #373f51;
     --color-2: #1d201f;
@@ -93,8 +107,10 @@ input {
     --color-5: #f2a279;
     --color-6: #b84d18;
 
-    --border-width: 1px;
-    --border-radius: 0;
+    --border-width-blocks: 1px;
+
+    --border-radius-blocks: 16px;
+    --border-radius-controls: 0;
 }
 
 body {
@@ -103,48 +119,73 @@ body {
     width: 100vw;
     height: 100vh;
 
-    background-color: var(--color-backdrop);
+    background-color: var(--color-page);
     color: var(--color-text);
 }
 
-#app {
+#justpaint {
     width: 100%;
     height: 100%;
 
     display: grid;
-    grid-template-rows: 2.5em 2.5em auto 2em;
-    grid-template-columns: min-content auto 3.5em;
+    grid-template-rows: 3em 2.5em auto 2em;
+    grid-template-columns: 6em auto 12em;
     grid-template-areas:
         'system-bar system-bar system-bar'
         'work-bar work-bar work-bar'
-        'settings-bar work-area tools-bar'
+        'draw-tools-bar work-area draw-settings-bar'
         'status-bar status-bar status-bar';
 }
 
+/* top 1 */
 .system-bar {
-    padding: 8px 10px;
+    padding: 10px 12px;
+
+    /* background-color: var(--color-backdrop); */
 }
 
+/* top 2 */
 .work-bar {
     padding: 8px;
-    border-block: var(--border-width) solid var(--color-borders);
+
+    /* border-top: var(--border-width-blocks) solid var(--color-borders); */
 }
 
-.tools-bar {
+/* left */
+.draw-tools-bar {
     padding: 8px;
-    border-inline-start: var(--border-width) solid var(--color-borders);
+    height: min-content;
+
+    background-color: var(--color-backdrop);
+
+    /* border-inline-end: var(--border-width-blocks) solid var(--color-borders); */
+    border-start-end-radius: var(--border-radius-blocks);
+    border-end-end-radius: var(--border-radius-blocks);
 }
 
+/* center */
 .work-area {
+    /* background-color: var(--color-backdrop); */
+
+    /* border-radius: var(--border-radius-blocks); */
 }
 
-.settings-bar {
-    padding: 10px 8px;
-    border-inline-end: var(--border-width) solid var(--color-borders);
+/* right */
+.draw-settings-bar {
+    padding: 10px 8px 14px;
+    height: min-content;
+
+    background-color: var(--color-backdrop);
+
+    /* border-inline-start: var(--border-width-blocks) solid var(--color-borders); */
+    border-start-start-radius: var(--border-radius-blocks);
+    border-end-start-radius: var(--border-radius-blocks);
 }
 
+/* bottom */
 .status-bar {
-    padding: 8px 10px;
-    border-block-start: var(--border-width) solid var(--color-borders);
+    padding: 8px 12px;
+
+    /* border-block-start: var(--border-width-blocks) solid var(--color-borders); */
 }
 </style>

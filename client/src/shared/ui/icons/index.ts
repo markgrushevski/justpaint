@@ -1,1 +1,1 @@
-export { default as ToolbarIcon } from './ToolbarIcon.vue';
+export { default as ActionIcon } from './ActionIcon.vue'

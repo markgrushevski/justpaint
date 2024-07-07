@@ -12,12 +12,16 @@
         "forceConsistentCasingInFileNames": true,
         "baseUrl": ".",
         "rootDir": ".",
+        "paths": {
+            "@db": ["./src/db"],
+            "@modules": ["./src/modules"],
+            "@shared/*": ["./src/shared/*"]
+        },
         "module": "esnext",
         "target": "esnext",
         "moduleResolution": "nodenext",
         "lib": ["ESNext"],
         "allowJs": true,
-        "checkJs": true,
+        "checkJs": true
     }
 }
-

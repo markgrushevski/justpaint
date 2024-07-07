@@ -1,1 +1,1 @@
-export { getUId } from './getUId.ts';
+export * from './getUId.ts';

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useCanvasHistoryStore } from '@shared/stores'
-import WorkHandler from './WorkHandler.vue'
+import { ActionIcon } from '@shared/ui'
 
 const historyStore = useCanvasHistoryStore()
 
@@ -13,11 +13,13 @@ const historyHandlerNameBySVGPathValue = {
 </script>
 
 <template>
-    <WorkHandler
+    <ActionIcon
         v-for="(value, key) in historyHandlerNameBySVGPathValue"
         :key="key"
-        :title="key.charAt(0).toUpperCase() + key.substring(1)"
         :icon-path-value="value"
-        @click="historyStore.historyHandler?.historyHandlersMap[key]"
+        :title="key.charAt(0).toUpperCase() + key.substring(1)"
+        width="1.75rem"
+        height="1.75rem"
+        @click="historyStore.historyHandler?.eventHandlersMap[key]"
     />
 </template>

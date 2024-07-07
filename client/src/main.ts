@@ -1,5 +1,7 @@
-import { router, pinia } from '@app';
-import { createApp } from 'vue';
-import App from './TheApp.vue';
+import { router, pinia } from '@app'
+import { createApp } from 'vue'
+import App from './TheApp.vue'
 
-createApp(App).use(router).use(pinia).mount('#app');
+const justpaintApp = createApp(App).use(router).use(pinia)
+
+justpaintApp.mount('#justpaint')

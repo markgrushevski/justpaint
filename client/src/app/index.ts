@@ -1,2 +1,2 @@
-export { pinia } from './pinia.ts';
-export { router } from './router.ts';
+export * from './pinia.ts';
+export * from './router.ts';
