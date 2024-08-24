@@ -33,6 +33,11 @@ const stopWatch = watch(canvas, () => {
         ref="canvas"
         :width="canvasStore.canvasWidth + 'px'"
         :height="canvasStore.canvasHeight + 'px'"
+        @click="
+            (ev) => {
+                console.log('!!!', ev)
+            }
+        "
     ></canvas>
 </template>
 
