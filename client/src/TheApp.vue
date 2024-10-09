@@ -1,6 +1,21 @@
 <script setup lang="ts">
 import { DrawSettingsBar, SystemBar, StatusBar, WorkBar, WorkArea, DrawToolsBar } from '@layouts'
 import { DrawTools, WorkHandlers, SystemSettings, DrawSettings, TheCanvas } from '@components'
+import { API } from '@shared/lib'
+import { onMounted } from 'vue'
+
+onMounted(() => {
+    API.getWorks().then((res) => {
+        console.group('getWorks')
+        console.log(res)
+        console.groupEnd()
+    })
+    /* API.saveWork().then((res) => {
+        console.group('saveWork')
+        console.log(res)
+        console.groupEnd()
+    }) */
+})
 </script>
 
 <template>
@@ -126,15 +141,39 @@ body {
 #justpaint {
     width: 100%;
     height: 100%;
+    max-width: 100%;
+    max-height: 100vh;
 
     display: grid;
-    grid-template-rows: 3em 2.5em auto 2em;
-    grid-template-columns: 6em auto 12em;
+    grid-template-rows: 2.5rem 2.5rem auto 2.5rem;
+    grid-template-columns: 3rem min-content 3rem;
     grid-template-areas:
         'system-bar system-bar system-bar'
         'work-bar work-bar work-bar'
         'draw-tools-bar work-area draw-settings-bar'
         'status-bar status-bar status-bar';
+}
+
+@media (max-width: 600px) {
+    #justpaint {
+        grid-template-rows: 2.5rem 2.5rem auto 2.5rem min-content 2.5rem;
+        grid-template-columns: 3rem auto 3rem;
+        grid-template-areas:
+            'system-bar system-bar system-bar'
+            'work-bar work-bar work-bar'
+            'work-area work-area work-area'
+            'draw-tools-bar draw-tools-bar draw-tools-bar'
+            'draw-settings-bar draw-settings-bar draw-settings-bar'
+            'status-bar status-bar status-bar';
+    }
+
+    #justpaint .draw-tools-bar {
+        background-color: transparent;
+    }
+
+    #justpaint .draw-settings-bar {
+        background-color: transparent;
+    }
 }
 
 /* top 1 */

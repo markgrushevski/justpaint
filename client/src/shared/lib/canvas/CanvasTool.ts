@@ -1,6 +1,6 @@
 import { CanvasToolModel } from './models'
 
-export type Tool = Pen | Eraser | Line | Circle | Triangle | Square
+export type ToolClass = typeof Pen | typeof Eraser | typeof Line | typeof Circle | typeof Triangle | typeof Square
 
 type DrawHandlerEvent = MouseEvent | Touch
 
@@ -24,9 +24,11 @@ abstract class CanvasTool extends CanvasToolModel {
         this.destroy()
         this.listen()
 
-        // todo: for test
-        this.ctx.strokeStyle = '#ff8020'
-        this.ctx.fillStyle = '#8020ff'
+        if (import.meta.env.DEV) {
+            this.ctx.strokeStyle = '#8000ff'
+            this.ctx.fillStyle = '#8080ff'
+            this.ctx.lineWidth = 2
+        }
     }
 
     // public
@@ -47,6 +49,13 @@ abstract class CanvasTool extends CanvasToolModel {
             y: 0,
             width: 0,
             height: 0
+        },
+        end: {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            canvasDataURL: ''
         }
     }
 
@@ -54,12 +63,12 @@ abstract class CanvasTool extends CanvasToolModel {
         mousedown: this.handleMouseDown,
         mousemove: this.handleMouseMove,
         mouseleave: this.handleMouseLeave,
-        mouseup: this.handleMouseUp
-        /* touchstart: this.handleTouchStart,
+        mouseup: this.handleMouseUp,
+        touchstart: this.handleTouchStart,
         touchmove: this.handleTouchMove,
         touchend: this.handleTouchEnd,
-        touchcancel: this.handleTouchCancel,
-        wheel: this.handleWheel */
+        touchcancel: this.handleTouchCancel
+        /*  wheel: this.handleWheel */
     }
 
     // private
@@ -81,48 +90,71 @@ abstract class CanvasTool extends CanvasToolModel {
     // handlers
 
     private handleMouseDown(ev: MouseEvent) {
+        this.handleStart(ev)
+    }
+
+    private handleMouseMove(ev: MouseEvent) {
+        this.handleMove(ev)
+    }
+
+    private handleMouseLeave(ev: MouseEvent) {
+        this.handleEnd(ev)
+    }
+
+    private handleMouseUp(ev: MouseEvent) {
+        this.handleEnd(ev)
+    }
+
+    private handleTouchStart(ev: TouchEvent) {
+        const touchEv = ev.touches[0]
+        this.handleStart(touchEv)
+    }
+
+    private handleTouchMove(ev: TouchEvent) {
+        const touchEv = ev.touches[0]
+        this.handleMove(touchEv)
+    }
+
+    private handleTouchEnd(ev: TouchEvent) {
+        const touchEv = ev.touches[0]
+        this.handleEnd(touchEv)
+    }
+
+    private handleTouchCancel(ev: TouchEvent) {
+        const touchEv = ev.touches[0]
+        this.handleEnd(touchEv)
+    }
+
+    // common
+
+    private handleStart(ev: DrawHandlerEvent) {
         this.mouseDown = true
         this.setStartDrawData()
         this.drawStartHandler(ev)
     }
 
-    private handleMouseMove(ev: MouseEvent) {
-        this.setCurrentDrawData(ev)
-        this.handleMove(ev)
-    }
-
-    private handleMouseLeave(ev: MouseEvent) {
-        this.mouseDown = false
-        this.drawEndHandler(ev)
-    }
-
-    private handleMouseUp(ev: MouseEvent) {
-        this.mouseDown = false
-        this.drawEndHandler(ev)
-    }
-
-    /* private handleTouchMove(ev: TouchEvent) {
-        const touchEv = ev.touches[0]
-        this.setCurrentDrawData(touchEv)
-        this.handleMove(touchEv)
-    } */
-
-    // common
-
     private handleMove(ev: DrawHandlerEvent) {
+        this.setCurrentDrawData(ev)
+
         if (this.mouseDown) {
             if (this.isFigure) {
                 const image = new Image()
-                image.src = this.drawData.start.canvasDataURL
                 image.onload = () => {
                     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
                     this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
                     this.drawHandler(ev)
                 }
+                image.src = this.drawData.start.canvasDataURL
             } else {
                 this.drawHandler(ev)
             }
         }
+    }
+
+    private handleEnd(ev: DrawHandlerEvent) {
+        this.mouseDown = false
+        this.drawEndHandler(ev)
+        this.setEndDrawData()
     }
 
     private setStartDrawData() {
@@ -138,6 +170,13 @@ abstract class CanvasTool extends CanvasToolModel {
 
         this.drawData.current.width = this.drawData.current.x - this.drawData.start.x
         this.drawData.current.height = this.drawData.current.y - this.drawData.start.y
+    }
+
+    private setEndDrawData() {
+        this.drawData.end = {
+            ...this.drawData.current,
+            canvasDataURL: this.canvas.toDataURL()
+        }
     }
 
     // public getters

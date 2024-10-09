@@ -75,13 +75,15 @@ const lineWeight = computed({
 }
 
 .draw-settings-bar__item input[type='color'] {
-    width: 4em;
+    max-width: 100%;
+
     height: 3em;
 }
 
 .draw-settings-bar__item input[type='number'] {
     padding: 3px 7px;
-    width: 4em;
+
+    max-width: 100%;
 }
 
 .draw-settings-bar__item input:focus-visible,

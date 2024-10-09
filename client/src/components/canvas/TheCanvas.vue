@@ -1,44 +1,34 @@
 <script setup lang="ts">
-import { CanvasHistory } from '@shared/lib'
+import { injectionKeys } from '@shared/constants'
+import { CanvasHistory, resizeCanvas } from '@shared/lib'
 import { useCanvasHistoryStore, useCanvasStore } from '@shared/stores'
-import { onBeforeMount, onMounted, ref, watch } from 'vue'
+import { onBeforeMount, onMounted, provide, ref, useTemplateRef, watch } from 'vue'
 
 const canvasStore = useCanvasStore()
 const historyStore = useCanvasHistoryStore()
 
-const canvas = ref<HTMLCanvasElement | null>(null)
-const showCanvas = ref(false)
+const canvasRef = useTemplateRef<HTMLCanvasElement>('canvas')
 
-onBeforeMount(() => {
-    canvasStore.canvasWidth = Math.round(document.body.clientWidth * 0.7)
-    canvasStore.canvasHeight = Math.round(document.body.clientHeight * 0.7)
+onMounted(async () => {
+    window.addEventListener('resize', async () => {
+        if (canvasRef.value instanceof HTMLCanvasElement) {
+            await resizeCanvas(canvasRef.value)
+        }
+    })
 })
 
-onMounted(() => {
-    showCanvas.value = true
-})
-
-const stopWatch = watch(canvas, () => {
-    if (canvas.value instanceof HTMLCanvasElement) {
-        canvasStore.setCanvas(canvas.value)
-        historyStore.setHistoryHandler(new CanvasHistory(canvas.value))
+const stopWatch = watch(canvasRef, () => {
+    if (canvasRef.value instanceof HTMLCanvasElement) {
+        canvasStore.canvas = canvasRef.value
+        resizeCanvas(canvasRef.value)
+        historyStore.setHistoryHandler(new CanvasHistory(canvasRef.value))
         stopWatch()
     }
 })
 </script>
 
 <template>
-    <canvas
-        v-if="showCanvas"
-        ref="canvas"
-        :width="canvasStore.canvasWidth + 'px'"
-        :height="canvasStore.canvasHeight + 'px'"
-        @click="
-            (ev) => {
-                console.log('!!!', ev)
-            }
-        "
-    ></canvas>
+    <canvas ref="canvas"></canvas>
 </template>
 
 <style>

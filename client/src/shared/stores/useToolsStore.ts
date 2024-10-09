@@ -1,13 +1,14 @@
-import { Eraser, Pen, Line, Circle, Square, type Tool } from '@shared/lib'
+import { injectionKeys } from '@shared/constants'
+import { Eraser, Pen, Line, Circle, Square, type ToolClass } from '@shared/lib'
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { inject, ref } from 'vue'
 
 export const useToolsStore = defineStore('tools', () => {
-    const toolsClasses = ref([Eraser, Pen, Line, Circle, Square])
-    const tool = ref<Tool>()
+    const toolClasses = ref<ToolClass[]>([Eraser, Pen, Line, Circle, Square])
+    const tool = ref<InstanceType<ToolClass>>()
 
-    function setTool(value: Tool) {
-        tool.value = value
+    function setTool(toolClass: (typeof toolClasses.value)[number], canvas: HTMLCanvasElement) {
+        tool.value = new toolClass(canvas)
     }
 
     function setLineWeight(value: number) {
@@ -28,5 +29,5 @@ export const useToolsStore = defineStore('tools', () => {
         }
     }
 
-    return { toolsClasses, tool, setTool, setLineWeight, setStrokeColor, setFillColor }
+    return { toolClasses, tool, setTool, setLineWeight, setStrokeColor, setFillColor }
 })
