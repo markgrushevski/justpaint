@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import { DrawSettingsBar, SystemBar, StatusBar, WorkBar, WorkArea, DrawToolsBar } from '@layouts'
-import { DrawTools, WorkHandlers, SystemSettings, DrawSettings, TheCanvas } from '@components'
-import { API } from '@shared/lib'
+// import { API } from '@shared/lib'
 import { onMounted } from 'vue'
+import { VSpinner, VIcon, VAvatar, VButton, VCard } from 'vueinjar'
 
 onMounted(() => {
-    API.getWorks().then((res) => {
+    /* API.getWorks().then((res) => {
         console.group('getWorks')
         console.log(res)
         console.groupEnd()
-    })
+    }) */
     /* API.saveWork().then((res) => {
         console.group('saveWork')
         console.log(res)
@@ -19,29 +18,11 @@ onMounted(() => {
 </script>
 
 <template>
-    <SystemBar>
-        <SystemSettings />
-    </SystemBar>
-
-    <WorkBar>
-        <WorkHandlers />
-    </WorkBar>
-
-    <DrawToolsBar>
-        <DrawTools />
-    </DrawToolsBar>
-
-    <WorkArea>
-        <TheCanvas />
-    </WorkArea>
-
-    <DrawSettingsBar>
-        <DrawSettings />
-    </DrawSettingsBar>
-
-    <StatusBar>
-        <div class="notifications">Notifications: ...</div>
-    </StatusBar>
+    <VSpinner />
+    <VIcon />
+    <VAvatar />
+    <VButton />
+    <VCard />
 </template>
 
 <style>
@@ -144,18 +125,18 @@ body {
     max-width: 100%;
     max-height: 100vh;
 
-    display: grid;
+    /*display: grid;
     grid-template-rows: 2.5rem 2.5rem auto 2.5rem;
     grid-template-columns: 3rem min-content 3rem;
     grid-template-areas:
         'system-bar system-bar system-bar'
         'work-bar work-bar work-bar'
         'draw-tools-bar work-area draw-settings-bar'
-        'status-bar status-bar status-bar';
+        'status-bar status-bar status-bar';*/
 }
 
 @media (max-width: 600px) {
-    #justpaint {
+    /*#justpaint {
         grid-template-rows: 2.5rem 2.5rem auto 2.5rem min-content 2.5rem;
         grid-template-columns: 3rem auto 3rem;
         grid-template-areas:
@@ -173,7 +154,7 @@ body {
 
     #justpaint .draw-settings-bar {
         background-color: transparent;
-    }
+    }*/
 }
 
 /* top 1 */
