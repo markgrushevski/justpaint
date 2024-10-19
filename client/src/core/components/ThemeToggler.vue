@@ -45,5 +45,5 @@ onMounted(() => {
 </script>
 
 <template>
-    <v-button :icon="currentIcon" :title="currentTheme" color="surface" size="lg" @click="toggleTheme" />
+    <v-button :icon="currentIcon" :title="currentTheme" variant="text" size="lg" @click="toggleTheme" />
 </template>

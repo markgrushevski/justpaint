@@ -5,7 +5,7 @@
  * */
 export function printCanvas(canvas: HTMLCanvasElement): boolean {
     try {
-        const dataURL = canvas.toDataURL()
+        const dataURL = canvas.toDataURL('image/png', 1)
 
         const windowContent = `
         <!DOCTYPE html>

@@ -10,13 +10,12 @@ const isOpen = defineModel<boolean>()
         :icon="isOpen ? mdiMenuOpen : mdiMenu"
         class="menu-toggler"
         size="lg"
-        color="surface"
-        fluid
+        variant="plain"
         @click="isOpen = !isOpen"
     />
     <v-card
-        :class="{ menu_open: isOpen }"
-        class="menu v-shadow"
+        :class="{ 'menu_open v-shadow': isOpen }"
+        class="main-menu"
         color="background"
         radius="zero"
         title="New work"
@@ -29,15 +28,13 @@ const isOpen = defineModel<boolean>()
 
 <style>
 .menu-toggler {
-    position: fixed;
+    position: absolute;
     top: 0;
     right: 0;
     z-index: 12;
-
-    margin: var(--v-size-gap);
 }
 
-.menu {
+.main-menu {
     position: fixed;
     top: 0;
     right: 0;
@@ -55,12 +52,12 @@ const isOpen = defineModel<boolean>()
 
     background-color: var(--v-color_surface);
 
-    transform: translateX(100%);
+    transform: translateX(101%);
 
     transition: transform ease-out 0.25s;
 }
 
-.menu.menu_open {
+.main-menu.menu_open {
     transform: translateX(0);
 }
 

@@ -1,4 +1,5 @@
 import {
+    mdiBrush,
     mdiBrushOutline,
     mdiCheck,
     mdiCircleOutline,
@@ -17,11 +18,11 @@ import {
 export const icons = {
     draw: {
         Eraser: mdiEraser,
-        Pen: mdiBrushOutline,
+        Pen: mdiBrush,
         Line: mdiVectorLine,
-        Square: mdiSquareOutline,
         Circle: mdiCircleOutline,
-        Triangle: mdiTriangleOutline
+        Triangle: mdiTriangleOutline,
+        Square: mdiSquareOutline
     },
     work: {
         undo: mdiUndo,

@@ -1,9 +1,10 @@
 <script lang="ts" setup>
 import { VButton } from 'vueinjar'
 import { icons } from '@core'
-import { useCanvasStore, useCanvasToolsStore } from '../stores'
+import { useCanvasHistoryStore, useCanvasStore, useCanvasToolsStore } from '../stores'
 
 const canvasStore = useCanvasStore()
+const historyStore = useCanvasHistoryStore()
 const toolsStore = useCanvasToolsStore()
 
 function getIsActive(ToolClass: (typeof toolsStore.toolClasses)[number]) {
@@ -11,8 +12,8 @@ function getIsActive(ToolClass: (typeof toolsStore.toolClasses)[number]) {
 }
 
 function handleClick(ToolClass: (typeof toolsStore.toolClasses)[number]) {
-    if (!getIsActive(ToolClass) && canvasStore.canvas) {
-        toolsStore.setTool(ToolClass, canvasStore.canvas)
+    if (!getIsActive(ToolClass) && canvasStore.canvas && historyStore.historyHandler) {
+        toolsStore.setTool(ToolClass, canvasStore.canvas, historyStore.historyHandler)
     }
 }
 </script>
@@ -24,9 +25,10 @@ function handleClick(ToolClass: (typeof toolsStore.toolClasses)[number]) {
             :key="ToolClass.name"
             :icon="icons.draw[ToolClass.name]"
             :title="ToolClass.name"
-            color="surface"
-            fluid
-            class="draw-tools-bar__item"
+            :active="getIsActive(ToolClass)"
+            size="xl"
+            radius="zero"
+            variant="plain"
             @click="handleClick(ToolClass)"
         />
     </template>

@@ -1,13 +1,17 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { Circle, Eraser, Line, Pen, Square, type ToolClass } from '../models'
+import { type CanvasHistory, Circle, Eraser, Line, Pen, Square, type ToolClass } from '../models'
 
 export const useCanvasToolsStore = defineStore('tools', () => {
     const toolClasses = ref<ToolClass[]>([Eraser, Pen, Line, Circle, Square])
     const tool = ref<InstanceType<ToolClass>>()
 
-    function setTool(toolClass: (typeof toolClasses.value)[number], canvas: HTMLCanvasElement) {
-        tool.value = new toolClass(canvas)
+    function setTool(
+        toolClass: (typeof toolClasses.value)[number],
+        canvas: HTMLCanvasElement,
+        canvasHistory: CanvasHistory
+    ) {
+        tool.value = new toolClass(canvas, canvasHistory)
     }
 
     function setLineWeight(value: number) {

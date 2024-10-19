@@ -1,10 +1,10 @@
+import type { CanvasHistory } from './CanvasHistory'
 import { CanvasToolModel } from './CanvasModel.ts'
 
 export type ToolClass = typeof Pen | typeof Eraser | typeof Line | typeof Circle | typeof Triangle | typeof Square
 export type ToolName = ToolClass['name']
 
 type DrawHandlerEvent = MouseEvent | Touch
-
 type EventHandlersMap = { [P in keyof GlobalEventHandlersEventMap]?: (ev: GlobalEventHandlersEventMap[P]) => void }
 
 abstract class CanvasTool extends CanvasToolModel {
@@ -14,9 +14,10 @@ abstract class CanvasTool extends CanvasToolModel {
     protected abstract drawHandler(ev: DrawHandlerEvent): void
     protected abstract drawEndHandler(ev: DrawHandlerEvent): void
 
-    protected constructor(canvas: HTMLCanvasElement) {
+    protected constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
         super(canvas)
 
+        this.canvasHistory = canvasHistory
         this.ctx.lineCap = 'round'
         this.ctx.lineJoin = 'round'
         this.ctx.imageSmoothingEnabled = true
@@ -35,6 +36,8 @@ abstract class CanvasTool extends CanvasToolModel {
     // public
 
     // protected
+
+    protected canvasHistory: CanvasHistory
 
     protected isFigure = true
     protected mouseDown = false
@@ -139,13 +142,9 @@ abstract class CanvasTool extends CanvasToolModel {
 
         if (this.mouseDown) {
             if (this.isFigure) {
-                const image = new Image()
-                image.onload = () => {
-                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-                    this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+                this.loadStateToCanvas(this.drawData.start.canvasDataURL).then(() => {
                     this.drawHandler(ev)
-                }
-                image.src = this.drawData.start.canvasDataURL
+                })
             } else {
                 this.drawHandler(ev)
             }
@@ -153,13 +152,20 @@ abstract class CanvasTool extends CanvasToolModel {
     }
 
     private handleEnd(ev: DrawHandlerEvent) {
-        this.mouseDown = false
-        this.drawEndHandler(ev)
-        this.setEndDrawData()
+        if (this.mouseDown) {
+            this.mouseDown = false
+            this.drawEndHandler(ev)
+            this.setEndDrawData()
+            this.canvasHistory.step({
+                canvasWidth: this.canvas.clientWidth,
+                canvasHeight: this.canvas.clientHeight,
+                canvasDataURL: this.canvasDataURL
+            })
+        }
     }
 
     private setStartDrawData() {
-        this.drawData.start.canvasDataURL = this.canvas.toDataURL()
+        this.drawData.start.canvasDataURL = this.canvasDataURL
 
         this.drawData.start.x = this.drawData.current.x
         this.drawData.start.y = this.drawData.current.y
@@ -176,8 +182,24 @@ abstract class CanvasTool extends CanvasToolModel {
     private setEndDrawData() {
         this.drawData.end = {
             ...this.drawData.current,
-            canvasDataURL: this.canvas.toDataURL()
+            canvasDataURL: this.canvasDataURL
         }
+    }
+
+    public loadStateToCanvas(canvasDataURL: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            if (canvasDataURL) {
+                const image = new Image()
+                image.onload = () => {
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+                    this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+                    resolve(true)
+                }
+                image.src = canvasDataURL
+            } else {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+            }
+        })
     }
 
     // public getters
@@ -212,8 +234,8 @@ abstract class CanvasTool extends CanvasToolModel {
 export class Pen extends CanvasTool {
     public static readonly name = 'Pen'
 
-    public constructor(canvas: HTMLCanvasElement) {
-        super(canvas)
+    public constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
+        super(canvas, canvasHistory)
         this.isFigure = false
     }
 
@@ -233,13 +255,14 @@ export class Pen extends CanvasTool {
 export class Eraser extends CanvasTool {
     public static readonly name = 'Eraser'
 
-    public constructor(canvas: HTMLCanvasElement) {
-        super(canvas)
+    public constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
+        super(canvas, canvasHistory)
         this.isFigure = false
     }
 
     protected drawStartHandler() {
         this.ctx.save()
+        this.ctx.globalCompositeOperation = 'destination-out'
         this.ctx.beginPath()
         this.ctx.moveTo(this.drawData.current.x, this.drawData.current.y)
     }
@@ -247,8 +270,6 @@ export class Eraser extends CanvasTool {
     protected drawHandler() {
         this.ctx.lineTo(this.drawData.current.x, this.drawData.current.y)
         this.ctx.stroke()
-
-        this.strokeColor = '#ffffff'
     }
 
     protected drawEndHandler() {
@@ -259,8 +280,8 @@ export class Eraser extends CanvasTool {
 export class Line extends CanvasTool {
     public static readonly name = 'Line'
 
-    public constructor(canvas: HTMLCanvasElement) {
-        super(canvas)
+    public constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
+        super(canvas, canvasHistory)
     }
 
     protected drawStartHandler() {
@@ -281,8 +302,8 @@ export class Line extends CanvasTool {
 export class Circle extends CanvasTool {
     public static readonly name = 'Circle'
 
-    public constructor(canvas: HTMLCanvasElement) {
-        super(canvas)
+    public constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
+        super(canvas, canvasHistory)
     }
 
     protected drawStartHandler() {
@@ -293,8 +314,8 @@ export class Circle extends CanvasTool {
         const centerX = this.drawData.start.x + this.drawData.current.width / 2
         const centerY = this.drawData.start.y + this.drawData.current.height / 2
 
-        const radiusX = Math.abs(this.drawData.current.width) / 2
-        const radiusY = Math.abs(this.drawData.current.height) / 2
+        const radiusX = Math.abs(this.drawData.current.width) / Math.sqrt(2)
+        const radiusY = Math.abs(this.drawData.current.height) / Math.sqrt(2)
 
         this.ctx.beginPath()
         this.ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2)
@@ -308,8 +329,8 @@ export class Circle extends CanvasTool {
 export class Triangle extends CanvasTool {
     public static readonly name = 'Triangle'
 
-    public constructor(canvas: HTMLCanvasElement) {
-        super(canvas)
+    public constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
+        super(canvas, canvasHistory)
     }
 
     protected drawStartHandler() {
@@ -334,8 +355,8 @@ export class Triangle extends CanvasTool {
 export class Square extends CanvasTool {
     public static readonly name = 'Square'
 
-    public constructor(canvas: HTMLCanvasElement) {
-        super(canvas)
+    public constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
+        super(canvas, canvasHistory)
     }
 
     protected drawStartHandler() {

@@ -1,19 +1,30 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import { CanvasHistory } from '../models'
+import { type Ref, ref } from 'vue'
+import type { CanvasHistory } from '../models'
+import { useCanvasToolsStore } from '../stores'
 
 export const useCanvasHistoryStore = defineStore('history', () => {
-    const historyHandler = ref<CanvasHistory | null>(null)
-
-    const paintHistoryList = ref([])
+    const historyHandler: Ref<CanvasHistory | null> = ref(null)
 
     function setHistoryHandler(value: CanvasHistory) {
         historyHandler.value = value
     }
 
-    function makeHistoryStep() {
-        paintHistoryList.value.push()
+    async function undo() {
+        const tool = useCanvasToolsStore().tool
+        const step = historyHandler.value?.stepBack()
+        if (tool && step) {
+            await tool.loadStateToCanvas(step.canvasDataURL)
+        }
     }
 
-    return { historyHandler, setHistoryHandler }
+    async function redo() {
+        const tool = useCanvasToolsStore().tool
+        const step = historyHandler.value?.stepForward()
+        if (tool && step) {
+            await tool.loadStateToCanvas(step.canvasDataURL)
+        }
+    }
+
+    return { historyHandler, setHistoryHandler, undo, redo }
 })
