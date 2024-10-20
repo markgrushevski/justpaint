@@ -102,7 +102,7 @@ abstract class CanvasTool extends CanvasToolModel {
     }
 
     private handleMouseLeave(ev: MouseEvent) {
-        this.handleEnd(ev)
+        this.handleEnd(ev, true)
     }
 
     private handleMouseUp(ev: MouseEvent) {
@@ -126,7 +126,7 @@ abstract class CanvasTool extends CanvasToolModel {
 
     private handleTouchCancel(ev: TouchEvent) {
         const touchEv = ev.touches[0]
-        this.handleEnd(touchEv)
+        this.handleEnd(touchEv, true)
     }
 
     // common
@@ -151,15 +151,15 @@ abstract class CanvasTool extends CanvasToolModel {
         }
     }
 
-    private handleEnd(ev: DrawHandlerEvent) {
-        if (this.mouseDown) {
+    private handleEnd(ev: DrawHandlerEvent, aborted?: boolean) {
+        if (!aborted || (aborted && this.mouseDown)) {
             this.mouseDown = false
             this.drawEndHandler(ev)
             this.setEndDrawData()
             this.canvasHistory.step({
                 canvasWidth: this.canvas.clientWidth,
                 canvasHeight: this.canvas.clientHeight,
-                canvasDataURL: this.canvasDataURL
+                canvasDataURL: this.drawData.end.canvasDataURL
             })
         }
     }
@@ -364,12 +364,10 @@ export class Square extends CanvasTool {
     }
 
     protected drawStartHandler() {
-        console.log('drawStartHandler')
         this.ctx.beginPath()
     }
 
     protected drawHandler() {
-        console.log('drawHandler')
         this.ctx.beginPath()
         this.ctx.rect(
             this.drawData.start.x,
@@ -381,7 +379,5 @@ export class Square extends CanvasTool {
         this.ctx.stroke()
     }
 
-    protected drawEndHandler() {
-        console.log('drawEndHandler')
-    }
+    protected drawEndHandler() {}
 }
