@@ -28,6 +28,7 @@ export class CanvasHistory extends CanvasHistoryModel {
     public step(step: CanvasHistoryStep) {
         const currentStep = this.history[this.historyIndex]
         if (currentStep.canvasDataURL !== step.canvasDataURL) {
+            console.log('step')
             this.history.length = this.historyIndex + 1
             this.history.push(step)
             this.historyIndex += 1

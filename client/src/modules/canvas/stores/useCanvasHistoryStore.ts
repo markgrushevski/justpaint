@@ -10,19 +10,19 @@ export const useCanvasHistoryStore = defineStore('history', () => {
         historyHandler.value = value
     }
 
-    async function undo() {
+    function undo() {
         const tool = useCanvasToolsStore().tool
         const step = historyHandler.value?.stepBack()
         if (tool && step) {
-            await tool.loadStateToCanvas(step.canvasDataURL)
+            tool.loadStateToCanvas(step.canvasDataURL)
         }
     }
 
-    async function redo() {
+    function redo() {
         const tool = useCanvasToolsStore().tool
         const step = historyHandler.value?.stepForward()
         if (tool && step) {
-            await tool.loadStateToCanvas(step.canvasDataURL)
+            tool.loadStateToCanvas(step.canvasDataURL)
         }
     }
 
