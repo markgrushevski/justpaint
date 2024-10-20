@@ -30,8 +30,4 @@ const historyStore = useCanvasHistoryStore()
     </template>
 </template>
 
-<style>
-.history-handler:hover {
-    opacity: 0.5;
-}
-</style>
+<style></style>
