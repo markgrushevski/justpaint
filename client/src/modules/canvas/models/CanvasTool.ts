@@ -142,8 +142,8 @@ abstract class CanvasTool extends CanvasToolModel {
 
         if (this.mouseDown) {
             if (this.isFigure) {
-                this.loadStateToCanvas(this.drawData.start.canvasDataURL).then(() => {
-                    this.drawHandler(ev)
+                this.loadStateToCanvas(this.drawData.start.canvasDataURL).then((loaded) => {
+                    if (loaded) this.drawHandler(ev)
                 })
             } else {
                 this.drawHandler(ev)
@@ -186,14 +186,18 @@ abstract class CanvasTool extends CanvasToolModel {
         }
     }
 
-    public loadStateToCanvas(canvasDataURL: string): Promise<boolean> {
+    public loadStateToCanvas(canvasDataURL: string, force?: boolean): Promise<boolean> {
         return new Promise((resolve) => {
             if (canvasDataURL) {
                 const image = new Image()
                 image.onload = () => {
-                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-                    this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
-                    resolve(true)
+                    if (this.mouseDown || force) {
+                        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+                        this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+                        resolve(true)
+                    } else {
+                        resolve(false)
+                    }
                 }
                 image.src = canvasDataURL
             } else {
@@ -360,10 +364,12 @@ export class Square extends CanvasTool {
     }
 
     protected drawStartHandler() {
+        console.log('drawStartHandler')
         this.ctx.beginPath()
     }
 
     protected drawHandler() {
+        console.log('drawHandler')
         this.ctx.beginPath()
         this.ctx.rect(
             this.drawData.start.x,
@@ -375,5 +381,7 @@ export class Square extends CanvasTool {
         this.ctx.stroke()
     }
 
-    protected drawEndHandler() {}
+    protected drawEndHandler() {
+        console.log('drawEndHandler')
+    }
 }

@@ -14,7 +14,7 @@ export const useCanvasHistoryStore = defineStore('history', () => {
         const tool = useCanvasToolsStore().tool
         const step = historyHandler.value?.stepBack()
         if (tool && step) {
-            await tool.loadStateToCanvas(step.canvasDataURL)
+            await tool.loadStateToCanvas(step.canvasDataURL, true)
         }
     }
 
@@ -22,7 +22,7 @@ export const useCanvasHistoryStore = defineStore('history', () => {
         const tool = useCanvasToolsStore().tool
         const step = historyHandler.value?.stepForward()
         if (tool && step) {
-            await tool.loadStateToCanvas(step.canvasDataURL)
+            await tool.loadStateToCanvas(step.canvasDataURL, true)
         }
     }
 
