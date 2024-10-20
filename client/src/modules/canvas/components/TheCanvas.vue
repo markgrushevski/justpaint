@@ -35,6 +35,8 @@ const stopWatch = watch(canvasRef, () => {
 
 <style>
 canvas {
+    touch-action: none;
+
     background-repeat: repeat;
     background-image: url(../assets/canvas-grid-light.svg);
 }

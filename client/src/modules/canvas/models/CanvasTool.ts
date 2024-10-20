@@ -4,7 +4,7 @@ import { CanvasToolModel } from './CanvasModel.ts'
 export type ToolClass = typeof Pen | typeof Eraser | typeof Line | typeof Circle | typeof Triangle | typeof Square
 export type ToolName = ToolClass['name']
 
-type DrawHandlerEvent = MouseEvent | Touch
+type DrawHandlerEvent = /*MouseEvent | Touch |*/ PointerEvent
 type EventHandlersMap = { [P in keyof GlobalEventHandlersEventMap]?: (ev: GlobalEventHandlersEventMap[P]) => void }
 
 abstract class CanvasTool extends CanvasToolModel {
@@ -64,14 +64,19 @@ abstract class CanvasTool extends CanvasToolModel {
     }
 
     protected eventHandlersMap: EventHandlersMap = {
-        mousedown: this.handleMouseDown,
+        /*mousedown: this.handleMouseDown,
         mousemove: this.handleMouseMove,
         mouseleave: this.handleMouseLeave,
         mouseup: this.handleMouseUp,
         touchstart: this.handleTouchStart,
         touchmove: this.handleTouchMove,
         touchend: this.handleTouchEnd,
-        touchcancel: this.handleTouchCancel
+        touchcancel: this.handleTouchCancel,*/
+        pointerdown: this.handlePointerDown,
+        pointermove: this.handlePointerMove,
+        pointerleave: this.handlePointerLeave,
+        pointercancel: this.handlePointerCancel,
+        pointerup: this.handlePointerUp
         /*  wheel: this.handleWheel */
     }
 
@@ -93,7 +98,7 @@ abstract class CanvasTool extends CanvasToolModel {
 
     // handlers
 
-    private handleMouseDown(ev: MouseEvent) {
+    /*private handleMouseDown(ev: MouseEvent) {
         this.handleStart(ev)
     }
 
@@ -127,13 +132,39 @@ abstract class CanvasTool extends CanvasToolModel {
     private handleTouchCancel(ev: TouchEvent) {
         const touchEv = ev.touches[0]
         this.handleEnd(touchEv, true)
+    }*/
+
+    private handlePointerDown(ev: PointerEvent) {
+        console.log('handlePointerDown')
+        this.handleStart(ev)
+    }
+
+    private handlePointerMove(ev: PointerEvent) {
+        console.log('handlePointerMove')
+        this.handleMove(ev)
+    }
+
+    private handlePointerLeave(ev: PointerEvent) {
+        console.log('handlePointerLeave')
+        this.handleEnd(ev, true)
+    }
+
+    private handlePointerCancel(ev: PointerEvent) {
+        console.log('handlePointerCancel')
+        this.handleEnd(ev, true)
+    }
+
+    private handlePointerUp(ev: PointerEvent) {
+        console.log('handlePointerUp')
+        this.handleEnd(ev)
     }
 
     // common
 
     private handleStart(ev: DrawHandlerEvent) {
         this.mouseDown = true
-        this.setStartDrawData()
+        this.setStartDrawData(ev)
+        this.setCurrentDrawData(ev)
         this.drawStartHandler(ev)
     }
 
@@ -164,11 +195,11 @@ abstract class CanvasTool extends CanvasToolModel {
         }
     }
 
-    private setStartDrawData() {
-        this.drawData.start.canvasDataURL = this.canvasDataURL
+    private setStartDrawData(ev: DrawHandlerEvent) {
+        this.drawData.start.x = ev.pageX - (ev.target as HTMLCanvasElement).offsetLeft
+        this.drawData.start.y = ev.pageY - (ev.target as HTMLCanvasElement).offsetTop
 
-        this.drawData.start.x = this.drawData.current.x
-        this.drawData.start.y = this.drawData.current.y
+        this.drawData.start.canvasDataURL = this.canvasDataURL
     }
 
     private setCurrentDrawData(ev: DrawHandlerEvent) {
