@@ -1,7 +1,5 @@
-import { router, pinia } from '@app'
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
 import App from './TheApp.vue'
 
-const justpaintApp = createApp(App).use(router).use(pinia)
-
-justpaintApp.mount('#justpaint')
+createApp(App).use(createPinia()).mount('#app')
