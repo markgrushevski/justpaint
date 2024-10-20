@@ -1,22 +1,22 @@
-import Pool from 'pg-pool'
+import Pool from 'pg-pool';
 
-const DB_URL = new URL(process.env.DATABASE_URL)
+const DB_URL = new URL(process.env.POSTGRES_URL);
 
 const pool = new Pool({
-    user: DB_URL.username ,
+    user: DB_URL.username,
     password: DB_URL.password,
     host: DB_URL.hostname,
     port: +DB_URL.port,
     database: DB_URL.pathname.split('/')[1],
     ssl: true
-})
+});
 
 export class DB {
     /**
      * @param {import("pg").QueryArrayConfig<any>} text
      * @param {any} params
      */
-    static async query(text, params) {
+    static async query(text, params = undefined) {
         const startTime = Date.now();
         const res = await pool.query(text, params);
         const endTime = Date.now();

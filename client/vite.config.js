@@ -12,10 +12,8 @@ export default defineConfig({
     css: { postcss: { plugins: [autoprefixer] }, devSourcemap: true },
     resolve: {
         alias: {
-            '@app': fileURLToPath(new URL('./src/app', import.meta.url)),
-            '@components': fileURLToPath(new URL('./src/components', import.meta.url)),
-            '@layouts': fileURLToPath(new URL('./src/layouts', import.meta.url)),
-            '@shared': fileURLToPath(new URL('./src/shared', import.meta.url))
+            '@core': fileURLToPath(new URL('./src/core', import.meta.url)),
+            '@modules': fileURLToPath(new URL('./src/modules', import.meta.url))
         }
     }
 })

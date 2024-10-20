@@ -13,10 +13,8 @@
         "baseUrl": ".",
         "rootDir": ".",
         "paths": {
-            "@app": ["./src/app"],
-            "@components": ["./src/components"],
-            "@layouts": ["./src/layouts"],
-            "@shared/*": ["./src/shared/*"]
+            "@core": ["./src/core"],
+            "@modules/*": ["./src/modules/*"]
         },
         "module": "esnext",
         "target": "esnext",
