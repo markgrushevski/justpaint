@@ -39,9 +39,9 @@ const isOpen = defineModel<boolean>()
     right: 0;
     z-index: 10;
 
-    max-width: 100vw;
+    max-width: 100dvw;
     width: 400px;
-    height: 100vh;
+    height: 100dvh;
 
     display: flex;
     flex-direction: column;

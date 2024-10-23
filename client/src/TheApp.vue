@@ -47,7 +47,7 @@ import { TheCanvas, DrawTools, DrawHistoryHandlers } from '@modules/canvas'
 }
 
 .app__main {
-    height: calc(100vh - 48px - 60px);
+    height: calc(100dvh - 48px - 60px);
 
     display: flex;
     align-items: center;
