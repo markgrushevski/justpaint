@@ -1,11 +1,22 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { VButton } from 'vueinjar'
-import { icons } from '@core'
+import { icons, useWorksStore } from '@core'
 
-function handleLoadWork() {}
+const worksStore = useWorksStore()
+
+function handleLoadWorks() {
+    worksStore.fetchWorks()
+}
 </script>
 
 <template>
-    <v-button :icon="icons.work.load" text="Load" radius="md" variant="tonal" fluid @click="handleLoadWork" />
+    <v-button
+        :loading="worksStore.isSaving"
+        :icon="icons.work.load"
+        text="Load"
+        radius="md"
+        variant="tonal"
+        fluid
+        @click="handleLoadWorks"
+    />
 </template>

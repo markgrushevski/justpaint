@@ -19,7 +19,6 @@ const isOpen = defineModel<boolean>()
         color="background"
         radius="zero"
         title="New work"
-        reverse-appended-actions
     >
         <template #body><slot name="main"></slot></template>
         <template #actions-append><slot name="footer"></slot></template>
@@ -66,5 +65,10 @@ const isOpen = defineModel<boolean>()
     flex-direction: column;
     flex-grow: 1;
     gap: var(--v-size-gap);
+}
+
+.main-menu.v-card .v-card__actions {
+    align-items: flex-end;
+    justify-content: space-between;
 }
 </style>

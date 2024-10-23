@@ -1,20 +1,6 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { MenuToggler, ThemeToggler, SaveWork, LoadWork, CopyWork, LayersHandler } from '@core'
+import { MenuToggler, ThemeToggler, SaveWork, LoadWork, CopyWork, LayersHandler, UserProfile } from '@core'
 import { TheCanvas, DrawTools, DrawHistoryHandlers } from '@modules/canvas'
-
-onMounted(() => {
-    /*API.getWorks().then((res) => {
-        console.group('getWorks')
-        console.log(res)
-        console.groupEnd()
-    }) 
-     API.saveWork().then((res) => {
-        console.group('saveWork')
-        console.log(res)
-        console.groupEnd()
-    }) */
-})
 </script>
 
 <template>
@@ -27,6 +13,7 @@ onMounted(() => {
             <CopyWork />
         </template>
         <template #footer>
+            <UserProfile />
             <ThemeToggler />
         </template>
     </MenuToggler>
