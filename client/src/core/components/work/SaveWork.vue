@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { VButton } from 'vueinjar'
-import { icons } from '@core'
+import { icons, useWorksStore } from '@core'
 
-function handleSaveWork() {}
+const worksStore = useWorksStore()
 </script>
 
 <template>
-    <v-button :icon="icons.work.save" text="Save" radius="md" variant="tonal" fluid @click="handleSaveWork" />
+    <v-button
+        :loading="worksStore.isSaving"
+        :icon="icons.work.save"
+        text="Save"
+        radius="md"
+        variant="tonal"
+        fluid
+        @click="worksStore.saveWork"
+    />
 </template>
