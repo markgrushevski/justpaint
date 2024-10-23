@@ -1,2 +1,2 @@
-export * from './useAuthStore.ts'
+export * from './useUserStore.ts'
 export * from './useWorksStore.ts'

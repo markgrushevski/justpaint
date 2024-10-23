@@ -1,8 +1,7 @@
 {
     "name": "justpaint",
-    "version": "0.1.0",
-    "private": true,
     "type": "module",
+    "private": true,
     "scripts": {
         "types": "vue-tsc",
         "types:watch": "vue-tsc --watch",
