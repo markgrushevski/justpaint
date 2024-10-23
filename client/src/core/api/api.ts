@@ -2,7 +2,7 @@ import type { UserLogin, Work } from './types.ts'
 
 async function appFetch<T>(path: string, config: RequestInit = {}) {
     const base = import.meta.env.VITE_URL_API
-    const url = new URL('/api' + path, base)
+    const url = new URL(path, base)
     const token = localStorage.getItem('token')
     if (token) {
         config.headers = {
@@ -37,11 +37,11 @@ export const API = {
         getWorks: async (): Promise<Work[]> => {
             return appFetch('/works', { method: 'GET' })
         },
-        saveWork: async (works: Work[]) => {
+        saveWork: async (work: Work) => {
             return appFetch('/works', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(works)
+                body: JSON.stringify(work)
             })
         }
     }

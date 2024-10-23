@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { API, type User, type UserLogin } from '@core'
 
-export const useAuthStore = defineStore('auth', () => {
+export const useUserStore = defineStore('auth', () => {
     const user = ref<User | null>(null)
 
     const loginData = ref<UserLogin>({ nickname: '', password: '' })
