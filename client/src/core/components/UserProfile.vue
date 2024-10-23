@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { mdiAccount, mdiCheck } from '@mdi/js'
 import { VAvatar, VButton } from 'vueinjar'
-import { useAuthStore } from '@core'
+import { useUserStore } from '@core'
 import { ref } from 'vue'
 
-const authStore = useAuthStore()
+const userStore = useUserStore()
 
 const isLoginOpen = ref(false)
 
 function handleLogin() {
-    if (!authStore.user) {
+    if (!userStore.user) {
         if (isLoginOpen.value) {
         }
     }
@@ -19,9 +19,9 @@ function handleLogin() {
 <template>
     <div class="user-profile">
         <v-avatar
-            v-if="authStore.user"
-            :text="authStore.user.nickname"
-            :title="authStore.user.nickname"
+            v-if="userStore.user"
+            :text="userStore.user.nickname"
+            :title="userStore.user.nickname"
             :subtitle="`works ${0}`"
             class="user-avatar"
         />

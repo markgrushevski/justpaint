@@ -3,20 +3,16 @@ import { VButton } from 'vueinjar'
 import { icons, useWorksStore } from '@core'
 
 const worksStore = useWorksStore()
-
-function handleLoadWorks() {
-    worksStore.fetchWorks()
-}
 </script>
 
 <template>
     <v-button
-        :loading="worksStore.isSaving"
+        :loading="worksStore.isGetting"
         :icon="icons.work.load"
         text="Load"
         radius="md"
         variant="tonal"
         fluid
-        @click="handleLoadWorks"
+        @click="worksStore.fetchWorks"
     />
 </template>

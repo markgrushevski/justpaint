@@ -14,8 +14,10 @@ export const useWorksStore = defineStore('works', () => {
         if (isLoading.value) return
 
         isGetting.value = true
-        await API.works.getWorks()
+        const result = await API.works.getWorks()
         isGetting.value = false
+
+        console.log({ result })
     }
 
     async function saveWork() {
