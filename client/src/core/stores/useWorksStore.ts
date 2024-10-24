@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { API, type Work } from '@core'
+import { mainAPI, type Work } from '@core'
 
 export const useWorksStore = defineStore('works', () => {
+    const currentWork = ref<Work>({ name: 'new art', createdAt: '' })
     const works = ref<Work[]>([])
 
     const isGetting = ref(false)
@@ -14,7 +15,7 @@ export const useWorksStore = defineStore('works', () => {
         if (isLoading.value) return
 
         isGetting.value = true
-        const result = await API.works.getWorks()
+        const result = await mainAPI.works.getWorks()
         isGetting.value = false
 
         console.log({ result })
@@ -24,7 +25,7 @@ export const useWorksStore = defineStore('works', () => {
         if (isLoading.value) return
 
         isSaving.value = true
-        await API.works.saveWork({} as any)
+        await mainAPI.works.saveWork({} as any)
         isSaving.value = false
     }
 

@@ -8,6 +8,7 @@ import {
     mdiContentSaveOutline,
     mdiEraser,
     mdiRedo,
+    mdiRename,
     mdiSquareOutline,
     mdiTriangleOutline,
     mdiUndo,
@@ -29,7 +30,9 @@ export const icons = {
         redo: mdiRedo,
         save: mdiContentSaveOutline,
         load: mdiCloudDownloadOutline,
-        copy: mdiContentCopy
+        copy: mdiContentCopy,
+        rename: mdiRename,
+        accept: mdiCheck
     },
     info: {
         success: mdiCheck,
