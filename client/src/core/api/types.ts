@@ -8,5 +8,6 @@ export interface User {
 }
 
 export interface Work {
-    savedAt: string
+    name: string
+    createdAt: string
 }

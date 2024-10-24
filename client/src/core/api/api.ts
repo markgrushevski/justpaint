@@ -1,48 +1,32 @@
+import axios from 'axios'
 import type { UserLogin, Work } from './types.ts'
 
-async function appFetch<T>(path: string, config: RequestInit = {}) {
-    const base = import.meta.env.VITE_URL_API
-    const url = new URL(path, base)
-    const token = localStorage.getItem('token')
-    if (token) {
-        config.headers = {
-            ...config.headers,
-            Authorization: `Bearer ${token}`
-        }
-    }
-    return fetch(url, config).then<T>((res) => res.json())
-}
+const API = axios.create({
+    baseURL: import.meta.env.VITE_URL_API
+})
 
-export const API = {
-    home: async () => {
-        return appFetch('', {
-            method: 'GET'
-        })
-    },
+API.interceptors.request.use((req) => {
+    const token = localStorage.getItem('token')
+    req.headers['Authorization'] = `Bearer ${token}`
+    return req
+})
+
+export const mainAPI = {
     auth: {
         login: async (userLogin: UserLogin) => {
-            return appFetch('/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(userLogin)
-            })
+            return API.post('/login', userLogin).then((response) => response?.data)
         },
         logout: async () => {
-            return appFetch('/login', {
-                method: 'POST'
-            })
+            return API.post('/logout').then((response) => response?.data)
         }
     },
     works: {
         getWorks: async (): Promise<Work[]> => {
-            return appFetch('/works', { method: 'GET' })
+            console.log('getWorks')
+            return API.get('/works').then((response) => response?.data)
         },
         saveWork: async (work: Work) => {
-            return appFetch('/works', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(work)
-            })
+            return API.post('/works', work).then((response) => response?.data)
         }
     }
 }

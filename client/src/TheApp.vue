@@ -8,9 +8,9 @@ import { TheCanvas, DrawTools, DrawHistoryHandlers } from '@modules/canvas'
 
     <MenuToggler>
         <template #main>
+            <CopyWork />
             <SaveWork />
             <LoadWork />
-            <CopyWork />
         </template>
         <template #footer>
             <UserProfile />
