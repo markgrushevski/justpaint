@@ -22,3 +22,12 @@
     color: var(--v-color_primary);
     background-color: var(--v-color_background);
 }
+
+.grid-bg {
+    background-repeat: repeat;
+    background-image: url(modules/canvas/assets/canvas-grid-light.svg);
+}
+
+:root.dark .grid-bg {
+    background-image: url(modules/canvas/assets/canvas-grid-dark.svg);
+}

@@ -30,18 +30,11 @@ const stopWatch = watch(canvasRef, () => {
 </script>
 
 <template>
-    <canvas ref="canvas"></canvas>
+    <canvas ref="canvas" class="grid-bg"></canvas>
 </template>
 
 <style>
 canvas {
     touch-action: none;
-
-    background-repeat: repeat;
-    background-image: url(../assets/canvas-grid-light.svg);
-}
-
-:root.dark canvas {
-    background-image: url(../assets/canvas-grid-dark.svg);
 }
 </style>

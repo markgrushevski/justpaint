@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { mdiMenu, mdiMenuOpen } from '@mdi/js'
-import { VButton, VCard } from 'vueinjar'
+import { VButton, VCard, VIcon } from 'vueinjar'
+import { icons } from '../constants'
+import { ref, useTemplateRef } from 'vue'
 
-const isOpen = defineModel<boolean>()
+const isOpen = ref(false)
+const artName = ref('new art')
+
+function updateArtName(ev: Event) {
+    const el = ev.target as HTMLElement
+    artName.value = el.innerText
+}
 </script>
 
 <template>
@@ -13,13 +21,11 @@ const isOpen = defineModel<boolean>()
         variant="plain"
         @click="isOpen = !isOpen"
     />
-    <v-card
-        :class="{ 'menu_open v-shadow': isOpen }"
-        class="main-menu"
-        color="background"
-        radius="zero"
-        title="New work"
-    >
+    <v-card :class="{ 'main-menu_open v-shadow': isOpen }" class="main-menu" color="background" radius="zero">
+        <template #title>
+            <span style="min-width: 3ch" contenteditable @input="updateArtName">{{ artName }}</span>
+            <v-icon :icon="icons.work.rename" inline />
+        </template>
         <template #body><slot name="main"></slot></template>
         <template #actions-append><slot name="footer"></slot></template>
     </v-card>
@@ -34,10 +40,14 @@ const isOpen = defineModel<boolean>()
 }
 
 .main-menu {
+    overflow-y: auto;
+
     position: fixed;
     top: 0;
     right: 0;
     z-index: 10;
+
+    padding: 12px;
 
     max-width: 100dvw;
     width: 400px;
@@ -56,14 +66,42 @@ const isOpen = defineModel<boolean>()
     transition: transform ease-out 0.25s;
 }
 
-.main-menu.menu_open {
+.main-menu.main-menu_open {
     transform: translateX(0);
 }
 
-.v-card__body {
+.main-menu .main-menu__name-input {
+}
+
+.main-menu .main-menu__name-icon {
+    margin-block: 0;
+}
+
+.main-menu.v-card .v-card__header {
+    height: var(--v-size-action_sm);
+}
+
+.main-menu.v-card .v-card__header * {
+    max-height: var(--v-size-action_sm);
+}
+
+.main-menu.v-card .v-card__title {
+    display: inline-flex;
+    align-items: center;
+
+    line-height: 1;
+
+    cursor: pointer;
+}
+
+.main-menu.v-card .v-card__title span {
+}
+
+.main-menu.v-card .v-card__body {
+    overflow-y: auto;
     display: flex;
-    flex-direction: column;
     flex-grow: 1;
+    flex-direction: column;
     gap: var(--v-size-gap);
 }
 

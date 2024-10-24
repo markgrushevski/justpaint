@@ -11,7 +11,6 @@ import { WorksModule } from './works/works.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -31,11 +30,8 @@ import { WorksModule } from './works/works.module';
         };
       },
     }),
-
     AuthModule,
-
     UsersModule,
-
     WorksModule,
   ],
   controllers: [AppController],
