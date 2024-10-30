@@ -1,13 +1,22 @@
-export interface UserLogin {
+export interface Register {
     nickname: string
     password: string
 }
 
-export interface User {
+export interface Login {
     nickname: string
+    password: string
 }
 
-export interface Work {
+export interface Art {
+    id?: string
     name: string
-    createdAt: string
+    layers: ArtLayer[]
+    createdAt?: Date
+    updatedAt?: Date
+}
+
+export interface ArtLayer {
+    name: string
+    dataURL: string
 }

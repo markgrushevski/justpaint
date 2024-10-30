@@ -1,3 +1,5 @@
+import { getCanvasDataURL } from '@modules/canvas'
+
 /**
  * Изменяет размер канваса на размер родительского элемента.
  * @param {HTMLCanvasElement} canvas Элемент канваса.
@@ -24,7 +26,7 @@ export async function resizeCanvas(canvas: HTMLCanvasElement, width?: number, he
 
                 resolve(true)
             }
-            image.src = ctx.canvas.toDataURL('image/png', 1)
+            image.src = getCanvasDataURL(ctx.canvas)
         } else {
             reject(new Error('CanvasRenderingContext2D not found'))
         }

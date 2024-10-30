@@ -10,7 +10,7 @@ const historyStore = useCanvasHistoryStore()
 <template>
     <template v-if="canvasStore.canvas">
         <v-button
-            :icon="icons.work.undo"
+            :icon="icons.art.undo"
             :disabled="!historyStore.historyHandler?.hasPrevStep"
             :active="historyStore.historyHandler?.hasPrevStep"
             class="history-handler"
@@ -19,7 +19,7 @@ const historyStore = useCanvasHistoryStore()
             @click="historyStore.undo"
         />
         <v-button
-            :icon="icons.work.redo"
+            :icon="icons.art.redo"
             :disabled="!historyStore.historyHandler?.hasNextStep"
             :active="historyStore.historyHandler?.hasNextStep"
             class="history-handler"
@@ -29,5 +29,3 @@ const historyStore = useCanvasHistoryStore()
         />
     </template>
 </template>
-
-<style></style>

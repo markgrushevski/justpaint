@@ -1,3 +1,5 @@
+import { getCanvasDataURL } from '@modules/canvas'
+
 /**
  * Открывает печать канваса в новой вкладке браузера.
  * @param {HTMLCanvasElement} canvas
@@ -5,7 +7,7 @@
  * */
 export function printCanvas(canvas: HTMLCanvasElement): boolean {
     try {
-        const dataURL = canvas.toDataURL('image/png', 1)
+        const dataURL = getCanvasDataURL(canvas)
 
         const windowContent = `
         <!DOCTYPE html>
