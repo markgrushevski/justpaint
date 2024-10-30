@@ -4,7 +4,7 @@ import { CanvasToolModel } from './CanvasModel.ts'
 export type ToolClass = typeof Pen | typeof Eraser | typeof Line | typeof Circle | typeof Triangle | typeof Square
 export type ToolName = ToolClass['name']
 
-type DrawHandlerEvent = /*MouseEvent | Touch |*/ PointerEvent
+type DrawHandlerEvent = PointerEvent
 type EventHandlersMap = { [P in keyof GlobalEventHandlersEventMap]?: (ev: GlobalEventHandlersEventMap[P]) => void }
 
 abstract class CanvasTool extends CanvasToolModel {
@@ -135,27 +135,22 @@ abstract class CanvasTool extends CanvasToolModel {
     }*/
 
     private handlePointerDown(ev: PointerEvent) {
-        console.log('handlePointerDown')
         this.handleStart(ev)
     }
 
     private handlePointerMove(ev: PointerEvent) {
-        console.log('handlePointerMove')
         this.handleMove(ev)
     }
 
     private handlePointerLeave(ev: PointerEvent) {
-        console.log('handlePointerLeave')
         this.handleEnd(ev, true)
     }
 
     private handlePointerCancel(ev: PointerEvent) {
-        console.log('handlePointerCancel')
         this.handleEnd(ev, true)
     }
 
     private handlePointerUp(ev: PointerEvent) {
-        console.log('handlePointerUp')
         this.handleEnd(ev)
     }
 

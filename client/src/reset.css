@@ -25,3 +25,7 @@ body {
 input {
     font-size: 1em;
 }
+
+canvas {
+    touch-action: none;
+}
