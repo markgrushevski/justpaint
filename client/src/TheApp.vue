@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { MenuToggler, ThemeToggler, SaveWork, LoadWork, CopyWork, LayersHandler, UserProfile } from '@core'
-import { TheCanvas, DrawTools, DrawHistoryHandlers } from '@modules/canvas'
+import { MenuToggler, ThemeToggler, SaveArt, LoadArt, CopyArt, LayersHandler, UserProfile, RenameArt } from '@core'
+import { TheCanvas, DrawTools, DrawHistoryHandlers, useCanvasStore } from '@modules/canvas'
 </script>
 
 <template>
     <LayersHandler />
 
     <MenuToggler>
+        <template #title>
+            <RenameArt />
+        </template>
         <template #main>
-            <CopyWork />
-            <SaveWork />
-            <LoadWork />
+            <CopyArt :canvas="useCanvasStore().canvas" />
+            <SaveArt />
+            <LoadArt />
         </template>
         <template #footer>
             <UserProfile />

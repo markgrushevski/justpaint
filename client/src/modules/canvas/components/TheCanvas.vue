@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, useTemplateRef, watch } from 'vue'
+import { onMounted, useTemplateRef, watch } from 'vue'
 import { resizeCanvas } from '../utils'
 import { useCanvasHistoryStore, useCanvasStore } from '../stores'
 import { CanvasHistory } from '../models'
@@ -32,9 +32,3 @@ const stopWatch = watch(canvasRef, () => {
 <template>
     <canvas ref="canvas" class="grid-bg"></canvas>
 </template>
-
-<style>
-canvas {
-    touch-action: none;
-}
-</style>

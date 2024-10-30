@@ -1,3 +1,5 @@
+import { getCanvasDataURL } from '../utils'
+
 abstract class CanvasHandlerModel {
     protected constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
@@ -6,11 +8,17 @@ abstract class CanvasHandlerModel {
     protected canvas: HTMLCanvasElement
 
     public get canvasDataURL(): string {
-        return this.canvas.toDataURL('image/png', 1)
+        return getCanvasDataURL(this.canvas)
     }
 }
 
 export abstract class CanvasHistoryModel extends CanvasHandlerModel {
+    protected constructor(canvas: HTMLCanvasElement) {
+        super(canvas)
+    }
+}
+
+export abstract class CanvasLayersModel extends CanvasHandlerModel {
     protected constructor(canvas: HTMLCanvasElement) {
         super(canvas)
     }

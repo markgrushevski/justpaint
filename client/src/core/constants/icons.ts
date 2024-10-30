@@ -7,6 +7,7 @@ import {
     mdiContentCopy,
     mdiContentSaveOutline,
     mdiEraser,
+    mdiLogout,
     mdiRedo,
     mdiRename,
     mdiSquareOutline,
@@ -25,7 +26,7 @@ export const icons = {
         Triangle: mdiTriangleOutline,
         Square: mdiSquareOutline
     },
-    work: {
+    art: {
         undo: mdiUndo,
         redo: mdiRedo,
         save: mdiContentSaveOutline,
@@ -37,5 +38,8 @@ export const icons = {
     info: {
         success: mdiCheck,
         error: mdiWindowClose
+    },
+    auth: {
+        logout: mdiLogout
     }
 }

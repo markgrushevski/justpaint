@@ -1,19 +1,22 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import { mainAPI, type User, type UserLogin } from '@core'
+import { computed, reactive, ref } from 'vue'
+import { type Login, mainAPI } from '../api'
 
 export const useUserStore = defineStore('auth', () => {
-    const user = ref<User | null>(null)
+    const isLoggedIn = ref(false)
 
-    const loginData = ref<UserLogin>({ nickname: '', password: '' })
+    const formData = ref<Login>({
+        nickname: '',
+        password: ''
+    })
 
-    async function login() {
-        await mainAPI.auth.login(loginData.value)
+    function $reset() {
+        isLoggedIn.value = false
+        formData.value = {
+            nickname: '',
+            password: ''
+        }
     }
 
-    async function logout() {
-        await mainAPI.auth.logout()
-    }
-
-    return { user, loginData, login, logout }
+    return { isLoggedIn, formData, $reset }
 })
