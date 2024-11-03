@@ -8,7 +8,7 @@ import { ArtsService } from '../arts/arts.service'
 export class UsersService {
     constructor(
         @InjectRepository(UserEntity)
-        private readonly userRepository: Repository<UserEntity>,
+        private readonly userRepository: Repository<UserEntity>
     ) {}
 
     async checkNickname(nickname: string): Promise<string> {
@@ -27,7 +27,7 @@ export class UsersService {
     async create(nickname: string, password: string): Promise<string> {
         const res = await this.userRepository.insert({
             nickname,
-            password,
+            password
         })
 
         return res.identifiers[0].id

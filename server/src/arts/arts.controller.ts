@@ -18,12 +18,16 @@ export class ArtsController {
     }
 
     @Post()
-    async save(@Req() req: Request, @Body() createArtDto: SaveArtDto) {
+    async save(@Req() req: Request, @Body() createArtDto: SaveArtDto): Promise<{ artId: string; layerIds: string[] }> {
         const user = req.user
         if (!user?.sub) throw new BadRequestException()
 
-        await this.artsService.save(user.sub, createArtDto)
-        return true
+        const savedArt = await this.artsService.save(user.sub, createArtDto)
+
+        return {
+            artId: savedArt.id,
+            layerIds: savedArt.layers!.map((layer) => layer.id)
+        }
     }
 
     @Delete('/:id')

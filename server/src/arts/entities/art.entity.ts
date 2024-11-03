@@ -6,7 +6,7 @@ import {
     ManyToOne,
     OneToMany,
     PrimaryGeneratedColumn,
-    UpdateDateColumn,
+    UpdateDateColumn
 } from 'typeorm'
 import { Exclude } from 'class-transformer'
 import { UserEntity } from '../../users/entities/user.entity'
@@ -15,7 +15,7 @@ import { LayerEntity } from './layer.entity'
 @Entity('arts')
 export class ArtEntity {
     @PrimaryGeneratedColumn('uuid')
-    id: string | undefined
+    id: string
 
     @Exclude()
     @Column({ type: 'uuid' })

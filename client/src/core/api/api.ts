@@ -1,5 +1,6 @@
 import axios from 'axios'
-import type { Login, Art, Register } from './types.ts'
+import type { Login, Art, Register, SavedArtIds } from './types.ts'
+import { useUserStore } from '../stores'
 
 const API = axios.create({
     baseURL: import.meta.env.VITE_URL_API,
@@ -11,6 +12,15 @@ API.interceptors.request.use((req) => {
     req.headers['Authorization'] = `Bearer ${token}`
     return req
 })
+
+API.interceptors.response.use(
+    (res) => res,
+    (error) => {
+        if (error.status === 401) {
+            useUserStore().isLoggedIn = false
+        }
+    }
+)
 
 export const mainAPI = {
     auth: {
@@ -33,7 +43,7 @@ export const mainAPI = {
         getArts: async (): Promise<Art[]> => {
             return API.get('/arts').then((response) => response?.data)
         },
-        saveArt: async (art: Art) => {
+        saveArt: async (art: Art): Promise<SavedArtIds> => {
             return API.post('/arts', art).then((response) => response?.data)
         }
     }
