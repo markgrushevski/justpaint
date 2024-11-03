@@ -10,6 +10,6 @@ import { LayersService } from './services/layers.service'
     imports: [TypeOrmModule.forFeature([ArtEntity, LayerEntity])],
     controllers: [ArtsController],
     providers: [ArtsService, LayersService],
-    exports: [ArtsService, LayersService],
+    exports: [ArtsService, LayersService]
 })
 export class ArtsModule {}

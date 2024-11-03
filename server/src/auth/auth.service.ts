@@ -9,7 +9,7 @@ import { JWTPayload } from './interfaces/auth.interfaces'
 export class AuthService {
     constructor(
         private readonly usersService: UsersService,
-        private readonly jwtService: JwtService,
+        private readonly jwtService: JwtService
     ) {}
 
     async register(res: Response, registerDto: RegisterDto): Promise<boolean> {
@@ -53,7 +53,7 @@ export class AuthService {
 
     private async generateToken(userId: string, nickname: string): Promise<{ accessToken: string }> {
         const payload: JWTPayload = { sub: userId, username: nickname }
-        const accessToken = await this.jwtService.signAsync(payload)
+        const accessToken = await this.jwtService.signAsync(payload, { expiresIn: '20m' })
         return { accessToken }
     }
 
@@ -61,16 +61,15 @@ export class AuthService {
         res.cookie('jwt', accessToken, {
             maxAge: 20 * 60 * 1000,
             httpOnly: true,
-            secure: false,
+            secure: false
         })
-
         return true
     }
 
     private clearSessionIdCookie(res: Response) {
         res.clearCookie('jwt', {
             httpOnly: true,
-            secure: false,
+            secure: false
         })
         return true
     }
