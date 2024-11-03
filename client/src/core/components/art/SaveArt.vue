@@ -15,9 +15,14 @@ async function handleSaveArt() {
         isSaving.value = true
 
         artsStore.art.layers[0].dataURL = getCanvasDataURL(useCanvasStore().canvas!)
-        console.log('save', artsStore.art)
-        const success = await mainAPI.arts.saveArt(artsStore.art)
-        console.log('saved', success)
+        console.log('save')
+        const savedArtIds = await mainAPI.arts.saveArt(artsStore.art)
+        console.log('saved', savedArtIds)
+        artsStore.art.id = savedArtIds.artId
+        artsStore.art.layers.forEach((layer, i) => {
+            layer.id = savedArtIds.layerIds[i]
+        })
+        console.log('art', artsStore.art)
     } catch (e) {
         console.error(e)
     } finally {

@@ -29,20 +29,20 @@ import { APP_INTERCEPTOR } from '@nestjs/core'
                     relationLoadStrategy: 'query',
                     autoLoadEntities: true,
                     synchronize: true,
-                    logging: true,
+                    logging: true
                 }
-            },
+            }
         }),
         AuthModule,
-        ArtsModule,
+        ArtsModule
     ],
     controllers: [AppController],
     providers: [
         {
             provide: APP_INTERCEPTOR,
-            useClass: ClassSerializerInterceptor,
+            useClass: ClassSerializerInterceptor
         },
-        AppService,
-    ],
+        AppService
+    ]
 })
 export class AppModule {}

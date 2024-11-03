@@ -16,11 +16,11 @@ import { UsersModule } from '../users/users.module'
             useFactory: (configService: ConfigService) => {
                 const secret = configService.get<string>('JWT_SECRET') ?? ''
                 return { secret, signOptions: { expiresIn: '7d' } }
-            },
-        }),
+            }
+        })
     ],
     controllers: [AuthController],
     providers: [AuthService],
-    exports: [AuthService],
+    exports: [AuthService]
 })
 export class AuthModule {}

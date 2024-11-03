@@ -1,46 +1,50 @@
-import { Injectable } from '@nestjs/common'
+import { Buffer } from 'node:buffer'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { SaveArtDto } from './dto/arts.dto'
 import { ArtEntity } from './entities/art.entity'
-import { ArtsRelations, CompressedLayer, DecompressedLayer } from './types/arts.types'
+import { CompressedLayer, DecompressedLayer } from './types/arts.types'
 import { LayersService } from './services/layers.service'
-import { LayerEntity } from './entities/layer.entity'
 
 @Injectable()
 export class ArtsService {
     constructor(
         @InjectRepository(ArtEntity)
         private readonly artsRepository: Repository<ArtEntity>,
-        private readonly layersService: LayersService,
+        private readonly layersService: LayersService
     ) {}
 
     async get(userId: string): Promise<ArtEntity[]> {
-        const relations: ArtsRelations = ['layers']
-        const arts = await this.artsRepository.find({ where: { userId }, relations })
+        const arts = await this.artsRepository.find({ where: { userId } })
 
-        return Promise.all(
-            arts.map(async (art) => {
-                art.layers = await this.decompressLayers(art.layers ?? [])
-                return art
-            }),
-        )
+        for (const art of arts) {
+            const layers = await this.layersService.get(art.id!)
+            art.layers = (await this.decompressLayers(layers ?? [])) ?? []
+        }
+
+        return arts
     }
 
     async save(userId: string, art: SaveArtDto): Promise<ArtEntity> {
-        const savedArt = await this.artsRepository.save({
-            ...art,
-            userId,
-        })
+        const { layers, ...artEntity } = art
 
-        const compressedLayers = await this.compressLayers(art.layers)
-        const layers = compressedLayers.map((layer) => {
-            layer.artId = savedArt.id!
-            return layer as LayerEntity
-        })
-        const savedLayers = await this.layersService.save(layers)
+        const savedArt = await this.artsRepository.save({ ...artEntity, userId })
 
-        return { ...savedArt, layers: savedLayers }
+        const compressedLayers = await this.compressLayers(layers)
+        if (compressedLayers) {
+            compressedLayers.forEach((layer) => {
+                layer.artId = savedArt.id!
+            })
+        } else {
+            throw new BadRequestException()
+        }
+
+        savedArt.layers = await this.layersService.save(
+            compressedLayers as Required<(typeof compressedLayers)[number]>[]
+        )
+
+        return savedArt
     }
 
     async delete(userId: string, artId: string): Promise<boolean> {
@@ -48,49 +52,76 @@ export class ArtsService {
         return true
     }
 
-    private async compressLayers<T extends object>(layers: DecompressedLayer<T>[]): Promise<CompressedLayer<T>[]> {
-        return Promise.all(
-            layers.map(async (layer) => {
-                return {
-                    ...layer,
-                    dataURL: await this.compressString(layer.dataURL),
-                }
-            }),
-        )
+    private async compressLayers<T extends { dataURL: string }>(
+        layers: DecompressedLayer<T>[]
+    ): Promise<CompressedLayer<T>[] | undefined> {
+        const compressedLayers: CompressedLayer<T>[] = []
+
+        for (const layer of layers) {
+            const dataURL = await this.compressDataURL(layer.dataURL)
+            if (!dataURL) return
+            compressedLayers.push({ ...layer, dataURL })
+        }
+
+        return compressedLayers
     }
 
-    private async decompressLayers<T extends object>(layers: CompressedLayer<T>[]): Promise<DecompressedLayer<T>[]> {
-        return Promise.all(
-            layers.map(async (layer) => {
-                return {
-                    ...layer,
-                    dataURL: await this.decompressString(layer.dataURL),
-                }
-            }),
-        )
+    private async decompressLayers<T extends { dataURL: Buffer }>(
+        layers: CompressedLayer<T>[]
+    ): Promise<DecompressedLayer<T>[] | undefined> {
+        const decompressedLayers: DecompressedLayer<T>[] = []
+
+        for (const layer of layers) {
+            const dataURL = await this.decompressDataURL(layer.dataURL)
+            if (!dataURL) return
+            decompressedLayers.push({ ...layer, dataURL })
+        }
+
+        return decompressedLayers
     }
 
-    private async compressString(string: string, encoding: CompressionFormat = 'gzip'): Promise<ArrayBuffer> {
-        console.log('compressString', { string })
-        const compStream = new CompressionStream(encoding)
-        const writer = compStream.writable.getWriter()
-        const encoded = new TextEncoder().encode(string)
-        console.log('compressString', { encoded })
-        writer.write(encoded)
-        writer.close()
-        return new Response(compStream.readable).arrayBuffer()
+    private async compressDataURL(dataURL: string): Promise<Buffer | undefined> {
+        try {
+            console.log('compressDataURL', { dataURL })
+            /*const compStream = new CompressionStream(encoding)
+            const writer = compStream.writable.getWriter()
+            const encoded = new TextEncoder().encode(string)
+            await writer.write(encoded)
+            await writer.close()
+            const result = await new Response(compStream.readable).arrayBuffer()*/
+            const base64 = this.dataURLToBase64(dataURL)
+            const buffer = Buffer.from(base64, 'base64')
+            console.log('compressDataURL result', { buffer })
+            return buffer
+        } catch (e) {
+            console.error('compressDataURL', e)
+        }
     }
 
-    private async decompressString(byteArray: ArrayBuffer, encoding: CompressionFormat = 'gzip'): Promise<string> {
-        console.log('decompressString', { byteArray })
-        const decompStream = new DecompressionStream(encoding)
-        const writer = decompStream.writable.getWriter()
-        writer.write(byteArray)
-        writer.close()
-        return new Response(decompStream.readable).arrayBuffer().then((arrayBuffer) => {
-            const decoded = new TextDecoder().decode(arrayBuffer)
-            console.log('decompressString', { decoded })
-            return decoded
-        })
+    private async decompressDataURL(buffer: Buffer): Promise<string | undefined> {
+        try {
+            console.log('decompressDataURL', { buffer })
+            /*const decompStream = new DecompressionStream(encoding)
+            const writer = decompStream.writable.getWriter()
+            await writer.write(buffer)
+            await writer.close()
+            const result = await new Response(decompStream.readable).arrayBuffer().then((arrayBuffer) => {
+                return new TextDecoder().decode(arrayBuffer)
+            })*/
+            const base64 = buffer.toString('base64')
+            const dataURL = this.base64ToDataURL(base64)
+            console.log('decompressDataURL', { dataURL })
+            return dataURL
+        } catch (e) {
+            console.error('decompressDataURL', e)
+        }
+    }
+
+    private dataURLToBase64(str: string): string {
+        return str.replace('data:image/png;base64,', '')
+    }
+
+    private base64ToDataURL(str: string): string {
+        return 'data:image/png;base64,' + str
     }
 }

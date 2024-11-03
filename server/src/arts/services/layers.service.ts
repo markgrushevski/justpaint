@@ -7,7 +7,7 @@ import { LayerEntity } from '../entities/layer.entity'
 export class LayersService {
     constructor(
         @InjectRepository(LayerEntity)
-        private readonly layersRepository: Repository<LayerEntity>,
+        private readonly layersRepository: Repository<LayerEntity>
     ) {}
 
     async get(artId: string): Promise<LayerEntity[]> {
@@ -15,6 +15,8 @@ export class LayersService {
     }
 
     async save(layers: LayerEntity[]): Promise<LayerEntity[]> {
+        console.log('save layers', layers)
+
         return this.layersRepository.save(layers)
     }
 }

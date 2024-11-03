@@ -2,21 +2,31 @@
 import { ref } from 'vue'
 import { VButton } from 'vueinjar'
 import { copyToClipboard, icons } from '@core'
-import { getCanvasBlob, getCanvasDataURL, useCanvasStore } from '@modules/canvas'
+import { getCanvasBlob, getCanvasDataURL } from '@modules/canvas'
 
-const p = defineProps<{ column?: boolean; canvas?: HTMLCanvasElement | null }>()
+const p = defineProps<{ column?: boolean; canvas?: HTMLCanvasElement | null; dataUrl?: string }>()
+const emit = defineEmits<{
+    (e: 'copyArt', value: 'text' | 'art'): void
+}>()
 
 async function handleCopyTextArt() {
+    emit('copyArt', 'text')
     if (p.canvas) {
-        const canvasDataURL = getCanvasDataURL(p.canvas)
-        await copyToClipboard('text', canvasDataURL)
+        const dataURL = getCanvasDataURL(p.canvas)
+        await copyToClipboard('text', dataURL)
+    } else if (p.dataUrl) {
+        await copyToClipboard('text', p.dataUrl)
     }
 }
 
 async function handleCopyArt() {
+    emit('copyArt', 'art')
     if (p.canvas) {
-        const canvasBlob = await getCanvasBlob(p.canvas)
-        await copyToClipboard('image', canvasBlob)
+        const blob = await getCanvasBlob(p.canvas)
+        await copyToClipboard('image', blob)
+    } else if (p.dataUrl) {
+        const blob = await (await fetch(p.dataUrl)).blob()
+        await copyToClipboard('image', blob)
     }
 }
 </script>

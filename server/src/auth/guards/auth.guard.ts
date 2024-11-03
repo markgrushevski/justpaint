@@ -7,7 +7,7 @@ import { Request } from '../interfaces/auth.interfaces'
 export class AuthGuard implements CanActivate {
     constructor(
         private readonly jwtService: JwtService,
-        private readonly configService: ConfigService,
+        private readonly configService: ConfigService
     ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {

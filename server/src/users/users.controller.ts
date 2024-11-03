@@ -7,7 +7,7 @@ import {
     Param,
     Post,
     Req,
-    UseGuards,
+    UseGuards
 } from '@nestjs/common'
 import { UsersService } from './users.service'
 import { Request } from '../auth/interfaces/auth.interfaces'
