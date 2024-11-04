@@ -59,7 +59,7 @@ export class AuthService {
 
     private setSessionIdCookie(res: Response, accessToken: string): boolean {
         res.cookie('jwt', accessToken, {
-            maxAge: 20 * 60 * 1000,
+            maxAge: 60 * 60 * 1000,
             httpOnly: true,
             secure: false
         })
