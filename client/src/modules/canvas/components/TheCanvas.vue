@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 import { onMounted, useTemplateRef, watch } from 'vue'
 import { resizeCanvas } from '../utils'
 import { useCanvasHistoryStore, useCanvasStore } from '../stores'
@@ -32,3 +32,15 @@ const stopWatch = watch(canvasRef, () => {
 <template>
     <canvas ref="canvas" class="grid-bg"></canvas>
 </template>
+
+<style>
+canvas {
+    transition:
+        0.15s filter ease-in-out,
+        0.15s opacity ease-in-out;
+}
+
+canvas.blocked {
+    pointer-events: none;
+}
+</style>

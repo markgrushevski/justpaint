@@ -1,5 +1,6 @@
 import type { CanvasHistory } from './CanvasHistory'
 import { CanvasToolModel } from './CanvasModel.ts'
+import { createImage } from '@modules/canvas'
 
 export type ToolClass = typeof Pen | typeof Eraser | typeof Line | typeof Circle | typeof Triangle | typeof Square
 export type ToolName = ToolClass['name']
@@ -9,39 +10,9 @@ type EventHandlersMap = { [P in keyof GlobalEventHandlersEventMap]?: (ev: Global
 
 abstract class CanvasTool extends CanvasToolModel {
     protected static name = 'CanvasTool'
-
-    protected abstract drawStartHandler(ev: DrawHandlerEvent): void
-    protected abstract drawHandler(ev: DrawHandlerEvent): void
-    protected abstract drawEndHandler(ev: DrawHandlerEvent): void
-
-    protected constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
-        super(canvas)
-
-        this.canvasHistory = canvasHistory
-        this.ctx.lineCap = 'round'
-        this.ctx.lineJoin = 'round'
-        this.ctx.imageSmoothingEnabled = true
-        this.ctx.imageSmoothingQuality = 'high'
-
-        this.destroy()
-        this.listen()
-
-        if (import.meta.env.DEV) {
-            this.ctx.strokeStyle = '#8000ff'
-            this.ctx.fillStyle = '#8080ff'
-            this.ctx.lineWidth = 2
-        }
-    }
-
-    // public
-
-    // protected
-
     protected canvasHistory: CanvasHistory
-
     protected isFigure = true
     protected mouseDown = false
-
     protected drawData = {
         start: {
             x: 0,
@@ -63,6 +34,9 @@ abstract class CanvasTool extends CanvasToolModel {
         }
     }
 
+    // public
+
+    // protected
     protected eventHandlersMap: EventHandlersMap = {
         /*mousedown: this.handleMouseDown,
         mousemove: this.handleMouseMove,
@@ -80,20 +54,49 @@ abstract class CanvasTool extends CanvasToolModel {
         /*  wheel: this.handleWheel */
     }
 
-    // private
+    protected constructor(canvas: HTMLCanvasElement, canvasHistory: CanvasHistory) {
+        super(canvas)
 
-    private listen() {
-        Object.entries(this.eventHandlersMap).forEach(([eventName, listener]) => {
-            // @ts-expect-error expect that keys must be in canvas element
-            this.canvas[`on${eventName}`] = listener.bind(this)
-        })
+        this.canvasHistory = canvasHistory
+        this.ctx.lineCap = 'round'
+        this.ctx.lineJoin = 'round'
+        this.ctx.imageSmoothingEnabled = true
+        this.ctx.imageSmoothingQuality = 'high'
+
+        this.destroy()
+        this.listen()
+
+        if (import.meta.env.DEV) {
+            this.ctx.strokeStyle = '#8000ff'
+            this.ctx.fillStyle = '#8080ff'
+            this.ctx.lineWidth = 2
+        } else {
+            this.ctx.strokeStyle = '#000000'
+            this.ctx.fillStyle = '#ffffff'
+            this.ctx.lineWidth = 1
+        }
     }
 
-    private destroy() {
-        Object.entries(this.eventHandlersMap).forEach(([eventName]) => {
-            // @ts-expect-error expect that keys must be in canvas element
-            this.canvas[`on${eventName}`] = null
-        })
+    public get strokeColor(): string {
+        return this.ctx.strokeStyle as string
+    }
+
+    public set strokeColor(color: string) {
+        this.ctx.strokeStyle = color
+    }
+
+    public get fillColor(): string {
+        return this.ctx.fillStyle as string
+    }
+
+    // private
+
+    public set fillColor(color: string) {
+        this.ctx.fillStyle = color
+    }
+
+    public get lineWeight(): number {
+        return this.ctx.lineWidth
     }
 
     // handlers
@@ -134,6 +137,65 @@ abstract class CanvasTool extends CanvasToolModel {
         this.handleEnd(touchEv, true)
     }*/
 
+    public set lineWeight(number: number) {
+        this.ctx.lineWidth = number
+    }
+
+    public async loadStateToCanvas(canvasDataURL: string, force?: boolean): Promise<boolean> {
+        if (canvasDataURL) {
+            const image = await createImage(canvasDataURL)
+            if (this.mouseDown || force) {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+                this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+                return true
+            }
+        } else {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+        }
+
+        return false
+
+        /*return new Promise((resolve) => {
+            if (canvasDataURL) {
+                const image = document.createElement('img')
+                image.onload = () => {
+                    if (this.mouseDown || force) {
+                        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+                        this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
+                        resolve(true)
+                    } else {
+                        resolve(false)
+                    }
+                }
+                image.src = canvasDataURL
+            } else {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+            }
+        })*/
+    }
+
+    protected abstract drawStartHandler(ev: DrawHandlerEvent): void
+
+    protected abstract drawHandler(ev: DrawHandlerEvent): void
+
+    protected abstract drawEndHandler(ev: DrawHandlerEvent): void
+
+    // common
+
+    private listen() {
+        Object.entries(this.eventHandlersMap).forEach(([eventName, listener]) => {
+            // @ts-expect-error expect that keys must be in canvas element
+            this.canvas[`on${eventName}`] = listener.bind(this)
+        })
+    }
+
+    private destroy() {
+        Object.entries(this.eventHandlersMap).forEach(([eventName]) => {
+            // @ts-expect-error expect that keys must be in canvas element
+            this.canvas[`on${eventName}`] = null
+        })
+    }
+
     private handlePointerDown(ev: PointerEvent) {
         this.handleStart(ev)
     }
@@ -154,7 +216,7 @@ abstract class CanvasTool extends CanvasToolModel {
         this.handleEnd(ev)
     }
 
-    // common
+    // public getters
 
     private handleStart(ev: DrawHandlerEvent) {
         this.mouseDown = true
@@ -190,6 +252,8 @@ abstract class CanvasTool extends CanvasToolModel {
         }
     }
 
+    // public setters
+
     private setStartDrawData(ev: DrawHandlerEvent) {
         this.drawData.start.x = ev.pageX - (ev.target as HTMLCanvasElement).offsetLeft
         this.drawData.start.y = ev.pageY - (ev.target as HTMLCanvasElement).offsetTop
@@ -210,54 +274,6 @@ abstract class CanvasTool extends CanvasToolModel {
             ...this.drawData.current,
             canvasDataURL: this.canvasDataURL
         }
-    }
-
-    public loadStateToCanvas(canvasDataURL: string, force?: boolean): Promise<boolean> {
-        return new Promise((resolve) => {
-            if (canvasDataURL) {
-                const image = new Image()
-                image.onload = () => {
-                    if (this.mouseDown || force) {
-                        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-                        this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height)
-                        resolve(true)
-                    } else {
-                        resolve(false)
-                    }
-                }
-                image.src = canvasDataURL
-            } else {
-                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-            }
-        })
-    }
-
-    // public getters
-
-    public get strokeColor(): string {
-        return this.ctx.strokeStyle as string
-    }
-
-    public get fillColor(): string {
-        return this.ctx.fillStyle as string
-    }
-
-    public get lineWeight(): number {
-        return this.ctx.lineWidth
-    }
-
-    // public setters
-
-    public set strokeColor(color: string) {
-        this.ctx.strokeStyle = color
-    }
-
-    public set fillColor(color: string) {
-        this.ctx.fillStyle = color
-    }
-
-    public set lineWeight(number: number) {
-        this.ctx.lineWidth = number
     }
 }
 

@@ -1,10 +1,10 @@
-<script setup lang="ts">
+<script lang="ts" setup>
+import { ref, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
-import { VButton, VCard } from 'vueinjar'
-import { icons, mainAPI, useArtsStore, CopyArt, useUserStore, type Art } from '@core'
 import { useDateFormat } from '@vueuse/core'
-import { onMounted, ref, watch } from 'vue'
-import { getCanvasDataURL } from '@modules/canvas'
+import { VButton, VCard } from 'vueinjar'
+import { type Art, CopyArt, icons, mainAPI, useArtsStore, useUserStore } from '@core'
+import { getCompositedArts } from '@modules/canvas'
 
 const {
     isFetching,
@@ -23,40 +23,15 @@ const artsStore = useArtsStore()
 
 const arts = ref<Art[]>()
 
-async function getCompositedArts(arts: Art[]): Promise<Art[]> {
-    console.log({ toComposite: arts })
-
-    return Promise.all(
-        arts.map(async (art) => {
-            return {
-                ...art,
-                dataURL: await getCompositedArtLayers(art)
-            }
-        })
-    )
-}
-
-async function getCompositedArtLayers(art: Art): Promise<string> {
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')!
-
-    for (const layer of art.layers) {
-        await new Promise((resolve) => {
-            if (layer.dataURL) {
-                const image = new Image()
-                image.onload = () => {
-                    ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-                    resolve(true)
-                }
-                image.src = layer.dataURL
-            }
-        })
+/* async function handleCopyCompositedArt(target: 'text' | 'image', art: Art) {
+    const dataURL = art.dataURL ?? ''
+    if (target === 'text') {
+        await copyToClipboard(target, dataURL ?? '')
+    } else if (target === 'image') {
+        const blob = await (await fetch(dataURL)).blob()
+        await copyToClipboard(target, blob)
     }
-
-    return getCanvasDataURL(canvas)
-}
-
-function handleCopyCompositedArt() {}
+} */
 
 watch(
     fetchedArts,
@@ -70,18 +45,18 @@ watch(
 
 <template>
     <v-button
-        :loading="isFetching"
-        :icon="icons.art.load"
         :disabled="!usersStore.isLoggedIn"
-        text="Load"
-        radius="md"
-        variant="tonal"
+        :icon="icons.art.load"
+        :loading="isFetching"
         fluid
+        radius="md"
+        text="Load"
+        variant="tonal"
         @click="refetch"
     />
-    <v-card class="arts" v-if="arts?.length">
+    <v-card v-if="arts?.length" class="arts">
         <template #body>
-            <div class="art" v-for="art in arts" :key="art.id">
+            <div v-for="art in arts" :key="art.id" class="art">
                 <div class="art__image grid-bg">
                     <img :src="art.dataURL" alt="" />
                 </div>
@@ -89,8 +64,8 @@ watch(
                     <div class="art__title">{{ art.name }}</div>
                     <div class="art__subtitle">created at <br />{{ useDateFormat(art.createdAt, 'YYYY-MM-DD') }}</div>
                 </div>
-                <v-button variant="tonal" text="Apply" size="sm" radius="md" />
-                <CopyArt class="art__action" column @copyArt="handleCopyCompositedArt" />
+                <v-button radius="md" size="sm" text="Apply" variant="tonal" />
+                <CopyArt :data-url="art.dataURL" class="art__action" column />
             </div>
         </template>
     </v-card>
@@ -119,7 +94,7 @@ watch(
     flex-shrink: 0;
 }
 
-.art__image img {
+.art__image > * {
     max-width: 100%;
     max-height: 100%;
 }

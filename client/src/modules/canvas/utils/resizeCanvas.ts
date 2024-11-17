@@ -1,4 +1,4 @@
-import { getCanvasDataURL } from '@modules/canvas'
+import { createImage, getCanvasDataURL } from '@modules/canvas'
 
 /**
  * Изменяет размер канваса на размер родительского элемента.
@@ -9,26 +9,23 @@ import { getCanvasDataURL } from '@modules/canvas'
  * @return {Promise<boolean>} Промис, который резолвится после успешной перерисовки в новом размере.
  * */
 export async function resizeCanvas(canvas: HTMLCanvasElement, width?: number, height?: number): Promise<boolean> {
-    return new Promise<boolean>((resolve, reject) => {
-        const _width = Math.round(canvas.parentElement!.clientWidth)
-        const _height = Math.round(canvas.parentElement!.clientHeight)
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+        const parentWidth = Math.round(canvas.parentElement!.clientWidth)
+        const parentHeight = Math.round(canvas.parentElement!.clientHeight)
 
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-            const image = new Image()
-            image.onload = () => {
-                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+        const dataURL = getCanvasDataURL(ctx.canvas)
+        const image = await createImage(dataURL)
 
-                ctx.canvas.width = width ?? _width
-                ctx.canvas.height = height ?? _height
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
 
-                ctx.drawImage(image, 0, 0, ctx.canvas.width, ctx.canvas.height)
+        ctx.canvas.width = width ?? parentWidth
+        ctx.canvas.height = height ?? parentHeight
 
-                resolve(true)
-            }
-            image.src = getCanvasDataURL(ctx.canvas)
-        } else {
-            reject(new Error('CanvasRenderingContext2D not found'))
-        }
-    })
+        ctx.drawImage(image, 0, 0, ctx.canvas.width, ctx.canvas.height)
+
+        return true
+    } else {
+        throw new Error('CanvasRenderingContext2D not found')
+    }
 }
