@@ -4,5 +4,5 @@
  * @return {string}
  */
 export function getCanvasDataURL(canvas: HTMLCanvasElement): string {
-    return canvas?.toDataURL('image/png', 1) ?? ''
+    return canvas.toDataURL('image/png', 1) ?? ''
 }

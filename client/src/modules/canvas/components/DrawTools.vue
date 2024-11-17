@@ -23,11 +23,12 @@ function handleClick(ToolClass: (typeof toolsStore.toolClasses)[number]) {
         <v-button
             v-for="ToolClass in toolsStore.toolClasses"
             :key="ToolClass.name"
+            :active="getIsActive(ToolClass)"
             :icon="icons.draw[ToolClass.name]"
             :title="ToolClass.name"
-            :active="getIsActive(ToolClass)"
-            size="xl"
             radius="zero"
+            size="lg"
+            spaced
             variant="plain"
             @click="handleClick(ToolClass)"
         />
