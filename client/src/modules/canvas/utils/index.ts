@@ -1,4 +1,6 @@
+export * from './createImage.ts'
 export * from './getCanvasBlob.ts'
 export * from './getCanvasDataURL.ts'
 export * from './printCanvas.ts'
+export * from './getCompositedArts.ts'
 export * from './resizeCanvas.ts'

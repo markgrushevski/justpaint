@@ -12,6 +12,7 @@ export interface Art {
     id?: string
     name: string
     layers: ArtLayer[]
+    /** after compositing layers */
     dataURL?: string
     createdAt?: Date
     updatedAt?: Date
@@ -22,6 +23,10 @@ export interface ArtLayer {
     artId?: string
     name: string
     dataURL: string
+    /** after compositing layers */
+    width?: number
+    /** after compositing layers */
+    height?: number
 }
 
 export interface SavedArtIds {

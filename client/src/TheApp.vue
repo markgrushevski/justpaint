@@ -1,17 +1,19 @@
-<script setup lang="ts">
-import { MenuToggler, ThemeToggler, SaveArt, LoadArt, CopyArt, LayersHandler, UserProfile, RenameArt } from '@core'
-import { TheCanvas, DrawTools, DrawHistoryHandlers, useCanvasStore } from '@modules/canvas'
+<script lang="ts" setup>
+import { CopyArt, LayersHandler, LoadArt, MenuToggler, RenameArt, SaveArt, ThemeToggler, UserProfile } from '@core'
+import { DrawHistoryHandlers, DrawSettings, DrawTools, TheCanvas, useCanvasStore } from '@modules/canvas'
+
+const canvasStore = useCanvasStore()
 </script>
 
 <template>
-    <LayersHandler />
+    <LayersHandler v-if="false" />
 
     <MenuToggler>
         <template #title>
             <RenameArt />
         </template>
         <template #main>
-            <CopyArt :canvas="useCanvasStore().canvas" />
+            <CopyArt :canvas="canvasStore.canvas" />
             <SaveArt />
             <LoadArt />
         </template>
@@ -28,7 +30,7 @@ import { TheCanvas, DrawTools, DrawHistoryHandlers, useCanvasStore } from '@modu
         <TheCanvas />
     </div>
     <div class="app__footer">
-        <!--<DrawSettings />-->
+        <DrawSettings />
         <DrawTools />
     </div>
 </template>
@@ -40,7 +42,7 @@ import { TheCanvas, DrawTools, DrawHistoryHandlers, useCanvasStore } from '@modu
 .app__header {
     position: relative;
 
-    height: 48px;
+    height: var(--v-size-action_lg);
 
     display: flex;
     align-items: center;
@@ -50,7 +52,7 @@ import { TheCanvas, DrawTools, DrawHistoryHandlers, useCanvasStore } from '@modu
 }
 
 .app__main {
-    height: calc(100dvh - 48px - 60px);
+    height: calc(100dvh - var(--v-size-action_lg) - var(--v-size-action_lg));
 
     display: flex;
     align-items: center;
@@ -58,12 +60,26 @@ import { TheCanvas, DrawTools, DrawHistoryHandlers, useCanvasStore } from '@modu
 }
 
 .app__footer {
-    height: 60px;
+    height: var(--v-size-action_lg);
 
     display: flex;
     align-items: center;
     justify-content: center;
 
     background-color: var(--v-color_surface);
+}
+
+@media (width >= 600px) {
+    .app__main {
+        height: calc(100dvh - var(--v-size-action_lg) - var(--v-size-action_xl));
+    }
+
+    .app__footer {
+        height: var(--v-size-action_xl);
+    }
+
+    .app__footer .v-button {
+        --v-size-action: var(--v-size-action_xl);
+    }
 }
 </style>

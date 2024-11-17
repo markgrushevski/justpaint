@@ -1,16 +1,13 @@
-<script setup lang="ts">
-import { ref } from 'vue'
+<script lang="ts" setup>
 import { VButton } from 'vueinjar'
 import { copyToClipboard, icons } from '@core'
 import { getCanvasBlob, getCanvasDataURL } from '@modules/canvas'
 
 const p = defineProps<{ column?: boolean; canvas?: HTMLCanvasElement | null; dataUrl?: string }>()
-const emit = defineEmits<{
-    (e: 'copyArt', value: 'text' | 'art'): void
-}>()
+// const emit = defineEmits<{ (e: 'copyArt', value: 'text' | 'image'): void }>()
 
 async function handleCopyTextArt() {
-    emit('copyArt', 'text')
+    // emit('copyArt', 'text')
     if (p.canvas) {
         const dataURL = getCanvasDataURL(p.canvas)
         await copyToClipboard('text', dataURL)
@@ -20,7 +17,7 @@ async function handleCopyTextArt() {
 }
 
 async function handleCopyArt() {
-    emit('copyArt', 'art')
+    // emit('copyArt', 'image')
     if (p.canvas) {
         const blob = await getCanvasBlob(p.canvas)
         await copyToClipboard('image', blob)
@@ -35,19 +32,19 @@ async function handleCopyArt() {
     <div :class="{ 'copy-handlers_column': column }" class="copy-handlers">
         <v-button
             :icon="icons.art.copy"
-            :variant="column ? 'text' : 'tonal'"
+            :iconPosition="column ? 'right' : 'left'"
             :size="column ? 'sm' : 'md'"
             :text="column ? 'text' : 'Copy as text'"
-            :iconPosition="column ? 'right' : 'left'"
+            :variant="column ? 'text' : 'tonal'"
             radius="md"
             @click="handleCopyTextArt"
         />
         <v-button
             :icon="icons.art.copy"
-            :variant="column ? 'text' : 'tonal'"
+            :iconPosition="column ? 'right' : 'left'"
             :size="column ? 'sm' : 'md'"
             :text="column ? 'image' : 'Copy as image'"
-            :iconPosition="column ? 'right' : 'left'"
+            :variant="column ? 'text' : 'tonal'"
             radius="md"
             @click="handleCopyArt"
         />
