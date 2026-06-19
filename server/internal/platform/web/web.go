@@ -51,3 +51,11 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64)
 	dec.DisallowUnknownFields()
 	return dec.Decode(dst)
 }
+
+// DecodeJSONLax decodes a body capped at maxBytes but TOLERATES unknown fields —
+// for document-bearing payloads (the vector document, plus an advisory thumbnail,
+// must stay forward-compatible; docs/API.md §1, DOCUMENT-FORMAT §7).
+func DecodeJSONLax(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	return json.NewDecoder(r.Body).Decode(dst)
+}
