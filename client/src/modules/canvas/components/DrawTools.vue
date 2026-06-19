@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { VButton } from 'vueinjar'
+import { OriButton } from '@oriui/ui'
 import { icons } from '@core'
 import { useCanvasHistoryStore, useCanvasStore, useCanvasToolsStore } from '../stores'
 
@@ -20,7 +20,7 @@ function handleClick(ToolClass: (typeof toolsStore.toolClasses)[number]) {
 
 <template>
     <template v-if="canvasStore.canvas">
-        <v-button
+        <OriButton
             v-for="ToolClass in toolsStore.toolClasses"
             :key="ToolClass.name"
             :active="getIsActive(ToolClass)"
@@ -28,7 +28,6 @@ function handleClick(ToolClass: (typeof toolsStore.toolClasses)[number]) {
             :title="ToolClass.name"
             radius="zero"
             size="lg"
-            spaced
             variant="plain"
             @click="handleClick(ToolClass)"
         />

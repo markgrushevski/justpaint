@@ -1,24 +1,24 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { mdiMenu, mdiMenuOpen } from '@mdi/js'
-import { VButton, VCard } from 'vueinjar'
+import { OriButton, OriCard } from '@oriui/ui'
 
 const isOpen = ref(false)
 </script>
 
 <template>
-    <v-button
+    <OriButton
         :icon="isOpen ? mdiMenuOpen : mdiMenu"
         class="main-menu-toggler"
         size="lg"
         variant="plain"
         @click="isOpen = !isOpen"
     />
-    <v-card :class="{ 'main-menu_open v-shadow': isOpen }" class="main-menu" color="background" radius="zero">
+    <OriCard :class="{ 'main-menu_open': isOpen }" class="main-menu" color="background" radius="zero">
         <template #title><slot name="title"></slot></template>
         <template #body><slot name="main"></slot></template>
         <template #actions-append><slot name="footer"></slot></template>
-    </v-card>
+    </OriCard>
 </template>
 
 <style>
@@ -45,11 +45,11 @@ const isOpen = ref(false)
 
     display: flex;
     flex-direction: column;
-    gap: var(--v-size-gap_xl);
+    gap: var(--ori-size-gap_xl);
 
-    border-left: 1px solid var(--v-color_primary);
+    border-left: 1px solid var(--ori-color-primary);
 
-    background-color: var(--v-color_surface);
+    background-color: var(--ori-color-surface);
 
     transform: translateX(101%);
 
@@ -58,17 +58,18 @@ const isOpen = ref(false)
 
 .main-menu.main-menu_open {
     transform: translateX(0);
+    box-shadow: var(--ori-shadow-lg);
 }
 
-.main-menu.v-card .v-card__header {
-    height: var(--v-size-action_sm);
+.main-menu.ori-card .ori-card__header {
+    height: var(--ori-size-action_sm);
 }
 
-.main-menu.v-card .v-card__header * {
-    max-height: var(--v-size-action_sm);
+.main-menu.ori-card .ori-card__header * {
+    max-height: var(--ori-size-action_sm);
 }
 
-.main-menu.v-card .v-card__title {
+.main-menu.ori-card .ori-card__title {
     display: inline-flex;
     align-items: center;
 
@@ -77,16 +78,16 @@ const isOpen = ref(false)
     cursor: pointer;
 }
 
-.main-menu.v-card .v-card__body {
+.main-menu.ori-card .ori-card__body {
     overflow-y: auto;
     overflow-x: hidden;
     display: flex;
     flex-grow: 1;
     flex-direction: column;
-    gap: var(--v-size-gap);
+    gap: var(--ori-size-gap);
 }
 
-.main-menu.v-card .v-card__actions {
+.main-menu.ori-card .ori-card__actions {
     align-items: flex-end;
     justify-content: space-between;
 }

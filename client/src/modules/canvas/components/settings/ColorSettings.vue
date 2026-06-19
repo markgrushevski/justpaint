@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { VButton, VCard } from 'vueinjar'
+import { OriButton, OriCard } from '@oriui/ui'
 import { useCanvasStore, useCanvasToolsStore } from '@modules/canvas'
 import { computed, ref, watch } from 'vue'
 import { onClickOutside } from '@vueuse/core'
@@ -44,7 +44,7 @@ watch(isOpen, () => {
 </script>
 
 <template>
-    <v-button
+    <OriButton
         ref="colorModalToggler"
         class="draw-settings__color-preview"
         radius="zero"
@@ -55,8 +55,8 @@ watch(isOpen, () => {
     >
         <div><div :style="`background-color: ${strokeColor};`"></div></div>
         <div><div :style="`background-color: ${fillColor};`"></div></div>
-    </v-button>
-    <v-card v-show="isOpen" ref="colorModal" class="draw-settings__color-modal v-shadow" radius="zero">
+    </OriButton>
+    <OriCard v-show="isOpen" ref="colorModal" class="draw-settings__color-modal" radius="zero">
         <div class="draw-settings__item">
             <label for="strokeColor">Stroke</label>
             <input v-model.lazy="strokeColor" name="strokeColor" type="color" />
@@ -65,12 +65,12 @@ watch(isOpen, () => {
             <label for="fillColor">Fill</label>
             <input v-model.lazy="fillColor" name="fillColor" type="color" />
         </div>
-    </v-card>
+    </OriCard>
 </template>
 
 <style>
-button.v-button.draw-settings__color-preview {
-    width: var(--v-size-action);
+button.ori-button.draw-settings__color-preview {
+    width: var(--ori-size-action);
     height: 100%;
 
     display: flex;
@@ -84,29 +84,29 @@ button.v-button.draw-settings__color-preview {
     background-color: transparent;
 }
 
-:root.dark button.v-button.draw-settings__color-preview {
+:root.dark button.ori-button.draw-settings__color-preview {
     outline-color: white;
 }
 
-button.v-button.draw-settings__color-preview > div {
+button.ori-button.draw-settings__color-preview > div {
     position: relative;
     width: 50%;
     height: 25%;
     overflow: hidden;
 }
 
-button.v-button.draw-settings__color-preview > div > div {
+button.ori-button.draw-settings__color-preview > div > div {
     position: absolute;
     width: 100%;
     height: 200%;
     border-radius: 50%;
 }
 
-button.v-button.draw-settings__color-preview > div:first-of-type > div {
+button.ori-button.draw-settings__color-preview > div:first-of-type > div {
     top: 0;
 }
 
-button.v-button.draw-settings__color-preview > div:last-of-type > div {
+button.ori-button.draw-settings__color-preview > div:last-of-type > div {
     bottom: 0;
 }
 
@@ -116,6 +116,8 @@ button.v-button.draw-settings__color-preview > div:last-of-type > div {
 
     display: flex;
     align-items: center;
-    gap: var(--v-size-gap_xl);
+    gap: var(--ori-size-gap_xl);
+
+    box-shadow: var(--ori-shadow-lg);
 }
 </style>

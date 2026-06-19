@@ -1,0 +1,22 @@
+# Local dev services for justpaint. Bring up with: docker compose up -d
+# Postgres is the one datastore (docs/ARCHITECTURE.md §1).
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: justpaint-postgres
+    environment:
+      POSTGRES_USER: justpaint
+      POSTGRES_PASSWORD: justpaint
+      POSTGRES_DB: justpaint
+    ports:
+      - "5432:5432"
+    volumes:
+      - justpaint-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U justpaint -d justpaint"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  justpaint-pgdata:
