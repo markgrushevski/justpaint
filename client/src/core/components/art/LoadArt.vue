@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { useDateFormat } from '@vueuse/core'
-import { VButton, VCard } from 'vueinjar'
+import { OriButton, OriCard } from '@oriui/ui'
 import { type Art, CopyArt, icons, mainAPI, useArtsStore, useUserStore } from '@core'
 import { getCompositedArts } from '@modules/canvas'
 
@@ -44,7 +44,7 @@ watch(
 </script>
 
 <template>
-    <v-button
+    <OriButton
         :disabled="!usersStore.isLoggedIn"
         :icon="icons.art.load"
         :loading="isFetching"
@@ -54,7 +54,7 @@ watch(
         variant="tonal"
         @click="refetch"
     />
-    <v-card v-if="arts?.length" class="arts">
+    <OriCard v-if="arts?.length" class="arts">
         <template #body>
             <div v-for="art in arts" :key="art.id" class="art">
                 <div class="art__image grid-bg">
@@ -64,15 +64,15 @@ watch(
                     <div class="art__title">{{ art.name }}</div>
                     <div class="art__subtitle">created at <br />{{ useDateFormat(art.createdAt, 'YYYY-MM-DD') }}</div>
                 </div>
-                <v-button radius="md" size="sm" text="Apply" variant="tonal" />
+                <OriButton radius="md" size="sm" text="Apply" variant="tonal" />
                 <CopyArt :data-url="art.dataURL" class="art__action" column />
             </div>
         </template>
-    </v-card>
+    </OriCard>
 </template>
 
 <style>
-.arts.v-card {
+.arts.ori-card {
     overflow-y: auto;
     padding: 0;
     border-radius: 0;
@@ -81,12 +81,12 @@ watch(
 .art {
     display: flex;
     align-items: center;
-    gap: calc(var(--v-size-gap));
+    gap: calc(var(--ori-size-gap));
 }
 
 .art__image {
-    width: var(--v-size-action_xl);
-    height: var(--v-size-action_xl);
+    width: var(--ori-size-action_xl);
+    height: var(--ori-size-action_xl);
 
     display: flex;
     align-items: center;
