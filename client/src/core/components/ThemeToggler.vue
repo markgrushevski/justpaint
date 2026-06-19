@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VButton } from 'vueinjar'
+import { OriButton } from '@oriui/ui'
 import { computed, onMounted, ref } from 'vue'
 import { mdiThemeLightDark, mdiWeatherNight, mdiWeatherSunny } from '@mdi/js'
 import { useThemesStore } from '../stores'
@@ -18,7 +18,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <v-button
+    <OriButton
         :icon="currentIcon"
         :title="themesStore.currentTheme"
         variant="text"
