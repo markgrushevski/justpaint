@@ -2,7 +2,7 @@
 import { compile, computed, onBeforeMount, onMounted, ref } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { mdiAccount, mdiCheck } from '@mdi/js'
-import { VAvatar, VButton, VIcon } from 'vueinjar'
+import { OriAvatar, OriButton, OriIcon } from '@oriui/ui'
 import { type Art, icons, mainAPI, useUserStore } from '@core'
 
 const userStore = useUserStore()
@@ -94,17 +94,16 @@ onBeforeMount(() => {
 <template>
     <div class="user-profile">
         <template v-if="userStore.isLoggedIn">
-            <v-avatar
+            <OriAvatar
                 :text="userStore.formData.nickname"
                 :title="userStore.formData.nickname"
                 :subtitle="arts?.length ? `Arts ${arts?.length}` : ''"
                 class="user-avatar"
             />
-            <v-button :icon="icons.auth.logout" style="align-self: center" variant="text" @click="handleLogout" />
+            <OriButton :icon="icons.auth.logout" style="align-self: center" variant="text" @click="handleLogout" />
         </template>
         <template v-else>
-            <!--<v-button :icon="mdiAccount" size="lg" variant="text" spaced />-->
-            <v-icon :icon="mdiAccount" size="sm" spaced />
+            <OriIcon :icon="mdiAccount" size="sm" spaced />
             <form class="user-login" @submit.prevent="handleFormAction">
                 <fieldset>
                     <legend>{{ formAction }}</legend>
@@ -117,14 +116,13 @@ onBeforeMount(() => {
                         <input v-model="userStore.formData.password" type="password" autocomplete="on" />
                     </label>
                     <div class="user-login__actions">
-                        <v-button
+                        <OriButton
                             :text="isLogin ? 'To registration' : 'To sign in'"
                             variant="text"
                             size="xs"
-                            type="button"
                             @click="toggleLogin"
                         />
-                        <v-button :loading="loading" text="Submit" variant="text" size="sm" fluid type="submit" />
+                        <OriButton :loading="loading" text="Submit" variant="text" size="sm" fluid @click="handleFormAction" />
                     </div>
                 </fieldset>
             </form>
@@ -137,7 +135,7 @@ onBeforeMount(() => {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: var(--v-size-gap);
+    gap: var(--ori-size-gap);
 }
 
 .user-profile > i {
@@ -147,7 +145,7 @@ onBeforeMount(() => {
 .user-login {
     display: flex;
     flex-direction: column;
-    gap: var(--v-size-gap);
+    gap: var(--ori-size-gap);
 }
 
 .user-login legend {

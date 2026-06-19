@@ -42,17 +42,17 @@ const canvasStore = useCanvasStore()
 .app__header {
     position: relative;
 
-    height: var(--v-size-action_lg);
+    height: var(--ori-size-action_lg);
 
     display: flex;
     align-items: center;
     justify-content: center;
 
-    background-color: var(--v-color_surface);
+    background-color: var(--ori-color-surface);
 }
 
 .app__main {
-    height: calc(100dvh - var(--v-size-action_lg) - var(--v-size-action_lg));
+    height: calc(100dvh - var(--ori-size-action_lg) - var(--ori-size-action_lg));
 
     display: flex;
     align-items: center;
@@ -60,26 +60,26 @@ const canvasStore = useCanvasStore()
 }
 
 .app__footer {
-    height: var(--v-size-action_lg);
+    height: var(--ori-size-action_lg);
 
     display: flex;
     align-items: center;
     justify-content: center;
 
-    background-color: var(--v-color_surface);
+    background-color: var(--ori-color-surface);
 }
 
 @media (width >= 600px) {
     .app__main {
-        height: calc(100dvh - var(--v-size-action_lg) - var(--v-size-action_xl));
+        height: calc(100dvh - var(--ori-size-action_lg) - var(--ori-size-action_xl));
     }
 
     .app__footer {
-        height: var(--v-size-action_xl);
+        height: var(--ori-size-action_xl);
     }
 
-    .app__footer .v-button {
-        --v-size-action: var(--v-size-action_xl);
+    .app__footer .ori-button {
+        --ori-size-action: var(--ori-size-action_xl);
     }
 }
 </style>

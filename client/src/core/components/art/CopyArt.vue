@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { VButton } from 'vueinjar'
+import { OriButton } from '@oriui/ui'
 import { copyToClipboard, icons } from '@core'
 import { getCanvasBlob, getCanvasDataURL } from '@modules/canvas'
 
@@ -30,7 +30,7 @@ async function handleCopyArt() {
 
 <template>
     <div :class="{ 'copy-handlers_column': column }" class="copy-handlers">
-        <v-button
+        <OriButton
             :icon="icons.art.copy"
             :iconPosition="column ? 'right' : 'left'"
             :size="column ? 'sm' : 'md'"
@@ -39,7 +39,7 @@ async function handleCopyArt() {
             radius="md"
             @click="handleCopyTextArt"
         />
-        <v-button
+        <OriButton
             :icon="icons.art.copy"
             :iconPosition="column ? 'right' : 'left'"
             :size="column ? 'sm' : 'md'"
@@ -55,7 +55,7 @@ async function handleCopyArt() {
 .copy-handlers {
     display: flex;
     align-items: center;
-    gap: var(--v-size-gap);
+    gap: var(--ori-size-gap);
 }
 
 .copy-handlers.copy-handlers_column {
