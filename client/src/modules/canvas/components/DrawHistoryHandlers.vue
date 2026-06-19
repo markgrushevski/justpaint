@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VButton } from 'vueinjar'
+import { OriButton } from '@oriui/ui'
 import { icons } from '@core'
 import { useCanvasHistoryStore, useCanvasStore } from '../stores'
 
@@ -9,7 +9,7 @@ const historyStore = useCanvasHistoryStore()
 
 <template>
     <template v-if="canvasStore.canvas">
-        <v-button
+        <OriButton
             :icon="icons.art.undo"
             :disabled="!historyStore.historyHandler?.hasPrevStep"
             :active="historyStore.historyHandler?.hasPrevStep"
@@ -18,7 +18,7 @@ const historyStore = useCanvasHistoryStore()
             size="lg"
             @click="historyStore.undo"
         />
-        <v-button
+        <OriButton
             :icon="icons.art.redo"
             :disabled="!historyStore.historyHandler?.hasNextStep"
             :active="historyStore.historyHandler?.hasNextStep"

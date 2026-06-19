@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { VButton } from 'vueinjar'
+import { OriButton } from '@oriui/ui'
 import { icons, mainAPI, useArtsStore, useUserStore } from '@core'
 import { getCanvasDataURL, useCanvasStore } from '@modules/canvas'
 
@@ -32,7 +32,7 @@ async function handleSaveArt() {
 </script>
 
 <template>
-    <v-button
+    <OriButton
         :loading="isSaving"
         :icon="icons.art.save"
         :disabled="!usersStore.isLoggedIn || isSaving"
