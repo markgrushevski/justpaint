@@ -4,8 +4,8 @@
 }
 
 :root {
-    --v-color_primary-light: hsl(20 100% 50%);
-    --v-color_primary-dark: hsl(20 100% 60%);
+    --ori-color-primary-light: hsl(20 100% 50%);
+    --ori-color-primary-dark: hsl(20 100% 60%);
 }
 
 #app {
@@ -19,8 +19,8 @@
     display: flex;
     flex-direction: column;
 
-    color: var(--v-color_primary);
-    background-color: var(--v-color_background);
+    color: var(--ori-color-primary);
+    background-color: var(--ori-color-background);
 }
 
 .grid-bg {

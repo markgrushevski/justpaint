@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VButton, VCard, VIcon } from 'vueinjar'
+import { OriButton, OriCard, OriIcon } from '@oriui/ui'
 import { icons } from '../../constants'
 import { ref } from 'vue'
 import { useArtsStore } from '../../stores'
@@ -14,7 +14,7 @@ function updateArtName(ev: Event) {
 
 <template>
     <span style="min-width: 3ch" contenteditable @input="updateArtName">{{ artsStore.art.name }}</span>
-    <v-icon :icon="icons.art.rename" inline />
+    <OriIcon :icon="icons.art.rename" inline />
 </template>
 
 <style></style>

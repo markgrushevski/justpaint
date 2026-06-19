@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { VButton } from 'vueinjar'
+import { OriButton } from '@oriui/ui'
 import { mdiLayers } from '@mdi/js'
 </script>
 
 <template>
-    <v-button :icon="mdiLayers" class="layers-handler" size="lg" variant="plain" />
+    <OriButton :icon="mdiLayers" class="layers-handler" size="lg" variant="plain" />
 </template>
 
 <style>
