@@ -1,0 +1,35 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/db/queries"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
+        sql_package: "pgx/v5"
+        # Nullable columns become Go pointers (*string, *time.Time, …) instead of pgtype wrappers.
+        emit_pointers_for_null_types: true
+        overrides:
+          # uuid <-> string keeps handlers simple; pgx scans uuid via its text format.
+          - db_type: "uuid"
+            go_type: "string"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true
+          # timestamptz <-> time.Time instead of pgtype.Timestamptz.
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          # The vector document stays raw JSON end-to-end (docs/DOCUMENT-FORMAT.md §7).
+          - column: "drawings.document"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
