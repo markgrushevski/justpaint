@@ -31,7 +31,7 @@ export const LIMITS = {
  * diverge. Reconcile this constant with the actual installed version when
  * perfect-freehand is added to `packages/editor`.
  */
-export const FREEHAND_VERSION = "1.2.4";
+export const FREEHAND_VERSION = "1.2.3";
 
 /** Editor/tool brush defaults (§5.3). Identical everywhere — no dev/prod drift. */
 export const BRUSH_DEFAULTS: BrushOptions = {
