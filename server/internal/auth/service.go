@@ -5,6 +5,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -37,9 +38,14 @@ type Service struct {
 
 // NewService builds the auth service. The dummy hash is computed once so a login
 // attempt for an unknown user still spends bcrypt time (see Login).
-func NewService(q *db.Queries, jwtSecret string) *Service {
-	dummy, _ := hashPassword("not-a-real-password")
-	return &Service{q: q, jwtSecret: jwtSecret, dummyHash: dummy, now: time.Now}
+func NewService(q *db.Queries, jwtSecret string) (*Service, error) {
+	// Fail fast if bcrypt can't run at boot — a server that can't hash cannot
+	// serve auth, and an empty dummyHash would silently break the timing defense.
+	dummy, err := hashPassword("not-a-real-password")
+	if err != nil {
+		return nil, fmt.Errorf("auth: precompute dummy hash: %w", err)
+	}
+	return &Service{q: q, jwtSecret: jwtSecret, dummyHash: dummy, now: time.Now}, nil
 }
 
 // Register creates a user and returns a session. A duplicate login surfaces as

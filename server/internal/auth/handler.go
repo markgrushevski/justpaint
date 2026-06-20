@@ -36,7 +36,9 @@ func NewHandler(svc *Service, cookieSecure bool, logger *slog.Logger) *Handler {
 func (h *Handler) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/register", h.Register)
 	mux.HandleFunc("POST /api/auth/login", h.Login)
-	mux.Handle("POST /api/auth/logout", h.RequireAuth(http.HandlerFunc(h.Logout)))
+	// Logout is a no-op-safe cookie clear: it must work even for an anonymous /
+	// expired caller (docs/API.md §4), so it is NOT behind RequireAuth.
+	mux.HandleFunc("POST /api/auth/logout", h.Logout)
 	mux.Handle("GET /api/auth/me", h.RequireAuth(http.HandlerFunc(h.Me)))
 }
 
