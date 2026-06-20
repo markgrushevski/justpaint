@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/markgrushevski/justpaint/server/internal/auth"
@@ -100,7 +101,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context())
-	d, err := h.svc.Get(r.Context(), uid, r.PathValue("id"))
+	id, ok := h.pathID(w, r)
+	if !ok {
+		return
+	}
+	d, err := h.svc.Get(r.Context(), uid, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
@@ -114,11 +119,15 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context())
+	id, ok := h.pathID(w, r)
+	if !ok {
+		return
+	}
 	doc, raw, ok := h.decodeAndValidate(w, r)
 	if !ok {
 		return
 	}
-	d, err := h.svc.Update(r.Context(), uid, r.PathValue("id"), doc, raw)
+	d, err := h.svc.Update(r.Context(), uid, id, doc, raw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
@@ -132,7 +141,11 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context())
-	deleted, err := h.svc.Delete(r.Context(), uid, r.PathValue("id"))
+	id, ok := h.pathID(w, r)
+	if !ok {
+		return
+	}
+	deleted, err := h.svc.Delete(r.Context(), uid, id)
 	if err != nil {
 		h.internal(w, "delete drawing", err)
 		return
@@ -216,6 +229,18 @@ func (h *Handler) internal(w http.ResponseWriter, what string, err error) {
 	web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
 }
 
+// pathID returns a validated UUID {id} path param. A non-UUID id can never name
+// an existing row, so we hide it as 404 (uniform with foreign ids) rather than
+// letting it reach the Postgres ::uuid cast and surface as a 500.
+func (h *Handler) pathID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id := r.PathValue("id")
+	if _, err := uuid.Parse(id); err != nil {
+		web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
+		return "", false
+	}
+	return id, true
+}
+
 func parseLimit(s string) int {
 	if s == "" {
 		return defaultPageLimit
@@ -247,6 +272,9 @@ func decodeCursor(s string) (*cursor, error) {
 	at, id, found := strings.Cut(string(b), "|")
 	if !found || id == "" {
 		return nil, errors.New("malformed cursor")
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, errors.New("malformed cursor id")
 	}
 	t, err := time.Parse(time.RFC3339Nano, at)
 	if err != nil {
