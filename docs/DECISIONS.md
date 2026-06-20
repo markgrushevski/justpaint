@@ -2,6 +2,13 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-06-20 — Deferred hardening (backend review)
+
+A multi-agent adversarial review of the Go backend (29 confirmed findings) drove a batch of fixes; two items are **intentionally deferred** — they are not Phase-1 deliverables and are unreachable or low-risk at the current greenfield stage:
+
+- **Rate limiting (`429 rate_limited`).** `web.CodeRateLimited` is reserved and `docs/API.md` advertises 429 on auth + write routes, but no limiter ships in Phase 1. Add a per-IP / per-login limiter (or enforce at the edge/reverse proxy) before any public deploy. The implemented anti-enumeration (generic `invalid_credentials` + dummy-hash timing) stands without it.
+- **Duel-submission immutability (`409 conflict`).** PUT/DELETE on a submitted duel drawing must return 409 (`API.md` §7), enforced once the game/submit path (Phase 3) can create match-linked drawings. Unreachable today — `drawings` create always sets `match_id = null`.
+
 ## 2026-06-19 — Phase 0 contract resolutions
 
 Resolving the open questions the Phase 0 specs surfaced.
