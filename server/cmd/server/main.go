@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,15 +18,24 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/platform/config"
 	"github.com/markgrushevski/justpaint/server/internal/platform/logging"
 	"github.com/markgrushevski/justpaint/server/internal/platform/postgres"
+	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 )
 
 func main() {
+	// run() owns all cleanup via defer; main only maps an error to a non-zero
+	// exit code (so a failed bind is distinguishable from a clean shutdown).
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	logger := logging.New(os.Getenv("LOG_LEVEL"))
 
 	cfg, err := config.Load()
 	if err != nil {
-		logger.Error("config load failed", "err", err)
-		os.Exit(1)
+		return err
 	}
 
 	// Stop on the first SIGINT/SIGTERM; a second one force-kills.
@@ -34,15 +44,17 @@ func main() {
 
 	pool, err := postgres.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		logger.Error("database connect failed", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("database connect: %w", err)
 	}
 	defer pool.Close()
 	logger.Info("database connected")
 
 	queries := db.New(pool)
 
-	authService := auth.NewService(queries, cfg.JWTSecret)
+	authService, err := auth.NewService(queries, cfg.JWTSecret)
+	if err != nil {
+		return err
+	}
 	authHandler := auth.NewHandler(authService, cfg.CookieSecure, logger)
 	drawingsHandler := drawings.NewHandler(drawings.NewService(queries), logger)
 
@@ -57,26 +69,35 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           mux,
+		Handler:           web.LogRequests(logger, web.Recover(logger, mux)),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// WriteTimeout bounds slow-reading clients. Revisit when the WS hub lands
+		// (a global WriteTimeout would cut long-lived upgrades — exclude that route).
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
+	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("server listening", "addr", cfg.Addr, "env", cfg.Env)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("server error", "err", err)
-			stop()
+			serverErr <- err
 		}
 	}()
 
-	<-ctx.Done()
-	logger.Info("shutting down")
+	select {
+	case <-ctx.Done():
+		logger.Info("shutting down")
+	case err := <-serverErr:
+		return fmt.Errorf("server: %w", err) // e.g. failed to bind the port
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("graceful shutdown failed", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	logger.Info("stopped")
+	return nil
 }
