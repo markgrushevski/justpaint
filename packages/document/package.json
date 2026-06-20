@@ -1,0 +1,24 @@
+{
+  "name": "@justpaint/document",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Canonical vector-document schema (v1): types, validation, parse/serialize, render contract. The keystone contract shared by editor, server, and judge.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "types": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}
