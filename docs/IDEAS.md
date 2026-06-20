@@ -16,5 +16,9 @@
 - **Rate limiting (429)** — already tracked in `DECISIONS.md` (deferred). The real remaining abuse vector for drawings (spamming valid-but-heavy documents), **not** SQL injection (queries are fully parameterized via sqlc; ownership is enforced in every `WHERE owner_id`). *When:* before any public exposure / Phase 3.
 - **Server-generated `thumbnail_url` only** — when thumbnails land, store **only** a server-side object-storage URL, never a client-supplied one (avoids stored-SSRF / XSS via a poisoned URL). *When:* when thumbnails are implemented (Phase 2/3).
 
+## Frontend / build
+- **Replace vendored oriui with the published npm package** — `apps/web` currently `file:`-links a local copy of oriui under `vendor/oriui/` (`@oriui/css` + `@oriui/vue` + `@oriui/headless`, alpha.1), committed temporarily because oriui isn't on the public registry yet (and was renamed `@oriui/ui` → `@oriui/vue`). When you publish: delete `vendor/oriui/`, swap the three `file:` deps for versioned ones, drop the `.gitignore` vendor exception, and re-check imports. *When:* after you `npm publish` oriui.
+- **Point `apps/web/.env` at the Go server** — `VITE_URL_API` still targets the old NestJS port `:8888`; the Go server listens on `:8080`. *When:* when wiring the editor save/load round-trip.
+
 ## Orchestration / process
 - **Cross-domain parallel agents** — backend (`server/`) and frontend (`packages/` + `apps/`) share no files and both validate against the **frozen contract** (`docs/DOCUMENT-FORMAT.md`), so they can run on **parallel branches**; integration (review + `--no-ff` merge + ROADMAP update) stays **serialized** through one orchestrator. Within a single domain (e.g. the editor's tools), parallelize with git-worktree isolation or sequential commits to avoid same-file conflicts. *When:* as work volume warrants; the editor tool-set is the first good fan-out candidate.
