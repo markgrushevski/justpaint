@@ -46,6 +46,14 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: missing required env: %s", strings.Join(missing, ", "))
 	}
 
+	// Outside dev, require a strong HS256 secret: a short/guessable key is
+	// brute-forceable offline against any captured token, and a forged token is
+	// full account takeover (the JWT subject is trusted as the owner id).
+	const minSecretLen = 32
+	if cfg.Env != "dev" && len(cfg.JWTSecret) < minSecretLen {
+		return Config{}, fmt.Errorf("config: JWT_SECRET must be at least %d bytes outside dev", minSecretLen)
+	}
+
 	return cfg, nil
 }
 
