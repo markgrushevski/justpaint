@@ -4,3 +4,8 @@ dist
 node_modules
 
 *.local
+
+# Vendored oriui build — temporary, committed until @oriui is published to npm
+# (see docs/IDEAS.md). Negate the broad `dist` ignore for these paths only.
+!vendor/oriui/**/dist/
+!vendor/oriui/**/dist/**
