@@ -59,5 +59,6 @@ Source of truth lives in `docs/`:
 - `docs/API.md` — HTTP contract + WS sketch (`jp_session` cookie, error envelope, DoS caps). **[exists]**
 - `docs/JUDGE.md` — judge contract (the agreement with the ML collaborator). **[exists]**
 - `docs/GAME.md` — match lifecycle, canvas, ratings. **[exists]**
+- `docs/IDEAS.md` — non-blocking backlog (deferred hardening & good-ideas-later). **[exists]**
 
 **Phase 0 (specs) is complete.** See `docs/ROADMAP.md` for the current phase.
