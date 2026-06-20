@@ -8,9 +8,13 @@ import (
 // ValidationError marks a client-fixable problem with a document: it maps to
 // HTTP 400 validation_failed (docs/API.md §3). Internal errors are returned as
 // ordinary errors instead.
-type ValidationError struct{ Msg string }
+type ValidationError struct {
+	Msg string
+	Err error // optional wrapped cause (preserves the error chain for errors.Is/As)
+}
 
 func (e *ValidationError) Error() string { return e.Msg }
+func (e *ValidationError) Unwrap() error { return e.Err }
 
 func invalid(format string, args ...any) error {
 	return &ValidationError{Msg: fmt.Sprintf(format, args...)}
@@ -74,13 +78,41 @@ func unmarshalStroke(data []byte) (Stroke, error) {
 	return s, nil
 }
 
+// UnmarshalJSON enforces point arity that fixed-size arrays alone do not:
+// encoding/json silently zero-fills a short array and drops extra elements, so
+// without this a 2-element freehand point or a 4-element one would be accepted.
+// DOCUMENT-FORMAT §7 requires rejecting mismatched arity.
+func (p *FreehandPoint) UnmarshalJSON(data []byte) error {
+	var raw []float64
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw) != 3 {
+		return fmt.Errorf("freehand point must be [x,y,pressure] (3 numbers), got %d", len(raw))
+	}
+	*p = FreehandPoint{raw[0], raw[1], raw[2]}
+	return nil
+}
+
+func (p *Point) UnmarshalJSON(data []byte) error {
+	var raw []float64
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw) != 2 {
+		return fmt.Errorf("point must be [x,y] (2 numbers), got %d", len(raw))
+	}
+	*p = Point{raw[0], raw[1]}
+	return nil
+}
+
 // Parse unmarshals a vector document. Unknown fields are tolerated
 // (forward-compat, docs/DOCUMENT-FORMAT.md §7); structural problems surface as a
 // *ValidationError.
 func Parse(data []byte) (Document, error) {
 	var doc Document
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return Document{}, &ValidationError{Msg: "malformed document: " + err.Error()}
+		return Document{}, &ValidationError{Msg: "malformed document: " + err.Error(), Err: err}
 	}
 	return doc, nil
 }

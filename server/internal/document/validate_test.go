@@ -67,6 +67,8 @@ func TestParseAndValidate(t *testing.T) {
 		{"ellipse zero radius", docWith(`{"id":"s","type":"ellipse","composite":"source-over","cx":5,"cy":5,"rx":0,"ry":5,"fill":"#000000"}`), true},
 		{"polygon under three vertices", docWith(`{"id":"s","type":"polygon","composite":"source-over","points":[[0,0],[10,10]],"fill":"#000000"}`), true},
 		{"shape strokeWidth zero with stroke present", docWith(`{"id":"s","type":"rect","composite":"source-over","x":0,"y":0,"width":10,"height":10,"stroke":"#000000","strokeWidth":0}`), true},
+		{"freehand point wrong arity (2 elems)", docWith(`{"id":"s","type":"freehand","composite":"source-over","color":"#000000","points":[[1,1]],"brush":{"size":1,"thinning":0,"smoothing":0,"streamline":0,"simulatePressure":false,"taperStart":0,"taperEnd":0}}`), true},
+		{"line point wrong arity (3 elems)", docWith(`{"id":"s","type":"line","composite":"source-over","points":[[0,0,0],[1,1,1]],"stroke":"#000000","strokeWidth":1}`), true},
 	}
 
 	for _, tc := range cases {
