@@ -28,6 +28,8 @@ type cursor struct {
 // doc_version/width/height from the validated document; raw is the canonical
 // jsonb payload (unknown fields preserved).
 func (s *Service) Create(ctx context.Context, ownerID string, doc document.Document, raw []byte) (db.Drawing, error) {
+	// int32 narrowing is safe: ParseAndValidate already bounds version==1 and
+	// width/height to [1,8192] before the service is ever reached.
 	return s.q.CreateDrawing(ctx, db.CreateDrawingParams{
 		OwnerID:    ownerID,
 		MatchID:    nil, // free /draw save; duel submissions go through the game route

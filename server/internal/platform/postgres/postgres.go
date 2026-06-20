@@ -18,6 +18,12 @@ func New(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("postgres: parse dsn: %w", err)
 	}
 
+	// Recycle connections so a long-running process picks up a DB failover and
+	// doesn't accumulate stale server-side state. (pgx already defaults the rest:
+	// MaxConns=max(4,NumCPU), HealthCheckPeriod=1m, MaxConnIdleTime=30m.)
+	cfg.MaxConnLifetime = time.Hour
+	cfg.MaxConnLifetimeJitter = 5 * time.Minute
+
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: new pool: %w", err)
