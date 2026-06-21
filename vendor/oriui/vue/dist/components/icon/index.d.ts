@@ -1,2 +1,1 @@
 export { default as OriIcon } from './ori-icon.vue';
-//# sourceMappingURL=index.d.ts.map
