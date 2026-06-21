@@ -157,4 +157,3 @@ interface VuePropTypes extends PropTypes {
 declare const normalizeProps: NormalizeProps<VuePropTypes>;
 //#endregion
 export { type ComboboxItem, type DialogAdapter, type DialogControl, type DisclosureAdapter, type DisclosureControl, type HeadlessAdapters, ORI_HEADLESS, OriHeadless, type UseComboboxOptions, type UseDialogOptions, type UseDisclosureOptions, type VuePropTypes, nativeDialog, nativeDisclosure, normalizeProps, provideHeadless, useCombobox, useDialog, useDisclosure, useService };
-//# sourceMappingURL=index.d.ts.map

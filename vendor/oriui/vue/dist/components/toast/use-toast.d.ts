@@ -35,4 +35,3 @@ export declare function useToast(): {
     clear: typeof clear;
 };
 export {};
-//# sourceMappingURL=use-toast.d.ts.map
