@@ -4,4 +4,3 @@ var t = e;
 //#endregion
 export { t as default };
 
-//# sourceMappingURL=ori-divider.js.map

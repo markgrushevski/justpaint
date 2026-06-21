@@ -16,4 +16,3 @@ var a = /*@__PURE__*/ t({
 //#endregion
 export { a as default };
 
-//# sourceMappingURL=ori-skeleton.vue_vue_type_script_setup_true_lang.js.map

@@ -23,4 +23,3 @@ type __VLS_WithSlots<T, S> = T & {
         $slots: S;
     };
 };
-//# sourceMappingURL=ori-toast.vue.d.ts.map

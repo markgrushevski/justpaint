@@ -27,4 +27,3 @@ type __VLS_WithSlots<T, S> = T & {
         $slots: S;
     };
 };
-//# sourceMappingURL=ori-button.vue.d.ts.map

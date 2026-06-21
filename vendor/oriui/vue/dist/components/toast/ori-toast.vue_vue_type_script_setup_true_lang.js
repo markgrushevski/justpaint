@@ -44,4 +44,3 @@ var f = ["role"], p = { class: "ori-toast__body" }, m = {
 //#endregion
 export { g as default };
 
-//# sourceMappingURL=ori-toast.vue_vue_type_script_setup_true_lang.js.map
