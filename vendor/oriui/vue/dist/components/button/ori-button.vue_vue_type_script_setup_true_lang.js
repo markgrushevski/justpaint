@@ -64,4 +64,3 @@ var p = {
 //#endregion
 export { m as default };
 
-//# sourceMappingURL=ori-button.vue_vue_type_script_setup_true_lang.js.map

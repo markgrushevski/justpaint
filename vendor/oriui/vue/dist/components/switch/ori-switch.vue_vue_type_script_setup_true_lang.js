@@ -59,4 +59,3 @@ var m = ["for"], h = [
 //#endregion
 export { _ as default };
 
-//# sourceMappingURL=ori-switch.vue_vue_type_script_setup_true_lang.js.map

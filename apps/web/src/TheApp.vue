@@ -36,9 +36,6 @@ const canvasStore = useCanvasStore()
 </template>
 
 <style>
-@import 'reset.css';
-@import 'main.css';
-
 .app__header {
     position: relative;
 
