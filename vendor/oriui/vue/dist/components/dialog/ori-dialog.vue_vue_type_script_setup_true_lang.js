@@ -45,4 +45,3 @@ var p = { class: "ori-dialog__content" }, m = { class: "ori-dialog__header" }, h
 //#endregion
 export { g as default };
 
-//# sourceMappingURL=ori-dialog.vue_vue_type_script_setup_true_lang.js.map

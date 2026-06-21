@@ -55,4 +55,3 @@ var f = ["alt"], p = {
 //#endregion
 export { _ as default };
 
-//# sourceMappingURL=ori-avatar.vue_vue_type_script_setup_true_lang.js.map

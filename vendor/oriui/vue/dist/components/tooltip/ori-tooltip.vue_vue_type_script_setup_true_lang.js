@@ -22,4 +22,3 @@ var u = ["aria-describedby"], d = ["id"], f = /*@__PURE__*/ r({
 //#endregion
 export { f as default };
 
-//# sourceMappingURL=ori-tooltip.vue_vue_type_script_setup_true_lang.js.map

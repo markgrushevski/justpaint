@@ -38,4 +38,3 @@ var _ = /*@__PURE__*/ l({
 //#endregion
 export { _ as default };
 
-//# sourceMappingURL=ori-toaster.vue_vue_type_script_setup_true_lang.js.map

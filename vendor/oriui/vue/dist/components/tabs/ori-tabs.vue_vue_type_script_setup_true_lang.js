@@ -104,4 +104,3 @@ var h = ["aria-orientation"], g = [
 //#endregion
 export { v as default };
 
-//# sourceMappingURL=ori-tabs.vue_vue_type_script_setup_true_lang.js.map

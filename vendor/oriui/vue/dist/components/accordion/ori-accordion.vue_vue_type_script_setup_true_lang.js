@@ -46,4 +46,3 @@ var f = ["name"], p = [
 //#endregion
 export { g as default };
 
-//# sourceMappingURL=ori-accordion.vue_vue_type_script_setup_true_lang.js.map

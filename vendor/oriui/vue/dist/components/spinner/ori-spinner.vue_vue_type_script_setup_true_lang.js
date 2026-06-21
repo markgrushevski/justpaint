@@ -23,4 +23,3 @@ var i = ["aria-label"], a = /*@__PURE__*/ t({
 //#endregion
 export { a as default };
 
-//# sourceMappingURL=ori-spinner.vue_vue_type_script_setup_true_lang.js.map

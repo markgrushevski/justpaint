@@ -25,4 +25,3 @@ var c = ["aria-orientation"], l = {
 //#endregion
 export { u as default };
 
-//# sourceMappingURL=ori-divider.vue_vue_type_script_setup_true_lang.js.map

@@ -64,4 +64,3 @@ var h = ["aria-labelledby", "aria-required"], g = ["id"], _ = { class: "ori-radi
 //#endregion
 export { b as default };
 
-//# sourceMappingURL=ori-radio-group.vue_vue_type_script_setup_true_lang.js.map

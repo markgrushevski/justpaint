@@ -107,4 +107,3 @@ var b = ["for"], x = {
 //#endregion
 export { O as default };
 
-//# sourceMappingURL=ori-select.vue_vue_type_script_setup_true_lang.js.map

@@ -55,4 +55,3 @@ var p = ["aria-disabled"], m = { class: "ori-tag__text" }, h = ["aria-label", "d
 //#endregion
 export { _ as default };
 
-//# sourceMappingURL=ori-tag.vue_vue_type_script_setup_true_lang.js.map

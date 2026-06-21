@@ -28,4 +28,3 @@ type __VLS_WithSlots<T, S> = T & {
         $slots: S;
     };
 };
-//# sourceMappingURL=ori-tag.vue.d.ts.map
