@@ -14,6 +14,8 @@
         "lint:all": "npm run lint:prettier && npm run lint:stylelint && npm run lint:eslint"
     },
     "dependencies": {
+        "@justpaint/document": "*",
+        "@justpaint/editor": "*",
         "@mdi/js": "^7.4.47",
         "@oriui/css": "file:../../vendor/oriui/css",
         "@oriui/headless": "file:../../vendor/oriui/headless",
@@ -23,7 +25,8 @@
         "axios": "^1.7.7",
         "jsonwebtoken": "^9.0.2",
         "pinia": "^2.2.6",
-        "vue": "^3.5.11"
+        "vue": "^3.5.11",
+        "vue-router": "^4.4.5"
     },
     "devDependencies": {
         "@eslint/js": "^9.2.0",

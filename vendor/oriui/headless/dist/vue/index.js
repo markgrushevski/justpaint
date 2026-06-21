@@ -207,4 +207,3 @@ const OriHeadless = { install(app, adapters = {}) {
 //#endregion
 export { ORI_HEADLESS, OriHeadless, nativeDialog, nativeDisclosure, normalizeProps, provideHeadless, useCombobox, useDialog, useDisclosure, useService };
 
-//# sourceMappingURL=index.js.map

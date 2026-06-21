@@ -57,4 +57,3 @@ var d = ["data-disabled"], f = ["for"], p = { key: 0 }, m = {
 //#endregion
 export { g as default };
 
-//# sourceMappingURL=ori-slider.vue_vue_type_script_setup_true_lang.js.map

@@ -20,4 +20,3 @@ export declare const oriFieldKey: InjectionKey<OriFieldContext>;
  * call this to auto-wire when nested inside an `OriField`; returns `undefined` when used standalone.
  */
 export declare function useOriField(): OriFieldContext | undefined;
-//# sourceMappingURL=context.d.ts.map

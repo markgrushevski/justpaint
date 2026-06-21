@@ -35,4 +35,3 @@ var s = [
 //#endregion
 export { u as default };
 
-//# sourceMappingURL=ori-icon.vue_vue_type_script_setup_true_lang.js.map

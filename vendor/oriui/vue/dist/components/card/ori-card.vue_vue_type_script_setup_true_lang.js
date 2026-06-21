@@ -73,4 +73,3 @@ var p = ["aria-disabled", "aria-busy"], m = { class: "ori-card__header" }, h = {
 //#endregion
 export { x as default };
 
-//# sourceMappingURL=ori-card.vue_vue_type_script_setup_true_lang.js.map
