@@ -85,6 +85,18 @@ export class Editor {
     return renderToPNG(this.doc, opts);
   }
 
+  /**
+   * Tear down the editor: destroy the Konva stage so it leaves Konva's
+   * module-global stage registry and its backing `<canvas>` elements are
+   * released (GC alone can't free a stage Konva still references). Call from the
+   * host's unmount hook; the instance is unusable afterwards.
+   */
+  destroy(): void {
+    this.stage.destroy();
+    this.previewLayer = null;
+    this.gesture = null;
+  }
+
   // --- internals ------------------------------------------------------------
 
   private toolContext(): ToolContext {
