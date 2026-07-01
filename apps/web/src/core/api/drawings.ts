@@ -1,27 +1,18 @@
-import axios from 'axios'
 import type { Document } from '@justpaint/document'
 import { parseDocument } from '@justpaint/document'
 
 /**
- * Typed client for the Go backend's auth + drawings API (docs/API.md).
- *
- * Cookie-based session (`jp_session`, HttpOnly) → `withCredentials: true`, no
- * Authorization header, no localStorage (API.md §1/§2). In dev the vite proxy
- * forwards same-origin `/api` to the Go server (:8080), so the cookie is
- * first-party. Session STATE lives in `useSessionStore`; this module stays
- * store-free to avoid an api⇄store import cycle. axios rejects non-2xx by
- * default; callers use `toApiError`/`isAuthError` below.
+ * Typed client for the Go backend's auth + drawings API (docs/API.md), on native
+ * `fetch` (no axios). Cookie-based session (`jp_session`, HttpOnly) via
+ * `credentials: 'include'` — no Authorization header, no localStorage. In dev the
+ * vite proxy forwards same-origin `/api` to the Go server (:8080), so the cookie
+ * is first-party. Session STATE lives in `useSessionStore`; this module is
+ * store-free (no api⇄store cycle).
  */
-const api = axios.create({
-    baseURL: import.meta.env.VITE_URL_API,
-    withCredentials: true
-})
 
-/* ------------------------------------------------------------------ */
-/* Wire types (camelCase, exact from the Go DTO structs).             */
-/* ------------------------------------------------------------------ */
+const BASE = import.meta.env.VITE_URL_API
 
-/** Closed v1 error-code set from web.go. Switch on `code`, never `message`. */
+/** Closed v1 error-code set from web.go, plus a client-only `network` code. */
 export type ApiErrorCode =
     | 'validation_failed'
     | 'invalid_credentials'
@@ -33,10 +24,86 @@ export type ApiErrorCode =
     | 'rate_limited'
     | 'internal'
 
-export interface ApiError {
-    code: ApiErrorCode
-    message: string
+export type ClientErrorCode = ApiErrorCode | 'network'
+
+/**
+ * A failed API call. `fetch` only rejects on a network error, so {@link request}
+ * throws this for every non-2xx too, carrying the Go error `code` + HTTP status.
+ */
+export class ApiError extends Error {
+    readonly code: ClientErrorCode
+    readonly status: number
+    constructor(message: string, code: ClientErrorCode, status: number) {
+        super(message)
+        this.name = 'ApiError'
+        this.code = code
+        this.status = status
+    }
 }
+
+export function isApiError(err: unknown): err is ApiError {
+    return err instanceof ApiError
+}
+
+/** Narrow an unknown error to an {@link ApiError}, or null. */
+export function toApiError(err: unknown): ApiError | null {
+    return err instanceof ApiError ? err : null
+}
+
+/** True for the auth-failure cases the UI should surface as "sign in". */
+export function isAuthError(err: unknown): boolean {
+    return err instanceof ApiError && (err.code === 'unauthorized' || err.code === 'invalid_credentials' || err.status === 401)
+}
+
+interface RequestOptions {
+    method?: string
+    body?: unknown
+    query?: Record<string, string | number | undefined>
+}
+
+/**
+ * Thin typed wrapper over `fetch`. Sends cookies, JSON-encodes a body, builds a
+ * query string, and — since `fetch` does NOT reject on 4xx/5xx — throws an
+ * {@link ApiError} parsed from the Go `{error:{code,message}}` envelope on any
+ * non-2xx. Returns the parsed JSON body, or `undefined` for 204.
+ */
+async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+    const { method = 'GET', body, query } = opts
+
+    let url = BASE + path
+    if (query) {
+        const qs = new URLSearchParams()
+        for (const [k, v] of Object.entries(query)) if (v !== undefined) qs.set(k, String(v))
+        const s = qs.toString()
+        if (s) url += '?' + s
+    }
+
+    let res: Response
+    try {
+        res = await fetch(url, {
+            method,
+            credentials: 'include',
+            headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+            body: body !== undefined ? JSON.stringify(body) : undefined
+        })
+    } catch {
+        throw new ApiError('Network error (is the server running?).', 'network', 0)
+    }
+
+    if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: { code?: ClientErrorCode; message?: string } } | null
+        const code = data?.error?.code ?? 'internal'
+        const message = data?.error?.message ?? res.statusText ?? 'request failed'
+        throw new ApiError(message, code, res.status)
+    }
+
+    if (res.status === 204) return undefined as T
+    return (await res.json()) as T
+}
+
+/* ------------------------------------------------------------------ */
+/* Wire types (camelCase, exact from the Go DTO structs).             */
+/* ------------------------------------------------------------------ */
 
 export interface User {
     id: string
@@ -72,7 +139,6 @@ export interface DrawingList {
     limit: number
 }
 
-/* Response envelopes. */
 interface UserEnvelope {
     user: User
 }
@@ -81,29 +147,6 @@ interface DrawingMetaEnvelope {
 }
 interface DrawingFullEnvelope {
     drawing: DrawingFull
-}
-
-/* ------------------------------------------------------------------ */
-/* Error helpers.                                                     */
-/* ------------------------------------------------------------------ */
-
-/** Extract the Go error envelope `{ error: { code, message } }`, if present. */
-export function toApiError(err: unknown): ApiError | null {
-    if (axios.isAxiosError(err)) {
-        const data = err.response?.data as { error?: ApiError } | undefined
-        if (data?.error && typeof data.error.code === 'string') {
-            return data.error
-        }
-    }
-    return null
-}
-
-/** True for the auth-failure codes the toolbar should surface as "sign in". */
-export function isAuthError(err: unknown): boolean {
-    const code = toApiError(err)?.code
-    if (code === 'unauthorized' || code === 'invalid_credentials') return true
-    // No envelope (e.g. connection refused — backend not up yet) but a 401.
-    return axios.isAxiosError(err) && err.response?.status === 401
 }
 
 /* ------------------------------------------------------------------ */
@@ -123,49 +166,42 @@ export interface LoginBody {
 
 export const auth = {
     async register(body: RegisterBody): Promise<User> {
-        const res = await api.post<UserEnvelope>('/auth/register', body)
-        return res.data.user
+        return (await request<UserEnvelope>('/auth/register', { method: 'POST', body })).user
     },
     async login(body: LoginBody): Promise<User> {
-        const res = await api.post<UserEnvelope>('/auth/login', body)
-        return res.data.user
+        return (await request<UserEnvelope>('/auth/login', { method: 'POST', body })).user
     },
     async logout(): Promise<void> {
-        await api.post('/auth/logout')
+        await request<void>('/auth/logout', { method: 'POST' })
     },
     async me(): Promise<User> {
-        const res = await api.get<UserEnvelope>('/auth/me')
-        return res.data.user
+        return (await request<UserEnvelope>('/auth/me')).user
     }
 }
 
 /* ------------------------------------------------------------------ */
-/* Drawings CRUD. Body is `{ document: <vector doc> }`; axios JSON-      */
-/* stringifies the live doc object directly.                          */
+/* Drawings CRUD. Body is `{ document: <vector doc> }`.               */
 /* ------------------------------------------------------------------ */
 
 export const drawings = {
     async create(doc: Document): Promise<DrawingMeta> {
-        const res = await api.post<DrawingMetaEnvelope>('/drawings', { document: doc })
-        return res.data.drawing
+        return (await request<DrawingMetaEnvelope>('/drawings', { method: 'POST', body: { document: doc } })).drawing
     },
     async get(id: string): Promise<DrawingFull> {
-        const res = await api.get<DrawingFullEnvelope>(`/drawings/${id}`)
-        // The server validated on write, but re-validate on read before it
-        // reaches the editor (loadDocument does NOT validate). Throws
-        // DocumentValidationError on a bad body.
-        const document = parseDocument(res.data.drawing.document)
-        return { ...res.data.drawing, document }
+        const { drawing } = await request<DrawingFullEnvelope>('/drawings/' + id)
+        // The server validated on write; re-validate on read before it reaches
+        // the editor (loadDocument does NOT validate). Throws on a bad body.
+        return { ...drawing, document: parseDocument(drawing.document) }
     },
     async update(id: string, doc: Document): Promise<DrawingMeta> {
-        const res = await api.put<DrawingMetaEnvelope>(`/drawings/${id}`, { document: doc })
-        return res.data.drawing
+        return (await request<DrawingMetaEnvelope>('/drawings/' + id, { method: 'PUT', body: { document: doc } })).drawing
     },
     async remove(id: string): Promise<void> {
-        await api.delete(`/drawings/${id}`)
+        await request<void>('/drawings/' + id, { method: 'DELETE' })
     },
-    async list(params?: ListParams): Promise<DrawingList> {
-        const res = await api.get<DrawingList>('/drawings', { params })
-        return res.data
+    async list(params: ListParams = {}): Promise<DrawingList> {
+        return await request<DrawingList>('/drawings', {
+            query: { limit: params.limit, cursor: params.cursor, kind: params.kind }
+        })
     }
 }

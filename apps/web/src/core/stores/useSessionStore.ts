@@ -1,27 +1,28 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { auth, type User } from '../api'
+import { auth, isAuthError, type User } from '../api'
 
 /**
  * Cookie-session auth against the Go backend (`jp_session`, HttpOnly). Session
- * STATE lives here; the axios client (`../api/drawings`) stays store-free so
+ * STATE lives here; the fetch client (`../api/drawings`) stays store-free so
  * there is no api⇄store import cycle. Separate from the legacy `useUserStore`
  * (which drives the throwaway `/legacy` app against the old backend).
  */
 export const useSessionStore = defineStore('session', () => {
     const user = ref<User | null>(null)
-    const loading = ref(false)
     const isLoggedIn = computed(() => user.value !== null)
 
-    /** Restore a session from the cookie on load; any failure ⇒ anonymous. */
+    /**
+     * Restore a session from the cookie on load. A 401 is the expected anonymous
+     * case; any other failure (500 / network) is logged — we still fall back to
+     * anonymous, but must not silently hide a real error.
+     */
     async function fetchMe(): Promise<void> {
-        loading.value = true
         try {
             user.value = await auth.me()
-        } catch {
+        } catch (err) {
+            if (!isAuthError(err)) console.warn('session check failed:', err)
             user.value = null
-        } finally {
-            loading.value = false
         }
     }
 
@@ -41,5 +42,5 @@ export const useSessionStore = defineStore('session', () => {
         }
     }
 
-    return { user, loading, isLoggedIn, fetchMe, login, register, logout }
+    return { user, isLoggedIn, fetchMe, login, register, logout }
 })

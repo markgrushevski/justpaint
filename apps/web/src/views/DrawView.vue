@@ -107,7 +107,7 @@ async function exportPng() {
 
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        message.value = `Sign in to ${action} (auth not wired yet).`
+        message.value = `Sign in to ${action}.`
         return
     }
     const api = toApiError(err)
