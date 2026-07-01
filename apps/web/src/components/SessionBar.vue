@@ -12,11 +12,16 @@ const busy = ref(false)
 
 async function submit(kind: 'login' | 'register') {
     if (busy.value) return
+    const id = loginId.value.trim()
+    if (!id || !password.value) {
+        error.value = 'Enter a login and password.'
+        return
+    }
     error.value = null
     busy.value = true
     try {
-        if (kind === 'register') await session.register(loginId.value.trim(), password.value)
-        else await session.login(loginId.value.trim(), password.value)
+        if (kind === 'register') await session.register(id, password.value)
+        else await session.login(id, password.value)
         password.value = ''
     } catch (err) {
         error.value = toApiError(err)?.message ?? 'Auth failed (is the Go server running?).'
