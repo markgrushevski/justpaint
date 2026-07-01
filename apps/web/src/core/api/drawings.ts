@@ -1,33 +1,21 @@
 import axios from 'axios'
-import type { AxiosError } from 'axios'
 import type { Document } from '@justpaint/document'
 import { parseDocument } from '@justpaint/document'
-import { useUserStore } from '../stores'
 
 /**
  * Typed client for the Go backend's auth + drawings API (docs/API.md).
  *
- * Deliberately a FRESH axios instance, not the legacy `mainAPI` one:
- *  - cookie-based session (`jp_session`, HttpOnly) → `withCredentials: true`,
- *    no Authorization header, no localStorage (API.md §1/§2).
- *  - a corrected response interceptor that reads `error.response?.status`,
- *    flips `isLoggedIn` on 401, and ALWAYS rejects (the legacy one swallowed
- *    errors into `undefined`).
+ * Cookie-based session (`jp_session`, HttpOnly) → `withCredentials: true`, no
+ * Authorization header, no localStorage (API.md §1/§2). In dev the vite proxy
+ * forwards same-origin `/api` to the Go server (:8080), so the cookie is
+ * first-party. Session STATE lives in `useSessionStore`; this module stays
+ * store-free to avoid an api⇄store import cycle. axios rejects non-2xx by
+ * default; callers use `toApiError`/`isAuthError` below.
  */
 const api = axios.create({
     baseURL: import.meta.env.VITE_URL_API,
     withCredentials: true
 })
-
-api.interceptors.response.use(
-    (res) => res,
-    (error: AxiosError) => {
-        if (error.response?.status === 401) {
-            useUserStore().isLoggedIn = false
-        }
-        return Promise.reject(error)
-    }
-)
 
 /* ------------------------------------------------------------------ */
 /* Wire types (camelCase, exact from the Go DTO structs).             */
