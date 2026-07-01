@@ -9,7 +9,7 @@
 | Phase | Goal | Status |
 |---|---|---|
 | **0** | Specs — agree the contracts before code | 🟢 **done** |
-| **1** | Go backend (auth + drawings CRUD) + minimal Konva editor | 🟡 **in progress (current)** |
+| **1** | Go backend (auth + drawings CRUD) + minimal Konva editor | 🟢 **done** |
 | **2** | Frontend refactor — vector editor, real layers; oriui swap | ⚪ not started |
 | **3** | Game — async duel first, then live WS | ⚪ not started |
 | **4** | Stretch — realtime hub, ratings, teams/tournaments, replay | ⚪ not started |
@@ -40,7 +40,7 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 
 ---
 
-## Phase 1 — Go backend + minimal editor 🟡 (current)
+## Phase 1 — Go backend + minimal editor 🟢 (done)
 
 **Goal:** a secure Go service that authenticates users and does drawings CRUD storing the **vector document as jsonb**, plus the thinnest Konva editor that can produce and load a valid document. First real learn-Go surface.
 
@@ -51,13 +51,15 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 - [x] **Auth** — `internal/auth` (service/handler/middleware/token/password): bcrypt (+SHA-256 prehash for long passwords), JWT HS256 with alg-pinning, `jp_session` cookie (HttpOnly/SameSite=Lax; Secure in prod, off for dev http); `register/login/logout/me` + `RequireAuth` middleware; anti-enumeration (generic `invalid_credentials` + dummy-hash compare). Verified end-to-end via curl against Postgres (201/200/401/409/400/204 per API.md). Shared `internal/platform/web` envelope + strict JSON decode.
 - [x] **DB** — Postgres via Docker (`docker-compose.yml`) + pgx pool (`internal/platform/postgres`); **goose** migration `00001_initial_schema` (users/prompts/matches/drawings/match_players per ARCHITECTURE §7 + DOCUMENT-FORMAT §7); **sqlc** type-safe queries (uuid→string, timestamptz→time.Time, nullable→pointers, `drawings.document`→`json.RawMessage`). Migrated + generated + builds green.
 - [x] **Drawings CRUD** — `internal/drawings` create/get/list/update/delete + `internal/document` write-edge validator (discriminated-union `Stroke` decode via `UnmarshalJSON`, every invariant, DoS caps, 8 MB `http.MaxBytesReader`→413). Ownership-scoped (foreign→404, no IDOR); keyset pagination (opaque cursor) with free/duel/all filter. Verified end-to-end.
-- [~] **Minimal Konva editor** — `packages/editor` (`@justpaint/editor`): full pure `buildStroke` tool set + `toKonva`/`renderToPNG` + `Editor` controller (logical coords); 14 tests green; `FREEHAND_VERSION` pinned to perfect-freehand 1.2.3. **Wired into `apps/web`**: a vue-router `/draw` page mounts the `Editor` with an oriui toolbar (tool select, color, width, fill, New, Export PNG, Save/Load), a typed cookie-auth drawings API client (`src/core/api/drawings.ts`, `withCredentials`), and `Editor.destroy()` on unmount (frees the Konva stage). `vue-tsc` + `vite build` green; live on the vite dev server (`.claude/launch.json` → preview). **Remaining to close exit criteria:** the end-to-end save/load round-trip against a running Go server (needs login/auth wired — the client + buttons are ready and fail-soft until then).
-- [~] **Tests** — Go validator: table-driven tests done (a valid full document + every rejection path + union decode, `internal/document`). **TS `packages/document` tests done** (40: validate table mirrored from Go, serialize/parse round-trip + write-precision, fit transform). **`packages/editor` tests done** (14: each tool's `buildStroke` validated against `@justpaint/document`). App-level round-trip test comes with the apps/web wiring.
+- [x] **Minimal Konva editor + round-trip** — `packages/editor` (`@justpaint/editor`): full pure `buildStroke` tool set + `toKonva`/`renderToPNG` + `Editor` controller (logical coords, `Editor.destroy()` on unmount); 14 tests; `FREEHAND_VERSION` pinned to perfect-freehand 1.2.3. **Wired into `apps/web`**: a vue-router `/draw` page mounts the `Editor` with an oriui toolbar (tools, color, width, fill, New, Export PNG, Save/Load) + a `SessionBar` (login/register/logout). Auth + drawings go through a **native-`fetch`** client (`src/core/api/drawings.ts`, `credentials:'include'`, no axios) + `useSessionStore`; a vite dev proxy forwards same-origin `/api` → the Go server so the `jp_session` cookie is first-party. **Round-trip verified live end-to-end** through the real UI: register/login → draw → save → reload (session restored) → load → the **same drawing back**. `vue-tsc` + `vite build` green; preview via `.claude/launch.json`.
+- [x] **Tests** — Go validator table tests (valid full document + every rejection path + union decode, `internal/document`). **`packages/document`** 40 Vitest (validate table mirrored from Go, serialize/parse round-trip + write-precision, fit). **`packages/editor`** 14 Vitest (each tool's `buildStroke` validated against `@justpaint/document`). **App round-trip verified live** (register→draw→save→reload→load through the UI + Go + Postgres); an automated e2e harness is a later nicety, not blocking.
 
 **Exit criteria**
 - A user can register, log in (cookie-based), draw with every tool, save, reload the page, and get the **same drawing back** — round-tripped as a vector document through Postgres jsonb.
 - Invalid/oversized/forged documents are rejected by the Go validator with clear errors.
 - No plaintext passwords, no empty-JWT-secret fallback, no token in localStorage (the old red flags are structurally gone).
+
+**✅ All exit criteria met** — the full register → draw → save → reload → load round-trip is verified live (real UI + Go + Postgres jsonb); the drawings/auth client is native `fetch`.
 
 ---
 
