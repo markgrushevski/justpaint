@@ -4,8 +4,9 @@ import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DEFAULT_BACKGROUND, DOC_VERSION, parseDocument } from '@justpaint/document'
-import { drawings, isAuthError, toApiError } from '@core'
+import { drawings, isAuthError, toApiError, useSessionStore } from '@core'
 import EditorToolbar from '../components/EditorToolbar.vue'
+import SessionBar from '../components/SessionBar.vue'
 
 const containerRef = ref<HTMLDivElement | null>(null)
 let editor: Editor | null = null
@@ -23,6 +24,8 @@ const ui = reactive({
     fill: DEFAULT_STYLE.fill ?? '#ffffff'
 })
 
+const session = useSessionStore()
+
 // A modest working canvas: the editor has no fit-to-viewport / zoom yet (Phase 2),
 // and the spec default (DEFAULT_CANVAS, 1920x1080) overflows most viewports.
 const CANVAS = { width: 1280, height: 720 }
@@ -38,6 +41,7 @@ function blankDocument(): Document {
 }
 
 onMounted(() => {
+    void session.fetchMe() // restore an existing cookie session, if any
     if (!containerRef.value) return
     editor = new Editor(containerRef.value, parseDocument(blankDocument()))
     editor.setTool(TOOLS[ui.activeTool])
@@ -103,7 +107,7 @@ async function exportPng() {
 
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        message.value = `Sign in to ${action} (auth not wired yet).`
+        message.value = `Sign in to ${action}.`
         return
     }
     const api = toApiError(err)
@@ -159,6 +163,7 @@ async function load() {
 
 <template>
     <div class="draw">
+        <SessionBar />
         <EditorToolbar
             :active-tool="ui.activeTool"
             :color="ui.color"
