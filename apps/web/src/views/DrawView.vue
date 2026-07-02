@@ -315,6 +315,6 @@ async function load() {
     flex: none;
 
     box-shadow: 0 0 0 1px var(--ori-color-outline, rgb(0 0 0 / 15%));
-    background-color: #fff;
+    background-color: #ffffff;
 }
 </style>
