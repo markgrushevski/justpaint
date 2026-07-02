@@ -108,6 +108,23 @@ never drift — `packages/document` (TS) and `server/internal/document` (Go):
       (no api⇄store cycle). Don't reintroduce the legacy broken-axios pattern outside `/legacy`.
 - [ ] Konva stays the renderer — no hand-rolled render engine creeping back in.
 
+## Design & responsive (oriui)
+
+Owned by the `jp-design-reviewer` lens. The UI is built on the **oriui** design system.
+
+- [ ] Colors/sizes read **resolved oriui aliases** (`--ori-color`, `--ori-color-surface`,
+      `--ori-color-outline`, `--ori-size-*`), never hardcoded hex/px. Text uses `--ori-color-on-*`
+      (never `--ori-color-primary` as body text). The justpaint **orange brand** is set once via the
+      `*-light`/`*-dark` sources on `:root`; both themes hold.
+- [ ] Don't reinvent oriui: `OriButton`/`OriInput`/`OriField`/`OriSlider`/`OriCheckbox`/`OriCard`/
+      `OriStack` over hand-rolled buttons/inputs/ranges/panels/flex.
+- [ ] Responsive at oriui breakpoints (`--ori-size-screen_*`: 600 / 840 / 1200 / 1600 / 1920 / 2560)
+      across mobile (~375) / tablet (~768) / desktop: the body never scrolls horizontally; the canvas
+      scrolls in its own container (a real fit scales the Konva **stage**, never CSS-transforms the
+      `<canvas>` — NOTES); fixed side panels (the layers panel) reflow to a drawer/stack on narrow
+      screens; touch targets are adequate.
+- [ ] Contrast meets WCAG AA in both themes; focus is always visible (`:focus-visible`).
+
 ## Scope
 
 - [ ] `/draw` stays editor + save/load — a feature that serves only free-draw and not the game needs

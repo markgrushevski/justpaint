@@ -37,3 +37,34 @@ The parked raster app was deleted 2026-07-02 (`chore/remove-legacy`); its raster
 - **Copy as text / image to clipboard** — export the rendered drawing as a data-URL or a PNG blob straight to the clipboard (legacy `CopyArt`). **Where:** an editor export affordance next to Export-PNG.
 - **Color/size popover controls** — a two-swatch (stroke + fill) visual that opens a popover (not a modal) with the pickers, closes on click-outside, and blocks canvas input while open so a stray stroke can't land (legacy `ColorSettings`, `@vueuse` `onClickOutside`). **Where:** a cleaner `EditorToolbar` (move color/width into a collapsible settings card).
 - **Auth-aware actions** — Save disabled until signed in; an inline login↔register toggle sharing one compact space; a saved-count badge (legacy `SaveArt` / `UserProfile`). **Where:** `SessionBar` polish.
+
+## Design & UX ideas (from similar tools & games)
+Researched 2026-07-02 from drawing editors (Excalidraw, tldraw, Figma/FigJam, Photopea) and drawing-duel games (Skribbl.io, Gartic Phone, Draw Battle, Jackbox Drawful). **Recorded only — not building now.** Grouped by surface; the game items serve the north star (`/play`).
+
+**Editor & canvas (`/draw`, `packages/editor`)**
+- **Bottom-docked / floating toolbar** — thumb-reachable, doesn't eat the canvas; adapts to a compact bar on mobile (tldraw, FigJam).
+- **Zoom / pan / fit gestures** — pinch-zoom, two-finger pan, wheel+shift; `Ctrl+0` fit-all, `Ctrl+1` 100%. (This is the Phase-2 fit-to-viewport work — scale the Konva **stage**.)
+- **Compact color control** — a preset swatch grid (~18 colors) + recent-colors history + a "more" button to the full picker; eyedropper (Alt-click) (Photopea, Sketchful).
+- **Brush-size preview** — a live circle under the cursor / next to the tool showing size + opacity before drawing (Procreate, Photoshop).
+- **Layer thumbnails** — mini previews per layer in the panel (Figma, Photopea) — pairs with the server `thumbnail_url` idea.
+- **Visual undo-history** — a hoverable list of recent actions; click to jump back (Photopea History, Krita).
+- **Shortcuts cheat-sheet** — a `?`/`Cmd+?` modal listing keys (Excalidraw, tldraw). Extra tools: fill-bucket, more shapes.
+
+**Game — lobby & match (`/play`, Phase 3)**
+- **Minimal lobby** — big prompt text, ready-up toggle (auto-start when all ready), live player-avatar list with ready dots; host settings via sliders (rounds, seconds/round, public/private) (Skribbl, Gartic Phone).
+- **Centered prompt reveal** — the prompt appears center-screen ~3s at round start, then each player draws their own canvas (Gartic Phone, Drawful).
+- **Round timer bar** — top progress bar, green→orange→red under 10s, with an alert cue (Skribbl).
+- **Split view for spectators** — both canvases side-by-side for the audience; each player sees only their own during the round (Draw Battle).
+
+**Game — result & rating (`/play`, Phase 3)**
+- **Animated result card** — both drawings side-by-side, the ML similarity as a 0–100% bar, the judge's one-line reason, an arrow animating to the winner (Game UI Database, LoL victory screen). A `?` tooltip expands the judge's rationale (transparency).
+- **Score pop + leaderboard** — floating "+15" juice on award; a leaderboard table (nick / avatar / score / Δ) highlighting the current player; a match-summary screen with Rematch / Share (Skribbl, Jackbox).
+- **One-click share** — export the round (both drawings + result) as a PNG/GIF for social (Gartic Phone album, ShareX).
+
+**Cross-cutting — theme, responsive, feel**
+- **Dark-mode toggle** — moon/sun switch; oriui already ships both themes (also in the salvaged-legacy list).
+- **Mobile portrait layout** — canvas ~70%, toolbar bottom, panels collapse to icon-tabs; primary actions in the bottom third for one-handed reach.
+- **Game-feel polish** — smooth 200–400ms easings, toast notifications for match events, skeleton loaders while the judge scores, optional audio cues.
+- **Playful brand type** — a hand-drawn display font (Excalidraw's Virgil / Caveat) for lobby & result headings to set a fun tone; keep a clean system/`Nunito` body.
+
+*Priority for the game MVP:* bottom toolbar · compact color picker · animated result card · round timer · match summary · dark-mode · mobile layout. Editor polish (layer thumbnails, brush preview, zoom/pan) and juice (score pop, audio, replay) come after the core loop.
