@@ -6,6 +6,20 @@ export type ToolId = "pen" | "eraser" | "line" | "rect" | "ellipse" | "triangle"
 /** A pointer sample in LOGICAL document coordinates. pressure in [0,1]. */
 export interface LogicalPoint { x: number; y: number; pressure: number; }
 
+/**
+ * A read-only snapshot of a document layer for the editor's host UI (a layers
+ * panel). The editor owns the mutable {@link Layer}; the host renders these and
+ * calls back into the editor to mutate. Ordered bottom→top, matching the
+ * document's z-order (`layers[0]` is the bottom-most).
+ */
+export interface LayerView {
+  readonly id: string;
+  readonly name: string;
+  readonly visible: boolean;
+  readonly opacity: number;
+  readonly strokeCount: number;
+}
+
 /** Current drawing style the editor supplies to tools. */
 export interface ToolStyle {
   color: string;        // stroke/brush color, "#rrggbb" or "#rrggbbaa"
