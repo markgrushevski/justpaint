@@ -2,7 +2,7 @@
 
 > **System topology & boundaries.** How the pieces fit, which way dependencies point, and where the seams are. Companion to `docs/DECISIONS.md` (the "why" of each call) and `docs/DOCUMENT-FORMAT.md` (the keystone contract). This doc maps the *structure*; it does not relitigate the decisions that produced it.
 >
-> **Status:** Phase 0 (draft). The target layout below **does not exist yet** — the repo is mid-migration from the old `client/` (Vue raster) + `server/` (NestJS). This describes where we're going, plus explicit triggers for when to split further (§9).
+> **Status:** the monorepo layout below **now exists** (Phase 1 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone (the raster app survives only behind `/legacy`). This doc maps the structure and the explicit triggers for when to split further (§9); the game modules (`internal/game`, WS hub, judge client) are Phase 3 and not built yet.
 
 ## 1. One picture
 
@@ -70,16 +70,17 @@ One Go service, one Postgres (DECISIONS: "one Go service … one Postgres"). Mic
 
 ```
 server/
-  cmd/justpaint/main.go        # compose modules, start http (+ ws) server
+  cmd/server/main.go           # compose modules, start the http server (ws later)   [done]
   internal/
-    auth/        # signup/login, bcrypt, golang-jwt issue/verify, middleware
-    drawings/    # CRUD over the vector document (jsonb); validate on write; render trigger
-    game/        # match lifecycle: create → both draw → submit → judge → result; ratings
-    judge/       # Judge interface + fake impl + HTTP client to the external service (§5)
-    ws/          # coder/websocket hub for the game (realtime later; async-first)
-    platform/    # shared infra: pgx pool, http server/router, config, slog, errors
-  migrations/    # goose
-  queries/       # sqlc input → generated typed Go
+    auth/        # signup/login, bcrypt, golang-jwt issue/verify, middleware           [done]
+    drawings/    # CRUD over the vector document (jsonb); validate on write            [done]
+    document/    # the Go half of the vector-doc validator (mirrors packages/document) [done]
+    db/          # sqlc-generated typed queries (+ queries/ SQL source)                [done]
+    platform/    # shared infra: pgx pool, http server/router, config, slog, errors    [done]
+    game/        # match lifecycle: create → both draw → submit → judge → result       [Phase 3]
+    judge/       # Judge interface + fake impl + HTTP client to the external service (§5)  [Phase 3]
+    ws/          # coder/websocket hub for the game (realtime later; async-first)       [Phase 3]
+  migrations/    # goose (00001_initial_schema.sql)
 ```
 
 Module rules:
@@ -88,7 +89,7 @@ Module rules:
 - **Persistence:** pgx v5 + sqlc (typed queries) + goose (migrations). The `document` column is `jsonb`, bound as `json.RawMessage` (opaque to SQL); queryable fields are promoted to columns (§7, and `docs/DOCUMENT-FORMAT.md` §7).
 - **One process, clean seams** means a module can later become its own binary by lifting it out behind its existing interface — but only when a trigger in §9 fires.
 
-Do **not** invest in the old NestJS `server/` — it is being replaced wholesale (DECISIONS: "Don't refactor the old NestJS — replace it").
+The old NestJS `server/` has already been **removed and replaced** by this Go service (Phase 1; recoverable from git history) — there is no NestJS code left to refactor (DECISIONS: "Don't refactor the old NestJS — replace it").
 
 ## 5. The Judge seam (interface + fake + external service)
 
