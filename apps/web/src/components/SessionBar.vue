@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { ref } from 'vue'
-import { OriButton } from '@oriui/vue'
+import { OriButton, OriInput } from '@oriui/vue'
 import { toApiError, useSessionStore } from '@core'
 
 const session = useSessionStore()
@@ -37,6 +37,7 @@ async function logout() {
 
 <template>
     <div class="session">
+        <span class="session__brand">justpaint</span>
         <template v-if="session.isLoggedIn">
             <span class="session__who"
                 >Signed in as <b>{{ session.user?.login }}</b></span
@@ -44,54 +45,67 @@ async function logout() {
             <OriButton size="sm" variant="outline" @click="logout">Log out</OriButton>
         </template>
         <template v-else>
-            <input
+            <OriInput
                 v-model="loginId"
                 class="session__input"
+                size="sm"
                 placeholder="login (email or nickname)"
                 autocomplete="username"
+                aria-label="Login"
                 @keyup.enter="submit('login')"
             />
-            <input
+            <OriInput
                 v-model="password"
                 class="session__input"
+                size="sm"
                 type="password"
                 placeholder="password"
                 autocomplete="current-password"
+                aria-label="Password"
                 @keyup.enter="submit('login')"
             />
             <OriButton size="sm" variant="fill" :loading="busy" @click="submit('login')">Log in</OriButton>
             <OriButton size="sm" variant="outline" :loading="busy" @click="submit('register')">Register</OriButton>
         </template>
-        <span v-if="error" class="session__error">{{ error }}</span>
+        <span v-if="error" class="session__error" role="alert">{{ error }}</span>
     </div>
 </template>
 
 <style scoped>
 .session {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--ori-size-gap_md, 0.5rem);
     align-items: center;
     flex-wrap: wrap;
 
-    padding: 0.5rem 1rem;
+    padding: var(--ori-size-gap_md, 0.5rem) var(--ori-size-gap_lg, 1rem);
 
     border-bottom: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-    background-color: var(--ori-color-surface, #fafafa);
+    background-color: var(--ori-color-surface);
 }
 
-.session__input {
-    padding: 0.35rem 0.5rem;
+.session__brand {
+    margin-right: auto;
 
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
-    border-radius: 6px;
+    font-weight: 700;
+    font-size: var(--ori-font-size_lg, 1.1rem);
+    color: var(--ori-color-primary);
+    letter-spacing: -0.01em;
 }
 
 .session__who {
-    font-size: 0.9rem;
+    font-size: var(--ori-font-size_sm, 0.9rem);
+    color: var(--ori-color-on-surface);
+}
+
+.session__input {
+    width: 12rem;
+    max-width: 40vw;
 }
 
 .session__error {
-    color: var(--ori-color-danger, #c0392b);
-    font-size: 0.85rem;
+    flex-basis: 100%;
+    color: var(--ori-color-danger);
+    font-size: var(--ori-font-size_sm, 0.85rem);
 }
 </style>

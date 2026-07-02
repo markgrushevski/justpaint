@@ -9,6 +9,8 @@
         ],
         "color-function-notation": ["modern", { "ignore": ["with-var-inside"] }],
         "color-hex-length": "long",
+        "comment-empty-line-before": null,
+        "custom-property-pattern": null,
         "custom-property-empty-line-before": null,
         "declaration-empty-line-before": null
     }
