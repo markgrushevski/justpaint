@@ -86,6 +86,12 @@ small practical gotchas go here.
 - **`renderToPNG` is browser-only** (needs a real DOM + Konva stage) and is intentionally **not**
   unit-tested (no DOM in the Vitest runner). A headless/Konva-node server render path is a separate
   future thing (Phase 3 submit).
+- **Konva 10 dropped its default Node.js backend** (browser is unaffected — the editor is fine). When
+  the Phase-3 **headless server render worker** is built, it must `import 'konva/canvas-backend'`
+  (or `konva/skia-backend`) before using Konva, or it won't render off-DOM. Also: Konva 10's one
+  render-behavior change (rounded corners on **negative-dimension** rects) can't bite us — `rect.ts`
+  normalizes to non-negative w/h and the validator rejects zero/negative dims, so v9↔v10 output is
+  identical for every document we can produce.
 - **`/draw` mounts a fixed 1280×720 working canvas**, deliberately diverging from the spec
   `DEFAULT_CANVAS` (1920×1080) because the editor has no fit/zoom yet (Phase 2); the wrapper just
   scrolls. Don't "fix" it to 1920×1080 without adding fit/zoom.
