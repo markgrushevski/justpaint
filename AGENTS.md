@@ -77,6 +77,6 @@ docs/                specs — the source of truth
 The main session is the **orchestrator** (plans, runs gates, verifies live, wires shared files,
 records findings into `docs/NOTES.md` / `docs/DECISIONS.md`). Read-only review lenses live in
 `.claude/agents/` (`jp-contract-parity`, `jp-security`, `jp-go`, `jp-frontend`, `jp-scope-guard`,
-`jp-docs-reviewer`), each hunting one dimension of [`docs/REVIEW.md`](docs/REVIEW.md). Backend and
+`jp-docs-reviewer`, `jp-design-reviewer`), each hunting one dimension of [`docs/REVIEW.md`](docs/REVIEW.md). Backend and
 frontend share no files and both validate against the frozen contract, so they fan out on parallel
 branches; integration is serialized through the orchestrator.
