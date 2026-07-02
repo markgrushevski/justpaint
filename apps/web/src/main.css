@@ -1,11 +1,60 @@
-* {
-    font-family: 'Nunito', sans-serif;
-    font-weight: 500;
+/*
+ * justpaint brand tokens — a warm orange over a slightly-warm neutral, layered on
+ * the oriui design system. We only set the `*-light`/`*-dark` SOURCES here; oriui
+ * resolves them into `--ori-color-*` per theme (its NOTES: a global brand override
+ * sets the source at `:root`). Components read the resolved aliases, never these.
+ */
+:root {
+    /* Primary — the justpaint orange. */
+    --ori-color-primary-light: hsl(22 95% 48%);
+    --ori-color-on-primary-light: #ffffff;
+    --ori-color-primary-dark: hsl(24 100% 60%);
+    --ori-color-on-primary-dark: hsl(24 45% 10%);
+
+    /* Secondary — a warm amber, sibling to the orange. */
+    --ori-color-secondary-light: hsl(38 92% 88%);
+    --ori-color-on-secondary-light: hsl(24 50% 24%);
+    --ori-color-secondary-dark: hsl(30 32% 26%);
+    --ori-color-on-secondary-dark: hsl(38 90% 92%);
+
+    /* Surface (cards, panels, toolbar) + page background — warm neutrals. */
+    --ori-color-surface-light: #ffffff;
+    --ori-color-on-surface-light: hsl(24 16% 16%);
+    --ori-color-surface-dark: hsl(24 16% 14%);
+    --ori-color-on-surface-dark: hsl(36 40% 94%);
+
+    --ori-color-background-light: hsl(30 33% 97%);
+    --ori-color-on-background-light: hsl(24 16% 16%);
+    --ori-color-background-dark: hsl(24 20% 9%);
+    --ori-color-on-background-dark: hsl(36 40% 94%);
+
+    /* Outline (borders, dividers). */
+    --ori-color-outline-light: hsl(28 22% 85%);
+    --ori-color-outline-dark: hsl(28 12% 30%);
 }
 
-:root {
-    --ori-color-primary-light: hsl(20 100% 50%);
-    --ori-color-primary-dark: hsl(20 100% 60%);
+/*
+ * Respect the OS theme until an in-app light/dark toggle ships (an IDEAS item;
+ * oriui itself only flips on `.ori-theme_dark`). Repoint the RESOLVED aliases to
+ * the dark sources — this is the documented per-scope override, not `:root`
+ * source-swapping. Semantic roles (success/warn/danger/info) keep oriui's defaults.
+ */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --ori-color-primary: var(--ori-color-primary-dark);
+        --ori-color-on-primary: var(--ori-color-on-primary-dark);
+        --ori-color-secondary: var(--ori-color-secondary-dark);
+        --ori-color-on-secondary: var(--ori-color-on-secondary-dark);
+        --ori-color-surface: var(--ori-color-surface-dark);
+        --ori-color-on-surface: var(--ori-color-on-surface-dark);
+        --ori-color-background: var(--ori-color-background-dark);
+        --ori-color-on-background: var(--ori-color-on-background-dark);
+        --ori-color-outline: var(--ori-color-outline-dark);
+    }
+}
+
+* {
+    font-family: 'Nunito', sans-serif;
 }
 
 #app {
@@ -19,6 +68,6 @@
     display: flex;
     flex-direction: column;
 
-    color: var(--ori-color-primary);
+    color: var(--ori-color-on-background);
     background-color: var(--ori-color-background);
 }

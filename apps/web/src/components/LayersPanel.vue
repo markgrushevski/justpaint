@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { OriButton } from '@oriui/vue'
+import { OriButton, OriCheckbox } from '@oriui/vue'
 import type { LayerView } from '@justpaint/editor'
 
 const props = defineProps<{
@@ -25,9 +25,10 @@ function rows() {
     return props.layers.map((layer, index) => ({ layer, index })).reverse()
 }
 
-// Commit opacity on release (`change`), not every `input` tick, so a whole
-// slider drag collapses into a single undo step. The native thumb still tracks
-// the drag visually; the document only updates on release.
+// Opacity commits on release (`change`), not every `input` tick, so a whole
+// slider drag collapses into a single undo step. (This is why it stays a native
+// range and not OriSlider, which would emit per-tick and flood history — unlike
+// the toolbar width slider, which isn't recorded in history.)
 function onOpacityChange(id: string, e: Event) {
     emit('setOpacity', id, Number((e.target as HTMLInputElement).value) / 100)
 }
@@ -55,14 +56,13 @@ const top = () => props.layers.length - 1
                 @click="emit('select', layer.id)"
             >
                 <div class="layers__row">
-                    <input
-                        class="layers__visible"
-                        type="checkbox"
-                        :checked="layer.visible"
-                        :aria-label="`Toggle ${layer.name} visibility`"
-                        @click.stop
-                        @change="emit('toggleVisible', layer.id, ($event.target as HTMLInputElement).checked)"
-                    />
+                    <span class="layers__visible" @click.stop>
+                        <OriCheckbox
+                            :model-value="layer.visible"
+                            :aria-label="`Toggle ${layer.name} visibility`"
+                            @update:model-value="(v) => emit('toggleVisible', layer.id, v === true)"
+                        />
+                    </span>
                     <input
                         class="layers__name"
                         :value="layer.name"
@@ -84,30 +84,31 @@ const top = () => props.layers.length - 1
                         :aria-label="`${layer.name} opacity`"
                         @change="onOpacityChange(layer.id, $event)"
                     />
-                    <button
-                        class="layers__btn"
-                        title="Move up"
+                    <OriButton
+                        size="sm"
+                        variant="outline"
                         :disabled="index >= top()"
+                        aria-label="Move layer up"
                         @click="emit('move', layer.id, index + 1)"
+                        >↑</OriButton
                     >
-                        ↑
-                    </button>
-                    <button
-                        class="layers__btn"
-                        title="Move down"
+                    <OriButton
+                        size="sm"
+                        variant="outline"
                         :disabled="index <= 0"
+                        aria-label="Move layer down"
                         @click="emit('move', layer.id, index - 1)"
+                        >↓</OriButton
                     >
-                        ↓
-                    </button>
-                    <button
-                        class="layers__btn layers__btn--danger"
-                        title="Delete layer"
+                    <OriButton
+                        size="sm"
+                        variant="outline"
+                        color="danger"
                         :disabled="props.layers.length <= 1"
+                        aria-label="Delete layer"
                         @click="emit('remove', layer.id)"
+                        >✕</OriButton
                     >
-                        ✕
-                    </button>
                 </div>
             </li>
         </ul>
@@ -121,12 +122,12 @@ const top = () => props.layers.length - 1
 
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--ori-size-gap_md, 0.5rem);
 
-    padding: 0.75rem;
+    padding: var(--ori-size-gap_md, 0.75rem);
 
     border-left: 1px solid var(--ori-color-outline, rgb(0 0 0 / 10%));
-    background-color: var(--ori-color-surface, #fafafa);
+    background-color: var(--ori-color-surface);
 }
 
 .layers__head {
@@ -137,7 +138,8 @@ const top = () => props.layers.length - 1
 
 .layers__title {
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: var(--ori-font-size_sm, 0.9rem);
+    color: var(--ori-color-on-surface);
 }
 
 .layers__list {
@@ -147,7 +149,7 @@ const top = () => props.layers.length - 1
 
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--ori-size-gap_sm, 0.375rem);
 
     overflow-y: auto;
 }
@@ -155,25 +157,26 @@ const top = () => props.layers.length - 1
 .layers__item {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--ori-size-gap_sm, 0.375rem);
 
-    padding: 0.5rem;
+    padding: var(--ori-size-gap_md, 0.5rem);
 
     border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-    border-radius: 6px;
+    border-radius: var(--ori-size-radius_md, 6px);
+    color: var(--ori-color-on-surface);
 
     cursor: pointer;
 }
 
 .layers__item--active {
-    border-color: var(--ori-color-primary, #3b82f6);
-    box-shadow: 0 0 0 1px var(--ori-color-primary, #3b82f6);
+    border-color: var(--ori-color-primary);
+    box-shadow: 0 0 0 1px var(--ori-color-primary);
 }
 
 .layers__row {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--ori-size-gap_sm, 0.375rem);
 }
 
 .layers__name {
@@ -183,55 +186,39 @@ const top = () => props.layers.length - 1
     padding: 0.15rem 0.35rem;
 
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: var(--ori-size-radius_sm, 4px);
     background: transparent;
+    color: inherit;
 
-    font-size: 0.85rem;
+    font-size: var(--ori-font-size_sm, 0.85rem);
 }
 
 .layers__name:focus {
     border-color: var(--ori-color-outline, rgb(0 0 0 / 25%));
-    background: var(--ori-color-background, #ffffff);
+    background: var(--ori-color-background);
 }
 
 .layers__count {
     min-width: 1.5rem;
     text-align: right;
 
-    font-size: 0.75rem;
+    font-size: var(--ori-font-size_xs, 0.75rem);
     font-variant-numeric: tabular-nums;
-    color: var(--ori-color-on-surface-variant, #6b7280);
+    opacity: 0.7;
 }
 
 .layers__opacity {
     flex: 1 1 auto;
     min-width: 0;
+    accent-color: var(--ori-color-primary);
 }
 
-.layers__btn {
-    width: 1.5rem;
-    height: 1.5rem;
-
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
-    border-radius: 4px;
-    background: var(--ori-color-background, #ffffff);
-
-    cursor: pointer;
-    font-size: 0.8rem;
-    line-height: 1;
-}
-
-.layers__btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-.layers__btn--danger:not(:disabled):hover {
-    border-color: var(--ori-color-danger, #c0392b);
-    color: var(--ori-color-danger, #c0392b);
+@media (width <= 600px) {
+    .layers {
+        width: 100%;
+        border-left: none;
+        border-top: 1px solid var(--ori-color-outline, rgb(0 0 0 / 10%));
+        max-height: 40dvh;
+    }
 }
 </style>

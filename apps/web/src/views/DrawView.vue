@@ -306,7 +306,7 @@ async function load() {
     align-items: flex-start;
     justify-content: center;
 
-    padding: 1rem;
+    padding: var(--ori-size-gap_lg, 1rem);
 
     background-color: var(--ori-color-background);
 }
@@ -314,7 +314,21 @@ async function load() {
 .draw__canvas {
     flex: none;
 
-    box-shadow: 0 0 0 1px var(--ori-color-outline, rgb(0 0 0 / 15%));
+    box-shadow:
+        0 0 0 1px var(--ori-color-outline, rgb(0 0 0 / 15%)),
+        var(--ori-shadow-md, 0 6px 16px rgb(0 0 0 / 8%));
+    border-radius: var(--ori-size-radius_sm, 4px);
+
+    /* The drawing "paper" stays white regardless of UI theme (it IS the document
+       background, DEFAULT_BACKGROUND) — a white sheet reads clearly on a dark UI. */
     background-color: #ffffff;
+}
+
+/* Mobile: stack the layers panel below the canvas instead of beside it (the
+   panel's own rule turns it full-width). oriui breakpoint --ori-size-screen_xs. */
+@media (width <= 600px) {
+    .draw__body {
+        flex-direction: column;
+    }
 }
 </style>
