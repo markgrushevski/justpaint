@@ -21,6 +21,8 @@ const props = defineProps<{
     fillEnabled: boolean
     fill: string
     busy: boolean
+    canUndo: boolean
+    canRedo: boolean
     message: string | null
 }>()
 
@@ -30,6 +32,8 @@ const emit = defineEmits<{
     setWidth: [width: number]
     toggleFill: [enabled: boolean]
     setFill: [hex: string]
+    undo: []
+    redo: []
     clear: []
     exportPng: []
     save: []
@@ -90,6 +94,8 @@ void props
         </div>
 
         <div class="toolbar__group toolbar__group--actions">
+            <OriButton variant="outline" size="sm" :disabled="!props.canUndo" @click="emit('undo')">Undo</OriButton>
+            <OriButton variant="outline" size="sm" :disabled="!props.canRedo" @click="emit('redo')">Redo</OriButton>
             <OriButton variant="outline" size="sm" @click="emit('clear')">New</OriButton>
             <OriButton variant="outline" size="sm" @click="emit('exportPng')">Export PNG</OriButton>
             <OriButton variant="tonal" size="sm" :loading="props.busy" @click="emit('save')">Save</OriButton>
