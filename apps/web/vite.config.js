@@ -13,7 +13,6 @@ export default defineConfig({
     },
     preview: { port: 7777 },
     build: { sourcemap: true },
-    esbuild: { sourcemap: 'external' },
     css: { postcss: { plugins: [autoprefixer] }, devSourcemap: true },
     resolve: {
         alias: {
