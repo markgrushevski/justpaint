@@ -109,8 +109,8 @@ small practical gotchas go here.
 ## Frontend / build
 
 - **Cross-package `dist/` footgun:** `apps/web` consumes `@justpaint/document` / `@justpaint/editor`
-  via their built `dist/` (`"*"` → `dist/index.js`). That `dist/` is **gitignored, not committed**
-  (only `vendor/oriui/**/dist/` is force-tracked) — so a **fresh clone has no package `dist` at all**
+  via their built `dist/` (`"*"` → `dist/index.js`). That `dist/` is **gitignored, not committed** —
+  so a **fresh clone has no package `dist` at all**
   until you `npm run build` the packages, and `apps/web` / `vue-tsc` can't resolve
   `@justpaint/document|editor` before then. After a clone, and after editing package `src`, rebuild
   the package — there's no HMR across the boundary. (A Vite src alias is a deferred IDEAS.md item.)
@@ -124,10 +124,12 @@ small practical gotchas go here.
   keeps the frozen contract checked.
 - **`URL.revokeObjectURL` in the same tick as `a.click()` can abort the download** in some browsers —
   defer the revoke (`setTimeout(…, 0)`).
-- **Vendored oriui is prebuilt and `file:`-linked** (`vendor/oriui/{css,headless,vue}`, all
-  1.0.0-alpha.1). Treat it as an external dependency: editing vendor source needs a rebuild;
-  `@oriui/css` must be imported for side effects (done in `main.ts`) or components render unstyled.
-  Its committed `dist/` is force-included via `.gitignore` negations (`!vendor/oriui/**/dist/`).
+- **oriui is a normal npm dependency** now (`@oriui/{vue,css,headless}` pinned to `1.0.0-alpha.2`, the
+  owner's own alpha lib — was vendored under `vendor/oriui/` until the swap). The three move in
+  **lockstep** — bump all three together (`@oriui/vue` pins its `css`/`headless` deps to the exact
+  same version). `@oriui/css` must be imported for side effects (done in `main.ts`) or components
+  render unstyled. A dep **version change needs a Vite dev-server restart** (Vite pre-bundles deps),
+  not just an HMR reload.
 
 ## Preview MCP / verification
 

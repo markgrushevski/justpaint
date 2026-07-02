@@ -14,7 +14,7 @@ Greenfield — no production data to preserve; schema/format may be redesigned f
 - **External:** the ML judge is built by a collaborator (his own ML). We define the contract + a fake impl; we do NOT build it.
 
 ## Stack
-- **Frontend:** Vue 3 + Vite + Pinia + TanStack Query. Rendering on **Konva** (+ `perfect-freehand` for brush quality). We do NOT hand-write a render engine. Component lib: **oriui** — vendored at `vendor/oriui/*` (v1.0.0-alpha.1) and consumed via `file:` links until it's published to npm; already in use on `/draw` (replaced `vueinjar`).
+- **Frontend:** Vue 3 + Vite + Pinia + TanStack Query. Rendering on **Konva** (+ `perfect-freehand` for brush quality). We do NOT hand-write a render engine. Component lib: **oriui** — the owner's own library, installed from npm (`@oriui/{vue,css,headless}` `1.0.0-alpha.2`, the three in lockstep); in use on `/draw` (replaced `vueinjar`).
 - **Backend:** **Go 1.26** — net/http (stdlib, no framework) + pgx/v5 + sqlc + golang-jwt/v5 + bcrypt + slog. One Postgres. goose and sqlc are **external CLIs** (not Go deps). `coder/websocket` for realtime is Phase 3 (not yet a dependency).
 - **Storage:** drawings as a **vector document (jsonb)**; rendered PNGs (judge/thumbnails) to object storage later.
 
@@ -25,7 +25,6 @@ packages/editor/     # Konva + perfect-freehand: pure tools, toKonva, renderToPN
 apps/web/            # Vue app: /draw (free) + /legacy (parked old raster app). /play is Phase 3.
 server/              # Go modular monolith: auth + drawings (game + WS hub + judge client = Phase 3)
 docs/                # specs & agreements (source of truth)
-vendor/oriui/        # vendored oriui build, file:-linked (temporary, until npm publish)
 ```
 npm workspaces (`packages/*` + `apps/*`); the Go service is separate. Reusability = package boundaries (`editor` consumed by both modes), not separate repos. Modular monolith, not microservices. The friend's judge is the only external service.
 
