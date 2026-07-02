@@ -1,15 +1,17 @@
 <script lang="ts" setup>
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
-import type { ToolId } from '@justpaint/editor'
+import type { ToolId, LayerView } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
-import { DEFAULT_BACKGROUND, DOC_VERSION, parseDocument } from '@justpaint/document'
+import { DEFAULT_BACKGROUND, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
 import { drawings, isAuthError, toApiError, useSessionStore } from '@core'
 import EditorToolbar from '../components/EditorToolbar.vue'
+import LayersPanel from '../components/LayersPanel.vue'
 import SessionBar from '../components/SessionBar.vue'
 
 const containerRef = ref<HTMLDivElement | null>(null)
 let editor: Editor | null = null
+let unsubscribe: (() => void) | null = null
 
 /** Id of the drawing currently open (set after a successful save/load). */
 const currentId = ref<string | null>(null)
@@ -23,6 +25,14 @@ const ui = reactive({
     fillEnabled: DEFAULT_STYLE.fill !== null,
     fill: DEFAULT_STYLE.fill ?? '#ffffff'
 })
+
+// Editor-derived state, kept in sync via the editor's onChange subscription so
+// Vue re-renders the toolbar (undo/redo enablement) and the layers panel.
+const layers = ref<LayerView[]>([])
+const activeLayerId = ref('')
+const canUndo = ref(false)
+const canRedo = ref(false)
+const MAX_LAYERS = LIMITS.maxLayers
 
 const session = useSessionStore()
 
@@ -40,20 +50,51 @@ function blankDocument(): Document {
     }
 }
 
+function syncEditorState() {
+    if (!editor) return
+    layers.value = editor.getLayers()
+    activeLayerId.value = editor.getActiveLayerId()
+    canUndo.value = editor.canUndo()
+    canRedo.value = editor.canRedo()
+}
+
 onMounted(() => {
     void session.fetchMe() // restore an existing cookie session, if any
     if (!containerRef.value) return
     editor = new Editor(containerRef.value, parseDocument(blankDocument()))
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
+    unsubscribe = editor.onChange(syncEditorState)
+    syncEditorState()
+    window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
+    window.removeEventListener('keydown', onKeydown)
+    unsubscribe?.()
+    unsubscribe = null
     // Destroy the Konva stage (removes it from Konva's module-global registry and
     // releases its <canvas> elements); merely dropping the ref would leak it.
     editor?.destroy()
     editor = null
 })
+
+/** Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z or Ctrl+Y = redo. Skips form fields. */
+function onKeydown(e: KeyboardEvent) {
+    const target = e.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return
+    }
+    if (!(e.ctrlKey || e.metaKey)) return
+    const key = e.key.toLowerCase()
+    if (key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        editor?.undo()
+    } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault()
+        editor?.redo()
+    }
+}
 
 /* --- toolbar handlers ------------------------------------------------ */
 
@@ -83,6 +124,13 @@ function setFill(hex: string) {
     if (ui.fillEnabled) editor?.setStyle({ fill: hex })
 }
 
+function undo() {
+    editor?.undo()
+}
+function redo() {
+    editor?.redo()
+}
+
 function clearCanvas() {
     if (!editor) return
     // Validate the freshly built blank doc before loading (loadDocument does
@@ -90,6 +138,30 @@ function clearCanvas() {
     editor.loadDocument(parseDocument(blankDocument()))
     currentId.value = null
     message.value = null
+}
+
+/* --- layers panel handlers ------------------------------------------ */
+
+function addLayer() {
+    editor?.addLayer()
+}
+function selectLayer(id: string) {
+    editor?.setActiveLayer(id)
+}
+function removeLayer(id: string) {
+    editor?.removeLayer(id)
+}
+function moveLayer(id: string, toIndex: number) {
+    editor?.moveLayer(id, toIndex)
+}
+function toggleLayerVisible(id: string, visible: boolean) {
+    editor?.setLayerVisible(id, visible)
+}
+function setLayerOpacity(id: string, opacity: number) {
+    editor?.setLayerOpacity(id, opacity)
+}
+function renameLayer(id: string, name: string) {
+    editor?.renameLayer(id, name)
 }
 
 async function exportPng() {
@@ -118,8 +190,6 @@ async function save() {
     if (!editor || busy.value) return
     busy.value = true
     message.value = null
-    // getDocument() returns the LIVE document; axios serializes it synchronously
-    // before the await and `busy` guards re-entry, so it can't mutate mid-flight.
     const doc = editor.getDocument()
     try {
         if (currentId.value) {
@@ -171,22 +241,41 @@ async function load() {
             :fill-enabled="ui.fillEnabled"
             :fill="ui.fill"
             :busy="busy"
+            :can-undo="canUndo"
+            :can-redo="canRedo"
             :message="message"
             @pick-tool="pickTool"
             @set-color="setColor"
             @set-width="setWidth"
             @toggle-fill="toggleFill"
             @set-fill="setFill"
+            @undo="undo"
+            @redo="redo"
             @clear="clearCanvas"
             @export-png="exportPng"
             @save="save"
             @load="load"
         />
 
-        <!-- The Editor sizes its Konva stage to doc.width x doc.height
-             (1920x1080) with no fit-to-viewport, so the wrapper scrolls. -->
-        <div class="draw__scroll">
-            <div ref="containerRef" class="draw__canvas"></div>
+        <div class="draw__body">
+            <!-- The Editor sizes its Konva stage to CANVAS (1280x720) with no
+                 fit-to-viewport yet, so the wrapper scrolls. -->
+            <div class="draw__scroll">
+                <div ref="containerRef" class="draw__canvas"></div>
+            </div>
+
+            <LayersPanel
+                :layers="layers"
+                :active-layer-id="activeLayerId"
+                :can-add="layers.length < MAX_LAYERS"
+                @add="addLayer"
+                @select="selectLayer"
+                @remove="removeLayer"
+                @move="moveLayer"
+                @toggle-visible="toggleLayerVisible"
+                @set-opacity="setLayerOpacity"
+                @rename="renameLayer"
+            />
         </div>
     </div>
 </template>
@@ -199,8 +288,16 @@ async function load() {
     flex-direction: column;
 }
 
+.draw__body {
+    flex: 1 1 auto;
+    min-height: 0;
+
+    display: flex;
+}
+
 .draw__scroll {
     flex: 1 1 auto;
+    min-width: 0;
     min-height: 0;
 
     overflow: auto;

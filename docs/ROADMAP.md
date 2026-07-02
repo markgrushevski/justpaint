@@ -63,14 +63,14 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 
 ---
 
-## Phase 2 — Frontend refactor (vector editor + real layers) ⚪
+## Phase 2 — Frontend refactor (vector editor + real layers) 🟡
 
 **Goal:** turn the minimal editor into the real one — a proper vector editor with **real layers**, command-based undo/redo, and clean export — extracted into `packages/editor` so both `/draw` and `/play` consume it. The **oriui swap is a separate, isolated pass** (don't entangle it with the editor rewrite).
 
 **Deliverables**
-- [~] **`packages/editor`** — STARTED EARLY (in Phase 1): `@justpaint/editor` exists with the pure tool set, `toKonva`/`renderToPNG`, and the `Editor` controller; depends only on `packages/document` + Konva + perfect-freehand (no Vue/router/API — ARCHITECTURE §3). **Remaining for Phase 2:** real layers UI, command-based undo/redo, fit-to-viewport, and extracting any app-side editor logic.
-- [ ] **Real layers** — ordered list with id/name/visible/opacity/z-order, mapped to `Konva.Layer` (own `<canvas>`, the per-layer isolation the renderer mandates); replaces the old fake-layer + center-anchored PNG compositing.
-- [ ] **Command-based undo/redo** — a command stack over the `Document` keyed by stroke/layer `id` (add/remove/update/reorder). **Replaces PNG-snapshot history entirely.** History is runtime-only; never persisted in jsonb.
+- [~] **`packages/editor`** — STARTED EARLY (in Phase 1), extended in `feat/editor-history-layers`: `@justpaint/editor` has the pure tool set, `toKonva`/`renderToPNG`, the `Editor` controller, a command-based `History`, real layer operations, and an `onChange` subscription seam (host reads `getLayers()`/`canUndo()` — no Vue in the package); depends only on `packages/document` + Konva + perfect-freehand (ARCHITECTURE §3). **Remaining for Phase 2:** fit-to-viewport/zoom, clean export/thumbnails, and the Pinia/TanStack-Query state pass.
+- [x] **Real layers** — ordered list with id/name/visible/opacity/z-order, mapped to `Konva.Layer` (own `<canvas>`, per-layer isolation); add/remove/reorder/rename/visible/opacity via the `Editor` + a `/draw` layers panel. Replaces the old fake-layer + center-anchored PNG compositing. *(feat/editor-history-layers)*
+- [x] **Command-based undo/redo** — a command stack over the `Document` keyed by stroke/layer `id` (add-stroke/add/remove/reorder/rename/visible/opacity), with `Ctrl/Cmd+Z` / `Shift+Z` / `Ctrl+Y`. **Replaces PNG-snapshot history entirely.** History is runtime-only; never persisted in jsonb. *(feat/editor-history-layers)*
 - [ ] **perfect-freehand brush** — store input points + curated brush options (store-input-not-output, §5.3); pin the perfect-freehand version (render contract).
 - [ ] **Clean export** — `document → PNG` via the shared renderer; thumbnails for UI (cached to `drawings.thumbnail_url` server-side).
 - [ ] **`/draw` page** — editor + save/load only. Kept deliberately minimal (no feature creep — all product energy goes to the game).
