@@ -5,8 +5,7 @@ import { auth, isAuthError, type User } from '../api'
 /**
  * Cookie-session auth against the Go backend (`jp_session`, HttpOnly). Session
  * STATE lives here; the fetch client (`../api/drawings`) stays store-free so
- * there is no api⇄store import cycle. Separate from the legacy `useUserStore`
- * (which drives the throwaway `/legacy` app against the old backend).
+ * there is no api⇄store import cycle.
  */
 export const useSessionStore = defineStore('session', () => {
     const user = ref<User | null>(null)
