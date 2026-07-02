@@ -191,7 +191,7 @@ const top = () => props.layers.length - 1
 
 .layers__name:focus {
     border-color: var(--ori-color-outline, rgb(0 0 0 / 25%));
-    background: var(--ori-color-background, #fff);
+    background: var(--ori-color-background, #ffffff);
 }
 
 .layers__count {
@@ -218,7 +218,7 @@ const top = () => props.layers.length - 1
 
     border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
     border-radius: 4px;
-    background: var(--ori-color-background, #fff);
+    background: var(--ori-color-background, #ffffff);
 
     cursor: pointer;
     font-size: 0.8rem;

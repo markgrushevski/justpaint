@@ -9,8 +9,10 @@
         "verbatimModuleSyntax": true,
         "allowImportingTsExtensions": true,
         "allowSyntheticDefaultImports": true,
+        // TS 6 defaults noUncheckedSideEffectImports on; the app legitimately does
+        // CSS-only side-effect imports (`@oriui/css` resolves to styles.css, no .d.ts).
+        "noUncheckedSideEffectImports": false,
         "forceConsistentCasingInFileNames": true,
-        "baseUrl": ".",
         "rootDir": ".",
         "paths": {
             "@core": ["./src/core"]

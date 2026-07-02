@@ -38,7 +38,9 @@ async function logout() {
 <template>
     <div class="session">
         <template v-if="session.isLoggedIn">
-            <span class="session__who">Signed in as <b>{{ session.user?.login }}</b></span>
+            <span class="session__who"
+                >Signed in as <b>{{ session.user?.login }}</b></span
+            >
             <OriButton size="sm" variant="outline" @click="logout">Log out</OriButton>
         </template>
         <template v-else>

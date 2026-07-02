@@ -2,9 +2,9 @@
     "extends": "stylelint-config-standard-vue",
     "rules": {
         "selector-class-pattern": [
-            "^([a-z][a-z0-9]*)(-[a-z0-9]+)*((__([a-z][a-z0-9]*)(-[a-z0-9]+)*)?((_)([a-z][a-z0-9]*)(-[a-z0-9]+)*)?)$",
+            "^[a-z][a-z0-9]*(-[a-z0-9]+)*(__[a-z0-9]+(-[a-z0-9]+)*)?(--[a-z0-9]+(-[a-z0-9]+)*)?$",
             {
-                "message": "Expected BEM naming convention."
+                "message": "Expected BEM naming convention (block__element--modifier, kebab segments)."
             }
         ],
         "color-function-notation": ["modern", { "ignore": ["with-var-inside"] }],
