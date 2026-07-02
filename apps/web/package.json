@@ -16,21 +16,16 @@
     "dependencies": {
         "@justpaint/document": "*",
         "@justpaint/editor": "*",
-        "@mdi/js": "^7.4.47",
         "@oriui/css": "1.0.0-alpha.2",
         "@oriui/headless": "1.0.0-alpha.2",
         "@oriui/vue": "1.0.0-alpha.2",
         "@tanstack/vue-query": "^5.60.5",
-        "@vueuse/core": "^11.2.0",
-        "axios": "^1.7.7",
-        "jsonwebtoken": "^9.0.2",
         "pinia": "^2.2.6",
         "vue": "^3.5.11",
         "vue-router": "^4.4.5"
     },
     "devDependencies": {
         "@eslint/js": "^9.2.0",
-        "@types/jsonwebtoken": "^9.0.7",
         "@vitejs/plugin-vue": "^5.2.0",
         "autoprefixer": "^10.4.20",
         "eslint": "^9.15.0",
