@@ -36,7 +36,6 @@ packages/editor/     @justpaint/editor — Konva + perfect-freehand: pure tools,
 apps/web/            @justpaint/web — Vue 3 SPA: /draw (free), /legacy (parked raster app); /play = Phase 3
 server/              Go modular monolith: auth + drawings (game + WS + judge = Phase 3)
 docs/                specs — the source of truth
-vendor/oriui/        vendored oriui build, file:-linked (temporary, until npm publish)
 ```
 
 ## Conventions agents get wrong (full set in CLAUDE.md)
