@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { OriButton } from '@oriui/vue'
+import { OriButton, OriCheckbox, OriSlider } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 
@@ -43,19 +43,9 @@ const emit = defineEmits<{
 function onColor(e: Event) {
     emit('setColor', (e.target as HTMLInputElement).value)
 }
-function onWidth(e: Event) {
-    const value = Number((e.target as HTMLInputElement).value)
-    if (Number.isFinite(value) && value > 0) emit('setWidth', value)
-}
-function onToggleFill(e: Event) {
-    emit('toggleFill', (e.target as HTMLInputElement).checked)
-}
 function onFill(e: Event) {
     emit('setFill', (e.target as HTMLInputElement).value)
 }
-
-// `props` is referenced through the template; alias for clarity in script.
-void props
 </script>
 
 <template>
@@ -75,21 +65,35 @@ void props
         </div>
 
         <div class="toolbar__group">
-            <label class="toolbar__field">
-                <span>Color</span>
-                <input type="color" :value="props.color" @input="onColor" />
+            <label class="toolbar__swatch" title="Stroke color">
+                <input type="color" :value="props.color" aria-label="Stroke color" @input="onColor" />
             </label>
 
-            <label class="toolbar__field">
-                <span>Width</span>
-                <input type="range" min="1" max="64" step="1" :value="props.strokeWidth" @input="onWidth" />
-                <span class="toolbar__readout">{{ props.strokeWidth }}</span>
-            </label>
+            <div class="toolbar__slider">
+                <OriSlider
+                    :model-value="props.strokeWidth"
+                    :min="1"
+                    :max="64"
+                    :step="1"
+                    label="Width"
+                    :show-value="true"
+                    @update:model-value="(v: number) => emit('setWidth', v)"
+                />
+            </div>
 
-            <label class="toolbar__field">
-                <input type="checkbox" :checked="props.fillEnabled" @change="onToggleFill" />
-                <span>Fill</span>
-                <input type="color" :value="props.fill" :disabled="!props.fillEnabled" @input="onFill" />
+            <OriCheckbox
+                :model-value="props.fillEnabled"
+                label="Fill"
+                @update:model-value="(v) => emit('toggleFill', v === true)"
+            />
+            <label class="toolbar__swatch" title="Fill color">
+                <input
+                    type="color"
+                    :value="props.fill"
+                    :disabled="!props.fillEnabled"
+                    aria-label="Fill color"
+                    @input="onFill"
+                />
             </label>
         </div>
 
@@ -97,7 +101,7 @@ void props
             <OriButton variant="outline" size="sm" :disabled="!props.canUndo" @click="emit('undo')">Undo</OriButton>
             <OriButton variant="outline" size="sm" :disabled="!props.canRedo" @click="emit('redo')">Redo</OriButton>
             <OriButton variant="outline" size="sm" @click="emit('clear')">New</OriButton>
-            <OriButton variant="outline" size="sm" @click="emit('exportPng')">Export PNG</OriButton>
+            <OriButton variant="outline" size="sm" @click="emit('exportPng')">Export</OriButton>
             <OriButton variant="tonal" size="sm" :loading="props.busy" @click="emit('save')">Save</OriButton>
             <OriButton variant="tonal" size="sm" :loading="props.busy" @click="emit('load')">Load</OriButton>
         </div>
@@ -113,9 +117,9 @@ void props
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 1rem;
+    gap: var(--ori-size-gap_lg, 1rem);
 
-    padding: 0.5rem 0.75rem;
+    padding: var(--ori-size-gap_md, 0.5rem) var(--ori-size-gap_lg, 0.75rem);
 
     background-color: var(--ori-color-surface);
     border-bottom: 1px solid var(--ori-color-outline, rgb(0 0 0 / 10%));
@@ -124,40 +128,46 @@ void props
 .toolbar__group {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--ori-size-gap_sm, 0.375rem);
+    flex-wrap: wrap;
 }
 
 .toolbar__group--actions {
     margin-left: auto;
 }
 
-.toolbar__field {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-
-    font-size: 0.875rem;
+.toolbar__slider {
+    width: 9rem;
 }
 
-.toolbar__field input[type='color'] {
+.toolbar__swatch input[type='color'] {
     width: 2rem;
     height: 1.75rem;
     padding: 0;
 
+    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
+    border-radius: var(--ori-size-radius_sm, 4px);
+    background: none;
+
     cursor: pointer;
 }
 
-.toolbar__readout {
-    min-width: 1.5rem;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
+.toolbar__swatch input[type='color']:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .toolbar__message {
     flex-basis: 100%;
     margin: 0;
 
-    font-size: 0.875rem;
-    color: var(--ori-color-primary);
+    font-size: var(--ori-font-size_sm, 0.875rem);
+    color: var(--ori-color-on-surface);
+}
+
+@media (width <= 600px) {
+    .toolbar__group--actions {
+        margin-left: 0;
+    }
 }
 </style>
