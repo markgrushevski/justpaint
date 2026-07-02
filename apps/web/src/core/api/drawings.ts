@@ -52,7 +52,10 @@ export function toApiError(err: unknown): ApiError | null {
 
 /** True for the auth-failure cases the UI should surface as "sign in". */
 export function isAuthError(err: unknown): boolean {
-    return err instanceof ApiError && (err.code === 'unauthorized' || err.code === 'invalid_credentials' || err.status === 401)
+    return (
+        err instanceof ApiError &&
+        (err.code === 'unauthorized' || err.code === 'invalid_credentials' || err.status === 401)
+    )
 }
 
 interface RequestOptions {
@@ -91,7 +94,9 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     }
 
     if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: { code?: ClientErrorCode; message?: string } } | null
+        const data = (await res.json().catch(() => null)) as {
+            error?: { code?: ClientErrorCode; message?: string }
+        } | null
         const code = data?.error?.code ?? 'internal'
         const message = data?.error?.message ?? res.statusText ?? 'request failed'
         throw new ApiError(message, code, res.status)
@@ -194,7 +199,8 @@ export const drawings = {
         return { ...drawing, document: parseDocument(drawing.document) }
     },
     async update(id: string, doc: Document): Promise<DrawingMeta> {
-        return (await request<DrawingMetaEnvelope>('/drawings/' + id, { method: 'PUT', body: { document: doc } })).drawing
+        return (await request<DrawingMetaEnvelope>('/drawings/' + id, { method: 'PUT', body: { document: doc } }))
+            .drawing
     },
     async remove(id: string): Promise<void> {
         await request<void>('/drawings/' + id, { method: 'DELETE' })
