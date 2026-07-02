@@ -26,3 +26,14 @@
 
 ## Orchestration / process
 - **Cross-domain parallel agents** — backend (`server/`) and frontend (`packages/` + `apps/`) share no files and both validate against the **frozen contract** (`docs/DOCUMENT-FORMAT.md`), so they can run on **parallel branches**; integration (review + `--no-ff` merge + ROADMAP update) stays **serialized** through one orchestrator. Within a single domain (e.g. the editor's tools), parallelize with git-worktree isolation or sequential commits to avoid same-file conflicts. *When:* as work volume warrants; the editor tool-set is the first good fan-out candidate.
+
+## Salvaged from the `/legacy` app (UX ideas)
+The parked raster app was deleted 2026-07-02 (`chore/remove-legacy`); its raster engine is superseded by the vector editor, but these **UX/interaction patterns are worth rebuilding** on the new stack (oriui + the vector editor). Recoverable in full from git history if the exact code is ever wanted.
+
+- **Slide-in side menu** — a fixed side panel that slides in/out via a `transform` translate with a hamburger toggle (legacy `MenuToggler`, an `OriCard` with title/body/footer slots, ~400px). Non-intrusive: it never overlays the canvas. *(The interface the owner specifically liked.)* **Where:** a file-ops / settings drawer on `/draw`, and match/lobby chrome on `/play`.
+- **Three-zone responsive layout** — header (history) / center canvas / footer (tools + settings), `100dvh`, footer growing on wider screens. **Where:** a consistent `DrawView` shell.
+- **Light/dark theme toggle** — cycles auto/light/dark, persists to `localStorage`, applies a class on `documentElement`, honors `prefers-color-scheme` (legacy `ThemeToggler` + `useThemesStore`). The new app has no theme switch yet. **Where:** the toolbar or the side menu.
+- **Saved-drawings browser with metadata** — a scrollable card list of saved drawings showing creation date + thumbnail, instead of today's "load the most recent" button (legacy `LoadArt`). **Where:** `/draw` load flow; reused for `/play` history. (Pairs with the server-side `thumbnail_url` idea above.)
+- **Copy as text / image to clipboard** — export the rendered drawing as a data-URL or a PNG blob straight to the clipboard (legacy `CopyArt`). **Where:** an editor export affordance next to Export-PNG.
+- **Color/size popover controls** — a two-swatch (stroke + fill) visual that opens a popover (not a modal) with the pickers, closes on click-outside, and blocks canvas input while open so a stray stroke can't land (legacy `ColorSettings`, `@vueuse` `onClickOutside`). **Where:** a cleaner `EditorToolbar` (move color/width into a collapsible settings card).
+- **Auth-aware actions** — Save disabled until signed in; an inline login↔register toggle sharing one compact space; a saved-count badge (legacy `SaveArt` / `UserProfile`). **Where:** `SessionBar` polish.
