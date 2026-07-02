@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@justpaint/document": "*",
-    "konva": "^9.3.0",
-    "perfect-freehand": "^1.2.0"
+    "konva": "^10.3.0",
+    "perfect-freehand": "^1.2.3"
   }
 }
