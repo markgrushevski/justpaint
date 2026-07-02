@@ -1,5 +1,0 @@
-export { default as LayersHandler } from './LayersHandler.vue'
-export { default as MenuToggler } from './MenuToggler.vue'
-export { default as ThemeToggler } from './ThemeToggler.vue'
-export { default as UserProfile } from './UserProfile.vue'
-export * from './art'
