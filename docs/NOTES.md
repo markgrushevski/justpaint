@@ -75,6 +75,14 @@ small practical gotchas go here.
   layers.
 - **`Editor.loadDocument()` does not validate** — callers pre-validate with `parseDocument()`
   (DrawView and `drawings.get` already do). Internal editor state is trusted.
+- **Undo/redo covers the DOCUMENT, not editor view-state — by design.** Commands
+  (`packages/editor/src/history.ts`) mutate only the `Document`, keyed by `id`; the **active layer**
+  is editor UI state, not document state, so `setActiveLayer` is *not* undoable and add/remove only
+  reassign the active layer as a side effect. Consequence: undoing (then redoing) a layer add/remove
+  leaves the active-layer *selection* where the command left it, not where it was pre-command
+  (`reconcileActiveLayer` only repairs a *dangling* active id). This is a conscious separation — keep
+  editor UI state out of the pure command model; don't "fix" it by threading active-layer into
+  commands. If `/play` ever needs full editor-state restore, model that as a separate concern.
 - **`renderToPNG` is browser-only** (needs a real DOM + Konva stage) and is intentionally **not**
   unit-tested (no DOM in the Vitest runner). A headless/Konva-node server render path is a separate
   future thing (Phase 3 submit).
