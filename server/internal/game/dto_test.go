@@ -111,6 +111,62 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 	})
 }
 
+// TestBuildResultDTO pins the two shapes the result endpoint returns (docs/API.md
+// §8.4): a compact pending body until done, the full verdict once done.
+func TestBuildResultDTO(t *testing.T) {
+	t.Run("in-flight → pending shape, no verdict fields", func(t *testing.T) {
+		dto := buildResultDTO(ResultView{Status: statusJudging, Ready: false})
+		p, ok := dto.(resultPending)
+		if !ok {
+			t.Fatalf("want resultPending, got %T", dto)
+		}
+		if p.Status != statusJudging || p.Ready {
+			t.Errorf("pending = %+v, want {judging, false}", p)
+		}
+	})
+
+	score := 0.8
+	before, after := int32(1200), int32(1216)
+	won := "user-me"
+
+	t.Run("done with a winner → full verdict, isTie false", func(t *testing.T) {
+		reason := "A wins"
+		dto := buildResultDTO(ResultView{
+			Status: statusDone, Ready: true,
+			PromptID: "p1", PromptText: "a fox riding a bicycle",
+			WinnerUserID: &won, Reason: &reason,
+			Players: []ResultPlayer{{
+				UserID: won, DisplayName: strptr("Ada"), DrawingID: strptr("d1"),
+				Score: &score, RatingBefore: &before, RatingAfter: &after,
+			}},
+		})
+		d, ok := dto.(resultDone)
+		if !ok {
+			t.Fatalf("want resultDone, got %T", dto)
+		}
+		if !d.Ready || d.IsTie {
+			t.Errorf("ready=%v isTie=%v, want true/false", d.Ready, d.IsTie)
+		}
+		if d.Prompt.Text == nil || *d.Prompt.Text != "a fox riding a bicycle" {
+			t.Errorf("prompt text = %v, want revealed once done", d.Prompt.Text)
+		}
+		if d.WinnerUserID == nil || *d.WinnerUserID != won {
+			t.Errorf("winner = %v, want %q", d.WinnerUserID, won)
+		}
+		if len(d.Players) != 1 || d.Players[0].JudgedImageURL != nil {
+			t.Errorf("judgedImageUrl must be nil until storage+render land, got %+v", d.Players)
+		}
+	})
+
+	t.Run("done tie → winnerUserId nil, isTie true", func(t *testing.T) {
+		dto := buildResultDTO(ResultView{Status: statusDone, Ready: true, WinnerUserID: nil})
+		d := dto.(resultDone)
+		if d.WinnerUserID != nil || !d.IsTie {
+			t.Errorf("tie: winner=%v isTie=%v, want nil/true", d.WinnerUserID, d.IsTie)
+		}
+	})
+}
+
 // TestIsPlayer covers the ownership gate Get uses to hide foreign matches.
 func TestIsPlayer(t *testing.T) {
 	players := []PlayerRow{{UserID: "a"}, {UserID: "b"}}
