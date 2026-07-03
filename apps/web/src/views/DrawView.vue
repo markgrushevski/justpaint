@@ -5,7 +5,7 @@ import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId, LayerView } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
-import { drawings, isAuthError, toApiError, useSessionStore } from '@core'
+import { isAuthError, toApiError, useLoadLatestDrawing, useSaveDrawing, useSessionStore } from '@core'
 import EditorToolbar from '../components/EditorToolbar.vue'
 import LayersPanel from '../components/LayersPanel.vue'
 import SessionBar from '../components/SessionBar.vue'
@@ -16,8 +16,13 @@ let unsubscribe: (() => void) | null = null
 
 /** Id of the drawing currently open (set after a successful save/load). */
 const currentId = ref<string | null>(null)
-const busy = ref(false)
 const message = ref<string | null>(null)
+
+// Server data goes through TanStack Query: save/load are mutations, so the view
+// gets `isPending`/`error` + cache invalidation without hand-rolled busy flags.
+const saveMutation = useSaveDrawing()
+const loadMutation = useLoadLatestDrawing()
+const busy = computed(() => saveMutation.isPending.value || loadMutation.isPending.value)
 
 const ui = reactive({
     activeTool: 'pen' as ToolId,
@@ -210,48 +215,38 @@ function reportError(err: unknown, action: string) {
     message.value = api ? `Could not ${action}: ${api.message}` : `Could not ${action} (is the server running?).`
 }
 
-async function save() {
+function save() {
     if (!editor || busy.value) return
-    busy.value = true
     message.value = null
-    const doc = editor.getDocument()
-    try {
-        if (currentId.value) {
-            await drawings.update(currentId.value, doc)
-            message.value = 'Saved.'
-        } else {
-            const meta = await drawings.create(doc)
-            currentId.value = meta.id
-            message.value = `Saved as ${meta.id}.`
+    const existing = currentId.value
+    saveMutation.mutate(
+        { id: existing ?? undefined, document: editor.getDocument() },
+        {
+            onSuccess: (meta) => {
+                currentId.value = meta.id
+                message.value = existing ? 'Saved.' : `Saved as ${meta.id}.`
+            },
+            onError: (err) => reportError(err, 'save')
         }
-    } catch (err) {
-        reportError(err, 'save')
-    } finally {
-        busy.value = false
-    }
+    )
 }
 
-async function load() {
+function load() {
     if (!editor || busy.value) return
-    busy.value = true
     message.value = null
-    try {
-        const page = await drawings.list({ limit: 1, kind: 'free' })
-        const first = page.drawings[0]
-        if (!first) {
-            message.value = 'No saved drawings yet.'
-            return
-        }
-        const full = await drawings.get(first.id)
-        // full.document is already validated by drawings.get (parseDocument).
-        editor.loadDocument(full.document)
-        currentId.value = full.id
-        message.value = `Loaded ${full.id}.`
-    } catch (err) {
-        reportError(err, 'load')
-    } finally {
-        busy.value = false
-    }
+    loadMutation.mutate(undefined, {
+        onSuccess: (full) => {
+            if (!full) {
+                message.value = 'No saved drawings yet.'
+                return
+            }
+            // full.document is already validated by drawings.get (parseDocument).
+            editor?.loadDocument(full.document)
+            currentId.value = full.id
+            message.value = `Loaded ${full.id}.`
+        },
+        onError: (err) => reportError(err, 'load')
+    })
 }
 </script>
 
