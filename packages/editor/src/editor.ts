@@ -11,9 +11,16 @@
  * `stage.getRelativePointerPosition()` (never `pageX`/`offsetLeft`, the old
  * engine's DPR bug — DOCUMENT-FORMAT §2).
  *
+ * FIT / ZOOM (ROADMAP Phase 2): the stage is sized to the VIEWPORT (the
+ * container) and the document is scaled into it via the stage's own transform
+ * (size + scale + position) — never a CSS transform on the `<canvas>`, so
+ * `getRelativePointerPosition` keeps returning logical coordinates at any zoom.
+ * The editor auto-fits on resize (until the user zooms/pans), zooms toward the
+ * cursor on wheel, and pans on a middle-button drag. See {@link ./view}.
+ *
  * Host UIs (a Vue view) subscribe with {@link Editor.onChange} and read
- * {@link Editor.getLayers} / {@link Editor.canUndo} after each change — the
- * editor never imports Vue (ARCHITECTURE §3).
+ * {@link Editor.getLayers} / {@link Editor.canUndo} / {@link Editor.getZoom}
+ * after each change — the editor never imports Vue (ARCHITECTURE §3).
  *
  * BROWSER-ONLY: needs a real DOM container + Konva stage.
  */
@@ -42,6 +49,10 @@ import type { RenderOptions } from "./render";
 import { DEFAULT_STYLE } from "./style";
 import { penTool } from "./tools/pen";
 import type { LayerView, LogicalPoint, Tool, ToolContext, ToolStyle } from "./types";
+import { fitView, panBy, zoomAround, ZOOM_STEP, type ViewState } from "./view";
+
+/** Wheel notch zoom factor (gentler than the button step). */
+const WHEEL_STEP = 1.1;
 
 /** A blank single-layer document on the default canvas + background. */
 function blankDocument(): Document {
@@ -79,6 +90,16 @@ export class Editor {
   /** Transient preview layer for the live, uncommitted stroke. */
   private previewLayer: Konva.Layer | null = null;
 
+  /** Viewport (container) size in screen px; {0,0} until the first measure. */
+  private viewport = { width: 0, height: 0 };
+  /** Current zoom + pan applied to the stage. */
+  private view: ViewState = { zoom: 1, panX: 0, panY: 0 };
+  /** While true, a resize re-fits the document; a manual zoom/pan turns it off. */
+  private autoFit = true;
+  /** Active middle-button pan drag: the pointer id + the anchor state. */
+  private pan: { pointerId: number; startX: number; startY: number; view: ViewState } | null = null;
+  private readonly resizeObserver: ResizeObserver;
+
   constructor(container: HTMLDivElement, doc?: Document) {
     this.container = container;
     this.doc = doc ?? blankDocument();
@@ -86,6 +107,10 @@ export class Editor {
     this.activeLayerId = first ? first.id : newId();
     this.stage = toKonva(this.doc, container);
     this.bindPointerEvents();
+    this.resizeObserver = new ResizeObserver(() => this.measureAndApply());
+    this.resizeObserver.observe(container);
+    // Measure once now (the container is in the DOM at construction).
+    this.measureAndApply();
   }
 
   // --- public API -----------------------------------------------------------
@@ -107,7 +132,9 @@ export class Editor {
     const first = doc.layers[0];
     this.activeLayerId = first ? first.id : newId();
     this.history.clear();
+    this.autoFit = true;
     this.rerender();
+    this.fitToViewport();
     this.emitChange();
   }
 
@@ -116,15 +143,66 @@ export class Editor {
   }
 
   /**
-   * Subscribe to editor-state changes (a commit, undo/redo, layer op, or active-
-   * layer switch). Returns an unsubscribe function. The callback should re-read
-   * {@link getLayers} / {@link getActiveLayerId} / {@link canUndo} / {@link canRedo}.
+   * Subscribe to editor-state changes (a commit, undo/redo, layer op, active-
+   * layer switch, or zoom). Returns an unsubscribe function. The callback should
+   * re-read {@link getLayers} / {@link getActiveLayerId} / {@link canUndo} /
+   * {@link canRedo} / {@link getZoom}.
    */
   onChange(cb: () => void): () => void {
     this.listeners.add(cb);
     return () => {
       this.listeners.delete(cb);
     };
+  }
+
+  // --- view / zoom ----------------------------------------------------------
+
+  /** Current zoom (screen px per logical unit); 1 = 100%. */
+  getZoom(): number {
+    return this.view.zoom;
+  }
+
+  /** Scale-to-fit + center the document in the viewport; re-enables auto-fit. */
+  fitToViewport(): void {
+    if (this.viewport.width <= 0 || this.viewport.height <= 0) return;
+    this.autoFit = true;
+    this.view = fitView(this.doc.width, this.doc.height, this.viewport.width, this.viewport.height);
+    this.applyView();
+    this.emitChange();
+  }
+
+  /** Zoom by a multiplicative factor, anchored at a screen point (default: viewport center). */
+  zoomBy(factor: number, centerX?: number, centerY?: number): void {
+    if (this.viewport.width <= 0 || this.viewport.height <= 0) return;
+    const cx = centerX ?? this.viewport.width / 2;
+    const cy = centerY ?? this.viewport.height / 2;
+    this.autoFit = false;
+    this.view = zoomAround(this.view, factor, cx, cy);
+    this.applyView();
+    this.emitChange();
+  }
+
+  zoomIn(): void {
+    this.zoomBy(ZOOM_STEP);
+  }
+
+  zoomOut(): void {
+    this.zoomBy(1 / ZOOM_STEP);
+  }
+
+  /**
+   * Tear down the editor: stop observing resize, then destroy the Konva stage so
+   * it leaves Konva's module-global stage registry and its backing `<canvas>`
+   * elements are released. Call from the host's unmount hook; the instance is
+   * unusable afterwards.
+   */
+  destroy(): void {
+    this.resizeObserver.disconnect();
+    this.listeners.clear();
+    this.stage.destroy();
+    this.previewLayer = null;
+    this.gesture = null;
+    this.pan = null;
   }
 
   // --- history --------------------------------------------------------------
@@ -234,19 +312,6 @@ export class Editor {
     this.commit(setLayerOpacityCommand(this.doc, id, clamped));
   }
 
-  /**
-   * Tear down the editor: destroy the Konva stage so it leaves Konva's
-   * module-global stage registry and its backing `<canvas>` elements are
-   * released (GC alone can't free a stage Konva still references). Call from the
-   * host's unmount hook; the instance is unusable afterwards.
-   */
-  destroy(): void {
-    this.listeners.clear();
-    this.stage.destroy();
-    this.previewLayer = null;
-    this.gesture = null;
-  }
-
   // --- internals ------------------------------------------------------------
 
   private toolContext(): ToolContext {
@@ -280,12 +345,45 @@ export class Editor {
     if (first) this.activeLayerId = first.id;
   }
 
-  /** Tear down the stage and re-project the current document. */
+  /** Re-read the container size; re-fit if auto-fitting, else just re-apply. */
+  private measureAndApply(): void {
+    const width = this.container.clientWidth;
+    const height = this.container.clientHeight;
+    if (width <= 0 || height <= 0) return;
+    const changed = width !== this.viewport.width || height !== this.viewport.height;
+    this.viewport = { width, height };
+    if (this.autoFit) {
+      this.view = fitView(this.doc.width, this.doc.height, width, height);
+    }
+    this.applyView();
+    if (changed) this.emitChange();
+  }
+
+  /**
+   * Push the current viewport + view onto the stage: size it to the container,
+   * scale + position it so the document sits at `view.zoom`/`view.pan`. This is
+   * the ONLY place the stage transform is set — pointer coords stay logical.
+   */
+  private applyView(): void {
+    const w = this.viewport.width || this.doc.width;
+    const h = this.viewport.height || this.doc.height;
+    this.stage.size({ width: w, height: h });
+    this.stage.scale({ x: this.view.zoom, y: this.view.zoom });
+    this.stage.position({ x: this.view.panX, y: this.view.panY });
+    this.stage.batchDraw();
+  }
+
+  /** Tear down the stage and re-project the current document, keeping the view. */
   private rerender(): void {
     this.stage.destroy();
     this.previewLayer = null;
+    // Any in-flight gesture/pan belongs to the destroyed stage — its pointer id
+    // can never match the new stage, so drop it or it becomes stuck dead state.
+    this.gesture = null;
+    this.pan = null;
     this.stage = toKonva(this.doc, this.container);
     this.bindPointerEvents();
+    this.applyView();
   }
 
   /** Capture the current pointer position in LOGICAL document coords. */
@@ -324,6 +422,13 @@ export class Editor {
 
   private bindPointerEvents(): void {
     this.stage.on("pointerdown", (evt) => {
+      // Middle-button drag pans the view instead of drawing.
+      if (evt.evt.button === 1) {
+        evt.evt.preventDefault();
+        const p = this.stage.getPointerPosition();
+        if (p) this.pan = { pointerId: evt.evt.pointerId, startX: p.x, startY: p.y, view: { ...this.view } };
+        return;
+      }
       const pt = this.readPoint(evt);
       if (!pt) return;
       this.gesture = [pt];
@@ -331,6 +436,14 @@ export class Editor {
     });
 
     this.stage.on("pointermove", (evt) => {
+      if (this.pan && evt.evt.pointerId === this.pan.pointerId) {
+        const p = this.stage.getPointerPosition();
+        if (p) {
+          this.view = panBy(this.pan.view, p.x - this.pan.startX, p.y - this.pan.startY);
+          this.applyView();
+        }
+        return;
+      }
       if (!this.gesture) return;
       const pt = this.readPoint(evt);
       if (!pt) return;
@@ -339,6 +452,10 @@ export class Editor {
     });
 
     this.stage.on("pointerup", (evt) => {
+      if (this.pan && evt.evt.pointerId === this.pan.pointerId) {
+        this.pan = null;
+        return;
+      }
       if (!this.gesture) return;
       const pt = this.readPoint(evt);
       if (pt) this.gesture.push(pt);
@@ -352,6 +469,18 @@ export class Editor {
         // Degenerate gesture / no active layer: just discard the preview.
         this.rerender();
       }
+    });
+
+    // Wheel zooms toward the cursor.
+    this.stage.on("wheel", (evt) => {
+      evt.evt.preventDefault();
+      const p = this.stage.getPointerPosition();
+      if (!p) return;
+      const factor = evt.evt.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
+      this.autoFit = false;
+      this.view = zoomAround(this.view, factor, p.x, p.y);
+      this.applyView();
+      this.emitChange();
     });
   }
 }
