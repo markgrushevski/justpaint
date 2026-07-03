@@ -11,7 +11,7 @@
 | **0** | Specs — agree the contracts before code | 🟢 **done** |
 | **1** | Go backend (auth + drawings CRUD) + minimal Konva editor | 🟢 **done** |
 | **2** | Frontend refactor — vector editor, real layers; oriui swap | 🟢 **done** |
-| **3** | Game — async duel first, then live WS | ⚪ not started |
+| **3** | Game — async duel first, then live WS | 🟡 **in progress** |
 | **4** | Stretch — realtime hub, ratings, teams/tournaments, replay | ⚪ not started |
 
 Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check off deliverables as they land.
@@ -86,7 +86,7 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 
 ---
 
-## Phase 3 — Game (async duel first, then live) ⚪
+## Phase 3 — Game (async duel first, then live) 🟡 (in progress)
 
 **Goal:** the north star, shipped. **Async duel first** — the simplest complete loop — then layer live realtime on top. The editor from Phase 2 powers both duelists.
 
@@ -95,7 +95,7 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 - [ ] **Prompts** — prompt source/table; a match pins one prompt for both players.
 - [ ] **Matches** — `matches` table + state machine (open → drawing → judging → done → abandoned); each drawing links to its match (`match_id` column, format §7); two `match_players` rows per 1v1.
 - [ ] **Submit** — server renders the **authoritative judged raster from the vector document, off the player's machine** (Node render worker sharing `packages/document`, per-layer-isolation algorithm). Client PNGs are advisory only; the vector doc is the source of truth (trust boundary, format §10).
-- [ ] **Judge seam + fake impl** — `Judge` interface (`prompt + 2 PNGs → {scoreA, scoreB, winner, reason}`) per `DECISIONS.md`/`JUDGE.md`; ship a **fake impl** (e.g. deterministic/heuristic scorer) so the loop is playable without the ML. Map the judge's positional `winner` (`"A"|"B"|"tie"`) to a concrete player id at submit time (the submit step knows which drawing is image A vs B). Never block on the collaborator's judge.
+- [~] **Judge seam + fake impl** — `internal/judge` **landed** (`feat/game-judge`): the `Judge` interface (`Score(ctx, Request{Prompt, ImageA, ImageB []byte}) → Result{ScoreA, ScoreB, Winner, Reason}`), a deterministic in-process **`FakeJudge`** (ink-coverage heuristic, tie within epsilon), and `Result.Validate` enforcing the JUDGE.md §2 contract; table tests (91% cov), reviewed PASS by jp-go + jp-scope-guard. **Remaining:** the positional `winner` → player-id mapping (lands with the game/submit module below); `HTTPJudge` (the real ML wiring) is **Phase 4**. Never block on the collaborator's judge.
 - [ ] **`/play` page** — create/join an async match, draw, submit, see result + reason. Reuses `packages/editor`.
 - [ ] **Object storage seam** — rendered judged PNGs (and thumbnails) to object storage (URLs handed to the judge / stored in `thumbnail_url`); local/dev stub acceptable first.
 - [ ] **Then: live realtime** — coder/websocket hub (`internal/ws`); presence + "both drawing" live state; same submit/judge tail. (Live is the *back half* of Phase 3 — async must be playable first.)
