@@ -133,6 +133,31 @@ func (q *Queries) GetMatch(ctx context.Context, id string) (Match, error) {
 	return i, err
 }
 
+const getMatchForUpdate = `-- name: GetMatchForUpdate :one
+select id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at from matches
+where id = $1
+for update
+`
+
+// Same as GetMatch but takes a row lock, serializing concurrent submits to one
+// match so the last-submit → judging flip is computed on a stable roster (two
+// players submitting at the same instant can't both miss "I'm last").
+func (q *Queries) GetMatchForUpdate(ctx context.Context, id string) (Match, error) {
+	row := q.db.QueryRow(ctx, getMatchForUpdate, id)
+	var i Match
+	err := row.Scan(
+		&i.ID,
+		&i.PromptID,
+		&i.Mode,
+		&i.Status,
+		&i.WinnerPlayerID,
+		&i.JudgeReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listMatchPlayers = `-- name: ListMatchPlayers :many
 select mp.match_id,
        mp.user_id,
@@ -190,6 +215,37 @@ func (q *Queries) ListMatchPlayers(ctx context.Context, matchID string) ([]ListM
 		return nil, err
 	}
 	return items, nil
+}
+
+const setMatchResult = `-- name: SetMatchResult :one
+update matches
+set status = 'done', winner_player_id = $2, judge_reason = $3, updated_at = now()
+where id = $1
+returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at
+`
+
+type SetMatchResultParams struct {
+	ID             string
+	WinnerPlayerID *string
+	JudgeReason    *string
+}
+
+// Terminal write for the judging → done transition: winner (null = tie), the
+// judge's reason verbatim, status done (docs/GAME.md §4.1, §7.1).
+func (q *Queries) SetMatchResult(ctx context.Context, arg SetMatchResultParams) (Match, error) {
+	row := q.db.QueryRow(ctx, setMatchResult, arg.ID, arg.WinnerPlayerID, arg.JudgeReason)
+	var i Match
+	err := row.Scan(
+		&i.ID,
+		&i.PromptID,
+		&i.Mode,
+		&i.Status,
+		&i.WinnerPlayerID,
+		&i.JudgeReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updateMatchStatus = `-- name: UpdateMatchStatus :one

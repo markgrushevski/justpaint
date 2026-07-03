@@ -8,6 +8,9 @@ select * from drawings
 where id = $1 and owner_id = $2;
 
 -- name: UpdateDrawing :one
+-- `match_id is null` makes a submitted duel drawing immutable via CRUD (it is
+-- locked once submitted — docs/API.md §7). A match-linked row matches nothing
+-- here; the service turns that miss into 409, not a silent 404.
 update drawings
 set doc_version   = $3,
     width         = $4,
@@ -15,12 +18,14 @@ set doc_version   = $3,
     document      = $6,
     thumbnail_url = $7,
     updated_at    = now()
-where id = $1 and owner_id = $2
+where id = $1 and owner_id = $2 and match_id is null
 returning *;
 
 -- name: DeleteDrawing :execrows
+-- Same immutability guard as UpdateDrawing: a submitted duel drawing cannot be
+-- deleted via CRUD (it is referenced by match_players.drawing_id — docs/API.md §7).
 delete from drawings
-where id = $1 and owner_id = $2;
+where id = $1 and owner_id = $2 and match_id is null;
 
 -- name: ListDrawings :many
 -- Metadata only (no document body) — keeps the list cheap (docs/API.md §7).

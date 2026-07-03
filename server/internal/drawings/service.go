@@ -5,11 +5,20 @@ package drawings
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/document"
 )
+
+// ErrDuelLocked marks a write/delete against a drawing that is a submitted duel
+// entry (match_id set): immutable via CRUD (docs/API.md §7 — a submitted duel
+// drawing is locked). The handler maps it to 409 conflict, distinct from the 404
+// a genuinely absent/foreign row gets.
+var ErrDuelLocked = errors.New("drawings: duel submission is immutable")
 
 // Service holds the drawings business logic over the generated queries.
 type Service struct {
@@ -45,7 +54,7 @@ func (s *Service) Get(ctx context.Context, ownerID, id string) (db.Drawing, erro
 }
 
 func (s *Service) Update(ctx context.Context, ownerID, id string, doc document.Document, raw []byte) (db.Drawing, error) {
-	return s.q.UpdateDrawing(ctx, db.UpdateDrawingParams{
+	d, err := s.q.UpdateDrawing(ctx, db.UpdateDrawingParams{
 		ID:         id,
 		OwnerID:    ownerID,
 		DocVersion: int32(doc.Version),
@@ -53,13 +62,43 @@ func (s *Service) Update(ctx context.Context, ownerID, id string, doc document.D
 		Height:     int32(doc.Height),
 		Document:   raw,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		if miss := s.classifyMiss(ctx, ownerID, id); miss != nil {
+			return db.Drawing{}, miss // ErrDuelLocked → 409
+		}
+		return db.Drawing{}, pgx.ErrNoRows // genuinely absent/foreign → 404
+	}
+	return d, err
 }
 
-// Delete removes an owned drawing and reports whether a row was actually deleted
-// (false ⇒ not found / not owned ⇒ the handler answers 404).
+// Delete removes an owned FREE drawing and reports whether a row was actually
+// deleted (false ⇒ not found / not owned ⇒ the handler answers 404). A submitted
+// duel drawing is immutable ⇒ ErrDuelLocked (→ 409).
 func (s *Service) Delete(ctx context.Context, ownerID, id string) (bool, error) {
 	rows, err := s.q.DeleteDrawing(ctx, db.DeleteDrawingParams{ID: id, OwnerID: ownerID})
-	return rows > 0, err
+	if err != nil {
+		return false, err
+	}
+	if rows == 0 {
+		if miss := s.classifyMiss(ctx, ownerID, id); miss != nil {
+			return false, miss
+		}
+		return false, nil // genuinely absent / foreign ⇒ 404
+	}
+	return true, nil
+}
+
+// classifyMiss explains why an owner-scoped Update/Delete touched no row: the
+// write queries carry `match_id is null`, so a duel submission (owned but
+// match-linked) matches nothing. If the row still exists for this owner, it must
+// be that locked duel entry ⇒ ErrDuelLocked; otherwise it is genuinely
+// absent/foreign ⇒ nil (the handler answers 404). match_id is fixed at creation,
+// so this classification is race-free.
+func (s *Service) classifyMiss(ctx context.Context, ownerID, id string) error {
+	if _, err := s.q.GetDrawing(ctx, db.GetDrawingParams{ID: id, OwnerID: ownerID}); err == nil {
+		return ErrDuelLocked
+	}
+	return nil
 }
 
 func (s *Service) List(ctx context.Context, ownerID, kind string, cur *cursor, limit int32) ([]db.ListDrawingsRow, error) {

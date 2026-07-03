@@ -9,8 +9,9 @@ this file is a short map; read it (and the docs it links) before non-trivial wor
 justpaint — a **portfolio + learn-Go** project whose north star is an **AI-judged drawing duel**
 (two players draw the same prompt; an external ML judge scores similarity and picks a winner). A
 free-draw editor (`/draw`) is a supporting mode. Greenfield; Phases 1–2 (Go backend, vector editor)
-are done and **Phase 3 (the game) is in progress** — the judge seam + the async-duel front half
-(`/api/matches` create/join/get) are live, submit/render/judge is next. A **Go + TS monorepo** (npm
+are done and **Phase 3 (the game) is in progress** — the async-duel loop runs end-to-end in the
+backend (create/join → submit → out-of-band judging → result + Elo, on swappable render/judge seams);
+the pixel-authoritative Node render worker + the `/play` page are next. A **Go + TS monorepo** (npm
 workspaces for the TS side; the Go service is separate).
 
 ## Setup & commands
@@ -35,7 +36,7 @@ CLIs, not Go module deps. There is no CI yet — run the gates locally.
 packages/document/   @justpaint/document — vector-doc schema + validate + serialize (the contract)
 packages/editor/     @justpaint/editor — Konva + perfect-freehand: pure tools, render, Editor controller
 apps/web/            @justpaint/web — Vue 3 SPA: /draw (free), /legacy (parked raster app); /play = Phase 3
-server/              Go modular monolith: auth + drawings + judge seam + game (matches create/join/get; submit + WS = rest of Phase 3)
+server/              Go modular monolith: auth + drawings + judge/render seams + game (full async duel: create/join/submit/judge/result; WS hub = rest of Phase 3)
 docs/                specs — the source of truth
 ```
 
