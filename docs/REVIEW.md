@@ -75,8 +75,10 @@ never drift — `packages/document` (TS) and `server/internal/document` (Go):
       locked immutable after submit. Never store a client-supplied URL.
 - [ ] The error envelope leaks no SQL / stack / internal detail and no `password_hash`; new protected
       routes sit behind `RequireAuth`, not ad-hoc checks (logout is the deliberate exception).
-- [ ] Known deferrals (rate limiting `429`; duel 409 immutability — DECISIONS 2026-06-20) stay
-      deliberate; don't silently half-ship them.
+- [ ] Known deferrals (rate limiting `429` — DECISIONS 2026-06-20) stay deliberate; don't silently
+      half-ship them. (Duel 409 immutability is **no longer deferred** — it landed with the submit path
+      in `feat/game-submit`: `UpdateDrawing`/`DeleteDrawing` carry `and match_id is null` → `ErrDuelLocked`
+      → 409. Any new write path over a submitted duel drawing must keep that lock.)
 
 ## Go backend
 

@@ -71,14 +71,59 @@ small practical gotchas go here.
 - **Match ownership is hidden as 404, like drawings**: a non-player calling `GET /api/matches/{id}` (or a
   non-existent / non-UUID id) gets `not_found`, never 403 — match existence must not leak (`API.md` §1).
   The player check is in the service (`isPlayer` over the loaded roster), after the row is fetched.
+  **Exception — submit is 403:** `POST …/submit` by a non-player returns **403** (`ErrNotPlayer`), the one
+  deliberate known-ownership case (`API.md` §8.3). Same non-membership, two codes by route — don't
+  "unify" them.
+- **`render.StubRenderer` is NOT pixel-authoritative.** It emits a deterministic 1024² PNG whose ink
+  coverage is `0.05 + 0.02·(stroke count)` (clamped) — enough for the ink-coverage `FakeJudge` to produce
+  a document-derived verdict and prove the loop, but it does **not** draw the actual picture. The real
+  render (pixel-accurate) must be the **Node Konva + perfect-freehand** worker (shares `packages/document`;
+  `import 'konva/canvas-backend'` — Konva 10 dropped the default Node backend). It swaps in behind the
+  `render.Renderer` interface with no game-loop change. Don't grow a Go rasterizer — it would diverge from
+  the editor's output (the whole reason `FREEHAND_VERSION` is pinned).
+- **Judging runs in an out-of-band in-process goroutine** (`judgeMatch`), spawned by the final submit
+  *after* its tx commits, on a fresh `context.Background()` + 30s timeout (the request ctx is already
+  gone). It's idempotent (`runJudging` no-ops unless the match is still `judging`) and writes the result
+  in one tx. **Durability gap (v1):** a crash mid-judge leaves the match stuck in `judging` — no retry.
+  A restart-time sweeper is an `IDEAS.md` item, deferred with the real render worker. Note the 30s
+  budget is **stub/fake-sized**: when the real render worker + `HTTPJudge` (10s + retries, `JUDGE.md` §7)
+  land, widen it so the outer context outlives render + judge-with-backoff. Also: the 30s judging window
+  can outlive the 10s graceful-shutdown timeout, so a clean shutdown can still abort a pass (the sweeper
+  is the fix; a `sync.WaitGroup` waited during shutdown is the natural interim).
+- **`runJudging`'s status check is a no-op guard, NOT mutual exclusion — the real lock is in
+  `persistResult`.** `runJudging` reads status on the pool (unlocked) and bails if not `judging`; that
+  alone wouldn't stop two concurrent passes both rendering then both writing. So `persistResult` re-takes
+  `GetMatchForUpdate` and re-checks `status == judging` inside its write tx — whoever locks first commits
+  `done`, the loser bails. This is what makes the planned restart-sweeper safe to run alongside the live
+  trigger (idempotent, never double-applies Elo). Keep that lock if you refactor judging.
+- **A submitted duel drawing is immutable via CRUD.** `UpdateDrawing`/`DeleteDrawing` carry
+  `and match_id is null`, so `PUT`/`DELETE /api/drawings/{id}` on a match-linked drawing touches no row;
+  the drawings service (`classifyMiss`) turns that miss into `ErrDuelLocked` → **409** (a genuinely
+  absent/foreign id stays 404). Without this a player could swap in a better document after submitting
+  (before the opponent does) and judging would render the swap — trust-boundary + Elo break. `match_id`
+  is fixed at creation, so the classify-on-miss is race-free. (Landed `feat/game-submit`; jp-security.)
+- **The final-submit → judging flip is serialized by `GetMatchForUpdate`** (`SELECT … FOR UPDATE` on the
+  match row). Without it, two simultaneous submits could each see the other as "not yet submitted" and
+  neither would flip to judging (both submitted, match wedged in `drawing`). Keep the lock at the top of
+  the submit tx.
+- **A/B is positional and comes from SQL order.** `GetSubmissionsForJudging` orders by
+  `(submitted_at, user_id)`: row 0 → image A, row 1 → image B. The judge sees only PNGs (never who is
+  who); the game maps `A/B/tie` → player id / null (`GAME.md` §7.1). Change that `ORDER BY` and you
+  silently re-bind the mapping.
+- **Manual game e2e needs a clean match pool.** Open-pool matchmaking auto-joins the *oldest* waiting
+  `open` match, so leftover open matches from a prior run hijack your new players (you end up dueling a
+  ghost that never submits, and the match never reaches `judging`). Reset between manual runs:
+  `delete from match_players; delete from drawings where match_id is not null; delete from matches;`
+  (users/prompts/free drawings survive).
 - **Logout is deliberately NOT behind `RequireAuth`** — it must clear the cookie even for an expired/
   anonymous caller. Don't wrap it in `protect()`.
 - **Auth bodies use strict decode** (`DisallowUnknownFields`, 64 KiB); **document bodies use lax
   decode** (unknown fields tolerated, 8 MiB) for forward-compat. Don't unify them; the client
   `thumbnail` field is intentionally accepted-and-ignored.
-- **Only `internal/document` (+ now `internal/judge`) has Go tests.** auth/drawings/db/config/web/
-  postgres have zero coverage — their correctness was verified manually (curl/UI), per the ROADMAP.
-  Grow tests where you touch.
+- **`internal/document`, `internal/judge`, `internal/game`, and `internal/render` have Go tests** (the
+  pure logic — validators, Elo, DTO redaction, stub coverage). auth/drawings/db/config/web/postgres and
+  the DB-integration paths (`Submit`/`runJudging`/`persistResult`) have zero unit coverage — verified
+  manually (curl/UI), per the ROADMAP. Grow tests where you touch.
 - **`color.Color.RGBA()` returns alpha-PREMULTIPLIED 16-bit channels.** The judge's ink test
   (`internal/judge/fake.go`) shifts `>>8` to compare against an 8-bit threshold; since the judged
   raster is opaque, premultiplication is a no-op there. But any future ink/luminance heuristic on

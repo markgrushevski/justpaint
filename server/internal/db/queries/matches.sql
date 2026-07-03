@@ -9,6 +9,22 @@ returning *;
 select * from matches
 where id = $1;
 
+-- name: GetMatchForUpdate :one
+-- Same as GetMatch but takes a row lock, serializing concurrent submits to one
+-- match so the last-submit → judging flip is computed on a stable roster (two
+-- players submitting at the same instant can't both miss "I'm last").
+select * from matches
+where id = $1
+for update;
+
+-- name: SetMatchResult :one
+-- Terminal write for the judging → done transition: winner (null = tie), the
+-- judge's reason verbatim, status done (docs/GAME.md §4.1, §7.1).
+update matches
+set status = 'done', winner_player_id = $2, judge_reason = $3, updated_at = now()
+where id = $1
+returning *;
+
 -- name: UpdateMatchStatus :one
 update matches
 set status = $2, updated_at = now()

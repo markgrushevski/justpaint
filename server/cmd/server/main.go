@@ -16,10 +16,12 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/drawings"
 	"github.com/markgrushevski/justpaint/server/internal/game"
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/platform/config"
 	"github.com/markgrushevski/justpaint/server/internal/platform/logging"
 	"github.com/markgrushevski/justpaint/server/internal/platform/postgres"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
+	"github.com/markgrushevski/justpaint/server/internal/render"
 )
 
 func main() {
@@ -58,7 +60,13 @@ func run() error {
 	}
 	authHandler := auth.NewHandler(authService, cfg.CookieSecure, logger)
 	drawingsHandler := drawings.NewHandler(drawings.NewService(queries), logger)
-	gameHandler := game.NewHandler(game.NewService(pool, queries), logger)
+	// The render worker and judge are seams (docs/GAME.md §6, docs/JUDGE.md): the
+	// in-process stub/fake run the full loop today and swap for real impls (Node
+	// Konva render worker, the collaborator's HTTP judge) with no loop change.
+	gameHandler := game.NewHandler(
+		game.NewService(pool, queries, render.NewStubRenderer(), judge.NewFakeJudge(), logger),
+		logger,
+	)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

@@ -129,11 +129,14 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := h.svc.Update(r.Context(), uid, id, doc, raw)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		switch {
+		case errors.Is(err, ErrDuelLocked):
+			web.Error(w, http.StatusConflict, web.CodeConflict, "a submitted duel drawing is immutable")
+		case errors.Is(err, pgx.ErrNoRows):
 			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
-			return
+		default:
+			h.internal(w, "update drawing", err)
 		}
-		h.internal(w, "update drawing", err)
 		return
 	}
 	web.JSON(w, http.StatusOK, metaEnvelope{Drawing: toMeta(d)})
@@ -147,6 +150,10 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	deleted, err := h.svc.Delete(r.Context(), uid, id)
 	if err != nil {
+		if errors.Is(err, ErrDuelLocked) {
+			web.Error(w, http.StatusConflict, web.CodeConflict, "a submitted duel drawing cannot be deleted")
+			return
+		}
 		h.internal(w, "delete drawing", err)
 		return
 	}

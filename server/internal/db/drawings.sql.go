@@ -55,7 +55,7 @@ func (q *Queries) CreateDrawing(ctx context.Context, arg CreateDrawingParams) (D
 
 const deleteDrawing = `-- name: DeleteDrawing :execrows
 delete from drawings
-where id = $1 and owner_id = $2
+where id = $1 and owner_id = $2 and match_id is null
 `
 
 type DeleteDrawingParams struct {
@@ -63,6 +63,8 @@ type DeleteDrawingParams struct {
 	OwnerID string
 }
 
+// Same immutability guard as UpdateDrawing: a submitted duel drawing cannot be
+// deleted via CRUD (it is referenced by match_players.drawing_id — docs/API.md §7).
 func (q *Queries) DeleteDrawing(ctx context.Context, arg DeleteDrawingParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteDrawing, arg.ID, arg.OwnerID)
 	if err != nil {
@@ -182,7 +184,7 @@ set doc_version   = $3,
     document      = $6,
     thumbnail_url = $7,
     updated_at    = now()
-where id = $1 and owner_id = $2
+where id = $1 and owner_id = $2 and match_id is null
 returning id, owner_id, match_id, doc_version, width, height, document, thumbnail_url, created_at, updated_at
 `
 
@@ -196,6 +198,9 @@ type UpdateDrawingParams struct {
 	ThumbnailUrl *string
 }
 
+// `match_id is null` makes a submitted duel drawing immutable via CRUD (it is
+// locked once submitted — docs/API.md §7). A match-linked row matches nothing
+// here; the service turns that miss into 409, not a silent 404.
 func (q *Queries) UpdateDrawing(ctx context.Context, arg UpdateDrawingParams) (Drawing, error) {
 	row := q.db.QueryRow(ctx, updateDrawing,
 		arg.ID,

@@ -2,6 +2,22 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-03 — Submit, judging & the render seam (Phase 3, loop closed)
+
+Closing the async-duel loop (`internal/game`: `POST /api/matches/{id}/submit`, out-of-band judging, `GET …/result`). The lifecycle now runs `open → drawing → judging → done` end-to-end (verified live).
+
+### The renderer is a seam, exactly like the judge (`render.Renderer` + `StubRenderer`)
+The authoritative judged raster must be rendered **off the client** from the vector document (trust boundary, `GAME.md` §6). It must also match the editor's output pixel-for-pixel — which is why `FREEHAND_VERSION` is pinned — so the real renderer has to be the **same** Konva + perfect-freehand path the editor uses, i.e. a **Node** worker (native `canvas`), not a reimplementation in Go (a Go rasterizer would silently diverge). Rather than block the loop on standing up that worker (native deps, a new deployable), we mirror the Judge seam: a Go `render.Renderer` interface with an in-process **`StubRenderer`** (deterministic 1024² PNG, ink coverage ∝ stroke count). The whole submit → render → judge → result loop runs today; the real Node worker swaps in behind `Renderer` with **no loop change** — the same guarantee we already have for `Judge`. The stub is loop-proving, not pixel-authoritative (`NOTES.md`).
+
+### Judging is out-of-band (in-process goroutine), per API.md §8.3
+Submit returns **202** immediately; the verdict is produced asynchronously. On the final submit the handler flips the match to `judging` inside the submit tx, then spawns a goroutine (own `context.Background()` + timeout) that renders both docs, calls the judge, maps the positional winner → player id, applies Elo, and commits `judging → done` in one tx. **v1 accepts the durability gap:** a crash mid-judge leaves the match stuck in `judging` (no auto-retry). A restart-time sweeper that re-drives `judging` matches lands with the real render worker (`IDEAS.md`). In-process (not a queue) is right-sized for v1 — the judging work is CPU-bound and sub-second with the stub/fake.
+
+### Last-submit detection is serialized by a match-row lock
+Two players submitting at the same instant could each count the other as "not yet in" and neither would flip to `judging` (match stuck in `drawing` with both submitted). The submit tx takes `SELECT … FOR UPDATE` on the match row (`GetMatchForUpdate`), so the two submits serialize and exactly one observes "I'm last." A duel has only two players, so lock contention is negligible.
+
+### Submit to a match you're not in is 403, not a hidden 404
+The read paths hide a foreign match as 404 (no existence leak). **Submit is the deliberate exception** (`API.md` §1, §8.3): a player submitting to a match they hold an id for but aren't rostered in is a *known-ownership violation* → **403 forbidden**. (`ErrNotPlayer` on submit → 403; the same non-membership on `GET …/result` → 404, since a reader shouldn't confirm existence.)
+
 ## 2026-07-03 — Match creation & matchmaking (Phase 3, front half)
 
 Building the async-duel front half (`internal/game`: `POST /api/matches` create/auto-join + `GET /api/matches/{id}`). API.md §8 deliberately left the *matchmaking* mechanism open ("create an open match the next caller joins, or pair immediately"); these pin the v1 choices.
@@ -20,10 +36,10 @@ The roster query deliberately does **not** select `users.login`. `login` may be 
 
 ## 2026-06-20 — Deferred hardening (backend review)
 
-A multi-agent adversarial review of the Go backend (29 confirmed findings) drove a batch of fixes; two items are **intentionally deferred** — they are not Phase-1 deliverables and are unreachable or low-risk at the current greenfield stage:
+A multi-agent adversarial review of the Go backend (29 confirmed findings) drove a batch of fixes; two items were **intentionally deferred** — not Phase-1 deliverables, unreachable or low-risk at the greenfield stage. One (duel immutability) has since landed; rate limiting remains deferred:
 
 - **Rate limiting (`429 rate_limited`).** `web.CodeRateLimited` is reserved and `docs/API.md` advertises 429 on auth + write routes, but no limiter ships in Phase 1. Add a per-IP / per-login limiter (or enforce at the edge/reverse proxy) before any public deploy. The implemented anti-enumeration (generic `invalid_credentials` + dummy-hash timing) stands without it.
-- **Duel-submission immutability (`409 conflict`).** PUT/DELETE on a submitted duel drawing must return 409 (`API.md` §7), enforced once the game/submit path (Phase 3) can create match-linked drawings. Unreachable today — `drawings` create always sets `match_id = null`.
+- **Duel-submission immutability (`409 conflict`).** ✅ **RESOLVED 2026-07-03** (`feat/game-submit`, caught by the jp-security lens). The defer was gated on "unreachable while `drawings` create always sets `match_id = null`" — the submit path fired that precondition by creating `match_id`-set drawings, so the guard **had** to land with it: `UpdateDrawing`/`DeleteDrawing` now carry `and match_id is null`, and the drawings service classifies the resulting no-op as `ErrDuelLocked` → **409** (vs 404 for a genuinely absent/foreign row). Without it, a player could `PUT` a better document over their submission before the opponent submitted, and judging would render the swapped doc — breaking the trust boundary + Elo fairness.
 
 ## 2026-06-19 — Phase 0 contract resolutions
 
