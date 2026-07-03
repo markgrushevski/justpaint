@@ -68,8 +68,10 @@ small practical gotchas go here.
   calls it in `onBeforeUnmount`, and every `loadDocument()` destroys+rebuilds the stage. Any new host
   of `Editor` must call `destroy()` on unmount.
 - **Pointer coords come from `stage.getRelativePointerPosition()`** (transform-aware), never
-  `pageX - offsetLeft` (the old DPR bug). A future fit-to-viewport/zoom must scale the Konva **stage**,
-  never CSS-transform the container — that silently breaks coordinate capture.
+  `pageX - offsetLeft` (the old DPR bug). Fit/zoom/pan (`packages/editor/src/view.ts` +
+  `Editor.applyView`) scale the Konva **stage** (`size` + `scale` + `position`), never a CSS transform
+  on the `<canvas>` — so `getRelativePointerPosition` keeps returning logical coords at any zoom.
+  `applyView()` is re-run after every `rerender()` (which recreates the stage) or the transform resets.
 - **Per-layer isolation is a render-contract requirement**: each document layer → its own
   `Konva.Layer` (own canvas) so composite strokes (eraser `destination-out`) can't bleed across
   layers.
@@ -92,9 +94,14 @@ small practical gotchas go here.
   render-behavior change (rounded corners on **negative-dimension** rects) can't bite us — `rect.ts`
   normalizes to non-negative w/h and the validator rejects zero/negative dims, so v9↔v10 output is
   identical for every document we can produce.
-- **`/draw` mounts a fixed 1280×720 working canvas**, deliberately diverging from the spec
-  `DEFAULT_CANVAS` (1920×1080) because the editor has no fit/zoom yet (Phase 2); the wrapper just
-  scrolls. Don't "fix" it to 1920×1080 without adding fit/zoom.
+- **`/draw` canvas fills its container; the document is `DEFAULT_CANVAS` (1920×1080)** and the editor
+  fits it into the viewport (no more fixed 1280×720 + scroll). A `ResizeObserver` on the container
+  auto-fits while `autoFit` is on; a manual zoom/pan turns `autoFit` off; `loadDocument` re-enables it.
+  **Preview caveat:** `ResizeObserver` (like rAF/timers) is unreliable in the hidden preview tab, so a
+  live `preview_resize` may not trigger a re-fit — verify a viewport-dependent fit by **reloading** at
+  the target size (a fresh mount measures the container in the constructor), not by resizing live.
+  Konva's `<canvas>` backing store is `stage.width × devicePixelRatio` (e.g. 375 CSS px → 750 px at
+  DPR 2) — that's correct retina sizing, not a bug.
 
 ## Auth / cookies / dev proxy
 
