@@ -10,9 +10,10 @@ justpaint — a **portfolio + learn-Go** project whose north star is an **AI-jud
 (two players draw the same prompt; an external ML judge scores similarity and picks a winner). A
 free-draw editor (`/draw`) is a supporting mode. Greenfield; Phases 1–2 (Go backend, vector editor)
 are done and **Phase 3 (the game) is in progress** — the async-duel loop runs end-to-end in the
-backend (create/join → submit → out-of-band judging → result + Elo, on swappable render/judge seams);
-the pixel-authoritative Node render worker + the `/play` page are next. A **Go + TS monorepo** (npm
-workspaces for the TS side; the Go service is separate).
+backend (create/join → submit → out-of-band judging → result + Elo), with the authoritative render
+worker (`packages/render`, `RENDER_MODE=node`) live and the judge still a swappable fake; the `/play`
+page + live WS are next. A **Go + TS monorepo** (npm workspaces for the TS side; the Go service is
+separate).
 
 ## Setup & commands
 
@@ -34,8 +35,9 @@ CLIs, not Go module deps. There is no CI yet — run the gates locally.
 
 ```
 packages/document/   @justpaint/document — vector-doc schema + validate + serialize (the contract)
-packages/editor/     @justpaint/editor — Konva + perfect-freehand: pure tools, render, Editor controller
-apps/web/            @justpaint/web — Vue 3 SPA: /draw (free), /legacy (parked raster app); /play = Phase 3
+packages/editor/     @justpaint/editor — Konva + perfect-freehand: pure tools, renderToStage, Editor controller
+packages/render/     @justpaint/render — headless Node render worker (reuses editor renderToStage; node-canvas; esbuild-bundled)
+apps/web/            @justpaint/web — Vue 3 SPA: /draw (free); /play = Phase 3
 server/              Go modular monolith: auth + drawings + judge/render seams + game (full async duel: create/join/submit/judge/result; WS hub = rest of Phase 3)
 docs/                specs — the source of truth
 ```
@@ -53,8 +55,8 @@ docs/                specs — the source of truth
   **404**, not 403.
 - **The judge is a seam:** code only the `Judge` interface + a fake; never build or block on the ML.
 - **Keep `/draw` minimal** (editor + save/load). Don't grow it into a second product.
-- **Two API clients coexist:** use the native-`fetch` client (`src/core/api/drawings.ts` +
-  `useSessionStore`) for new work; the legacy axios client serves only `/legacy`.
+- **The API client is native `fetch`** (`src/core/api/drawings.ts` + `useSessionStore`); the old
+  axios/localStorage-Bearer client went with the deleted `/legacy` app — don't reintroduce it.
 - **Commits:** Conventional Commits, present tense, one logical change, git author **Leonid**; branch
   + `--no-ff` merge for multi-commit work (see `CONTRIBUTING.md`).
 
