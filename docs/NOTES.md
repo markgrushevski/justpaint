@@ -54,8 +54,14 @@ small practical gotchas go here.
 - **Auth bodies use strict decode** (`DisallowUnknownFields`, 64 KiB); **document bodies use lax
   decode** (unknown fields tolerated, 8 MiB) for forward-compat. Don't unify them; the client
   `thumbnail` field is intentionally accepted-and-ignored.
-- **Only `internal/document` has Go tests.** auth/drawings/db/config/web/postgres have zero coverage —
-  their correctness was verified manually (curl/UI), per the ROADMAP. Grow tests where you touch.
+- **Only `internal/document` (+ now `internal/judge`) has Go tests.** auth/drawings/db/config/web/
+  postgres have zero coverage — their correctness was verified manually (curl/UI), per the ROADMAP.
+  Grow tests where you touch.
+- **`color.Color.RGBA()` returns alpha-PREMULTIPLIED 16-bit channels.** The judge's ink test
+  (`internal/judge/fake.go`) shifts `>>8` to compare against an 8-bit threshold; since the judged
+  raster is opaque, premultiplication is a no-op there. But any future ink/luminance heuristic on
+  semi-transparent input must un-premultiply first, or partial-alpha color reads darker than it
+  renders. `inkThreshold = 250` (not 255) deliberately absorbs anti-aliased stroke edges.
 - **A detached background `go run` on Windows can be reaped without diagnostics** (observed exit code
   4, perfectly clean log). Symptom in the web app: save/load fails with the `network` `ApiError`. Just
   restart the server — there's nothing to debug in Go. (Internet scanners also hit a locally-exposed
