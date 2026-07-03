@@ -240,18 +240,19 @@ Request (all optional):
 - `mode` — `"async"` only in v1 (`"live"` is later, §9). Absent ⇒ `"async"`.
 - (Matchmaking — how the second player is paired, open-match pool vs. invite — is a `GAME.md` concern. v1 may create an `open` match the next caller joins, or pair immediately; the route shape is stable either way.)
 
-Success `201 Created`:
+Success `201 Created` (the caller opened a new match and is waiting — or was returned their existing open one):
 ```json
 {
   "match": {
     "id": "…", "mode": "async", "status": "open",
-    "prompt": { "id": "…", "text": "a fox riding a bicycle" },
+    "prompt": { "id": "…", "text": null },
     "canvas": { "width": 1080, "height": 1080 },
     "players": [ { "userId": "…", "displayName": "Ada", "submitted": false } ],
-    "createdAt": "…"
+    "createdAt": "…", "updatedAt": "…"
   }
 }
 ```
+> **Prompt text is `null` while `status` is `open`.** The `text` is redacted until the match enters `drawing`, so a creator waiting alone cannot pre-draw before the opponent joins (reveal timing owned by `GAME.md` §5). When this same `POST` **auto-joins** a waiting match instead of opening one, the response is `status: "drawing"` with `text` populated and both players listed.
 > `canvas` echoes the canonical **1080×1080** game canvas (owned by `GAME.md`) so the client configures the editor without guessing. The submitted document's `width`/`height` MUST match it (enforced at submit, §8.3).
 
 Errors: `400 validation_failed` (bad `mode`), `401 unauthorized`, `429 rate_limited`.
