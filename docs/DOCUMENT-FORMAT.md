@@ -383,7 +383,7 @@ Apply `translate(dx, dy)` then `scale(scale)`; **do not round `dx`/`dy`** (keep 
 
 **Two surfaces, one renderer:**
 - **Editor (browser, Konva):** `toKonva` → `stage.toDataURL({ pixelRatio, width, height })` for previews/thumbnails. Konva's own per-layer `<canvas>` gives the same per-layer isolation the algorithm mandates.
-- **Server/judge (headless):** a **Node render worker** importing `packages/document` + Konva-node/`node-canvas` + the pinned perfect-freehand, emitting the fixed-size PNG, following the per-layer-isolation algorithm above. A Go-native rasterizer is a *trap* — a second renderer to keep pixel-identical to Konva+perfect-freehand. Avoid it.
+- **Server/judge (headless):** the **Node render worker** `packages/render` (**built** — `RENDER_MODE=node`). It reuses the editor's own `renderToStage` (from `@justpaint/editor`, which pulls `packages/document`'s `computeFitTransform` + perfect-freehand) under `konva/canvas-backend` + `node-canvas`, emitting the fixed-size PNG via `stage.toDataURL()` — so it is literally the *same* renderer as the editor, not a second one. esbuild-bundled; the Go server spawns it (`server/internal/render.NodeRenderer`). A Go-native rasterizer is a *trap* (a second renderer to keep pixel-identical) — avoided by design.
 
 **Trust boundary (game-critical):**
 - The client submits the **vector document, never a scored PNG.** A client thumbnail may ride along for instant UI — **advisory only**; a cheater could doctor it.

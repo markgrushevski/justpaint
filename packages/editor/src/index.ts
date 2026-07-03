@@ -6,8 +6,8 @@
 export type * from "./types";
 export { newId } from "./ids";
 export { DEFAULT_STYLE } from "./style";
-export { toKonva } from "./konva";
-export { renderToPNG } from "./render";
+export { toKonva, stageConfig } from "./konva";
+export { renderToPNG, renderToStage } from "./render";
 export type { RenderOptions } from "./render";
 export { Editor } from "./editor";
 export { TOOLS } from "./tools/index";

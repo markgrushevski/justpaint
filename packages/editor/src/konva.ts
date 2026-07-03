@@ -165,16 +165,31 @@ function toLayer(layer: Layer): Konva.Layer {
 }
 
 /**
+ * Build a `Konva.StageConfig` that works both in the browser (real container
+ * element) and headless in the Node render worker (no DOM). Konva needs a
+ * container only where a DOM exists; under `konva/canvas-backend` a
+ * container-less stage renders straight to node-canvas. The browser path is
+ * unchanged — `document` is defined, so a container is always attached.
+ */
+export function stageConfig(
+  container: HTMLDivElement | undefined,
+  width: number,
+  height: number,
+): Konva.StageConfig {
+  const el =
+    container ?? (typeof document !== "undefined" ? document.createElement("div") : undefined);
+  // Konva.StageConfig.container is optional, so the container-less form (the
+  // headless worker) type-checks with no cast.
+  return el ? { container: el, width, height } : { width, height };
+}
+
+/**
  * Project `doc` onto a fresh `Konva.Stage`. Pass a `container` to mount it in
  * the DOM (editor); omit it for a detached stage (the render worker sets its
  * own container/transform).
  */
 export function toKonva(doc: Document, container?: HTMLDivElement): Konva.Stage {
-  const stage = new Konva.Stage({
-    container: container ?? document.createElement("div"),
-    width: doc.width,
-    height: doc.height,
-  });
+  const stage = new Konva.Stage(stageConfig(container, doc.width, doc.height));
 
   if (doc.background != null) {
     stage.add(backgroundLayer(doc.background, doc.width, doc.height));
