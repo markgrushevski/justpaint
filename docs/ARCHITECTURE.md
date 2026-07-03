@@ -2,7 +2,7 @@
 
 > **System topology & boundaries.** How the pieces fit, which way dependencies point, and where the seams are. Companion to `docs/DECISIONS.md` (the "why" of each call) and `docs/DOCUMENT-FORMAT.md` (the keystone contract). This doc maps the *structure*; it does not relitigate the decisions that produced it.
 >
-> **Status:** the monorepo layout below **now exists** (Phase 1 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone (the raster app survives only behind `/legacy`). This doc maps the structure and the explicit triggers for when to split further (§9); the game modules are landing in Phase 3 — `internal/judge` (FakeJudge) and `internal/game` (match create/auto-join/get) exist; the submit/authoritative-render path, the WS hub, and the real judge client are the remainder.
+> **Status:** the monorepo layout below **now exists** (Phase 1 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone (the raster app survives only behind `/legacy`). This doc maps the structure and the explicit triggers for when to split further (§9); the game modules are landing in Phase 3 — `internal/judge` (FakeJudge), `internal/render` (the `Renderer` seam + StubRenderer), and `internal/game` (the full create/join/submit/judge/result loop + Elo) exist; the **pixel-authoritative** Node render worker, the WS hub, and the real judge client are the remainder.
 
 ## 1. One picture
 
@@ -77,10 +77,11 @@ server/
     document/    # the Go half of the vector-doc validator (mirrors packages/document) [done]
     db/          # sqlc-generated typed queries (+ queries/ SQL source)                [done]
     platform/    # shared infra: pgx pool, http server/router, config, slog, errors    [done]
-    game/        # match lifecycle: create → both draw → submit → judge → result       [Phase 3]
-    judge/       # Judge interface + fake impl + HTTP client to the external service (§5)  [Phase 3]
+    game/        # match lifecycle: create → both draw → submit → judge → result       [done: loop; stub render]
+    render/      # Renderer seam: authoritative judged raster (StubRenderer; Node worker later) [done: stub]
+    judge/       # Judge interface + FakeJudge (HTTPJudge = Phase 4)                    [done: fake]
     ws/          # coder/websocket hub for the game (realtime later; async-first)       [Phase 3]
-  migrations/    # goose (00001_initial_schema.sql)
+  migrations/    # goose (00001_initial_schema.sql, 00002_seed_prompts.sql)
 ```
 
 Module rules:
