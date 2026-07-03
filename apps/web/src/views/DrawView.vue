@@ -1,9 +1,10 @@
 <script lang="ts" setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { OriButton } from '@oriui/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId, LayerView } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
-import { DEFAULT_BACKGROUND, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
+import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
 import { drawings, isAuthError, toApiError, useSessionStore } from '@core'
 import EditorToolbar from '../components/EditorToolbar.vue'
 import LayersPanel from '../components/LayersPanel.vue'
@@ -27,24 +28,22 @@ const ui = reactive({
 })
 
 // Editor-derived state, kept in sync via the editor's onChange subscription so
-// Vue re-renders the toolbar (undo/redo enablement) and the layers panel.
+// Vue re-renders the toolbar (undo/redo enablement), the layers panel, and zoom.
 const layers = ref<LayerView[]>([])
 const activeLayerId = ref('')
 const canUndo = ref(false)
 const canRedo = ref(false)
+const zoom = ref(1)
+const zoomPercent = computed(() => Math.round(zoom.value * 100))
 const MAX_LAYERS = LIMITS.maxLayers
 
 const session = useSessionStore()
 
-// A modest working canvas: the editor has no fit-to-viewport / zoom yet (Phase 2),
-// and the spec default (DEFAULT_CANVAS, 1920x1080) overflows most viewports.
-const CANVAS = { width: 1280, height: 720 }
-
 function blankDocument(): Document {
     return {
         version: DOC_VERSION,
-        width: CANVAS.width,
-        height: CANVAS.height,
+        width: DEFAULT_CANVAS.width,
+        height: DEFAULT_CANVAS.height,
         background: DEFAULT_BACKGROUND,
         layers: [{ id: newId(), name: 'Layer 1', visible: true, opacity: 1, strokes: [] }]
     }
@@ -56,11 +55,14 @@ function syncEditorState() {
     activeLayerId.value = editor.getActiveLayerId()
     canUndo.value = editor.canUndo()
     canRedo.value = editor.canRedo()
+    zoom.value = editor.getZoom()
 }
 
 onMounted(() => {
     void session.fetchMe() // restore an existing cookie session, if any
     if (!containerRef.value) return
+    // The editor sizes its Konva stage to the container and fits the document
+    // into it (a ResizeObserver keeps it fitted); it never CSS-transforms canvas.
     editor = new Editor(containerRef.value, parseDocument(blankDocument()))
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
@@ -79,7 +81,7 @@ onBeforeUnmount(() => {
     editor = null
 })
 
-/** Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z or Ctrl+Y = redo. Skips form fields. */
+/** Keyboard shortcuts: undo/redo + zoom (Ctrl/Cmd + 0 fit, +/- zoom). Skips form fields. */
 function onKeydown(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
@@ -93,6 +95,15 @@ function onKeydown(e: KeyboardEvent) {
     } else if ((key === 'z' && e.shiftKey) || key === 'y') {
         e.preventDefault()
         editor?.redo()
+    } else if (key === '0') {
+        e.preventDefault()
+        editor?.fitToViewport()
+    } else if (key === '=' || key === '+') {
+        e.preventDefault()
+        editor?.zoomIn()
+    } else if (key === '-') {
+        e.preventDefault()
+        editor?.zoomOut()
     }
 }
 
@@ -131,6 +142,18 @@ function redo() {
     editor?.redo()
 }
 
+/* --- zoom handlers --------------------------------------------------- */
+
+function zoomIn() {
+    editor?.zoomIn()
+}
+function zoomOut() {
+    editor?.zoomOut()
+}
+function fitView() {
+    editor?.fitToViewport()
+}
+
 function clearCanvas() {
     if (!editor) return
     // Validate the freshly built blank doc before loading (loadDocument does
@@ -166,7 +189,8 @@ function renameLayer(id: string, name: string) {
 
 async function exportPng() {
     if (!editor) return
-    const blob = await editor.toPNG({ outWidth: CANVAS.width, outHeight: CANVAS.height, fit: 'contain' })
+    const doc = editor.getDocument()
+    const blob = await editor.toPNG({ outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -258,10 +282,16 @@ async function load() {
         />
 
         <div class="draw__body">
-            <!-- The Editor sizes its Konva stage to CANVAS (1280x720) with no
-                 fit-to-viewport yet, so the wrapper scrolls. -->
-            <div class="draw__scroll">
+            <!-- The Editor sizes its Konva stage to this wrapper and fits the
+                 document into it (zoom/pan via the stage transform). -->
+            <div class="draw__stage">
                 <div ref="containerRef" class="draw__canvas"></div>
+                <div class="draw__zoom" role="group" aria-label="Zoom">
+                    <OriButton size="sm" variant="outline" aria-label="Zoom out" @click="zoomOut">−</OriButton>
+                    <button class="draw__zoom-value" title="Fit to view" @click="fitView">{{ zoomPercent }}%</button>
+                    <OriButton size="sm" variant="outline" aria-label="Zoom in" @click="zoomIn">+</OriButton>
+                    <OriButton size="sm" variant="tonal" @click="fitView">Fit</OriButton>
+                </div>
             </div>
 
             <LayersPanel
@@ -295,33 +325,53 @@ async function load() {
     display: flex;
 }
 
-.draw__scroll {
+.draw__stage {
+    position: relative;
+
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
 
-    overflow: auto;
-
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-
-    padding: var(--ori-size-gap_lg, 1rem);
-
+    /* Letterbox around the fitted document (its own white background shows the
+       "paper"; this fills the margins, like a canvas on a desk). */
     background-color: var(--ori-color-background);
+    overflow: hidden;
 }
 
 .draw__canvas {
-    flex: none;
+    width: 100%;
+    height: 100%;
+}
 
-    box-shadow:
-        0 0 0 1px var(--ori-color-outline, rgb(0 0 0 / 15%)),
-        var(--ori-shadow-md, 0 6px 16px rgb(0 0 0 / 8%));
-    border-radius: var(--ori-size-radius_sm, 4px);
+.draw__zoom {
+    position: absolute;
+    right: var(--ori-size-gap_md, 0.75rem);
+    bottom: var(--ori-size-gap_md, 0.75rem);
 
-    /* The drawing "paper" stays white regardless of UI theme (it IS the document
-       background, DEFAULT_BACKGROUND) — a white sheet reads clearly on a dark UI. */
-    background-color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.375rem);
+
+    padding: var(--ori-size-gap_sm, 0.375rem);
+
+    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
+    border-radius: var(--ori-size-radius_md, 8px);
+    background-color: var(--ori-color-surface);
+    box-shadow: var(--ori-shadow-md, 0 6px 16px rgb(0 0 0 / 12%));
+}
+
+.draw__zoom-value {
+    min-width: 3.25rem;
+    padding: 0.25rem;
+
+    border: none;
+    background: none;
+    color: var(--ori-color-on-surface);
+
+    font-size: var(--ori-font-size_sm, 0.85rem);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    cursor: pointer;
 }
 
 /* Mobile: stack the layers panel below the canvas instead of beside it (the
