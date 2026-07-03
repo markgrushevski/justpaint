@@ -74,13 +74,39 @@ small practical gotchas go here.
   **Exception — submit is 403:** `POST …/submit` by a non-player returns **403** (`ErrNotPlayer`), the one
   deliberate known-ownership case (`API.md` §8.3). Same non-membership, two codes by route — don't
   "unify" them.
-- **`render.StubRenderer` is NOT pixel-authoritative.** It emits a deterministic 1024² PNG whose ink
-  coverage is `0.05 + 0.02·(stroke count)` (clamped) — enough for the ink-coverage `FakeJudge` to produce
-  a document-derived verdict and prove the loop, but it does **not** draw the actual picture. The real
-  render (pixel-accurate) must be the **Node Konva + perfect-freehand** worker (shares `packages/document`;
-  `import 'konva/canvas-backend'` — Konva 10 dropped the default Node backend). It swaps in behind the
-  `render.Renderer` interface with no game-loop change. Don't grow a Go rasterizer — it would diverge from
-  the editor's output (the whole reason `FREEHAND_VERSION` is pinned).
+- **`render.StubRenderer` is NOT pixel-authoritative** (the default `RENDER_MODE=stub`). It emits a
+  deterministic 1024² PNG whose ink coverage is `0.05 + 0.02·(stroke count)` (clamped) — enough for the
+  ink-coverage `FakeJudge` to produce a document-derived verdict and prove the loop, but it does **not**
+  draw the actual picture. The **real** render is `RENDER_MODE=node` (below). Don't grow a Go rasterizer —
+  it would diverge from the editor's output (the whole reason `FREEHAND_VERSION` is pinned).
+
+### Render worker (`packages/render`, `RENDER_MODE=node`)
+
+- **The worker reuses the editor's `renderToStage`** (the ONE shared projection), so the judged raster
+  matches the editor preview. `renderToStage` is the DOM-free core split out of `renderToPNG`; the browser
+  keeps `renderToPNG` (`toBlob`), the worker uses `stage.toDataURL()` under `konva/canvas-backend`. If you
+  touch the render path, keep it going through `renderToStage` or the two surfaces drift.
+- **`import 'konva/canvas-backend'` MUST be the FIRST import** in the worker, before anything that pulls
+  Konva — it registers node-canvas; Konva 10 dropped the default Node backend and throws
+  "unsupported environment" without it. `document` is **not** polyfilled (why `toKonva`/`renderToStage`
+  guard on `typeof document`).
+- **The worker is esbuild-BUNDLED** (`packages/render/dist/render.mjs`). `@justpaint/{editor,document}`
+  emit **extensionless** relative imports (`./ids`) that native Node ESM refuses (`ERR_MODULE_NOT_FOUND`),
+  so we bundle them in (esbuild resolves them) and keep `canvas` external (native). Consequence: **rebuild
+  the worker after editing `packages/editor`** — the bundle embeds a copy (`npm run build -w
+  @justpaint/render`, or the root `npm run build` fans out to it). `dist/` is gitignored, so a fresh clone
+  must build before `RENDER_MODE=node` works — same dist footgun as the other packages.
+- **`node-canvas` (`canvas`) is now a real, NATIVE repo dependency.** It installed from a prebuild on
+  Windows + Node 24 (no node-gyp), but a fresh `npm install` fetches/builds it; a platform without a
+  prebuild needs Cairo/Pango + build tools. It's isolated to `packages/render` (never bundled into the
+  browser app).
+- **`render.NodeRenderer` spawns `node dist/render.mjs` per render** (`exec.CommandContext`), document
+  JSON on stdin → **base64** PNG on stdout (base64 dodges binary-stdout/newline munging on Windows). It
+  re-marshals the validated `document.Document` to JSON (unknown fields don't affect rendering). Needs
+  `node` on PATH + the built bundle + `RENDER_CLI` pointing at it (fail-fast at boot if unset).
+- **`RENDER_MODE` defaults to `stub`** so the Go server runs with zero Node/canvas present (dev, CI, `go
+  test`). Only `RENDER_MODE=node` requires the worker. Don't flip the default without owning the native-dep
+  cost for everyone running the server.
 - **Judging runs in an out-of-band in-process goroutine** (`judgeMatch`), spawned by the final submit
   *after* its tx commits, on a fresh `context.Background()` + 30s timeout (the request ctx is already
   gone). It's idempotent (`runJudging` no-ops unless the match is still `judging`) and writes the result

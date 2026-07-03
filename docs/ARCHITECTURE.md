@@ -2,7 +2,7 @@
 
 > **System topology & boundaries.** How the pieces fit, which way dependencies point, and where the seams are. Companion to `docs/DECISIONS.md` (the "why" of each call) and `docs/DOCUMENT-FORMAT.md` (the keystone contract). This doc maps the *structure*; it does not relitigate the decisions that produced it.
 >
-> **Status:** the monorepo layout below **now exists** (Phase 1 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone (the raster app survives only behind `/legacy`). This doc maps the structure and the explicit triggers for when to split further (§9); the game modules are landing in Phase 3 — `internal/judge` (FakeJudge), `internal/render` (the `Renderer` seam + StubRenderer), and `internal/game` (the full create/join/submit/judge/result loop + Elo) exist; the **pixel-authoritative** Node render worker, the WS hub, and the real judge client are the remainder.
+> **Status:** the monorepo layout below **now exists** (Phase 1 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone (the raster app survives only behind `/legacy`). This doc maps the structure and the explicit triggers for when to split further (§9); the game modules are landing in Phase 3 — `internal/judge` (FakeJudge), `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) exist, and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live; the WS hub and the real judge client are the remainder.
 
 ## 1. One picture
 
@@ -31,10 +31,11 @@ Everything left of the Judge box is ours, in one repo, shipping as **one Go bina
 ## 2. Monorepo layout & why package boundaries (not separate repos)
 
 ```
-packages/document/   # vector doc schema + (de)serialize + render→PNG   — the contract
-packages/editor/     # Konva + perfect-freehand: tools, layers, history, export
+packages/document/   # vector doc schema + (de)serialize + validate   — the contract
+packages/editor/     # Konva + perfect-freehand: tools, layers, history, renderToStage/PNG
+packages/render/     # headless Node render worker (reuses editor renderToStage; node-canvas; esbuild)
 apps/web/            # Vue app: /draw (free) + /play (game)
-server/              # Go modular monolith: auth + drawings + game + ws hub + judge client
+server/              # Go modular monolith: auth + drawings + game + render + ws hub + judge client
 docs/                # specs & agreements (source of truth)
 ```
 
@@ -59,6 +60,7 @@ server/ (Go) ─────────── mirrors ─────┘   (ind
 
 - **`packages/document`** depends on nothing internal. It is pure: types, (de)serialize, validation, and a `render→PNG` renderer. It must not import `editor`, `web`, or anything UI/transport.
 - **`packages/editor`** depends on `document` + Konva + perfect-freehand. It owns tools, layer UI, command-based undo/redo, and the `document → Konva` projection. It does **not** depend on `web` (no Vue, no router, no API client).
+- **`packages/render`** is the headless Node render worker (`RENDER_MODE=node`): it reuses `editor`'s `renderToStage` (the ONE shared projection) under `konva/canvas-backend` + node-canvas to produce the authoritative judged raster off the client. esbuild-bundled; the Go server spawns it (`internal/render.NodeRenderer`, document JSON in → base64 PNG out). Isolated so node-canvas (native) never touches the browser bundle.
 - **`apps/web`** depends on `editor` and the HTTP client. It owns routes (`/draw`, `/play`), Pinia stores, TanStack Query, and the game UI flow.
 - **`server/` (Go)** does *not* import the TS packages. It **mirrors** the document spec (a hand-written validator for v1; a shared JSON Schema later). Both sides validate against *the spec*, not against each other's code — the spec in `docs/DOCUMENT-FORMAT.md` is the joint authority.
 
@@ -77,8 +79,8 @@ server/
     document/    # the Go half of the vector-doc validator (mirrors packages/document) [done]
     db/          # sqlc-generated typed queries (+ queries/ SQL source)                [done]
     platform/    # shared infra: pgx pool, http server/router, config, slog, errors    [done]
-    game/        # match lifecycle: create → both draw → submit → judge → result       [done: loop; stub render]
-    render/      # Renderer seam: authoritative judged raster (StubRenderer; Node worker later) [done: stub]
+    game/        # match lifecycle: create → both draw → submit → judge → result       [done: full loop]
+    render/      # Renderer seam: StubRenderer + NodeRenderer (spawns packages/render)  [done]
     judge/       # Judge interface + FakeJudge (HTTPJudge = Phase 4)                    [done: fake]
     ws/          # coder/websocket hub for the game (realtime later; async-first)       [Phase 3]
   migrations/    # goose (00001_initial_schema.sql, 00002_seed_prompts.sql)
@@ -200,7 +202,7 @@ Notes:
 - **One Postgres.**
 - **Static frontend** — `apps/web` built to static assets, served by CDN/static host (or by the Go binary in the simplest setup).
 - **Object storage** for rendered PNGs (thumbnails + judged rasters) — **added when needed**, not day one.
-- **Render worker** — a small **Node** sidecar importing `packages/document` to rasterize submissions authoritatively (one renderer shared with the editor). Inline/synchronous first; a queue only if it becomes a bottleneck.
+- **Render worker** — `packages/render`, a **Node** worker reusing the editor's `renderToStage` to rasterize submissions authoritatively (one renderer shared with the editor). **Built** (`RENDER_MODE=node`), currently **spawn-per-render** (inline/synchronous, per `DECISIONS.md`); a resident process or queue only if it becomes a bottleneck.
 - **External judge** — the collaborator's HTTP service; we point `HTTPJudge` at it via config, fall back to `FakeJudge` otherwise.
 
 **Split only when a trigger actually fires** (resist premature distribution — microservices are a portfolio anti-pattern here):

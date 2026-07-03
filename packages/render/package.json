@@ -1,0 +1,23 @@
+{
+  "name": "@justpaint/render",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless Node render worker: vector document -> authoritative judged PNG (Konva + node-canvas). Bundled with esbuild; invoked by the Go server (server/internal/render.NodeRenderer).",
+  "bin": {
+    "jp-render": "./dist/render.mjs"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "selftest": "node selftest.mjs"
+  },
+  "dependencies": {
+    "@justpaint/document": "*",
+    "@justpaint/editor": "*",
+    "canvas": "^3.2.3",
+    "konva": "^10.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

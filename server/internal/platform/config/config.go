@@ -15,7 +15,22 @@ type Config struct {
 	JWTSecret    string // HS256 signing secret — required, never defaulted
 	Env          string // "dev" | "prod"
 	CookieSecure bool   // Secure flag on the session cookie
+
+	// RenderMode selects the judge-raster renderer: "stub" (default; in-process,
+	// zero-dep, loop-proving) or "node" (the authoritative Node Konva worker).
+	RenderMode string
+	// RenderCLI is the bundled Node worker entry (packages/render/dist/render.mjs).
+	// Required when RenderMode == "node".
+	RenderCLI string
+	// RenderNodeBin is the node executable (default "node").
+	RenderNodeBin string
 }
+
+// Render modes.
+const (
+	RenderModeStub = "stub"
+	RenderModeNode = "node"
+)
 
 // Load reads configuration from the environment and fails fast on any missing
 // required value.
@@ -32,7 +47,10 @@ func Load() (Config, error) {
 		Env:         env,
 		// Secure cookies are dropped by browsers over plain http://localhost,
 		// so relax the flag in dev; require it everywhere else.
-		CookieSecure: env != "dev",
+		CookieSecure:  env != "dev",
+		RenderMode:    strings.ToLower(getenv("RENDER_MODE", RenderModeStub)),
+		RenderCLI:     os.Getenv("RENDER_CLI"),
+		RenderNodeBin: getenv("RENDER_NODE_BIN", "node"),
 	}
 
 	var missing []string
@@ -52,6 +70,23 @@ func Load() (Config, error) {
 	const minSecretLen = 32
 	if cfg.Env != "dev" && len(cfg.JWTSecret) < minSecretLen {
 		return Config{}, fmt.Errorf("config: JWT_SECRET must be at least %d bytes outside dev", minSecretLen)
+	}
+
+	switch cfg.RenderMode {
+	case RenderModeStub:
+	case RenderModeNode:
+		// The Node worker path must be given explicitly; guessing it is worse than
+		// failing fast (a wrong path would silently fall over on every judging —
+		// out-of-band, so it only shows as a stuck match, not a boot error).
+		if cfg.RenderCLI == "" {
+			return Config{}, fmt.Errorf("config: RENDER_CLI is required when RENDER_MODE=node (path to packages/render/dist/render.mjs)")
+		}
+		// Surface a typo'd / unbuilt path at boot rather than at first judging.
+		if _, err := os.Stat(cfg.RenderCLI); err != nil {
+			return Config{}, fmt.Errorf("config: RENDER_CLI not found (%s) — build it with `npm run build -w @justpaint/render`: %w", cfg.RenderCLI, err)
+		}
+	default:
+		return Config{}, fmt.Errorf("config: RENDER_MODE must be %q or %q", RenderModeStub, RenderModeNode)
 	}
 
 	return cfg, nil
