@@ -10,7 +10,7 @@
 |---|---|---|
 | **0** | Specs — agree the contracts before code | 🟢 **done** |
 | **1** | Go backend (auth + drawings CRUD) + minimal Konva editor | 🟢 **done** |
-| **2** | Frontend refactor — vector editor, real layers; oriui swap | ⚪ not started |
+| **2** | Frontend refactor — vector editor, real layers; oriui swap | 🟢 **done** |
 | **3** | Game — async duel first, then live WS | ⚪ not started |
 | **4** | Stretch — realtime hub, ratings, teams/tournaments, replay | ⚪ not started |
 
@@ -63,24 +63,26 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 
 ---
 
-## Phase 2 — Frontend refactor (vector editor + real layers) 🟡
+## Phase 2 — Frontend refactor (vector editor + real layers) 🟢 (done)
 
 **Goal:** turn the minimal editor into the real one — a proper vector editor with **real layers**, command-based undo/redo, and clean export — extracted into `packages/editor` so both `/draw` and `/play` consume it. The **oriui swap is a separate, isolated pass** (don't entangle it with the editor rewrite).
 
 **Deliverables**
-- [~] **`packages/editor`** — STARTED EARLY (in Phase 1), extended in `feat/editor-history-layers`: `@justpaint/editor` has the pure tool set, `toKonva`/`renderToPNG`, the `Editor` controller, a command-based `History`, real layer operations, and an `onChange` subscription seam (host reads `getLayers()`/`canUndo()` — no Vue in the package); a `view`/fit seam (fit-to-viewport, zoom, pan — scales the Konva *stage*, not CSS); depends only on `packages/document` + Konva + perfect-freehand (ARCHITECTURE §3). **Remaining for Phase 2:** clean export/thumbnails and the Pinia/TanStack-Query state pass.
+- [x] **`packages/editor`** — the real editor, built across `feat/editor-history-layers` + `feat/editor-fit`: `@justpaint/editor` has the pure tool set, `toKonva`/`renderToPNG`, the `Editor` controller, a command-based `History`, real layer operations, an `onChange` subscription seam (host reads `getLayers()`/`canUndo()`/`getZoom()` — no Vue in the package), and a `view` seam (fit-to-viewport, zoom, pan — scales the Konva *stage*, not CSS). Depends only on `packages/document` + Konva + perfect-freehand (ARCHITECTURE §3).
 - [x] **Real layers** — ordered list with id/name/visible/opacity/z-order, mapped to `Konva.Layer` (own `<canvas>`, per-layer isolation); add/remove/reorder/rename/visible/opacity via the `Editor` + a `/draw` layers panel. Replaces the old fake-layer + center-anchored PNG compositing. *(feat/editor-history-layers)*
 - [x] **Command-based undo/redo** — a command stack over the `Document` keyed by stroke/layer `id` (add-stroke/add/remove/reorder/rename/visible/opacity), with `Ctrl/Cmd+Z` / `Shift+Z` / `Ctrl+Y`. **Replaces PNG-snapshot history entirely.** History is runtime-only; never persisted in jsonb. *(feat/editor-history-layers)*
-- [ ] **perfect-freehand brush** — store input points + curated brush options (store-input-not-output, §5.3); pin the perfect-freehand version (render contract).
-- [ ] **Clean export** — `document → PNG` via the shared renderer; thumbnails for UI (cached to `drawings.thumbnail_url` server-side).
-- [ ] **`/draw` page** — editor + save/load only. Kept deliberately minimal (no feature creep — all product energy goes to the game).
-- [ ] **State** — Pinia for editor/app state; TanStack Query for server data (drawings list/detail), replacing ad-hoc axios.
+- [x] **perfect-freehand brush** — store input points + curated brush options (store-input-not-output, §5.3); `FREEHAND_VERSION` pins the resolved perfect-freehand (render contract). *(Phase 1 `packages/editor` / document)*
+- [x] **Clean export** — `document → PNG` via the shared `renderToPNG` (pinned contain-fit); Export button on `/draw`. **Server-side thumbnails** (`drawings.thumbnail_url`) wait on the Node render worker — moved to **Phase 3** (the trust boundary needs the authoritative raster rendered off the client anyway).
+- [x] **`/draw` page** — editor + save/load only, on the oriui design system with fit/zoom; kept deliberately minimal (no feature creep).
+- [x] **State** — session in Pinia (`useSessionStore`); server data via **TanStack Query** (`useSaveDrawing`/`useLoadLatestDrawing` mutations, `feat/web-query`); the editor owns its own document/view state in `packages/editor`. The ad-hoc axios path is gone (legacy removed).
 - [x] **oriui swap (isolated pass)** — DONE EARLY (ahead of Phase 1): replaced `vueinjar` (`VButton/VCard/VIcon/VAvatar` across 14 files) with **oriui** (`@oriui/vue` + `@oriui/css`); `npm run types` + `vite build` green. Kept separate from the editor rewrite. **Vendored→npm swap landed 2026-07-02** (`build/oriui-npm-swap`): `@oriui/{vue,css,headless}` `1.0.0-alpha.2` from the registry; `vendor/oriui/` deleted.
 
 **Exit criteria**
-- `/draw` is a usable vector editor: real layers (reorder/toggle/opacity), undo/redo via commands, save/load, PNG export — all on the v1 document format.
+- `/draw` is a usable vector editor: real layers (reorder/toggle/opacity), undo/redo via commands, save/load, PNG export, fit/zoom — all on the v1 document format.
 - `packages/editor` is consumed by `apps/web` with no editor logic left in the app shell.
 - No `vueinjar` imports remain; UI runs on oriui.
+
+**✅ All exit criteria met** — `/draw` is a real vector editor (layers, command undo/redo, fit/zoom, save/load via TanStack Query, PNG export) on the oriui design system; the editor lives entirely in `packages/editor`. Deferred to Phase 3: **server-side thumbnails** (need the Node render worker + object storage) and **touch pinch/pan** polish (IDEAS).
 
 ---
 

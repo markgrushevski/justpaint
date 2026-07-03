@@ -29,7 +29,8 @@ docs/                # specs & agreements (source of truth)
 npm workspaces (`packages/*` + `apps/*`); the Go service is separate. Reusability = package boundaries (`editor` consumed by both modes), not separate repos. Modular monolith, not microservices. The friend's judge is the only external service.
 
 ## Current state
-Phase 0 (specs) and **Phase 1 (Go backend + minimal Konva editor) are done** — see `docs/ROADMAP.md`. **Phase 2 (real vector editor: layers, undo/redo, fit/zoom) is next.**
+Phase 0 (specs), **Phase 1 (Go backend + minimal editor), and Phase 2 (real vector editor) are done** — see `docs/ROADMAP.md`. **Phase 3 (the game — async duel first) is next — not started.**
+- `/draw` is a real vector editor: real layers, command-based undo/redo, fit-to-viewport/zoom, oriui design system, save/load via TanStack Query, PNG export — all on the v1 document format, editor logic entirely in `packages/editor`.
 - The full round-trip works live: register → draw with every tool → save → reload → load the same drawing back, as a vector document through Postgres jsonb.
 - The old red-flag patterns (plaintext passwords, JWT empty-secret fallback, token in localStorage, Triangle-draws-a-rect, PNG-snapshot history) are **structurally gone** in the new path. They survive only in the parked legacy raster app behind `/legacy` (`apps/web/src/TheApp.vue` + `src/modules/canvas/**`, the old axios client `src/core/api/api.ts`, `useUserStore`) — do **not** copy those patterns forward.
 - **Two API clients coexist under `@core`**: the current native-`fetch` client (`src/core/api/drawings.ts` + `useSessionStore`, cookie `jp_session`) for all new work, and the legacy axios client (localStorage Bearer) for `/legacy` only. Always use the fetch client + `useSessionStore`.
