@@ -9,7 +9,7 @@ justpaint is a web drawing app rebuilt as a **portfolio + learn-Go** project. Th
 Greenfield — no production data to preserve; schema/format may be redesigned freely.
 
 ## North star & scope
-- **Primary:** the game (`/play`) — async duel first (create → both draw → submit → judge → result); live realtime later (Go WS hub). **Not built yet — Phase 3.**
+- **Primary:** the game (`/play`) — async duel first (create → both draw → submit → judge → result); live realtime later (Go WS hub). **In progress — Phase 3:** the judge seam + the async-duel front half (`/api/matches` create/join/get) are live; submit → render → judge → result is next.
 - **Supporting:** free-draw editor (`/draw`) — editor + save/load only, kept deliberately minimal. The same editor powers both modes. **Live today.**
 - **External:** the ML judge is built by a collaborator (his own ML). We define the contract + a fake impl; we do NOT build it.
 
@@ -23,15 +23,16 @@ Greenfield — no production data to preserve; schema/format may be redesigned f
 packages/document/   # vector doc schema + (de)serialize + validate + fit + freehand pins  (the contract)
 packages/editor/     # Konva + perfect-freehand: pure tools, toKonva, renderToPNG, Editor controller
 apps/web/            # Vue app: /draw (free) + /legacy (parked old raster app). /play is Phase 3.
-server/              # Go modular monolith: auth + drawings (game + WS hub + judge client = Phase 3)
+server/              # Go modular monolith: auth + drawings + judge seam + game (matches create/join/get; submit + WS hub = rest of Phase 3)
 docs/                # specs & agreements (source of truth)
 ```
 npm workspaces (`packages/*` + `apps/*`); the Go service is separate. Reusability = package boundaries (`editor` consumed by both modes), not separate repos. Modular monolith, not microservices. The friend's judge is the only external service.
 
 ## Current state
-Phase 0 (specs), **Phase 1 (Go backend + minimal editor), and Phase 2 (real vector editor) are done** — see `docs/ROADMAP.md`. **Phase 3 (the game — async duel first) is next — not started.**
+Phase 0 (specs), **Phase 1 (Go backend + minimal editor), and Phase 2 (real vector editor) are done** — see `docs/ROADMAP.md`. **Phase 3 (the game) is in progress:** the judge seam (`internal/judge` FakeJudge) and the async-duel front half (`internal/game`: prompts + create/auto-join + get) are live; **submit → authoritative render → judge → result** is the next slice.
 - `/draw` is a real vector editor: real layers, command-based undo/redo, fit-to-viewport/zoom, oriui design system, save/load via TanStack Query, PNG export — all on the v1 document format, editor logic entirely in `packages/editor`.
 - The full round-trip works live: register → draw with every tool → save → reload → load the same drawing back, as a vector document through Postgres jsonb.
+- The **game backend has begun** (`/api/matches`, `internal/game`): create/auto-join an async duel (open-pool matchmaking, one random prompt pinned, prompt text redacted until both players are in) + get redacted match state, ownership hidden as 404. Submit/judging (needs the Node render worker) is next. See `docs/GAME.md` / `docs/API.md §8`.
 - The old red-flag patterns (plaintext passwords, JWT empty-secret fallback, token in localStorage, Triangle-draws-a-rect, PNG-snapshot history) are **structurally gone** in the new path. They survive only in the parked legacy raster app behind `/legacy` (`apps/web/src/TheApp.vue` + `src/modules/canvas/**`, the old axios client `src/core/api/api.ts`, `useUserStore`) — do **not** copy those patterns forward.
 - **Two API clients coexist under `@core`**: the current native-`fetch` client (`src/core/api/drawings.ts` + `useSessionStore`, cookie `jp_session`) for all new work, and the legacy axios client (localStorage Bearer) for `/legacy` only. Always use the fetch client + `useSessionStore`.
 

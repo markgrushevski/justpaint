@@ -2,7 +2,7 @@
 
 > **System topology & boundaries.** How the pieces fit, which way dependencies point, and where the seams are. Companion to `docs/DECISIONS.md` (the "why" of each call) and `docs/DOCUMENT-FORMAT.md` (the keystone contract). This doc maps the *structure*; it does not relitigate the decisions that produced it.
 >
-> **Status:** the monorepo layout below **now exists** (Phase 1 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone (the raster app survives only behind `/legacy`). This doc maps the structure and the explicit triggers for when to split further (§9); the game modules (`internal/game`, WS hub, judge client) are Phase 3 and not built yet.
+> **Status:** the monorepo layout below **now exists** (Phase 1 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone (the raster app survives only behind `/legacy`). This doc maps the structure and the explicit triggers for when to split further (§9); the game modules are landing in Phase 3 — `internal/judge` (FakeJudge) and `internal/game` (match create/auto-join/get) exist; the submit/authoritative-render path, the WS hub, and the real judge client are the remainder.
 
 ## 1. One picture
 

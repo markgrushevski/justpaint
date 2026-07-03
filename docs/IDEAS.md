@@ -15,6 +15,7 @@
 ## Drawings / API
 - **Rate limiting (429)** — already tracked in `DECISIONS.md` (deferred). The real remaining abuse vector for drawings (spamming valid-but-heavy documents), **not** SQL injection (queries are fully parameterized via sqlc; ownership is enforced in every `WHERE owner_id`). *When:* before any public exposure / Phase 3.
 - **Server-generated `thumbnail_url` only** — when thumbnails land, store **only** a server-side object-storage URL, never a client-supplied one (avoids stored-SSRF / XSS via a poisoned URL). *When:* when thumbnails are implemented (Phase 2/3).
+- **One open match per user (concurrency hardening)** — the `FindMyOpenMatch` dedupe (`DECISIONS.md` 2026-07-03) is Read-Committed **best-effort**: a truly concurrent same-user double-tap can still open two `open` matches (never a double-*seat* — the composite PK guards that). Enforce hard with `pg_advisory_xact_lock(hashtext(userID))` at the top of the create tx, or a partial unique index. **Fold into the rate-limit slice** — same abuse class, same deferral. *When:* the deferred rate-limit / pre-public-exposure pass. *(jp-go + jp-security review, feat/game-matches.)*
 
 ## Frontend / build
 - ~~**Replace vendored oriui with the published npm package**~~ — **DONE** (2026-07-02): `apps/web` now installs `@oriui/{vue,css,headless}` `1.0.0-alpha.2` from npm; `vendor/oriui/` and the `.gitignore` exception are gone. See `docs/NOTES.md` (oriui is a normal npm dep now; version bumps need a Vite restart).
