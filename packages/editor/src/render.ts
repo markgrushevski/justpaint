@@ -1,15 +1,17 @@
 /**
- * Document → PNG, the deterministic raster export (DOCUMENT-FORMAT §10).
+ * Document → raster, the deterministic export (DOCUMENT-FORMAT §10).
  *
- * BROWSER-ONLY for Phase 1: it builds a real `Konva.Stage` and calls
- * `stage.toBlob`, both of which need a DOM + `<canvas>`. The headless server
- * render worker is a later, separate path (Konva-node) — this is not it, and
- * it is NOT unit-tested (no DOM in the test runner).
+ * `renderToStage` builds the framed `Konva.Stage` and is DOM-free (via
+ * `stageConfig`), so it is the ONE shared projection used by both the browser
+ * (`renderToPNG` → `stage.toBlob`) and the headless Node render worker
+ * (`packages/render` → `stage.toDataURL()`, under `konva/canvas-backend`).
+ * `renderToPNG` itself stays browser-only (its `toBlob` needs a DOM) and is not
+ * unit-tested (no DOM in the Vitest runner).
  */
 import Konva from "konva";
 import { computeFitTransform } from "@justpaint/document";
 import type { Document } from "@justpaint/document";
-import { toKonva } from "./konva";
+import { stageConfig, toKonva } from "./konva";
 
 export interface RenderOptions {
   outWidth: number;
@@ -32,7 +34,7 @@ export interface RenderOptions {
  * to the stage) so the background layer stays frame-aligned. `dx`/`dy` are kept
  * fractional (never rounded) so anti-aliasing matches every other renderer.
  */
-export async function renderToPNG(doc: Document, opts: RenderOptions): Promise<Blob> {
+export function renderToStage(doc: Document, opts: RenderOptions): Konva.Stage {
   const { scale, dx, dy } = computeFitTransform(
     doc.width,
     doc.height,
@@ -51,11 +53,7 @@ export async function renderToPNG(doc: Document, opts: RenderOptions): Promise<B
   const projected = toKonva({ ...doc, background: null });
   const contentLayers = projected.getLayers();
 
-  const stage = new Konva.Stage({
-    container: document.createElement("div"),
-    width: opts.outWidth,
-    height: opts.outHeight,
-  });
+  const stage = new Konva.Stage(stageConfig(undefined, opts.outWidth, opts.outHeight));
 
   if (effectiveBackground != null) {
     const bg = new Konva.Layer({ listening: false });
@@ -78,6 +76,17 @@ export async function renderToPNG(doc: Document, opts: RenderOptions): Promise<B
   }
   projected.destroy();
 
+  return stage;
+}
+
+/**
+ * Render `doc` to a PNG Blob (browser). Thin wrapper over {@link renderToStage} +
+ * `stage.toBlob`. The Node render worker calls `renderToStage` directly and
+ * serializes via `stage.toDataURL()` (node-canvas), sharing the exact projection
+ * + fit path so the editor preview and the judged raster agree.
+ */
+export async function renderToPNG(doc: Document, opts: RenderOptions): Promise<Blob> {
+  const stage = renderToStage(doc, opts);
   return stage.toBlob({
     pixelRatio: opts.pixelRatio ?? 1,
     mimeType: "image/png",

@@ -21,8 +21,9 @@ Greenfield — no production data to preserve; schema/format may be redesigned f
 ## Monorepo (this now exists)
 ```
 packages/document/   # vector doc schema + (de)serialize + validate + fit + freehand pins  (the contract)
-packages/editor/     # Konva + perfect-freehand: pure tools, toKonva, renderToPNG, Editor controller
-apps/web/            # Vue app: /draw (free) + /legacy (parked old raster app). /play is Phase 3.
+packages/editor/     # Konva + perfect-freehand: pure tools, toKonva, renderToStage/PNG, Editor controller
+packages/render/     # headless Node render worker (reuses editor renderToStage; node-canvas; esbuild-bundled) — the authoritative judged raster
+apps/web/            # Vue app: /draw (free). /play is Phase 3.
 server/              # Go modular monolith: auth + drawings + judge/render seams + game (full async duel: create/join/submit/judge/result; WS hub = rest of Phase 3)
 docs/                # specs & agreements (source of truth)
 ```
@@ -32,9 +33,9 @@ npm workspaces (`packages/*` + `apps/*`); the Go service is separate. Reusabilit
 Phase 0 (specs), **Phase 1 (Go backend + minimal editor), and Phase 2 (real vector editor) are done** — see `docs/ROADMAP.md`. **Phase 3 (the game) is in progress:** the **async-duel loop runs end-to-end** (`internal/game`: create/auto-join → submit → out-of-band judging → result + Elo, on the `internal/judge` + `internal/render` seams). The pixel-authoritative **Node render worker** and the **`/play` page** are next.
 - `/draw` is a real vector editor: real layers, command-based undo/redo, fit-to-viewport/zoom, oriui design system, save/load via TanStack Query, PNG export — all on the v1 document format, editor logic entirely in `packages/editor`.
 - The full round-trip works live: register → draw with every tool → save → reload → load the same drawing back, as a vector document through Postgres jsonb.
-- The **async duel loop runs end-to-end** (`/api/matches`, `internal/game`): create/auto-join → both draw → submit (validate + 1080² check, persist, `drawing → judging` on the last submit) → out-of-band judging (render + judge seams) → result with winner + reason + Elo (K=32). The **render and judge are swappable seams** (`internal/render` stub + `internal/judge` fake today; real Node Konva worker + HTTP judge later) — the loop doesn't change when they swap. See `docs/GAME.md` / `docs/API.md §8`.
-- The old red-flag patterns (plaintext passwords, JWT empty-secret fallback, token in localStorage, Triangle-draws-a-rect, PNG-snapshot history) are **structurally gone** in the new path. They survive only in the parked legacy raster app behind `/legacy` (`apps/web/src/TheApp.vue` + `src/modules/canvas/**`, the old axios client `src/core/api/api.ts`, `useUserStore`) — do **not** copy those patterns forward.
-- **Two API clients coexist under `@core`**: the current native-`fetch` client (`src/core/api/drawings.ts` + `useSessionStore`, cookie `jp_session`) for all new work, and the legacy axios client (localStorage Bearer) for `/legacy` only. Always use the fetch client + `useSessionStore`.
+- The **async duel loop runs end-to-end** (`/api/matches`, `internal/game`): create/auto-join → both draw → submit (validate + 1080² check, persist, `drawing → judging` on the last submit) → out-of-band judging → result with winner + reason + Elo (K=32). The **render is real**: `RENDER_MODE=node` renders the authoritative judged raster off the client via `packages/render` (the Node Konva worker reusing the editor's `renderToStage`); `RENDER_MODE=stub` (default) is a zero-dep in-process stand-in. The **judge is still a seam** (`internal/judge` FakeJudge; HTTP judge later). See `docs/GAME.md` / `docs/API.md §8`.
+- The old red-flag patterns (plaintext passwords, JWT empty-secret fallback, token in localStorage, Triangle-draws-a-rect, PNG-snapshot history) are **structurally gone** — the throwaway raster app that carried them (`/legacy`) was **deleted 2026-07-02** (`chore/remove-legacy`; salvaged UX ideas live in `docs/IDEAS.md`, code recoverable from git history). Don't reintroduce them.
+- **The API client is native `fetch`** (`src/core/api/drawings.ts` + `useSessionStore`, cookie `jp_session`) — the old axios/localStorage-Bearer client went with the legacy app. Use the fetch client + `useSessionStore`.
 
 ## Hard rules / gotchas
 - Stand on Konva; don't reinvent rendering. Own the document model, rent the renderer.
@@ -43,13 +44,13 @@ Phase 0 (specs), **Phase 1 (Go backend + minimal editor), and Phase 2 (real vect
 - **Dependency direction** (ARCHITECTURE §3): `document` imports nothing; `editor` imports only `document` + Konva + perfect-freehand (never Vue/router/API); app logic stays in `apps/web`.
 - **Trust boundary**: client PNGs/thumbnails are advisory; anything judged or persisted is derived server-side from the vector document. Ownership is scoped in every query — a foreign row answers **404**, never 403.
 - Keep `/draw` minimal (editor + save/load); all product energy goes to the game. Avoid the two-products trap.
-- Don't invest in the `/legacy` code — it's the throwaway raster app, kept only as a reference/fallback.
+- The authoritative judged raster is rendered **off the client** (`packages/render`, `RENDER_MODE=node`) from the validated vector document via the editor's own `renderToStage` — never a Go rasterizer (would diverge from the pinned `FREEHAND_VERSION`), never a client PNG.
 
 ## Commands
 - **Whole repo (root):** `npm run build` / `npm run types` / `npm run test` — fan out to all TS workspaces (`--workspaces --if-present`).
 - **Frontend:** `npm run dev -w @justpaint/web` (Vite on **:7777**), `npm run build -w @justpaint/web`, `npm run types -w @justpaint/web` (vue-tsc), `npm run lint:all -w @justpaint/web`. Or use the `.claude/launch.json` `web` config (preview MCP).
 - **Packages:** `npm run test -w @justpaint/document` / `-w @justpaint/editor` (Vitest); `npm run build -w @justpaint/document` (tsc → `dist/`). **Footgun:** `apps/web` imports the packages' built `dist/`, so after editing package `src` you must rebuild the package (no HMR across the boundary — see `docs/NOTES.md`).
-- **Go backend (in `server/`):** `go run ./cmd/server` (listens on **:8080**, the vite proxy target); `go build ./...`, `go vet ./...`, `go test ./...`. Requires `DATABASE_URL` + `JWT_SECRET` **exported in the environment** — the server does **not** auto-load `.env` (copy `.env.example` and export, or use an IDE run config).
+- **Go backend (in `server/`):** `go run ./cmd/server` (listens on **:8080**, the vite proxy target); `go build ./...`, `go vet ./...`, `go test ./...`. Requires `DATABASE_URL` + `JWT_SECRET` **exported in the environment** — the server does **not** auto-load `.env` (copy `.env.example` and export, or use an IDE run config). Judge raster defaults to the in-process stub; for the **authoritative** render set `RENDER_MODE=node` + `RENDER_CLI=<abs path>/packages/render/dist/render.mjs` (needs `node` on PATH + `npm run build -w @justpaint/render` first).
 - **DB:** `docker compose up -d` at the repo root (postgres:17-alpine on :5432). Migrate with the **goose** CLI against `server/migrations/`; regenerate query code with **sqlc generate** (`server/sqlc.yaml`) — both are external CLIs, not wired into `go run`.
 
 ## Conventions
