@@ -2,6 +2,22 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-03 — Match creation & matchmaking (Phase 3, front half)
+
+Building the async-duel front half (`internal/game`: `POST /api/matches` create/auto-join + `GET /api/matches/{id}`). API.md §8 deliberately left the *matchmaking* mechanism open ("create an open match the next caller joins, or pair immediately"); these pin the v1 choices.
+
+### Matchmaking = open-pool auto-join (single "play" button)
+`POST /api/matches` is the one entry point for both players. In one transaction it: **(1)** auto-joins the oldest waiting `open` async match the caller isn't already in — flipping it `open → drawing`; else **(2)** returns the caller's own still-open match if one exists; else **(3)** creates a fresh `open` match with one random active prompt pinned. Rationale: the simplest complete loop that's actually playable — two users each hit "play" and get matched, no separate create-vs-join UI, no invite/lobby. The route shape (`API.md` §8) is stable if we later add invite/ranked matchmaking. Concurrency is safe via `FOR UPDATE SKIP LOCKED` on the join candidate: two simultaneous joiners each grab a *different* match (the loser skips the locked row and opens its own), so a match is never double-seated (verified live).
+
+### No duplicate open matches from one player (step 2)
+A waiting player who taps "play" again gets their **existing** open match back, not a second one (one extra `FindMyOpenMatch` query on the miss path). This dedupes the common **sequential** re-tap. It is **best-effort, not serialized**: under the default Read-Committed isolation, two *truly concurrent* creates from the same not-yet-seated user each miss the other's uncommitted row and can still open two matches. That is benign self-clutter — never a double-*seat* (the `match_players` composite PK guarantees that) — and acceptable for v1. The hard fix (a `pg_advisory_xact_lock(userID)` at the top of the create tx, or a partial unique index) is folded into the deferred rate-limit slice (`IDEAS.md`, same abuse class). *(jp-go + jp-security review, feat/game-matches.)*
+
+### Prompt text is redacted until the match leaves `open`
+The pinned prompt's `text` is withheld while `status = open` (only `id` is sent); it is revealed once the match enters `drawing`. This enforces `GAME.md` §5 fairness — a creator waiting alone must not be able to pre-draw before the opponent joins; both get the prompt at effectively the same moment (the joiner's create response is already `drawing`+text; the creator sees it on their next poll). **This overrode the `API.md` §8 example**, which mistakenly showed `text` in an `open` response — GAME.md owns reveal timing, so API.md was corrected to match.
+
+### Opponent identity: userId + optional displayName only — never `login`
+The roster query deliberately does **not** select `users.login`. `login` may be an email (identity is email-*or*-nickname, 2026-06-19 decision); exposing it to the opponent would leak PII. Players are shown `userId` + nullable `displayName`; a null name is the client's problem to label ("Player 2"), not a reason to fall back to `login`.
+
 ## 2026-06-20 — Deferred hardening (backend review)
 
 A multi-agent adversarial review of the Go backend (29 confirmed findings) drove a batch of fixes; two items are **intentionally deferred** — they are not Phase-1 deliverables and are unreachable or low-risk at the current greenfield stage:
