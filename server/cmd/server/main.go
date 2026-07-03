@@ -15,6 +15,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/drawings"
+	"github.com/markgrushevski/justpaint/server/internal/game"
 	"github.com/markgrushevski/justpaint/server/internal/platform/config"
 	"github.com/markgrushevski/justpaint/server/internal/platform/logging"
 	"github.com/markgrushevski/justpaint/server/internal/platform/postgres"
@@ -57,6 +58,7 @@ func run() error {
 	}
 	authHandler := auth.NewHandler(authService, cfg.CookieSecure, logger)
 	drawingsHandler := drawings.NewHandler(drawings.NewService(queries), logger)
+	gameHandler := game.NewHandler(game.NewService(pool, queries), logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -66,6 +68,7 @@ func run() error {
 	})
 	authHandler.Routes(mux)
 	drawingsHandler.Routes(mux, authHandler.RequireAuth)
+	gameHandler.Routes(mux, authHandler.RequireAuth)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
