@@ -47,8 +47,30 @@ small practical gotchas go here.
 - **`CookieSecure` is derived from `ENV` alone** (default `dev` → Secure=false). Deploying with `ENV`
   unset ships non-Secure cookies — set `ENV=prod` (which also requires `JWT_SECRET` ≥ 32 bytes or the
   server refuses to boot).
-- **Migration 00001 already creates `prompts` / `matches` / `match_players`** (the game tables), but
-  no Go code queries them yet — their presence is not an implemented feature (Phase 3).
+- **Migration 00001 creates `prompts` / `matches` / `match_players`; 00002 seeds `prompts`** (24 active
+  starter prompts). `internal/game` now queries all three (create/auto-join/get); `match_players` is
+  populated but `drawing_id`/`score`/`submitted_at` stay null until the submit slice. Retire a prompt
+  with `active = false`, never a delete (matches FK-reference `prompt_id` forever).
+- **Multi-write game paths run in an explicit pgx transaction** (`pool.Begin` → `s.q.WithTx(tx)` →
+  `defer tx.Rollback` (no-op after commit) → `tx.Commit`). The drawings CRUD is single-statement so it
+  uses `*db.Queries` directly; the game service holds **both** the `*pgxpool.Pool` (to begin the tx) and
+  `*db.Queries` (for read paths). `assemble()` takes a `*db.Queries` so it works for either — the tx
+  handle during create/join, the shared pool during a read. **Caveat:** a `Get` therefore runs its
+  three reads (match → prompt → roster) on the pool with **no snapshot**, so a concurrent write landing
+  mid-read could yield a torn view (e.g. `status = open` but a 2-player roster). Harmless while
+  `CreateOrJoin` is the only writer; the **submit slice should wrap `Get` in a read-only `pgx.Tx`** (or
+  collapse it to one joined query) once there are more writers.
+- **Open-match anti-stacking is Read-Committed best-effort, not a hard constraint** (`DECISIONS.md`
+  2026-07-03). `CreateOrJoin` dedupes a user's own open matches with a plain `SELECT` (`FindMyOpenMatch`),
+  which two *concurrent* create-txs bypass (neither sees the other's uncommitted match). The composite PK
+  still prevents any double-*seat*; only same-user self-stacking of `open` matches is possible, in a
+  narrow window. Hard fix (advisory-xact-lock on userID / partial unique index) is folded into the
+  deferred rate-limit slice (`IDEAS.md`) — don't re-file as a separate integrity bug.
+- **`PickRandomActivePrompt` uses `order by random()`** — fine at seed scale (dozens of rows), but it's a
+  full scan + sort; swap for a keyset/`tablesample`/id-range pick if the prompt pool ever grows large.
+- **Match ownership is hidden as 404, like drawings**: a non-player calling `GET /api/matches/{id}` (or a
+  non-existent / non-UUID id) gets `not_found`, never 403 — match existence must not leak (`API.md` §1).
+  The player check is in the service (`isPlayer` over the loaded roster), after the row is fetched.
 - **Logout is deliberately NOT behind `RequireAuth`** — it must clear the cookie even for an expired/
   anonymous caller. Don't wrap it in `protect()`.
 - **Auth bodies use strict decode** (`DisallowUnknownFields`, 64 KiB); **document bodies use lax
@@ -66,6 +88,12 @@ small practical gotchas go here.
   4, perfectly clean log). Symptom in the web app: save/load fails with the `network` `ApiError`. Just
   restart the server — there's nothing to debug in Go. (Internet scanners also hit a locally-exposed
   `:8080` — stray 404s like `/en/reviews` are noise.)
+- **`curl localhost:8080` may hit a DIFFERENT app than our server.** Some other process on this machine
+  binds `[::1]:8080` (IPv6 loopback specifically). Go's `:8080` listens on the `0.0.0.0` + `[::]`
+  wildcards, but a specific `[::1]` bind wins for `localhost` when it resolves to `::1` first — so
+  `curl http://localhost:8080/healthz` returned a stray Quasar HTML page, not our `{"status":"ok"}`.
+  **Verify against `http://127.0.0.1:8080` (forces IPv4) to reach our server.** `netstat -ano | grep :8080`
+  shows the competing PIDs.
 
 ## Konva / editor / render determinism
 
