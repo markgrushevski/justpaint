@@ -2,6 +2,25 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-03 — The authoritative render worker (Phase 3)
+
+Realizing the `render.Renderer` seam with the real thing (`feat/render-worker`): a headless Node worker that renders the vector document to the judged raster off the client.
+
+### One shared renderer — the worker reuses the editor's `renderToStage`
+The judged raster must be produced by the **same** Konva + perfect-freehand path the editor draws with (why `FREEHAND_VERSION` is pinned) — a second renderer (e.g. a Go rasterizer) would silently diverge. So the worker imports `@justpaint/editor`'s projection, not a reimplementation. To make that path headless-safe, `toKonva`/`renderToPNG` were split: a DOM-free **`renderToStage`** (container guarded by `typeof document`) is the shared core; `renderToPNG` (browser, `toBlob`) and the worker (`stage.toDataURL` under `konva/canvas-backend`) are thin output tails over it. The browser path is byte-identical (verified: `/draw` export still yields a valid PNG); the worker renders the same pixels headless (verified live).
+
+### Stack: node-canvas + Konva 10 (`konva/canvas-backend`), viable on Windows
+A feasibility spike confirmed `canvas` (node-canvas) installs from a prebuild (no node-gyp) on Windows + Node 24, and Konva 10 renders headless once `konva/canvas-backend` is imported **before** any Konva use (Konva 10 dropped the default Node backend). node-canvas is now a real repo dependency (native) — documented in NOTES; a fresh `npm install` builds/fetches it.
+
+### The worker is esbuild-bundled (the packages aren't Node-ESM-loadable)
+`@justpaint/{editor,document}` emit **extensionless** relative imports (`./ids`) — fine for Vite/the browser app, but native Node ESM refuses them. Rather than churn `.js` extensions across the frozen contract package + editor (and risk the mirror), the worker is **bundled with esbuild** (`packages/render/dist/render.mjs`), inlining the workspace packages and keeping `canvas` external (native). Isolated to one new package; zero change to document/editor source.
+
+### Go ⇄ Node: spawn-per-render, document JSON in / base64 PNG out
+`render.NodeRenderer` (`server/internal/render`) shells out (`exec.CommandContext`) to `node dist/render.mjs`, piping the document JSON on stdin and reading the PNG **base64** on stdout (base64 keeps the pipe text-safe cross-platform). Spawn-per-render (not a long-lived service or queue) is right-sized for v1 async judging (two renders/match, off the request path); a resident worker is a later optimization. The `Renderer` interface stays `Render(ctx, document.Document)`; `NodeRenderer` re-marshals the validated doc to JSON (unknown fields are irrelevant to rendering).
+
+### `RENDER_MODE` config — stub default, node opt-in (fail-fast)
+`RENDER_MODE=stub` (default) keeps the zero-dependency in-process stub so the Go server runs with no Node/canvas present (dev, CI, tests). `RENDER_MODE=node` selects the authoritative worker and **requires `RENDER_CLI`** (path to the bundle) — the server fails fast at boot if it's unset or the mode is unknown, matching the `JWT_SECRET`/`DATABASE_URL` fail-fast posture. This keeps "correct by default to run" and "authoritative when configured" both true, and makes the seam a one-env-var swap.
+
 ## 2026-07-03 — Submit, judging & the render seam (Phase 3, loop closed)
 
 Closing the async-duel loop (`internal/game`: `POST /api/matches/{id}/submit`, out-of-band judging, `GET …/result`). The lifecycle now runs `open → drawing → judging → done` end-to-end (verified live).
