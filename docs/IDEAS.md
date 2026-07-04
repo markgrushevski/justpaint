@@ -2,6 +2,15 @@
 
 > Parking lot for improvements surfaced mid-build that are **deliberately deferred** — not bugs, not Phase-1 blockers. Each item has a one-line rationale + a rough *when*. Promote an item into `ROADMAP.md` when its phase goes active. Hard, already-made trade-offs live in `DECISIONS.md`; this is the softer "good ideas, later" list.
 
+## AI inside the product (north-star upgrade — planned)
+User directive 2026-07-04: make justpaint an **AI-product** — AI features in the product itself, not AI as a dev tool. Priority: **high**; exact sequencing vs `/play` TBD (the `/draw` UX pass comes first either way — see `DECISIONS.md` 2026-07-04).
+
+- **Text drawing commands** — an LLM turns natural-language commands into document operations. Our command-based history + vector document are a natural fit: the LLM emits commands, undo/redo comes free, validation guards the contract.
+- **AI inpainting / draw-completion** — via an external image API; the Node render worker already produces server-side rasters to feed it. Results could come back as raster layers (needs a document extension — a version-safe additive field, format §9) or as vector strokes.
+- **Canvas co-author assistant** — an agent that draws alongside the user / critiques / suggests, over the same command seam as text commands.
+
+*Why:* closes the main portfolio gap — a project where AI is **inside** the product, not just a development tool; canvas + LLM integration is a striking demo. *When:* after the `/draw` UX pass; sequencing vs `/play` under discussion.
+
 ## Auth / identity
 - **Login charset/format validation** — `login` is currently validated by **length only** (3–254 chars). Add format rules: if it contains `@`, validate as an email; otherwise restrict a nickname to `[a-zA-Z0-9_.-]` (no spaces, no emoji). This is the real gap (vs. the email/nickname *split*, which isn't needed). *When:* cheap — fold into the next auth touch.
 - **Optional separate `email` column** — split the sign-in handle (`login`) from a verified contact `email`, unlocking password reset, email verification, notifications. *When:* only when an email flow is actually built (YAGNI until then). Until then the single `login` (email-or-nickname, citext, case-insensitive) stands as decided.

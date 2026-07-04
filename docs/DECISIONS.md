@@ -2,6 +2,14 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-04 — UX-first: polish /draw + shell before the /play UI
+
+The owner directed: improve the site's and `/draw`'s UI/UX **before** building the game-mode UI. The game *backend* (async duel loop + authoritative render) is done and unaffected — this re-sequences only the frontend work: the UX pass now gates the `/play` page (tracked in `ROADMAP.md` Phase 3).
+
+**"Keep `/draw` minimal" is reinterpreted:** still *focused* — editor + save/load, no feature creep — but **polished**: proper oriui layout/spacing (the toolbar is currently cramped, no gaps/margins), the legacy **slide-in side menu** pattern returns (hidden by default, opened by a toggle button; auth + profile live inside it — the interface the owner specifically liked, see `IDEAS.md` "Salvaged from the `/legacy` app"), and canvas interaction correctness (no drawing outside the document area, immediate eraser feedback).
+
+Also declared: the **AI-in-product** direction (see `IDEAS.md` "AI inside the product") as a planned north-star upgrade — AI features inside the product itself; priority high, sequencing vs `/play` TBD.
+
 ## 2026-07-03 — The authoritative render worker (Phase 3)
 
 Realizing the `render.Renderer` seam with the real thing (`feat/render-worker`): a headless Node worker that renders the vector document to the judged raster off the client.
