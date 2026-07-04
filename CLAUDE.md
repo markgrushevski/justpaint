@@ -12,6 +12,7 @@ Greenfield — no production data to preserve; schema/format may be redesigned f
 - **Primary:** the game (`/play`) — async duel first (create → both draw → submit → judge → result); live realtime later (Go WS hub). **In progress — Phase 3:** the async-duel loop runs end-to-end in the backend (submit → judging → result + Elo, behind swappable render/judge seams); the pixel-authoritative Node render worker + the `/play` page are next.
 - **Supporting:** free-draw editor (`/draw`) — editor + save/load only, kept deliberately minimal. The same editor powers both modes. **Live today.**
 - **External:** the ML judge is built by a collaborator (his own ML). We define the contract + a fake impl; we do NOT build it.
+- **Planned:** AI **inside the product** (text drawing commands, AI inpainting, canvas co-author) — the portfolio differentiator; see `docs/IDEAS.md` "AI inside the product" + `DECISIONS.md` 2026-07-04.
 
 ## Stack
 - **Frontend:** Vue 3 + Vite + Pinia + TanStack Query. Rendering on **Konva** (+ `perfect-freehand` for brush quality). We do NOT hand-write a render engine. Component lib: **oriui** — the owner's own library, installed from npm (`@oriui/{vue,css,headless}` `1.0.0-alpha.2`, the three in lockstep); in use on `/draw` (replaced `vueinjar`).
@@ -43,7 +44,7 @@ Phase 0 (specs), **Phase 1 (Go backend + minimal editor), and Phase 2 (real vect
 - **The document contract lives in two validators** (`packages/document` TS + `server/internal/document` Go) that must stay 1:1 — every invariant on both sides, DoS caps identical to `docs/API.md`, test tables mirrored. A format change lands in the spec AND both validators AND both test tables together.
 - **Dependency direction** (ARCHITECTURE §3): `document` imports nothing; `editor` imports only `document` + Konva + perfect-freehand (never Vue/router/API); app logic stays in `apps/web`.
 - **Trust boundary**: client PNGs/thumbnails are advisory; anything judged or persisted is derived server-side from the vector document. Ownership is scoped in every query — a foreign row answers **404**, never 403.
-- Keep `/draw` minimal (editor + save/load); all product energy goes to the game. Avoid the two-products trap.
+- Keep `/draw` focused (editor + save/load, no feature creep) but **polished** — the 2026-07-04 UX-first pass (ROADMAP Phase 3) gates the `/play` UI. Product energy goes to the game; avoid the two-products trap.
 - The authoritative judged raster is rendered **off the client** (`packages/render`, `RENDER_MODE=node`) from the validated vector document via the editor's own `renderToStage` — never a Go rasterizer (would diverge from the pinned `FREEHAND_VERSION`), never a client PNG.
 
 ## Commands
