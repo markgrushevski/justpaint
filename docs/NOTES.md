@@ -207,6 +207,14 @@ small practical gotchas go here.
   the target size (a fresh mount measures the container in the constructor), not by resizing live.
   Konva's `<canvas>` backing store is `stage.width × devicePixelRatio` (e.g. 375 CSS px → 750 px at
   DPR 2) — that's correct retina sizing, not a bug.
+- **Canvas-bounds & preview compositing (feat/draw-ux, DECISIONS 2026-07-04):** every projected
+  layer is **clipped to the document rect** (`toLayer`/`backgroundLayer`, `clip:{0,0,w,h}` in
+  layer-local coords — follows any stage/layer transform, so it holds in the editor at any zoom AND
+  in the render worker); gestures **starting outside** the document are ignored
+  (`Editor.insideDocument`); the in-flight stroke preview renders in a transient `Konva.Group` **on
+  the active layer's own Konva layer** — never an isolated preview layer, which could not show the
+  eraser's `destination-out` erasing content beneath it (the old delayed-eraser bug); window-level
+  `pointerup`/`pointercancel` fallbacks end/abandon a gesture released outside the container.
 
 ## Auth / cookies / dev proxy
 
@@ -256,6 +264,12 @@ small practical gotchas go here.
   `preview_snapshot`, and console/network logs instead; don't retry screenshots there.
 - The vite dev server runs via `.claude/launch.json` (`preview_start` name `web`, port 7777). Previewing
   the full app also needs the Go backend on :8080 up separately (not in launch.json).
+- **rAF is fully PAUSED while the preview tab is hidden** (`document.hidden === true`) — Konva's
+  `batchDraw` never flushes, so layer canvases keep stale pre-transform content; pixel-level canvas
+  checks are IMPOSSIBLE in the hidden preview (this also explains the screenshot timeout above).
+  Verify canvas pixels via the **Node render worker** instead (same Konva projection, deterministic
+  — render a crafted document and sample the PNG), or a real visible tab; DOM-level checks (stroke
+  counters, panel state) still work hidden.
 
 ## Orchestration / role agents
 
