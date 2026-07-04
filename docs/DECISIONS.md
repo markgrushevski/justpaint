@@ -10,6 +10,8 @@ The owner directed: improve the site's and `/draw`'s UI/UX **before** building t
 
 Also declared: the **AI-in-product** direction (see `IDEAS.md` "AI inside the product") as a planned north-star upgrade — AI features inside the product itself; priority high, sequencing vs `/play` TBD.
 
+**Pinned choices (owner, same day):** layout = a **modern floating bottom toolbar** (tldraw/FigJam style), explicitly chosen over patching the current top toolbar. The editor shell is **shared between `/draw` and `/play`** — one design system; the game mode adds its chrome (prompt banner, timer, submit) around the same shell, UI/UX must not diverge. **All popular keyboard shortcuts** (tool hotkeys, Ctrl+Z/Y, Ctrl+0/±, Ctrl+S save) + a shortcuts cheat-sheet. The side menu holds **auth + profile** and **replaces the top SessionBar** (saved-drawings list + settings come later). Canvas bounds: **clip layers to the document rect + ignore gestures that start outside** — a stroke started inside may extend past the edge but is visually clipped (Figma-frame style). Sequencing confirmed: UX pass → `/play` UI → then AI-in-product.
+
 ## 2026-07-03 — The authoritative render worker (Phase 3)
 
 Realizing the `render.Renderer` seam with the real thing (`feat/render-worker`): a headless Node worker that renders the vector document to the judged raster off the client.
