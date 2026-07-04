@@ -34,23 +34,36 @@
 }
 
 /*
- * Respect the OS theme until an in-app light/dark toggle ships (an IDEAS item;
- * oriui itself only flips on `.ori-theme_dark`). Repoint the RESOLVED aliases to
- * the dark sources — this is the documented per-scope override, not `:root`
- * source-swapping. Semantic roles (success/warn/danger/info) keep oriui's defaults.
+ * Dark theme fires on `.ori-theme_dark` (oriui's own theme class), applied to
+ * <html> by useThemeStore — which also implements the `auto` mode by following
+ * `prefers-color-scheme` via matchMedia. ONE source for "dark": the class, never
+ * a media query here (a query could not be overridden by the in-app toggle).
+ * Repoint the RESOLVED aliases to the dark sources — the documented per-scope
+ * override. Semantic roles (success/warn/danger/info) keep oriui's defaults.
  */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --ori-color-primary: var(--ori-color-primary-dark);
-        --ori-color-on-primary: var(--ori-color-on-primary-dark);
-        --ori-color-secondary: var(--ori-color-secondary-dark);
-        --ori-color-on-secondary: var(--ori-color-on-secondary-dark);
-        --ori-color-surface: var(--ori-color-surface-dark);
-        --ori-color-on-surface: var(--ori-color-on-surface-dark);
-        --ori-color-background: var(--ori-color-background-dark);
-        --ori-color-on-background: var(--ori-color-on-background-dark);
-        --ori-color-outline: var(--ori-color-outline-dark);
-    }
+/* stylelint-disable-next-line selector-class-pattern -- oriui's own theme class */
+:root.ori-theme_dark {
+    --ori-color-primary: var(--ori-color-primary-dark);
+    --ori-color-on-primary: var(--ori-color-on-primary-dark);
+    --ori-color-secondary: var(--ori-color-secondary-dark);
+    --ori-color-on-secondary: var(--ori-color-on-secondary-dark);
+    --ori-color-surface: var(--ori-color-surface-dark);
+    --ori-color-on-surface: var(--ori-color-on-surface-dark);
+    --ori-color-background: var(--ori-color-background-dark);
+    --ori-color-on-background: var(--ori-color-on-background-dark);
+    --ori-color-outline: var(--ori-color-outline-dark);
+}
+
+/*
+ * Floating "island" chrome — the one visual language for everything hovering
+ * over the canvas (toolbar, zoom, layers, top clusters). Shared by /draw and
+ * the future /play shell (DECISIONS 2026-07-04: one design, game chrome on top).
+ */
+.jp-float {
+    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
+    border-radius: var(--ori-size-radius_lg, 12px);
+    background-color: var(--ori-color-surface);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
 }
 
 * {
