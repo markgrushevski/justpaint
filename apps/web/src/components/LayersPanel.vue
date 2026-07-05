@@ -60,7 +60,11 @@ const top = () => props.layers.length - 1
                 :key="layer.id"
                 class="layers__item"
                 :class="{ 'layers__item--active': layer.id === props.activeLayerId }"
+                :aria-current="layer.id === props.activeLayerId ? 'true' : undefined"
+                tabindex="0"
                 @click="emit('select', layer.id)"
+                @keydown.enter.self="emit('select', layer.id)"
+                @keydown.space.self.prevent="emit('select', layer.id)"
             >
                 <div class="layers__row">
                     <span class="layers__visible" @click.stop>
