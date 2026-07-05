@@ -210,12 +210,14 @@ function onKeydown(e: KeyboardEvent) {
     // While an overlay is open, single keys belong to it — except "?", which
     // still toggles the cheat-sheet closed.
     if (e.key === '?') {
-        if (menuOpen.value) return
+        if (menuOpen.value || confirmNewOpen.value) return
         e.preventDefault()
         shortcutsOpen.value = !shortcutsOpen.value
         return
     }
-    if (menuOpen.value || shortcutsOpen.value) return
+    // Every hand-rolled overlay must be listed here, or its single-key tool
+    // hotkeys (B/E/L/R/O/T) leak to this window listener and fire underneath it.
+    if (menuOpen.value || shortcutsOpen.value || confirmNewOpen.value) return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
         e.preventDefault()
