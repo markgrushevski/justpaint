@@ -256,6 +256,15 @@ small practical gotchas go here.
   same version). `@oriui/css` must be imported for side effects (done in `main.ts`) or components
   render unstyled. A dep **version change needs a Vite dev-server restart** (Vite pre-bundles deps),
   not just an HMR reload.
+- **`--ori-color-outline` is justpaint-invented (oriui ships NO outline token):** the resolved alias
+  must be set at base `:root` for light AND repointed in the dark block, or light-mode borders
+  silently fall to the black literal fallback.
+- **`OriButton size="sm"` does not shrink height below ~40px** (`size` only sets `--ori-size-action`;
+  height is `max(2.5em, action)`) — budget floating-cluster widths accordingly.
+- **`layersOpen` is computed once at mount** from `innerWidth` and not re-evaluated on resize;
+  `color-mix()` (first used in the shell) sets the browser floor at ~2023 evergreens;
+  `eslint-disable-next-line` in SFC templates covers only the literal next LINE — with
+  attribute-per-line formatting it must sit right above the `v-html=` line (or use a block disable).
 
 ## Preview MCP / verification
 
@@ -269,7 +278,9 @@ small practical gotchas go here.
   checks are IMPOSSIBLE in the hidden preview (this also explains the screenshot timeout above).
   Verify canvas pixels via the **Node render worker** instead (same Konva projection, deterministic
   — render a crafted document and sample the PNG), or a real visible tab; DOM-level checks (stroke
-  counters, panel state) still work hidden.
+  counters, panel state) still work hidden. Vue `<Transition>` completion also hangs in the hidden
+  preview tab (its pipeline uses rAF), so menu/panel open-close animations can't be end-verified
+  there — check them in a real browser.
 
 ## Orchestration / role agents
 
