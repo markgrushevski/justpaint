@@ -308,8 +308,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .menu__section-title {
-    margin: 0;
-    margin-bottom: var(--ori-size-gap_xs, 0.25rem);
+    margin: 0 0 var(--ori-size-gap_xs, 0.125rem);
 
     font-size: var(--ori-font-size_xs, 0.75rem);
     font-weight: 700;

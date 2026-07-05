@@ -17,9 +17,11 @@ const containerRef = ref<HTMLDivElement | null>(null)
 let editor: Editor | null = null
 let unsubscribe: (() => void) | null = null
 
+type MessageSeverity = 'info' | 'success' | 'error'
+
 /** Id of the drawing currently open (set after a successful save/load). */
 const currentId = ref<string | null>(null)
-const message = ref<{ text: string; severity: 'info' | 'success' | 'error' } | null>(null)
+const message = ref<{ text: string; severity: MessageSeverity } | null>(null)
 
 // Server data goes through TanStack Query: save/load are mutations, so the view
 // gets `isPending`/`error` + cache invalidation without hand-rolled busy flags.
@@ -62,7 +64,7 @@ const themeTitle = computed(() => `Theme: ${theme.mode} (click to switch)`)
 
 // Status messages self-dismiss; duration scales with severity so errors stay
 // readable longer than successes: success 3.5s, info 5s, error 8s.
-const MESSAGE_DURATION: Record<'info' | 'success' | 'error', number> = {
+const MESSAGE_DURATION: Record<MessageSeverity, number> = {
     success: 3500,
     info: 5000,
     error: 8000
@@ -274,7 +276,10 @@ async function exportPng() {
 
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        // Open the drawer so the sign-in form is one glance away.
+        // Open the drawer so the sign-in form is one glance away. Close the
+        // cheat-sheet first: both teleport to body at the same z-index with
+        // independent focus traps, so stacking them fights over focus.
+        shortcutsOpen.value = false
         menuOpen.value = true
         message.value = { text: `Sign in from the menu (top-left) to ${action}.`, severity: 'error' }
         return
@@ -373,7 +378,6 @@ function load() {
                 <OriButton
                     class="draw__action--desktop"
                     text="New"
-                    size="sm"
                     variant="outline"
                     radius="md"
                     @click="clearCanvas"
@@ -381,17 +385,15 @@ function load() {
                 <OriButton
                     class="draw__action--desktop"
                     text="Load"
-                    size="sm"
                     variant="outline"
                     radius="md"
                     :loading="busy"
                     @click="load"
                 />
-                <OriButton text="Save" size="sm" variant="fill" radius="md" :loading="busy" @click="save" />
+                <OriButton text="Save" variant="fill" radius="md" :loading="busy" @click="save" />
                 <OriButton
                     class="draw__action--desktop"
                     text="Export"
-                    size="sm"
                     variant="outline"
                     radius="md"
                     @click="exportPng"
@@ -443,7 +445,7 @@ function load() {
                 title="Zoom out — Ctrl+-"
                 @click="zoomOut"
             >
-                −
+                <ToolIcon name="minus" />
             </button>
             <button
                 class="draw__zoom-value"
@@ -455,7 +457,7 @@ function load() {
                 {{ zoomPercent }}%
             </button>
             <button class="draw__zoom-btn" type="button" aria-label="Zoom in" title="Zoom in — Ctrl+=" @click="zoomIn">
-                +
+                <ToolIcon name="plus" />
             </button>
         </div>
 
@@ -566,8 +568,8 @@ function load() {
     display: grid;
     place-items: center;
 
-    width: var(--jp-control-sm, 2.25rem);
-    height: var(--jp-control-sm, 2.25rem);
+    width: var(--ori-size-action_md, 2.75rem);
+    height: var(--ori-size-action_md, 2.75rem);
     padding: 0;
 
     border: none;
