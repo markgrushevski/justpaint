@@ -33,11 +33,22 @@
 
     /* Outline (borders, dividers). */
     --ori-color-outline-light: hsl(28 22% 85%);
-    --ori-color-outline-dark: hsl(28 12% 30%);
+    /* Lightness set for >=3:1 non-text (WCAG 1.4.11) border contrast in dark: ~3.4:1
+       against the dark surface hsl(24 16% 14%), ~3.9:1 against the dark background. */
+    --ori-color-outline-dark: hsl(28 13% 46%);
 
     /* outline is a justpaint-invented token (oriui ships none) — resolve it for
        light here; the dark block below repoints it. */
     --ori-color-outline: var(--ori-color-outline-light);
+
+    /* Shared square-control sizes — two deliberate tiers across every floating island. */
+    --jp-control-lg: 2.4rem; /* toolbar tool buttons + the top-left menu (hamburger) chip */
+    --jp-control-sm: 2.25rem; /* inline top-right chips, zoom buttons, panel close buttons, layer-row controls */
+
+    /* Shared interaction surfaces (replace the ad-hoc per-control color-mix recipes). */
+    --jp-hover-bg: color-mix(in srgb, var(--ori-color-primary) 12%, transparent);
+    --jp-selected-bg: color-mix(in srgb, var(--ori-color-primary) 18%, transparent);
+    --jp-neutral-hover-bg: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
 }
 
 /*

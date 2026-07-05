@@ -19,7 +19,7 @@ let unsubscribe: (() => void) | null = null
 
 /** Id of the drawing currently open (set after a successful save/load). */
 const currentId = ref<string | null>(null)
-const message = ref<string | null>(null)
+const message = ref<{ text: string; severity: 'info' | 'success' | 'error' } | null>(null)
 
 // Server data goes through TanStack Query: save/load are mutations, so the view
 // gets `isPending`/`error` + cache invalidation without hand-rolled busy flags.
@@ -52,18 +52,25 @@ const theme = useThemeStore()
 
 const menuOpen = ref(false)
 const shortcutsOpen = ref(false)
-// Layers start open where there's room, closed on small screens.
-const layersOpen = ref(window.innerWidth > 840) // oriui --ori-size-screen_sm
+// Layers start open where there's room, closed on small screens. Match the CSS
+// reflow breakpoint (601px+ has room for the island).
+const layersOpen = ref(window.innerWidth > 600) // oriui --ori-size-screen_xs (600px)
 
 const THEME_ICON: Record<string, IconName> = { auto: 'monitor', light: 'sun', dark: 'moon' }
 const themeIcon = computed(() => THEME_ICON[theme.mode] ?? 'monitor')
 const themeTitle = computed(() => `Theme: ${theme.mode} (click to switch)`)
 
-// Status messages self-dismiss; errors linger a little longer than successes.
+// Status messages self-dismiss; duration scales with severity so errors stay
+// readable longer than successes: success 3.5s, info 5s, error 8s.
+const MESSAGE_DURATION: Record<'info' | 'success' | 'error', number> = {
+    success: 3500,
+    info: 5000,
+    error: 8000
+}
 let messageTimer: ReturnType<typeof setTimeout> | null = null
 watch(message, (m) => {
     if (messageTimer) clearTimeout(messageTimer)
-    if (m) messageTimer = setTimeout(() => (message.value = null), 6000)
+    if (m) messageTimer = setTimeout(() => (message.value = null), MESSAGE_DURATION[m.severity])
 })
 
 function blankDocument(): Document {
@@ -267,11 +274,16 @@ async function exportPng() {
 
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        message.value = `Sign in to ${action} (menu ☰).`
+        // Open the drawer so the sign-in form is one glance away.
+        menuOpen.value = true
+        message.value = { text: `Sign in from the menu (top-left) to ${action}.`, severity: 'error' }
         return
     }
     const api = toApiError(err)
-    message.value = api ? `Could not ${action}: ${api.message}` : `Could not ${action} (is the server running?).`
+    message.value = {
+        text: api ? `Could not ${action}: ${api.message}` : `Could not ${action} (is the server running?).`,
+        severity: 'error'
+    }
 }
 
 function save() {
@@ -283,7 +295,7 @@ function save() {
         {
             onSuccess: (meta) => {
                 currentId.value = meta.id
-                message.value = existing ? 'Saved.' : `Saved as ${meta.id}.`
+                message.value = { text: existing ? 'Saved.' : `Saved as ${meta.id}.`, severity: 'success' }
             },
             onError: (err) => reportError(err, 'save')
         }
@@ -296,13 +308,13 @@ function load() {
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
             if (!full) {
-                message.value = 'No saved drawings yet.'
+                message.value = { text: 'No saved drawings yet.', severity: 'info' }
                 return
             }
             // full.document is already validated by drawings.get (parseDocument).
             editor?.loadDocument(full.document)
             currentId.value = full.id
-            message.value = `Loaded ${full.id}.`
+            message.value = { text: `Loaded ${full.id}.`, severity: 'success' }
         },
         onError: (err) => reportError(err, 'load')
     })
@@ -389,7 +401,17 @@ function load() {
 
         <!-- Transient status -->
         <Transition name="toast">
-            <p v-if="message" class="draw__message jp-float" role="status">{{ message }}</p>
+            <p
+                v-if="message"
+                class="draw__message jp-float"
+                :class="{ 'draw__message--error': message.severity === 'error' }"
+                :role="message.severity === 'error' ? 'alert' : 'status'"
+            >
+                <span class="draw__message-text">{{ message.text }}</span>
+                <button class="draw__message-dismiss" type="button" aria-label="Dismiss" @click="message = null">
+                    <ToolIcon name="close" />
+                </button>
+            </p>
         </Transition>
 
         <!-- Bottom-center: the floating toolbar -->
@@ -423,7 +445,15 @@ function load() {
             >
                 −
             </button>
-            <button class="draw__zoom-value" title="Fit to view — Ctrl+0" @click="fitView">{{ zoomPercent }}%</button>
+            <button
+                class="draw__zoom-value"
+                type="button"
+                :aria-label="`Fit to view (currently ${zoomPercent}%)`"
+                title="Fit to view — Ctrl+0"
+                @click="fitView"
+            >
+                {{ zoomPercent }}%
+            </button>
             <button class="draw__zoom-btn" type="button" aria-label="Zoom in" title="Zoom in — Ctrl+=" @click="zoomIn">
                 +
             </button>
@@ -502,8 +532,8 @@ function load() {
     display: grid;
     place-items: center;
 
-    width: 2.6rem;
-    height: 2.6rem;
+    width: var(--jp-control-lg, 2.4rem);
+    height: var(--jp-control-lg, 2.4rem);
     padding: 0;
 
     color: var(--ori-color-on-surface);
@@ -512,11 +542,11 @@ function load() {
 }
 
 .draw__chip:hover {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 10%, var(--ori-color-surface));
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .draw__brand {
-    padding: 0.45rem 0.8rem;
+    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
 
     font-weight: 700;
     color: var(--ori-color-primary);
@@ -529,15 +559,15 @@ function load() {
     gap: var(--ori-size-gap_sm, 0.25rem);
     flex-wrap: wrap;
 
-    padding: 0.3rem 0.45rem;
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
 }
 
 .draw__chip-inline {
     display: grid;
     place-items: center;
 
-    width: 2rem;
-    height: 2rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
     padding: 0;
 
     border: none;
@@ -550,11 +580,11 @@ function load() {
 }
 
 .draw__chip-inline:hover {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 12%, transparent);
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .draw__chip-inline--active {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 18%, transparent);
+    background-color: var(--jp-selected-bg, color-mix(in srgb, var(--ori-color-primary) 18%, transparent));
     color: var(--ori-color-primary);
 }
 
@@ -567,10 +597,14 @@ function load() {
 
 .draw__message {
     position: absolute;
-    top: var(--ori-size-gap_md, 0.5rem);
+    top: calc(var(--ori-size-gap_md, 0.5rem) + 3.25rem);
     left: 50%;
     z-index: 12;
     transform: translateX(-50%);
+
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
 
     max-width: min(34rem, 80vw);
     margin: 0;
@@ -578,6 +612,36 @@ function load() {
 
     color: var(--ori-color-on-surface);
     font-size: var(--ori-font-size_sm, 0.875rem);
+}
+
+.draw__message--error {
+    border-inline-start: 3px solid var(--ori-color-danger);
+}
+
+.draw__message-text {
+    flex: 1;
+}
+
+/* Bare glyph dismiss — matches the other transparent icon buttons in the shell. */
+.draw__message-dismiss {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+
+    border: none;
+    border-radius: var(--ori-size-radius_md, 8px);
+    background: transparent;
+    color: var(--ori-color-on-surface);
+
+    cursor: pointer;
+}
+
+.draw__message-dismiss:hover {
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .draw__toolbar {
@@ -598,7 +662,7 @@ function load() {
     align-items: center;
     gap: 0;
 
-    padding: 0.2rem 0.3rem;
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
 }
 
 /* Compact square zoom glyphs — hand-rolled to match the chip chrome; OriButton
@@ -607,8 +671,8 @@ function load() {
     display: grid;
     place-items: center;
 
-    width: 2rem;
-    height: 2rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
     padding: 0;
 
     border: none;
@@ -621,7 +685,7 @@ function load() {
 }
 
 .draw__zoom-btn:hover {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 12%, transparent);
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .draw__zoom-value {

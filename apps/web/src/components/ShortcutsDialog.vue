@@ -56,18 +56,56 @@ const GROUPS: { title: string; rows: ShortcutRow[] }[] = [
 // Move focus into the dialog on open (the SideMenu pattern) — without focus
 // inside, the panel-tree Esc handler below would never fire.
 const panelRef = ref<HTMLElement | null>(null)
+// Whatever had focus when the dialog opened, so we can restore it on close.
+const opener = ref<HTMLElement | null>(null)
 watch(
     () => props.open,
     async (open) => {
         if (open) {
+            opener.value = document.activeElement as HTMLElement | null
             await nextTick()
             panelRef.value?.focus()
+        } else {
+            opener.value?.focus()
         }
     }
 )
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') emit('close')
+    if (e.key === 'Escape') {
+        emit('close')
+        return
+    }
+
+    if (e.key === 'Tab') {
+        const panel = panelRef.value
+        if (!panel) return
+
+        const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
+        if (focusables.length === 0) {
+            // Nothing tabbable inside — keep focus on the panel itself.
+            e.preventDefault()
+            panel.focus()
+            return
+        }
+
+        const first = focusables[0]
+        const last = focusables[focusables.length - 1]
+        const active = document.activeElement
+        const outside = !panel.contains(active)
+
+        if (e.shiftKey) {
+            if (outside || active === first) {
+                e.preventDefault()
+                last.focus()
+            }
+        } else if (active === last) {
+            e.preventDefault()
+            first.focus()
+        }
+    }
 }
 </script>
 
@@ -169,8 +207,8 @@ function onKeydown(e: KeyboardEvent) {
     display: grid;
     place-items: center;
 
-    width: 2.2rem;
-    height: 2.2rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
 
     border: none;
     border-radius: var(--ori-size-radius_md, 8px);
@@ -181,7 +219,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .shortcuts__close:hover {
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 .shortcuts__group {

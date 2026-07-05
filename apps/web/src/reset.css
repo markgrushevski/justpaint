@@ -7,7 +7,10 @@
 * {
     margin: 0;
     padding: 0;
-    border: 0;
+
+    /* No `border: 0` here: @oriui/css already resets borders inside @layer ori.reset
+       (layer-safe). An unlayered reset would beat oriui's layered component borders
+       and strip every OriButton/OriInput of its border. */
     font-optical-sizing: auto;
     font-style: normal;
 }

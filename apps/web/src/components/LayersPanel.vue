@@ -109,7 +109,7 @@ const top = () => props.layers.length - 1
                         aria-label="Move layer up"
                         @click="emit('move', layer.id, index + 1)"
                     >
-                        ↑
+                        <ToolIcon name="arrow-up" />
                     </button>
                     <button
                         class="layers__ctrl"
@@ -118,7 +118,7 @@ const top = () => props.layers.length - 1
                         aria-label="Move layer down"
                         @click="emit('move', layer.id, index - 1)"
                     >
-                        ↓
+                        <ToolIcon name="arrow-down" />
                     </button>
                     <button
                         class="layers__ctrl layers__ctrl--danger"
@@ -127,7 +127,7 @@ const top = () => props.layers.length - 1
                         aria-label="Delete layer"
                         @click="emit('remove', layer.id)"
                     >
-                        ✕
+                        <ToolIcon name="trash" />
                     </button>
                 </div>
             </li>
@@ -164,8 +164,8 @@ const top = () => props.layers.length - 1
     display: grid;
     place-items: center;
 
-    width: 1.9rem;
-    height: 1.9rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
 
     border: none;
     border-radius: var(--ori-size-radius_md, 8px);
@@ -176,7 +176,7 @@ const top = () => props.layers.length - 1
 }
 
 .layers__close:hover {
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 .layers__title {
@@ -262,8 +262,8 @@ const top = () => props.layers.length - 1
     display: grid;
     place-items: center;
 
-    width: 1.9rem;
-    height: 1.9rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
     padding: 0;
 
     border: none;
@@ -281,7 +281,7 @@ const top = () => props.layers.length - 1
 }
 
 .layers__ctrl:hover:not(:disabled) {
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 .layers__ctrl--danger {
