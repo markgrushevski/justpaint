@@ -11,13 +11,15 @@ where id = $1 and owner_id = $2;
 -- `match_id is null` makes a submitted duel drawing immutable via CRUD (it is
 -- locked once submitted — docs/API.md §7). A match-linked row matches nothing
 -- here; the service turns that miss into 409, not a silent 404.
+-- thumbnail_url is intentionally NOT set here: it is a server-generated cached-PNG
+-- URL (the render worker owns it — DOCUMENT-FORMAT §7), never a client field, so a
+-- document CRUD update must leave it untouched rather than clobber it to NULL.
 update drawings
-set doc_version   = $3,
-    width         = $4,
-    height        = $5,
-    document      = $6,
-    thumbnail_url = $7,
-    updated_at    = now()
+set doc_version = $3,
+    width       = $4,
+    height      = $5,
+    document    = $6,
+    updated_at  = now()
 where id = $1 and owner_id = $2 and match_id is null
 returning *;
 
