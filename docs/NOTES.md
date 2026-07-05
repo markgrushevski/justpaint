@@ -300,6 +300,20 @@ small practical gotchas go here.
   (type-level `noUncheckedIndexedAccess` violations, the Konva stage leak) — keep a verify stage in
   any orchestrated build.
 
+## Document contract (Go ↔ TS parity)
+
+- **Absent required fields: Go must reject them explicitly.** `encoding/json` zero-fills an absent
+  required key (no `visible` → `false`, no `opacity` → `0.0`, no `brush` → the zero `BrushOptions`, no
+  `strokes` → nil, no `background` → nil), so struct decoding ALONE makes Go accept documents the TS
+  validator rejects — a silent keystone-parity break. `requiredKeys(data)` in `parse.go` walks the RAW
+  JSON asserting key presence, so an explicit `null` background still counts as present (valid) while an
+  absent one is rejected — matching TS, where `undefined !== null` falls into the hex check and fails.
+- **Point coords: decode `[]*float64`, not `[]float64`.** `json.Unmarshal` coerces a `null` array
+  element to `0.0`, so `[null,1]` would pass; a pointer slot stays nil and is rejected, matching TS's
+  finite-number check.
+- **The two validator TEST TABLES are 1:1** — a rejection added to one side must be added to the other
+  (`server/internal/document/validate_test.go` ↔ `packages/document/test/validate.test.ts`).
+
 ## Git / Windows
 
 - Conventional Commits, present tense, one logical change. Multi-commit units go on a branch
