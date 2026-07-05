@@ -1,3 +1,22 @@
+<script lang="ts">
+import type { ToolId } from '@justpaint/editor'
+import type { IconName } from './icons/ToolIcon.vue'
+
+/**
+ * Label + hotkey per tool — the SINGLE source of hotkey hint text. The toolbar
+ * tooltips, the DrawView key bindings, and the shortcuts cheat-sheet all read
+ * from here, so a remapped key can never drift out of sync with its hint.
+ */
+export const TOOL_META: Record<ToolId, { label: string; icon: IconName; key: string }> = {
+    pen: { label: 'Pen', icon: 'pen', key: 'B' },
+    eraser: { label: 'Eraser', icon: 'eraser', key: 'E' },
+    line: { label: 'Line', icon: 'line', key: 'L' },
+    rect: { label: 'Rectangle', icon: 'rect', key: 'R' },
+    ellipse: { label: 'Ellipse', icon: 'ellipse', key: 'O' },
+    triangle: { label: 'Triangle', icon: 'triangle', key: 'T' }
+}
+</script>
+
 <script lang="ts" setup>
 /**
  * The floating bottom toolbar (tldraw-style — DECISIONS 2026-07-04): tools as
@@ -6,21 +25,9 @@
  */
 import { OriCheckbox, OriSlider } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'
-import type { ToolId } from '@justpaint/editor'
 import ToolIcon from './icons/ToolIcon.vue'
-import type { IconName } from './icons/ToolIcon.vue'
 
 const toolIds = Object.keys(TOOLS) as ToolId[]
-
-/** Label + (future slice: live) hotkey shown in the tooltip. */
-const TOOL_META: Record<ToolId, { label: string; icon: IconName; key: string }> = {
-    pen: { label: 'Pen', icon: 'pen', key: 'B' },
-    eraser: { label: 'Eraser', icon: 'eraser', key: 'E' },
-    line: { label: 'Line', icon: 'line', key: 'L' },
-    rect: { label: 'Rectangle', icon: 'rect', key: 'R' },
-    ellipse: { label: 'Ellipse', icon: 'ellipse', key: 'O' },
-    triangle: { label: 'Triangle', icon: 'triangle', key: 'T' }
-}
 
 const props = defineProps<{
     activeTool: ToolId

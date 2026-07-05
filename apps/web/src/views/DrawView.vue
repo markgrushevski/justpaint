@@ -6,8 +6,9 @@ import type { ToolId, LayerView } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
 import { isAuthError, toApiError, useLoadLatestDrawing, useSaveDrawing, useSessionStore, useThemeStore } from '@core'
-import FloatingToolbar from '../components/FloatingToolbar.vue'
+import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import LayersPanel from '../components/LayersPanel.vue'
+import ShortcutsDialog from '../components/ShortcutsDialog.vue'
 import SideMenu from '../components/SideMenu.vue'
 import ToolIcon from '../components/icons/ToolIcon.vue'
 import type { IconName } from '../components/icons/ToolIcon.vue'
@@ -50,6 +51,7 @@ const theme = useThemeStore()
 /* --- shell chrome state ---------------------------------------------- */
 
 const menuOpen = ref(false)
+const shortcutsOpen = ref(false)
 // Layers start open where there's room, closed on small screens.
 const layersOpen = ref(window.innerWidth > 840) // oriui --ori-size-screen_sm
 
@@ -107,29 +109,65 @@ onBeforeUnmount(() => {
     editor = null
 })
 
-/** Keyboard shortcuts: undo/redo + zoom (Ctrl/Cmd + 0 fit, +/- zoom). Skips form fields. */
+/** Single-key tool bindings, derived from TOOL_META so key and hint can't drift. */
+const KEY_TO_TOOL = new Map<string, ToolId>(
+    (Object.keys(TOOLS) as ToolId[]).map((id) => [TOOL_META[id].key.toLowerCase(), id])
+)
+
+/**
+ * Keyboard shortcuts (DECISIONS 2026-07-04): Ctrl/Cmd+Z/Y undo-redo, Ctrl/Cmd+
+ * 0/+/- zoom, Ctrl/Cmd+S save, modifier-free B/E/L/R/O/T tool keys, and "?"
+ * for the cheat-sheet. Skips form fields; single keys are also suppressed
+ * while the side menu or the cheat-sheet is open (they own the keyboard then).
+ */
 function onKeydown(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return
     }
-    if (!(e.ctrlKey || e.metaKey)) return
     const key = e.key.toLowerCase()
-    if (key === 'z' && !e.shiftKey) {
+    if (e.ctrlKey || e.metaKey) {
+        if (key === 'z' && !e.shiftKey) {
+            e.preventDefault()
+            editor?.undo()
+        } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+            e.preventDefault()
+            editor?.redo()
+        } else if (key === 's') {
+            e.preventDefault() // the browser's own save dialog
+            save()
+        } else if (key === '0') {
+            e.preventDefault()
+            editor?.fitToViewport()
+        } else if (key === '=' || key === '+') {
+            e.preventDefault()
+            editor?.zoomIn()
+        } else if (key === '-') {
+            e.preventDefault()
+            editor?.zoomOut()
+        }
+        return
+    }
+    if (e.altKey) return
+    // Esc closes the cheat-sheet even when focus never entered it (the SideMenu
+    // handles its own Esc — focus moves into its panel on open).
+    if (e.key === 'Escape') {
+        if (shortcutsOpen.value) shortcutsOpen.value = false
+        return
+    }
+    // While an overlay is open, single keys belong to it — except "?", which
+    // still toggles the cheat-sheet closed.
+    if (e.key === '?') {
+        if (menuOpen.value) return
         e.preventDefault()
-        editor?.undo()
-    } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        shortcutsOpen.value = !shortcutsOpen.value
+        return
+    }
+    if (menuOpen.value || shortcutsOpen.value) return
+    const tool = KEY_TO_TOOL.get(key)
+    if (tool) {
         e.preventDefault()
-        editor?.redo()
-    } else if (key === '0') {
-        e.preventDefault()
-        editor?.fitToViewport()
-    } else if (key === '=' || key === '+') {
-        e.preventDefault()
-        editor?.zoomIn()
-    } else if (key === '-') {
-        e.preventDefault()
-        editor?.zoomOut()
+        pickTool(tool)
     }
 }
 
@@ -309,6 +347,16 @@ function load() {
                 >
                     <ToolIcon :name="themeIcon" />
                 </button>
+                <button
+                    class="draw__chip-inline"
+                    :class="{ 'draw__chip-inline--active': shortcutsOpen }"
+                    type="button"
+                    aria-label="Keyboard shortcuts — ?"
+                    title="Keyboard shortcuts — ?"
+                    @click="shortcutsOpen = !shortcutsOpen"
+                >
+                    <ToolIcon name="help" />
+                </button>
                 <span class="draw__sep" aria-hidden="true"></span>
                 <OriButton class="draw__action--desktop" size="sm" variant="outline" @click="clearCanvas">
                     New
@@ -350,9 +398,13 @@ function load() {
 
         <!-- Bottom-right: zoom -->
         <div class="draw__zoom jp-float" role="group" aria-label="Zoom">
-            <OriButton size="sm" variant="text" aria-label="Zoom out" @click="zoomOut">−</OriButton>
+            <OriButton size="sm" variant="text" aria-label="Zoom out" title="Zoom out — Ctrl+-" @click="zoomOut">
+                −
+            </OriButton>
             <button class="draw__zoom-value" title="Fit to view — Ctrl+0" @click="fitView">{{ zoomPercent }}%</button>
-            <OriButton size="sm" variant="text" aria-label="Zoom in" @click="zoomIn">+</OriButton>
+            <OriButton size="sm" variant="text" aria-label="Zoom in" title="Zoom in — Ctrl+=" @click="zoomIn">
+                +
+            </OriButton>
         </div>
 
         <!-- Right: layers island -->
@@ -381,6 +433,8 @@ function load() {
             @save="save"
             @export-png="exportPng"
         />
+
+        <ShortcutsDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
     </div>
 </template>
 
