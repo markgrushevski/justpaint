@@ -41,7 +41,7 @@ const ICONS: Record<IconName, string> = {
 </script>
 
 <template>
-    <!-- eslint-disable-next-line vue/no-v-html -- static hand-written markup above -->
+    <!-- eslint-disable vue/no-v-html -- static hand-written markup above -->
     <svg
         class="tool-icon"
         viewBox="0 0 24 24"
@@ -53,6 +53,7 @@ const ICONS: Record<IconName, string> = {
         aria-hidden="true"
         v-html="ICONS[props.name]"
     ></svg>
+    <!-- eslint-enable vue/no-v-html -->
 </template>
 
 <style scoped>

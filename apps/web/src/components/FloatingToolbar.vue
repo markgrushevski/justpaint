@@ -4,7 +4,7 @@
  * icon buttons, stroke/fill controls, undo/redo. Part of the shared /draw+/play
  * editor shell; file actions and panels live in the top clusters, not here.
  */
-import { OriSlider } from '@oriui/vue'
+import { OriCheckbox, OriSlider } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import ToolIcon from './icons/ToolIcon.vue'
@@ -87,18 +87,12 @@ function onFill(e: Event) {
                 <span class="bar__slider-value">{{ props.strokeWidth }}</span>
             </div>
 
-            <label
-                class="bar__swatch bar__swatch--fill"
-                :class="{ 'bar__swatch--off': !props.fillEnabled }"
-                title="Fill (click the ring to toggle)"
-            >
-                <input
-                    class="bar__fill-toggle"
-                    type="checkbox"
-                    :checked="props.fillEnabled"
-                    aria-label="Toggle fill"
-                    @change="emit('toggleFill', ($event.target as HTMLInputElement).checked)"
-                />
+            <OriCheckbox
+                :model-value="props.fillEnabled"
+                label="Fill"
+                @update:model-value="(v) => emit('toggleFill', v === true)"
+            />
+            <label class="bar__swatch" title="Fill color">
                 <input
                     type="color"
                     :value="props.fill"
@@ -140,9 +134,9 @@ function onFill(e: Event) {
 .bar {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_md, 0.625rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
-    padding: var(--ori-size-gap_sm, 0.5rem) var(--ori-size-gap_md, 0.75rem);
+    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
 
     /* Never wider than the viewport; inner groups scroll-free compact on phones. */
     max-width: calc(100vw - 1rem);
@@ -151,7 +145,7 @@ function onFill(e: Event) {
 .bar__group {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_xs, 0.25rem);
+    gap: var(--ori-size-gap_xs, 0.125rem);
 }
 
 .bar__divider {
@@ -206,8 +200,8 @@ function onFill(e: Event) {
 }
 
 .bar__swatch input[type='color'] {
-    width: 1.9rem;
-    height: 1.9rem;
+    width: 2.4rem;
+    height: 2.4rem;
     padding: 0;
 
     border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
@@ -227,33 +221,15 @@ function onFill(e: Event) {
     border-radius: 50%;
 }
 
-.bar__swatch--fill .bar__fill-toggle {
-    position: absolute;
-    inset: -4px;
-
-    width: auto;
-    height: auto;
-    margin: 0;
-
-    appearance: none;
-    border: 2px solid transparent;
-    border-radius: 50%;
-
-    cursor: pointer;
-}
-
-.bar__swatch--fill .bar__fill-toggle:checked {
-    border-color: var(--ori-color-primary);
-}
-
-.bar__swatch--off input[type='color'] {
+.bar__swatch input[type='color']:disabled {
     opacity: 0.35;
+    cursor: default;
 }
 
 .bar__slider {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_xs, 0.25rem);
+    gap: var(--ori-size-gap_xs, 0.125rem);
     width: 7.5rem;
 }
 
@@ -270,13 +246,18 @@ function onFill(e: Event) {
 /* Phones: tighten paddings and hide the width readout to keep one row. */
 @media (width <= 600px) {
     .bar {
-        gap: var(--ori-size-gap_sm, 0.375rem);
+        gap: var(--ori-size-gap_sm, 0.25rem);
         padding: 0.35rem 0.5rem;
     }
 
     .bar__tool {
         width: 2.1rem;
         height: 2.1rem;
+    }
+
+    .bar__swatch input[type='color'] {
+        width: 2.2rem;
+        height: 2.2rem;
     }
 
     .bar__slider {
