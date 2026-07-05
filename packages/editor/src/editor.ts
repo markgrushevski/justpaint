@@ -95,6 +95,20 @@ export class Editor {
    */
   private previewGroup: Konva.Group | null = null;
 
+  /**
+   * The brush-size cursor ring (UI chrome, never document data). The color is a
+   * RESOLVED CSS color string passed in by the host (canvas cannot read CSS
+   * custom properties, and the editor stays design-token-agnostic — the host
+   * bridges its theme, e.g. oriUI's `--ori-color-primary`, and re-calls
+   * {@link setCursorColor} on theme flips). `null` disables the ring.
+   */
+  private cursorColor: string | null = null;
+  /** Last hover position in logical coords; null = hidden (touch, off-canvas). */
+  private cursor: { x: number; y: number } | null = null;
+  /** Non-listening top layer holding the ring; rebuilt with the stage. */
+  private cursorLayer: Konva.Layer | null = null;
+  private cursorRing: Konva.Circle | null = null;
+
   /** Viewport (container) size in screen px; {0,0} until the first measure. */
   private viewport = { width: 0, height: 0 };
   /** Current zoom + pan applied to the stage. */
@@ -116,6 +130,8 @@ export class Editor {
     // would leave the gesture/pan stuck. Window-level fallbacks commit/reset.
     window.addEventListener("pointerup", this.onWindowPointerUp);
     window.addEventListener("pointercancel", this.onWindowPointerCancel);
+    // The stage only sees moves INSIDE the container — leaving it must hide the ring.
+    container.addEventListener("pointerleave", this.onContainerPointerLeave);
     this.resizeObserver = new ResizeObserver(() => this.measureAndApply());
     this.resizeObserver.observe(container);
     // Measure once now (the container is in the DOM at construction).
@@ -130,6 +146,25 @@ export class Editor {
 
   setStyle(patch: Partial<ToolStyle>): void {
     this.style = { ...this.style, ...patch };
+    this.syncCursorRing(); // the ring's diameter tracks strokeWidth
+  }
+
+  /**
+   * Enable/re-color the brush-size cursor ring — a circle following the pointer,
+   * `strokeWidth` in diameter in LOGICAL units (so it scales with zoom), shown
+   * for mouse/pen and hidden on touch or off-canvas. Pass a resolved CSS color
+   * (e.g. a design token resolved by the host); `null` turns the ring off.
+   */
+  setCursorColor(color: string | null): void {
+    this.cursorColor = color;
+    if (color == null) {
+      this.cursorLayer?.destroy();
+      this.cursorLayer = null;
+      this.cursorRing = null;
+      return;
+    }
+    if (!this.cursorLayer) this.mountCursorOverlay();
+    this.syncCursorRing();
   }
 
   getDocument(): Document {
@@ -209,9 +244,12 @@ export class Editor {
     this.resizeObserver.disconnect();
     window.removeEventListener("pointerup", this.onWindowPointerUp);
     window.removeEventListener("pointercancel", this.onWindowPointerCancel);
+    this.container.removeEventListener("pointerleave", this.onContainerPointerLeave);
     this.listeners.clear();
     this.stage.destroy();
     this.previewGroup = null;
+    this.cursorLayer = null;
+    this.cursorRing = null;
     this.gesture = null;
     this.pan = null;
   }
@@ -388,12 +426,20 @@ export class Editor {
   private rerender(): void {
     this.stage.destroy();
     this.previewGroup = null;
+    this.cursorLayer = null;
+    this.cursorRing = null;
     // Any in-flight gesture/pan belongs to the destroyed stage — its pointer id
     // can never match the new stage, so drop it or it becomes stuck dead state.
     this.gesture = null;
     this.pan = null;
     this.stage = toKonva(this.doc, this.container);
     this.bindPointerEvents();
+    // The overlay died with the old stage; remount it (the ring reappears at the
+    // last hover point instead of blinking out after every commit).
+    if (this.cursorColor != null) {
+      this.mountCursorOverlay();
+      this.syncCursorRing();
+    }
     this.applyView();
   }
 
@@ -479,6 +525,57 @@ export class Editor {
     }
   }
 
+  // --- cursor ring (see setCursorColor) --------------------------------------
+
+  /** Create the non-listening overlay layer + ring on the CURRENT stage, topmost. */
+  private mountCursorOverlay(): void {
+    this.cursorLayer = new Konva.Layer({ listening: false });
+    this.cursorRing = new Konva.Circle({
+      listening: false,
+      visible: false,
+      strokeWidth: 1,
+      // A hairline at every zoom: the RADIUS is logical (scales with the stage
+      // transform = brush size in canvas units), the outline stays 1 screen px.
+      strokeScaleEnabled: false,
+    });
+    this.cursorLayer.add(this.cursorRing);
+    this.stage.add(this.cursorLayer);
+  }
+
+  /** Push color/diameter/position/visibility onto the ring and repaint its layer. */
+  private syncCursorRing(): void {
+    if (!this.cursorRing || !this.cursorLayer || this.cursorColor == null) return;
+    const visible = this.cursor != null && this.pan == null;
+    this.cursorRing.visible(visible);
+    if (visible && this.cursor) {
+      this.cursorRing.position(this.cursor);
+      this.cursorRing.radius(Math.max(this.style.strokeWidth / 2, 0.5));
+      this.cursorRing.stroke(this.cursorColor);
+    }
+    this.cursorLayer.batchDraw();
+  }
+
+  /** Track the hover point in logical coords; touch never shows the ring. */
+  private trackCursor(evt: Konva.KonvaEventObject<PointerEvent>): void {
+    if (!this.cursorRing) return;
+    // Konva maps BOTH DOM pointermove and touchmove onto its "pointermove": a
+    // touch drag can arrive as a PointerEvent (pointerType "touch") or as a raw
+    // TouchEvent (no pointerType at all) — mirror Konva's own touch check.
+    const isTouch = evt.evt.type.startsWith("touch") || evt.evt.pointerType === "touch";
+    if (isTouch) {
+      this.cursor = null;
+    } else {
+      const pos = this.stage.getRelativePointerPosition();
+      this.cursor = pos ? { x: pos.x, y: pos.y } : null;
+    }
+    this.syncCursorRing();
+  }
+
+  private readonly onContainerPointerLeave = (): void => {
+    this.cursor = null;
+    this.syncCursorRing();
+  };
+
   /** A pointer released OUTSIDE the container still ends the gesture/pan. */
   private readonly onWindowPointerUp = (): void => {
     this.pan = null;
@@ -509,6 +606,7 @@ export class Editor {
     });
 
     this.stage.on("pointermove", (evt) => {
+      this.trackCursor(evt); // ring follows every non-touch move (pan hides it)
       if (this.pan && evt.evt.pointerId === this.pan.pointerId) {
         const p = this.stage.getPointerPosition();
         if (p) {
