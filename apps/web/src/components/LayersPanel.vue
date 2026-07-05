@@ -47,7 +47,14 @@ const top = () => props.layers.length - 1
         <header class="layers__head">
             <span class="layers__title">Layers</span>
             <div class="layers__head-actions">
-                <OriButton size="sm" variant="outline" :disabled="!props.canAdd" @click="emit('add')">+ Add</OriButton>
+                <OriButton
+                    text="+ Add"
+                    size="sm"
+                    variant="outline"
+                    radius="md"
+                    :disabled="!props.canAdd"
+                    @click="emit('add')"
+                />
                 <button class="layers__close" type="button" aria-label="Close layers panel" @click="emit('close')">
                     <ToolIcon name="close" />
                 </button>
@@ -98,6 +105,7 @@ const top = () => props.layers.length - 1
                     <OriButton
                         size="sm"
                         variant="outline"
+                        radius="md"
                         :disabled="index >= top()"
                         aria-label="Move layer up"
                         @click="emit('move', layer.id, index + 1)"
@@ -106,6 +114,7 @@ const top = () => props.layers.length - 1
                     <OriButton
                         size="sm"
                         variant="outline"
+                        radius="md"
                         :disabled="index <= 0"
                         aria-label="Move layer down"
                         @click="emit('move', layer.id, index - 1)"
@@ -115,6 +124,7 @@ const top = () => props.layers.length - 1
                         size="sm"
                         variant="outline"
                         color="danger"
+                        radius="md"
                         :disabled="props.layers.length <= 1"
                         aria-label="Delete layer"
                         @click="emit('remove', layer.id)"
