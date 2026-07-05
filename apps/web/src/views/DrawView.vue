@@ -51,7 +51,7 @@ const theme = useThemeStore()
 
 const menuOpen = ref(false)
 // Layers start open where there's room, closed on small screens.
-const layersOpen = ref(window.innerWidth > 900)
+const layersOpen = ref(window.innerWidth > 840) // oriui --ori-size-screen_sm
 
 const THEME_ICON: Record<string, IconName> = { auto: 'monitor', light: 'sun', dark: 'moon' }
 const themeIcon = computed(() => THEME_ICON[theme.mode] ?? 'monitor')
@@ -310,10 +310,16 @@ function load() {
                     <ToolIcon :name="themeIcon" />
                 </button>
                 <span class="draw__sep" aria-hidden="true"></span>
-                <OriButton size="sm" variant="outline" @click="clearCanvas">New</OriButton>
-                <OriButton size="sm" variant="outline" :loading="busy" @click="load">Load</OriButton>
+                <OriButton class="draw__action--desktop" size="sm" variant="outline" @click="clearCanvas">
+                    New
+                </OriButton>
+                <OriButton class="draw__action--desktop" size="sm" variant="outline" :loading="busy" @click="load">
+                    Load
+                </OriButton>
                 <OriButton size="sm" variant="fill" :loading="busy" @click="save">Save</OriButton>
-                <OriButton size="sm" variant="outline" @click="exportPng">Export</OriButton>
+                <OriButton class="draw__action--desktop" size="sm" variant="outline" @click="exportPng">
+                    Export
+                </OriButton>
             </div>
         </div>
 
@@ -366,7 +372,15 @@ function load() {
             />
         </div>
 
-        <SideMenu :open="menuOpen" @close="menuOpen = false" />
+        <SideMenu
+            :open="menuOpen"
+            :busy="busy"
+            @close="menuOpen = false"
+            @new-drawing="clearCanvas"
+            @load="load"
+            @save="save"
+            @export-png="exportPng"
+        />
     </div>
 </template>
 
@@ -391,20 +405,20 @@ function load() {
 .draw__top-left,
 .draw__top-right {
     position: absolute;
-    top: var(--ori-size-gap_md, 0.75rem);
+    top: var(--ori-size-gap_md, 0.5rem);
     z-index: 10;
 
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.5rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 }
 
 .draw__top-left {
-    left: var(--ori-size-gap_md, 0.75rem);
+    left: var(--ori-size-gap_md, 0.5rem);
 }
 
 .draw__top-right {
-    right: var(--ori-size-gap_md, 0.75rem);
+    right: var(--ori-size-gap_md, 0.5rem);
     max-width: calc(100vw - 8rem);
 }
 
@@ -436,7 +450,7 @@ function load() {
 .draw__actions {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.375rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
     flex-wrap: wrap;
 
     padding: 0.3rem 0.45rem;
@@ -477,7 +491,7 @@ function load() {
 
 .draw__message {
     position: absolute;
-    top: var(--ori-size-gap_md, 0.75rem);
+    top: var(--ori-size-gap_md, 0.5rem);
     left: 50%;
     z-index: 12;
     transform: translateX(-50%);
@@ -492,7 +506,7 @@ function load() {
 
 .draw__toolbar {
     position: absolute;
-    bottom: var(--ori-size-gap_lg, 1rem);
+    bottom: var(--ori-size-gap_lg, 0.75rem);
     left: 50%;
     z-index: 10;
     transform: translateX(-50%);
@@ -500,8 +514,8 @@ function load() {
 
 .draw__zoom {
     position: absolute;
-    right: var(--ori-size-gap_md, 0.75rem);
-    bottom: var(--ori-size-gap_lg, 1rem);
+    right: var(--ori-size-gap_md, 0.5rem);
+    bottom: var(--ori-size-gap_lg, 0.75rem);
     z-index: 10;
 
     display: flex;
@@ -528,7 +542,7 @@ function load() {
 .draw__layers {
     position: absolute;
     top: 4.1rem;
-    right: var(--ori-size-gap_md, 0.75rem);
+    right: var(--ori-size-gap_md, 0.5rem);
     bottom: 4.6rem;
     z-index: 9;
 
@@ -556,13 +570,13 @@ function load() {
 @media (width <= 600px) {
     /* The layers island becomes a bottom sheet above the toolbar. */
     .draw__layers {
-        inset: auto var(--ori-size-gap_sm, 0.5rem) 5rem var(--ori-size-gap_sm, 0.5rem);
+        inset: auto var(--ori-size-gap_sm, 0.25rem) 5rem var(--ori-size-gap_sm, 0.25rem);
 
         width: auto;
     }
 
     .draw__toolbar {
-        bottom: var(--ori-size-gap_sm, 0.5rem);
+        bottom: var(--ori-size-gap_sm, 0.25rem);
     }
 
     .draw__zoom {
@@ -570,6 +584,12 @@ function load() {
     }
 
     .draw__brand {
+        display: none;
+    }
+
+    /* New/Load/Export live in the side menu on phones — only Save + the two
+       chips stay in the top-right island (it was wrapping over the canvas). */
+    .draw__action--desktop {
         display: none;
     }
 }

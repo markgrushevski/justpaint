@@ -132,7 +132,7 @@ const top = () => props.layers.length - 1
     flex-direction: column;
     gap: var(--ori-size-gap_md, 0.5rem);
 
-    padding: var(--ori-size-gap_md, 0.75rem);
+    padding: var(--ori-size-gap_md, 0.5rem);
 }
 
 .layers__head {
@@ -144,7 +144,7 @@ const top = () => props.layers.length - 1
 .layers__head-actions {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.375rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 }
 
 .layers__close {
@@ -179,7 +179,7 @@ const top = () => props.layers.length - 1
 
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_sm, 0.375rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 
     overflow-y: auto;
 }
@@ -187,12 +187,12 @@ const top = () => props.layers.length - 1
 .layers__item {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_sm, 0.375rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 
     padding: var(--ori-size-gap_md, 0.5rem);
 
     border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-    border-radius: var(--ori-size-radius_md, 6px);
+    border-radius: var(--ori-size-radius_md, 8px);
     color: var(--ori-color-on-surface);
 
     cursor: pointer;
@@ -206,7 +206,7 @@ const top = () => props.layers.length - 1
 .layers__row {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.375rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 }
 
 .layers__name {
