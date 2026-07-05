@@ -132,7 +132,7 @@ function onKeydown(e: KeyboardEvent) {
                         <div class="menu__rating">
                             Rating <b>{{ session.user?.rating }}</b>
                         </div>
-                        <OriButton variant="outline" @click="logout">Log out</OriButton>
+                        <OriButton text="Log out" variant="outline" radius="md" @click="logout" />
                     </section>
 
                     <!-- Auth (anonymous) -->
@@ -160,9 +160,14 @@ function onKeydown(e: KeyboardEvent) {
                                         @keyup.enter="submit"
                                     />
                                 </OriField>
-                                <OriButton variant="fill" :loading="authBusy" @click="submit">
-                                    {{ authMode === 'register' ? 'Create account' : 'Log in' }}
-                                </OriButton>
+                                <OriButton
+                                    :text="authMode === 'register' ? 'Create account' : 'Log in'"
+                                    variant="fill"
+                                    radius="md"
+                                    fluid
+                                    :loading="authBusy"
+                                    @click="submit"
+                                />
                             </div>
                         </OriTabs>
                     </section>
@@ -171,10 +176,24 @@ function onKeydown(e: KeyboardEvent) {
                     <section class="menu__section" aria-label="File">
                         <h2 class="menu__section-title">File</h2>
                         <div class="menu__file">
-                            <OriButton variant="outline" @click="fileNew">New</OriButton>
-                            <OriButton variant="outline" :loading="props.busy" @click="fileLoad">Load</OriButton>
-                            <OriButton variant="fill" :loading="props.busy" @click="fileSave">Save</OriButton>
-                            <OriButton variant="outline" @click="fileExport">Export</OriButton>
+                            <OriButton text="New" variant="outline" radius="md" fluid @click="fileNew" />
+                            <OriButton
+                                text="Load"
+                                variant="outline"
+                                radius="md"
+                                fluid
+                                :loading="props.busy"
+                                @click="fileLoad"
+                            />
+                            <OriButton
+                                text="Save"
+                                variant="fill"
+                                radius="md"
+                                fluid
+                                :loading="props.busy"
+                                @click="fileSave"
+                            />
+                            <OriButton text="Export" variant="outline" radius="md" fluid @click="fileExport" />
                         </div>
                     </section>
                 </aside>

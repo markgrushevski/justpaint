@@ -86,6 +86,7 @@ describe("validateDocument", () => {
     ["unknown field tolerated (forward-compat)", { version: 1, width: 10, height: 10, background: null, future: 42, layers: [{ id: "l", name: "L", visible: true, opacity: 1, strokes: [] }] }],
     ["rect with fill only (no stroke)", docWith({ id: "s", type: "rect", composite: "source-over", x: 0, y: 0, width: 10, height: 10, fill: "#000000" })],
     ["shape stroke can erase (destination-out)", docWith({ id: "s", type: "rect", composite: "destination-out", x: 0, y: 0, width: 10, height: 10, fill: "#000000" })],
+    ["explicit null background is allowed", { version: 1, width: 10, height: 10, background: null, layers: [{ id: "l", name: "L", visible: true, opacity: 1, strokes: [] }] }],
   ];
 
   const invalid: Array<[string, unknown]> = [
@@ -112,6 +113,13 @@ describe("validateDocument", () => {
     ["freehand point wrong arity (2 elems)", docWith({ id: "s", type: "freehand", composite: "source-over", color: "#000000", points: [[1, 1]], brush: { size: 1, thinning: 0, smoothing: 0, streamline: 0, simulatePressure: false, taperStart: 0, taperEnd: 0 } })],
     ["line point wrong arity (3 elems)", docWith({ id: "s", type: "line", composite: "source-over", points: [[0, 0, 0], [1, 1, 1]], stroke: "#000000", strokeWidth: 1 })],
     ["non-finite coordinate", docWith({ id: "s", type: "line", composite: "source-over", points: [[0, 0], [null, 1]], stroke: "#000000", strokeWidth: 1 })],
+    // required keys must be present — mirrored 1:1 with the Go table (server/internal/document)
+    // so an absent required field is rejected identically on both sides (docs/NOTES.md).
+    ["missing layer visible", { version: 1, width: 10, height: 10, background: null, layers: [{ id: "l", name: "L", opacity: 1, strokes: [] }] }],
+    ["missing layer opacity", { version: 1, width: 10, height: 10, background: null, layers: [{ id: "l", name: "L", visible: true, strokes: [] }] }],
+    ["missing layer strokes", { version: 1, width: 10, height: 10, background: null, layers: [{ id: "l", name: "L", visible: true, opacity: 1 }] }],
+    ["missing document background", { version: 1, width: 10, height: 10, layers: [{ id: "l", name: "L", visible: true, opacity: 1, strokes: [] }] }],
+    ["missing freehand brush", docWith({ id: "s", type: "freehand", composite: "source-over", color: "#000000", points: [[1, 1, 0.5], [2, 2, 0.6]] })],
   ];
 
   it.each(valid)("accepts: %s", (_name, doc) => {

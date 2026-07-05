@@ -5,9 +5,12 @@
  * sets the source at `:root`). Components read the resolved aliases, never these.
  */
 :root {
-    /* Primary — the justpaint orange. */
+    /* Primary — the justpaint orange. On-primary is a dark ink, NOT white: white on
+       this vivid orange is only 3.40:1 (fails WCAG AA for the fill-button labels —
+       Save / Log in). Dark ink on the same orange is 5.11:1 and keeps the brand hue
+       (the conventional a11y choice for a bright accent). */
     --ori-color-primary-light: hsl(22 95% 48%);
-    --ori-color-on-primary-light: #ffffff;
+    --ori-color-on-primary-light: hsl(24 45% 10%);
     --ori-color-primary-dark: hsl(24 100% 60%);
     --ori-color-on-primary-dark: hsl(24 45% 10%);
 
@@ -56,6 +59,12 @@
     --ori-color-background: var(--ori-color-background-dark);
     --ori-color-on-background: var(--ori-color-on-background-dark);
     --ori-color-outline: var(--ori-color-outline-dark);
+
+    /* oriui's `danger` is a single light-tuned red (#b91c1c) with no dark variant —
+       on our dark surface it drops to 2.40:1 (the delete-layer button all but
+       vanishes). Lift it for dark only; 5.55:1 on the dark surface. success/warn/info
+       aren't used as foreground colour yet, so they stay oriui's defaults. */
+    --ori-color-danger: hsl(0 80% 70%);
 }
 
 /*
