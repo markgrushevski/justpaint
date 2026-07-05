@@ -265,6 +265,12 @@ small practical gotchas go here.
   `color-mix()` (first used in the shell) sets the browser floor at ~2023 evergreens;
   `eslint-disable-next-line` in SFC templates covers only the literal next LINE — with
   attribute-per-line formatting it must sit right above the `v-html=` line (or use a block disable).
+- **`OriDialog` (alpha-2) is UNCONTROLLED** — props are only
+  `defaultOpen`/`closeOnEscape`/`closeOnInteractOutside`/`modal`/`title` + a `trigger` slot; there
+  is no `open` prop and no close emit, so it cannot be driven by external state (a hotkey, a chip
+  toggle). Hand-roll controlled modals on the SideMenu/ShortcutsDialog pattern (Teleport +
+  `Transition :duration` + `tabindex="-1"` focus-on-open + panel-tree Esc + backdrop click).
+  `OriKbd` DOES ship and is the kbd-chip style — use it over custom chips.
 
 ## Preview MCP / verification
 
