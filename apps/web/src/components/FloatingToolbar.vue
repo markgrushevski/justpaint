@@ -94,20 +94,22 @@ function onFill(e: Event) {
                 <span class="bar__slider-value">{{ props.strokeWidth }}</span>
             </div>
 
-            <OriCheckbox
-                :model-value="props.fillEnabled"
-                label="Fill"
-                @update:model-value="(v) => emit('toggleFill', v === true)"
-            />
-            <label class="bar__swatch" title="Fill color">
-                <input
-                    type="color"
-                    :value="props.fill"
-                    :disabled="!props.fillEnabled"
-                    aria-label="Fill color"
-                    @input="onFill"
+            <div class="bar__fill">
+                <OriCheckbox
+                    :model-value="props.fillEnabled"
+                    label="Fill"
+                    @update:model-value="(v) => emit('toggleFill', v === true)"
                 />
-            </label>
+                <label class="bar__swatch" title="Fill color">
+                    <input
+                        type="color"
+                        :value="props.fill"
+                        :disabled="!props.fillEnabled"
+                        aria-label="Fill color"
+                        @input="onFill"
+                    />
+                </label>
+            </div>
         </div>
 
         <span class="bar__divider" aria-hidden="true"></span>
@@ -117,7 +119,7 @@ function onFill(e: Event) {
                 class="bar__tool"
                 :disabled="!props.canUndo"
                 aria-label="Undo"
-                title="Undo — Ctrl+Z"
+                title="Undo — Ctrl/⌘+Z"
                 type="button"
                 @click="emit('undo')"
             >
@@ -127,7 +129,7 @@ function onFill(e: Event) {
                 class="bar__tool"
                 :disabled="!props.canRedo"
                 aria-label="Redo"
-                title="Redo — Ctrl+Y"
+                title="Redo — Ctrl/⌘+Y"
                 type="button"
                 @click="emit('redo')"
             >
@@ -152,7 +154,7 @@ function onFill(e: Event) {
 .bar__group {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_xs, 0.125rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 }
 
 .bar__divider {
@@ -166,8 +168,8 @@ function onFill(e: Event) {
     display: grid;
     place-items: center;
 
-    width: 2.4rem;
-    height: 2.4rem;
+    width: var(--jp-control-lg, 2.4rem);
+    height: var(--jp-control-lg, 2.4rem);
     padding: 0;
 
     border: none;
@@ -188,7 +190,7 @@ function onFill(e: Event) {
 }
 
 .bar__tool:hover:not(:disabled) {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 12%, transparent);
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .bar__tool--active {
@@ -207,8 +209,8 @@ function onFill(e: Event) {
 }
 
 .bar__swatch input[type='color'] {
-    width: 2.4rem;
-    height: 2.4rem;
+    width: var(--jp-control-lg, 2.4rem);
+    height: var(--jp-control-lg, 2.4rem);
     padding: 0;
 
     border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
@@ -233,11 +235,17 @@ function onFill(e: Event) {
     cursor: default;
 }
 
+.bar__fill {
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+}
+
 .bar__slider {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_xs, 0.125rem);
-    width: 7.5rem;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+    width: 9rem;
 }
 
 .bar__slider-value {
@@ -250,21 +258,23 @@ function onFill(e: Event) {
     opacity: 0.75;
 }
 
-/* Phones: tighten paddings and hide the width readout to keep one row. */
+/* Phones: wrap so every control stays on-screen, tighten paddings, hide readout. */
 @media (width <= 600px) {
     .bar {
+        flex-wrap: wrap;
+        justify-content: center;
         gap: var(--ori-size-gap_sm, 0.25rem);
         padding: 0.35rem 0.5rem;
     }
 
     .bar__tool {
-        width: 2.1rem;
-        height: 2.1rem;
+        width: var(--jp-control-sm, 2.25rem);
+        height: var(--jp-control-sm, 2.25rem);
     }
 
     .bar__swatch input[type='color'] {
-        width: 2.2rem;
-        height: 2.2rem;
+        width: var(--jp-control-sm, 2.25rem);
+        height: var(--jp-control-sm, 2.25rem);
     }
 
     .bar__slider {

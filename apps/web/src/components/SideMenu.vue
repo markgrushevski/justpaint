@@ -36,13 +36,19 @@ const authTab = computed<string | number | undefined>({
 // Reset transient form state and move focus into the dialog whenever the menu
 // opens — without focus inside, Esc (keydown on the panel tree) never fires.
 const panelRef = ref<HTMLElement | null>(null)
+// The element focused before the drawer opened (the hamburger) — focus returns
+// here on close so keyboard users aren't dumped on <body>.
+const opener = ref<HTMLElement | null>(null)
 watch(
     () => props.open,
     async (open) => {
         if (open) {
             error.value = null
+            opener.value = document.activeElement as HTMLElement | null
             await nextTick()
             panelRef.value?.focus()
+        } else {
+            opener.value?.focus()
         }
     }
 )
@@ -91,7 +97,33 @@ const fileExport = () => {
 }
 
 function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') emit('close')
+    if (e.key === 'Escape') {
+        emit('close')
+        return
+    }
+    // Trap Tab within the drawer so focus can't escape to the canvas behind it.
+    if (e.key === 'Tab') {
+        const panel = panelRef.value
+        if (!panel) return
+        const focusable = panel.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        const active = document.activeElement
+        if (e.shiftKey) {
+            // Shift+Tab off the first element (or from outside) wraps to the last.
+            if (active === first || !panel.contains(active)) {
+                e.preventDefault()
+                last?.focus()
+            }
+        } else if (active === last) {
+            // Tab off the last element wraps to the first.
+            e.preventDefault()
+            first?.focus()
+        }
+    }
 }
 </script>
 
@@ -183,6 +215,7 @@ function onKeydown(e: KeyboardEvent) {
                                 radius="md"
                                 fluid
                                 :loading="props.busy"
+                                :disabled="!session.isLoggedIn"
                                 @click="fileLoad"
                             />
                             <OriButton
@@ -191,10 +224,12 @@ function onKeydown(e: KeyboardEvent) {
                                 radius="md"
                                 fluid
                                 :loading="props.busy"
+                                :disabled="!session.isLoggedIn"
                                 @click="fileSave"
                             />
                             <OriButton text="Export" variant="outline" radius="md" fluid @click="fileExport" />
                         </div>
+                        <p v-if="!session.isLoggedIn" class="menu__file-hint">Sign in to save &amp; load</p>
                     </section>
                 </aside>
             </div>
@@ -251,8 +286,8 @@ function onKeydown(e: KeyboardEvent) {
     display: grid;
     place-items: center;
 
-    width: 2.2rem;
-    height: 2.2rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
 
     border: none;
     border-radius: var(--ori-size-radius_md, 8px);
@@ -263,7 +298,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .menu__close:hover {
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 .menu__section {
@@ -274,6 +309,7 @@ function onKeydown(e: KeyboardEvent) {
 
 .menu__section-title {
     margin: 0;
+    margin-bottom: var(--ori-size-gap_xs, 0.25rem);
 
     font-size: var(--ori-font-size_xs, 0.75rem);
     font-weight: 700;
@@ -327,9 +363,15 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .menu__file {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+.menu__file-hint {
+    margin: var(--ori-size-gap_xs, 0.25rem) 0 0;
+    font-size: var(--ori-font-size_xs, 0.75rem);
+    opacity: 0.7;
 }
 
 /* Slide + fade (the legacy transform pattern). */
