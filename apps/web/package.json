@@ -16,9 +16,9 @@
     "dependencies": {
         "@justpaint/document": "*",
         "@justpaint/editor": "*",
-        "@oriui/css": "1.0.0-alpha.3",
-        "@oriui/headless": "1.0.0-alpha.3",
-        "@oriui/vue": "1.0.0-alpha.3",
+        "@oriui/css": "file:../../../../AppData/Local/Temp/claude/C--Users-markg-WebstormProjects-vueinjar/2511940c-d7c1-43f6-a160-be8ee38ec54c/scratchpad/oriui-css-1.0.0-alpha.3.tgz",
+        "@oriui/headless": "file:../../../../AppData/Local/Temp/claude/C--Users-markg-WebstormProjects-vueinjar/2511940c-d7c1-43f6-a160-be8ee38ec54c/scratchpad/oriui-headless-1.0.0-alpha.3.tgz",
+        "@oriui/vue": "file:../../../../AppData/Local/Temp/claude/C--Users-markg-WebstormProjects-vueinjar/2511940c-d7c1-43f6-a160-be8ee38ec54c/scratchpad/oriui-vue-1.0.0-alpha.3.tgz",
         "@tanstack/vue-query": "^5.101.2",
         "pinia": "^3.0.4",
         "vue": "^3.5.11",
