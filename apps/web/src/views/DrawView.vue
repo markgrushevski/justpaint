@@ -358,16 +358,32 @@ function load() {
                     <ToolIcon name="help" />
                 </button>
                 <span class="draw__sep" aria-hidden="true"></span>
-                <OriButton class="draw__action--desktop" size="sm" variant="outline" @click="clearCanvas">
-                    New
-                </OriButton>
-                <OriButton class="draw__action--desktop" size="sm" variant="outline" :loading="busy" @click="load">
-                    Load
-                </OriButton>
-                <OriButton size="sm" variant="fill" :loading="busy" @click="save">Save</OriButton>
-                <OriButton class="draw__action--desktop" size="sm" variant="outline" @click="exportPng">
-                    Export
-                </OriButton>
+                <OriButton
+                    class="draw__action--desktop"
+                    text="New"
+                    size="sm"
+                    variant="outline"
+                    radius="md"
+                    @click="clearCanvas"
+                />
+                <OriButton
+                    class="draw__action--desktop"
+                    text="Load"
+                    size="sm"
+                    variant="outline"
+                    radius="md"
+                    :loading="busy"
+                    @click="load"
+                />
+                <OriButton text="Save" size="sm" variant="fill" radius="md" :loading="busy" @click="save" />
+                <OriButton
+                    class="draw__action--desktop"
+                    text="Export"
+                    size="sm"
+                    variant="outline"
+                    radius="md"
+                    @click="exportPng"
+                />
             </div>
         </div>
 
@@ -398,11 +414,25 @@ function load() {
 
         <!-- Bottom-right: zoom -->
         <div class="draw__zoom jp-float" role="group" aria-label="Zoom">
-            <OriButton size="sm" variant="text" aria-label="Zoom out" title="Zoom out — Ctrl+-" @click="zoomOut">
+            <OriButton
+                size="sm"
+                variant="text"
+                radius="md"
+                aria-label="Zoom out"
+                title="Zoom out — Ctrl+-"
+                @click="zoomOut"
+            >
                 −
             </OriButton>
             <button class="draw__zoom-value" title="Fit to view — Ctrl+0" @click="fitView">{{ zoomPercent }}%</button>
-            <OriButton size="sm" variant="text" aria-label="Zoom in" title="Zoom in — Ctrl+=" @click="zoomIn">
+            <OriButton
+                size="sm"
+                variant="text"
+                radius="md"
+                aria-label="Zoom in"
+                title="Zoom in — Ctrl+="
+                @click="zoomIn"
+            >
                 +
             </OriButton>
         </div>
