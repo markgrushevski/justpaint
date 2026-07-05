@@ -102,34 +102,33 @@ const top = () => props.layers.length - 1
                         :aria-label="`${layer.name} opacity`"
                         @change="onOpacityChange(layer.id, $event)"
                     />
-                    <OriButton
-                        size="sm"
-                        variant="outline"
-                        radius="md"
+                    <button
+                        class="layers__ctrl"
+                        type="button"
                         :disabled="index >= top()"
                         aria-label="Move layer up"
                         @click="emit('move', layer.id, index + 1)"
-                        >↑</OriButton
                     >
-                    <OriButton
-                        size="sm"
-                        variant="outline"
-                        radius="md"
+                        ↑
+                    </button>
+                    <button
+                        class="layers__ctrl"
+                        type="button"
                         :disabled="index <= 0"
                         aria-label="Move layer down"
                         @click="emit('move', layer.id, index - 1)"
-                        >↓</OriButton
                     >
-                    <OriButton
-                        size="sm"
-                        variant="outline"
-                        color="danger"
-                        radius="md"
+                        ↓
+                    </button>
+                    <button
+                        class="layers__ctrl layers__ctrl--danger"
+                        type="button"
                         :disabled="props.layers.length <= 1"
                         aria-label="Delete layer"
                         @click="emit('remove', layer.id)"
-                        >✕</OriButton
                     >
+                        ✕
+                    </button>
                 </div>
             </li>
         </ul>
@@ -255,6 +254,38 @@ const top = () => props.layers.length - 1
     flex: 1 1 auto;
     min-width: 0;
     accent-color: var(--ori-color-primary);
+}
+
+/* Compact square glyph controls (move up/down, delete) — hand-rolled to match the
+   panel chrome; OriButton only renders a fixed square when given an `icon` prop. */
+.layers__ctrl {
+    display: grid;
+    place-items: center;
+
+    width: 1.9rem;
+    height: 1.9rem;
+    padding: 0;
+
+    border: none;
+    border-radius: var(--ori-size-radius_md, 8px);
+    background: transparent;
+    color: var(--ori-color-on-surface);
+
+    font-size: var(--ori-font-size_sm, 0.9rem);
+    cursor: pointer;
+}
+
+.layers__ctrl:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.layers__ctrl:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+}
+
+.layers__ctrl--danger {
+    color: var(--ori-color-danger);
 }
 
 @media (width <= 600px) {
