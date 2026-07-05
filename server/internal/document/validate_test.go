@@ -51,6 +51,7 @@ func TestParseAndValidate(t *testing.T) {
 		{"bad version", `{"version":2,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"opacity":1,"strokes":[]}]}`, true},
 		{"dimension too large", `{"version":1,"width":9000,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"opacity":1,"strokes":[]}]}`, true},
 		{"dimension zero", `{"version":1,"width":0,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"opacity":1,"strokes":[]}]}`, true},
+		{"non-integer dimension", `{"version":1,"width":10.5,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"opacity":1,"strokes":[]}]}`, true},
 		{"no layers", `{"version":1,"width":10,"height":10,"background":null,"layers":[]}`, true},
 		{"bad background color", `{"version":1,"width":10,"height":10,"background":"#xyz","layers":[{"id":"l","name":"L","visible":true,"opacity":1,"strokes":[]}]}`, true},
 		{"layer opacity out of range", `{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"opacity":1.5,"strokes":[]}]}`, true},
@@ -69,6 +70,17 @@ func TestParseAndValidate(t *testing.T) {
 		{"shape strokeWidth zero with stroke present", docWith(`{"id":"s","type":"rect","composite":"source-over","x":0,"y":0,"width":10,"height":10,"stroke":"#000000","strokeWidth":0}`), true},
 		{"freehand point wrong arity (2 elems)", docWith(`{"id":"s","type":"freehand","composite":"source-over","color":"#000000","points":[[1,1]],"brush":{"size":1,"thinning":0,"smoothing":0,"streamline":0,"simulatePressure":false,"taperStart":0,"taperEnd":0}}`), true},
 		{"line point wrong arity (3 elems)", docWith(`{"id":"s","type":"line","composite":"source-over","points":[[0,0,0],[1,1,1]],"stroke":"#000000","strokeWidth":1}`), true},
+
+		// --- required keys must be physically present (keystone parity: Go must
+		//     reject an absent required field, not zero-fill it the way struct
+		//     decoding does, so it accepts the same set of documents as TS) ---
+		{"missing layer visible", `{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","opacity":1,"strokes":[]}]}`, true},
+		{"missing layer opacity", `{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"strokes":[]}]}`, true},
+		{"missing layer strokes", `{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"opacity":1}]}`, true},
+		{"missing document background", `{"version":1,"width":10,"height":10,"layers":[{"id":"l","name":"L","visible":true,"opacity":1,"strokes":[]}]}`, true},
+		{"explicit null background is allowed", `{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"opacity":1,"strokes":[]}]}`, false},
+		{"missing freehand brush", docWith(`{"id":"s","type":"freehand","composite":"source-over","color":"#000000","points":[[1,1,0.5],[2,2,0.6]]}`), true},
+		{"null point coordinate", docWith(`{"id":"s","type":"line","composite":"source-over","points":[[null,1],[2,3]],"stroke":"#000000","strokeWidth":1}`), true},
 	}
 
 	for _, tc := range cases {
