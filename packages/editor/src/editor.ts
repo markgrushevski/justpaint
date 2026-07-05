@@ -87,8 +87,13 @@ export class Editor {
   private stage: Konva.Stage;
   /** In-progress gesture points, in logical coords; null when not drawing. */
   private gesture: LogicalPoint[] | null = null;
-  /** Transient preview layer for the live, uncommitted stroke. */
-  private previewLayer: Konva.Layer | null = null;
+  /**
+   * Transient group holding the live, uncommitted stroke — mounted ON the active
+   * layer's Konva layer (not an isolated preview layer), so the stroke's
+   * composite previews exactly as it will commit: the eraser's destination-out
+   * visibly erases while dragging (DECISIONS 2026-07-04).
+   */
+  private previewGroup: Konva.Group | null = null;
 
   /** Viewport (container) size in screen px; {0,0} until the first measure. */
   private viewport = { width: 0, height: 0 };
@@ -107,6 +112,10 @@ export class Editor {
     this.activeLayerId = first ? first.id : newId();
     this.stage = toKonva(this.doc, container);
     this.bindPointerEvents();
+    // Konva only sees pointerup/cancel INSIDE the container; a release outside
+    // would leave the gesture/pan stuck. Window-level fallbacks commit/reset.
+    window.addEventListener("pointerup", this.onWindowPointerUp);
+    window.addEventListener("pointercancel", this.onWindowPointerCancel);
     this.resizeObserver = new ResizeObserver(() => this.measureAndApply());
     this.resizeObserver.observe(container);
     // Measure once now (the container is in the DOM at construction).
@@ -198,9 +207,11 @@ export class Editor {
    */
   destroy(): void {
     this.resizeObserver.disconnect();
+    window.removeEventListener("pointerup", this.onWindowPointerUp);
+    window.removeEventListener("pointercancel", this.onWindowPointerCancel);
     this.listeners.clear();
     this.stage.destroy();
-    this.previewLayer = null;
+    this.previewGroup = null;
     this.gesture = null;
     this.pan = null;
   }
@@ -376,7 +387,7 @@ export class Editor {
   /** Tear down the stage and re-project the current document, keeping the view. */
   private rerender(): void {
     this.stage.destroy();
-    this.previewLayer = null;
+    this.previewGroup = null;
     // Any in-flight gesture/pan belongs to the destroyed stage — its pointer id
     // can never match the new stage, so drop it or it becomes stuck dead state.
     this.gesture = null;
@@ -393,16 +404,23 @@ export class Editor {
     return { x: pos.x, y: pos.y, pressure: evt.evt.pressure || 0.5 };
   }
 
-  /** Draw the active tool's in-progress stroke into a transient preview layer. */
+  /**
+   * Draw the in-flight stroke onto the ACTIVE layer's Konva layer (topmost via
+   * the preview group), so its composite previews exactly as it will commit —
+   * an isolated preview layer could never show destination-out erasing the
+   * content beneath it. The target layer's clip also bounds the preview.
+   */
   private renderPreview(): void {
     if (!this.gesture) return;
+    const target = this.activeKonvaLayer();
+    if (!target) return;
     const stroke = this.activeTool.buildStroke(this.toolContext(), this.gesture);
 
-    if (!this.previewLayer) {
-      this.previewLayer = new Konva.Layer({ listening: false });
-      this.stage.add(this.previewLayer);
+    if (!this.previewGroup) {
+      this.previewGroup = new Konva.Group({ listening: false });
+      target.add(this.previewGroup);
     }
-    this.previewLayer.destroyChildren();
+    this.previewGroup.destroyChildren();
     if (stroke) {
       // Project the single preview stroke through a throwaway one-layer doc.
       const preview = toKonva({
@@ -413,12 +431,66 @@ export class Editor {
         ],
       });
       for (const layer of preview.getLayers()) {
-        for (const node of layer.getChildren()) node.moveTo(this.previewLayer);
+        for (const node of layer.getChildren()) node.moveTo(this.previewGroup);
       }
       preview.destroy();
     }
-    this.previewLayer.draw();
+    target.batchDraw();
   }
+
+  /** The stage layer projecting the active document layer (offset by the background layer). */
+  private activeKonvaLayer(): Konva.Layer | null {
+    const idx = this.doc.layers.findIndex((l) => l.id === this.activeLayerId);
+    if (idx === -1) return null;
+    const offset = this.doc.background != null ? 1 : 0;
+    return this.stage.getLayers()[offset + idx] ?? null;
+  }
+
+  /** Drop the in-flight preview nodes without a full re-render. */
+  private clearPreview(): void {
+    if (!this.previewGroup) return;
+    const layer = this.previewGroup.getLayer();
+    this.previewGroup.destroy();
+    this.previewGroup = null;
+    layer?.batchDraw();
+  }
+
+  /**
+   * A gesture may only START inside the document; it may extend past the edge
+   * (visually clipped — Figma-frame style, DECISIONS 2026-07-04).
+   */
+  private insideDocument(pt: LogicalPoint): boolean {
+    return pt.x >= 0 && pt.y >= 0 && pt.x <= this.doc.width && pt.y <= this.doc.height;
+  }
+
+  /** Commit (or discard) the in-flight gesture; pt is the final point when known. */
+  private finishGesture(pt: LogicalPoint | null): void {
+    if (!this.gesture) return;
+    if (pt) this.gesture.push(pt);
+    const stroke = this.activeTool.buildStroke(this.toolContext(), this.gesture);
+    this.gesture = null;
+
+    if (stroke && this.activeLayer()) {
+      // Commit routes through history (→ rerender + notify); rerender drops the preview.
+      this.commit(addStrokeCommand(this.activeLayerId, stroke));
+    } else {
+      // Degenerate gesture / no active layer: just discard the preview.
+      this.clearPreview();
+    }
+  }
+
+  /** A pointer released OUTSIDE the container still ends the gesture/pan. */
+  private readonly onWindowPointerUp = (): void => {
+    this.pan = null;
+    this.finishGesture(null); // no-op when the stage handler already ran
+  };
+
+  /** A cancelled pointer (e.g. touch interrupted) abandons the gesture/pan. */
+  private readonly onWindowPointerCancel = (): void => {
+    this.pan = null;
+    this.gesture = null;
+    this.clearPreview();
+  };
 
   private bindPointerEvents(): void {
     this.stage.on("pointerdown", (evt) => {
@@ -430,7 +502,8 @@ export class Editor {
         return;
       }
       const pt = this.readPoint(evt);
-      if (!pt) return;
+      // Gestures starting OUTSIDE the document (the letterbox area) are ignored.
+      if (!pt || !this.insideDocument(pt)) return;
       this.gesture = [pt];
       this.renderPreview();
     });
@@ -457,18 +530,7 @@ export class Editor {
         return;
       }
       if (!this.gesture) return;
-      const pt = this.readPoint(evt);
-      if (pt) this.gesture.push(pt);
-      const stroke = this.activeTool.buildStroke(this.toolContext(), this.gesture);
-      this.gesture = null;
-
-      if (stroke && this.activeLayer()) {
-        // Commit routes through history (→ rerender + notify).
-        this.commit(addStrokeCommand(this.activeLayerId, stroke));
-      } else {
-        // Degenerate gesture / no active layer: just discard the preview.
-        this.rerender();
-      }
+      this.finishGesture(this.readPoint(evt));
     });
 
     // Wheel zooms toward the cursor.

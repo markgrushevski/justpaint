@@ -147,18 +147,28 @@ function toNode(stroke: Stroke): Konva.Shape {
 
 /** Build the isolated bottom-most background layer (DOCUMENT-FORMAT §10 step 2). */
 function backgroundLayer(color: string, width: number, height: number): Konva.Layer {
-  const layer = new Konva.Layer({ listening: false });
+  const layer = new Konva.Layer({
+    listening: false,
+    clip: { x: 0, y: 0, width, height },
+  });
   layer.add(
     new Konva.Rect({ x: 0, y: 0, width, height, fill: color }),
   );
   return layer;
 }
 
-/** Map a document layer to a `Konva.Layer`, applying `opacity`/`visible`. */
-function toLayer(layer: Layer): Konva.Layer {
+/**
+ * Map a document layer to a `Konva.Layer`, applying `opacity`/`visible`.
+ * Layers are CLIPPED to the document rect (Figma-frame style, DECISIONS
+ * 2026-07-04): a stroke may carry points past the edge, but pixels never render
+ * outside the canvas. The clip is in layer-local (logical) coords, so it follows
+ * any stage/layer transform (editor zoom, render-worker fit).
+ */
+function toLayer(layer: Layer, width: number, height: number): Konva.Layer {
   const kLayer = new Konva.Layer({
     opacity: layer.opacity,
     visible: layer.visible,
+    clip: { x: 0, y: 0, width, height },
   });
   for (const stroke of layer.strokes) kLayer.add(toNode(stroke));
   return kLayer;
@@ -194,7 +204,7 @@ export function toKonva(doc: Document, container?: HTMLDivElement): Konva.Stage 
   if (doc.background != null) {
     stage.add(backgroundLayer(doc.background, doc.width, doc.height));
   }
-  for (const layer of doc.layers) stage.add(toLayer(layer));
+  for (const layer of doc.layers) stage.add(toLayer(layer, doc.width, doc.height));
 
   return stage;
 }

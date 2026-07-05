@@ -33,16 +33,18 @@ User directive 2026-07-04: make justpaint an **AI-product** — AI features in t
 
 ## Frontend / build
 - ~~**Replace vendored oriui with the published npm package**~~ — **DONE** (2026-07-02): `apps/web` now installs `@oriui/{vue,css,headless}` `1.0.0-alpha.2` from npm; `vendor/oriui/` and the `.gitignore` exception are gone. See `docs/NOTES.md` (oriui is a normal npm dep now; version bumps need a Vite restart).
-- **`Editor` needs automated coverage + gesture/pan abandon-hardening** — the `Editor` class (Konva
+- **`Editor` needs automated coverage** (~~+ gesture/pan abandon-hardening~~) — the `Editor` class (Konva
   integration: viewport/zoom/pan/`ResizeObserver`, gesture commit) has **no** unit tests; only the pure
   `view.ts` / `history.ts` / tool math is tested. Add a jsdom (or stubbed-container `Konva.Stage`) test
-  exercising `fitToViewport`/`zoomBy`/pan against a mocked `getPointerPosition`. Related: an in-flight
-  `gesture`/`pan` isn't cleared if a `pointerup` fires **outside** the container (Konva's pointer
-  capture is per-hit-shape, not per-stage) — a window-level `pointerup`/`pointercancel` fallback would
-  reset both. *When:* next editor hardening pass. *(jp-frontend review, feat/editor-fit.)*
+  exercising `fitToViewport`/`zoomBy`/pan against a mocked `getPointerPosition`. The abandon-hardening
+  half **landed 2026-07-04 (`feat/draw-ux`)**: window-level `pointerup`/`pointercancel` fallbacks now
+  end/abandon an in-flight `gesture`/`pan` released outside the container (Konva's pointer capture is
+  per-hit-shape, not per-stage). The automated-coverage half remains open. *When:* next editor
+  hardening pass. *(jp-frontend review, feat/editor-fit.)*
 - **Workspace package dist resolution (dev footgun)** — `apps/web` imports `@justpaint/editor` + `@justpaint/document` from their built `dist/` (their `package.json` `exports` point at `./dist`), so editing those packages' `src` requires a rebuild before the app (or `vue-tsc`) sees the change — no HMR across the package boundary. *Fix later:* a Vite alias `@justpaint/* → src` (+ matching tsconfig `paths`) or a watch build. *When:* if editor/document churn during app work gets annoying.
 - ~~**Editor fit-to-viewport / zoom**~~ — **DONE** (2026-07-03, `feat/editor-fit`): the editor sizes its Konva *stage* to the container and fits the document via the stage transform (a `ResizeObserver` auto-fits; wheel zooms to cursor; middle-button pans; `Ctrl/Cmd 0/±`); `getRelativePointerPosition` stays logical at any zoom. *Remaining touch polish:* pinch-zoom + two-finger pan (see the "Zoom / pan / fit gestures" idea below).
 
+- **`/draw` shell polish (deferred from the slice-2 review)** — adopt OriToast/OriToaster (+`useToast`) for the `/draw` status toast (replaces the hand-rolled top-center toast + timer); icons for the layer-panel actions (↑ ↓ ✕ are text glyphs); a real focus trap for the side menu (focus currently moves in but isn't trapped). *When:* next `/draw` polish touch. *(jp-frontend + jp-design-reviewer, feat/draw-ux slice 2.)*
 - **SPA needs an `/api` reverse proxy in prod** — `apps/web` calls a same-origin `/api` base; dev uses the vite proxy (`vite.config.js`), but a production static host must reverse-proxy `/api` → the Go server (nginx/Caddy) or every call 404s. No committed prod config yet (`.env.production` / proxy sample). *When:* first real deployment.
 - **CSRF posture is SameSite=Lax only** — state-changing endpoints lean on the `jp_session` cookie being `SameSite=Lax` (blocks the classic cross-site POST) rather than a CSRF token. Fine for the current phase; revisit (token / double-submit) if the threat model widens. *When:* before public multi-user launch.
 
