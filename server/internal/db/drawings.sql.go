@@ -178,29 +178,30 @@ func (q *Queries) ListDrawings(ctx context.Context, arg ListDrawingsParams) ([]L
 
 const updateDrawing = `-- name: UpdateDrawing :one
 update drawings
-set doc_version   = $3,
-    width         = $4,
-    height        = $5,
-    document      = $6,
-    thumbnail_url = $7,
-    updated_at    = now()
+set doc_version = $3,
+    width       = $4,
+    height      = $5,
+    document    = $6,
+    updated_at  = now()
 where id = $1 and owner_id = $2 and match_id is null
 returning id, owner_id, match_id, doc_version, width, height, document, thumbnail_url, created_at, updated_at
 `
 
 type UpdateDrawingParams struct {
-	ID           string
-	OwnerID      string
-	DocVersion   int32
-	Width        int32
-	Height       int32
-	Document     json.RawMessage
-	ThumbnailUrl *string
+	ID         string
+	OwnerID    string
+	DocVersion int32
+	Width      int32
+	Height     int32
+	Document   json.RawMessage
 }
 
 // `match_id is null` makes a submitted duel drawing immutable via CRUD (it is
 // locked once submitted — docs/API.md §7). A match-linked row matches nothing
 // here; the service turns that miss into 409, not a silent 404.
+// thumbnail_url is intentionally NOT set here: it is a server-generated cached-PNG
+// URL (the render worker owns it — DOCUMENT-FORMAT §7), never a client field, so a
+// document CRUD update must leave it untouched rather than clobber it to NULL.
 func (q *Queries) UpdateDrawing(ctx context.Context, arg UpdateDrawingParams) (Drawing, error) {
 	row := q.db.QueryRow(ctx, updateDrawing,
 		arg.ID,
@@ -209,7 +210,6 @@ func (q *Queries) UpdateDrawing(ctx context.Context, arg UpdateDrawingParams) (D
 		arg.Width,
 		arg.Height,
 		arg.Document,
-		arg.ThumbnailUrl,
 	)
 	var i Drawing
 	err := row.Scan(

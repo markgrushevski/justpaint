@@ -87,10 +87,17 @@ export function renderToStage(doc: Document, opts: RenderOptions): Konva.Stage {
  */
 export async function renderToPNG(doc: Document, opts: RenderOptions): Promise<Blob> {
   const stage = renderToStage(doc, opts);
-  return stage.toBlob({
-    pixelRatio: opts.pixelRatio ?? 1,
-    mimeType: "image/png",
-    width: opts.outWidth,
-    height: opts.outHeight,
-  }) as Promise<Blob>;
+  try {
+    return (await stage.toBlob({
+      pixelRatio: opts.pixelRatio ?? 1,
+      mimeType: "image/png",
+      width: opts.outWidth,
+      height: opts.outHeight,
+    })) as Blob;
+  } finally {
+    // toBlob does NOT destroy the stage; without this, every export leaks the
+    // output stage (+ its <canvas>) into Konva's module-global registry. The Node
+    // worker owns its own renderToStage stage, so only this browser wrapper frees.
+    stage.destroy();
+  }
 }
