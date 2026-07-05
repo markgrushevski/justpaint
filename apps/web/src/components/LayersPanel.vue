@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { OriButton, OriCheckbox } from '@oriui/vue'
 import type { LayerView } from '@justpaint/editor'
+import ToolIcon from './icons/ToolIcon.vue'
 
 const props = defineProps<{
     layers: LayerView[]
@@ -16,6 +17,7 @@ const emit = defineEmits<{
     toggleVisible: [id: string, visible: boolean]
     setOpacity: [id: string, opacity: number]
     rename: [id: string, name: string]
+    close: []
 }>()
 
 // Display top layer first: the document orders layers bottom→top (layers[0] is
@@ -41,10 +43,15 @@ const top = () => props.layers.length - 1
 </script>
 
 <template>
-    <aside class="layers">
+    <aside class="layers jp-float" aria-label="Layers">
         <header class="layers__head">
             <span class="layers__title">Layers</span>
-            <OriButton size="sm" variant="outline" :disabled="!props.canAdd" @click="emit('add')">+ Add</OriButton>
+            <div class="layers__head-actions">
+                <OriButton size="sm" variant="outline" :disabled="!props.canAdd" @click="emit('add')">+ Add</OriButton>
+                <button class="layers__close" type="button" aria-label="Close layers panel" @click="emit('close')">
+                    <ToolIcon name="close" />
+                </button>
+            </div>
         </header>
 
         <ul class="layers__list">
@@ -116,24 +123,47 @@ const top = () => props.layers.length - 1
 </template>
 
 <style scoped>
+/* A floating island (the host positions it); .jp-float supplies the chrome. */
 .layers {
-    flex: none;
-    width: 15rem;
+    width: 100%;
+    max-height: 100%;
 
     display: flex;
     flex-direction: column;
     gap: var(--ori-size-gap_md, 0.5rem);
 
-    padding: var(--ori-size-gap_md, 0.75rem);
-
-    border-left: 1px solid var(--ori-color-outline, rgb(0 0 0 / 10%));
-    background-color: var(--ori-color-surface);
+    padding: var(--ori-size-gap_md, 0.5rem);
 }
 
 .layers__head {
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+.layers__head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+}
+
+.layers__close {
+    display: grid;
+    place-items: center;
+
+    width: 1.9rem;
+    height: 1.9rem;
+
+    border: none;
+    border-radius: var(--ori-size-radius_md, 8px);
+    background: transparent;
+    color: var(--ori-color-on-surface);
+
+    cursor: pointer;
+}
+
+.layers__close:hover {
+    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
 }
 
 .layers__title {
@@ -149,7 +179,7 @@ const top = () => props.layers.length - 1
 
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_sm, 0.375rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 
     overflow-y: auto;
 }
@@ -157,12 +187,12 @@ const top = () => props.layers.length - 1
 .layers__item {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_sm, 0.375rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 
     padding: var(--ori-size-gap_md, 0.5rem);
 
     border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-    border-radius: var(--ori-size-radius_md, 6px);
+    border-radius: var(--ori-size-radius_md, 8px);
     color: var(--ori-color-on-surface);
 
     cursor: pointer;
@@ -176,7 +206,7 @@ const top = () => props.layers.length - 1
 .layers__row {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.375rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
 }
 
 .layers__name {
@@ -215,10 +245,7 @@ const top = () => props.layers.length - 1
 
 @media (width <= 600px) {
     .layers {
-        width: 100%;
-        border-left: none;
-        border-top: 1px solid var(--ori-color-outline, rgb(0 0 0 / 10%));
-        max-height: 40dvh;
+        max-height: 42dvh;
     }
 }
 </style>
