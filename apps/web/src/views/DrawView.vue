@@ -6,6 +6,7 @@ import type { ToolId, LayerView } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
 import { isAuthError, toApiError, useLoadLatestDrawing, useSaveDrawing, useSessionStore, useThemeStore } from '@core'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import LayersPanel from '../components/LayersPanel.vue'
 import ShortcutsDialog from '../components/ShortcutsDialog.vue'
@@ -58,6 +59,43 @@ const shortcutsOpen = ref(false)
 // reflow breakpoint (601px+ has room for the island).
 const layersOpen = ref(window.innerWidth > 600) // oriui --ori-size-screen_xs (600px)
 
+// True when nothing is drawn yet (no strokes in any layer). Drives both the
+// first-run hint and the "New"-confirm skip.
+const isEmpty = computed(() => layers.value.every((l) => l.strokeCount === 0))
+
+/* --- first-run onboarding hint --------------------------------------- */
+
+const HINT_KEY = 'jp.hintDismissed'
+const hintDismissed = ref(false)
+// Show only on an empty canvas for users who haven't dismissed it; the first
+// stroke flips isEmpty false and the hint disappears on its own.
+const showHint = computed(() => !hintDismissed.value && isEmpty.value)
+function dismissHint() {
+    hintDismissed.value = true
+    try {
+        localStorage.setItem(HINT_KEY, '1')
+    } catch {
+        /* private mode / storage disabled — the hint just won't persist */
+    }
+}
+
+/* --- confirm before "New" wipes the canvas --------------------------- */
+
+const confirmNewOpen = ref(false)
+// Clearing resets history (irreversible), so confirm only when there's work to
+// lose; an already-empty canvas clears straight away.
+function requestNew() {
+    if (isEmpty.value) {
+        clearCanvas()
+    } else {
+        confirmNewOpen.value = true
+    }
+}
+function onConfirmNew() {
+    clearCanvas()
+    confirmNewOpen.value = false
+}
+
 const THEME_ICON: Record<string, IconName> = { auto: 'monitor', light: 'sun', dark: 'moon' }
 const themeIcon = computed(() => THEME_ICON[theme.mode] ?? 'monitor')
 const themeTitle = computed(() => `Theme: ${theme.mode} (click to switch)`)
@@ -96,6 +134,11 @@ function syncEditorState() {
 
 onMounted(() => {
     void session.fetchMe() // restore an existing cookie session, if any
+    try {
+        hintDismissed.value = localStorage.getItem(HINT_KEY) === '1'
+    } catch {
+        /* private mode / storage disabled — treat as not-yet-dismissed */
+    }
     if (!containerRef.value) return
     // The editor sizes its Konva stage to the container and fits the document
     // into it (a ResizeObserver keeps it fitted); it never CSS-transforms canvas.
@@ -375,13 +418,7 @@ function load() {
                     <ToolIcon name="help" />
                 </button>
                 <span class="draw__sep" aria-hidden="true"></span>
-                <OriButton
-                    class="draw__action--desktop"
-                    text="New"
-                    variant="outline"
-                    radius="md"
-                    @click="clearCanvas"
-                />
+                <OriButton class="draw__action--desktop" text="New" variant="outline" radius="md" @click="requestNew" />
                 <OriButton
                     class="draw__action--desktop"
                     text="Load"
@@ -411,6 +448,16 @@ function load() {
             >
                 <span class="draw__message-text">{{ message.text }}</span>
                 <button class="draw__message-dismiss" type="button" aria-label="Dismiss" @click="message = null">
+                    <ToolIcon name="close" />
+                </button>
+            </p>
+        </Transition>
+
+        <!-- First-run hint: only on an empty canvas, until dismissed. -->
+        <Transition name="toast">
+            <p v-if="showHint" class="draw__hint jp-float">
+                Pick a tool and draw. Press <kbd>?</kbd> for shortcuts.
+                <button class="draw__hint-x" type="button" aria-label="Dismiss" @click="dismissHint">
                     <ToolIcon name="close" />
                 </button>
             </p>
@@ -482,13 +529,24 @@ function load() {
             :open="menuOpen"
             :busy="busy"
             @close="menuOpen = false"
-            @new-drawing="clearCanvas"
+            @new-drawing="requestNew"
             @load="load"
             @save="save"
             @export-png="exportPng"
         />
 
         <ShortcutsDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
+
+        <ConfirmDialog
+            :open="confirmNewOpen"
+            title="Clear the canvas?"
+            message="This starts a new drawing and can't be undone."
+            confirm-text="Clear"
+            cancel-text="Cancel"
+            danger
+            @confirm="onConfirmNew"
+            @cancel="confirmNewOpen = false"
+        />
     </div>
 </template>
 
@@ -654,6 +712,59 @@ function load() {
     transform: translateX(-50%);
 }
 
+/* First-run hint — sits above the toolbar, clear of it. */
+.draw__hint {
+    position: absolute;
+    bottom: 5rem;
+    left: 50%;
+    z-index: 11;
+    transform: translateX(-50%);
+
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+
+    max-width: min(30rem, 90vw);
+    margin: 0;
+    padding: 0.4rem 0.8rem;
+
+    color: var(--ori-color-on-surface);
+    font-size: var(--ori-font-size_sm, 0.875rem);
+}
+
+.draw__hint kbd {
+    padding: 0.05rem 0.35rem;
+
+    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
+    border-radius: var(--ori-size-radius_sm, 4px);
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
+
+    font-family: var(--ori-font-family_mono, ui-monospace, monospace);
+    font-size: 0.8em;
+}
+
+/* Bare glyph dismiss — matches the shell's other transparent icon buttons. */
+.draw__hint-x {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+
+    width: 1.4rem;
+    height: 1.4rem;
+    padding: 0;
+
+    border: none;
+    border-radius: var(--ori-size-radius_md, 8px);
+    background: transparent;
+    color: var(--ori-color-on-surface);
+
+    cursor: pointer;
+}
+
+.draw__hint-x:hover {
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
+}
+
 .draw__zoom {
     position: absolute;
     right: var(--ori-size-gap_md, 0.5rem);
@@ -744,8 +855,17 @@ function load() {
         bottom: var(--ori-size-gap_sm, 0.25rem);
     }
 
+    /* Bottom is owned by the toolbar + layers sheet on phones — move zoom to
+       the top-right, just below the actions island, so it stays reachable. */
     .draw__zoom {
-        display: none; /* pinch/buttons later; zoom hotkeys still work */
+        top: 3.6rem;
+        right: var(--ori-size-gap_sm, 0.25rem);
+        bottom: auto;
+    }
+
+    /* Raise the hint so it clears the taller (wrapped) toolbar. */
+    .draw__hint {
+        bottom: 9rem;
     }
 
     .draw__brand {
