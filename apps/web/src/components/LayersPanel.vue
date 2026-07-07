@@ -39,6 +39,46 @@ function onRename(id: string, e: Event) {
     emit('rename', id, (e.target as HTMLInputElement).value)
 }
 
+// Full keyboard operability of the row list. The name <input> lives inside the
+// same <li>, so bail out on any INPUT target — otherwise typing a layer name
+// (arrows to move the caret, Backspace to erase, Space) would be hijacked.
+function onRowKey(e: KeyboardEvent, id: string) {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return
+
+    const row = e.currentTarget as HTMLElement
+
+    switch (e.key) {
+        case 'Enter':
+        case ' ':
+            e.preventDefault() // Space would otherwise scroll the page
+            emit('select', id)
+            break
+        case 'ArrowDown':
+        case 'ArrowUp': {
+            // Rows render top-visual-first, so the next DOM sibling is the row
+            // visually below. Both siblings are the neighbouring <li> (the list
+            // has no other element children); do nothing past the ends.
+            const sibling = (
+                e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling
+            ) as HTMLElement | null
+            if (!sibling) return
+            e.preventDefault()
+            sibling.focus()
+            const siblingId = sibling.dataset.layerId
+            if (siblingId !== undefined) emit('select', siblingId)
+            break
+        }
+        case 'Delete':
+        case 'Backspace':
+            // Never delete the last remaining layer.
+            if (props.layers.length > 1) {
+                e.preventDefault()
+                emit('remove', id)
+            }
+            break
+    }
+}
+
 const top = () => props.layers.length - 1
 </script>
 
@@ -68,10 +108,10 @@ const top = () => props.layers.length - 1
                 class="layers__item"
                 :class="{ 'layers__item--active': layer.id === props.activeLayerId }"
                 :aria-current="layer.id === props.activeLayerId ? 'true' : undefined"
+                :data-layer-id="layer.id"
                 tabindex="0"
                 @click="emit('select', layer.id)"
-                @keydown.enter.self="emit('select', layer.id)"
-                @keydown.space.self.prevent="emit('select', layer.id)"
+                @keydown="onRowKey($event, layer.id)"
             >
                 <div class="layers__row">
                     <span class="layers__visible" @click.stop>
@@ -109,7 +149,7 @@ const top = () => props.layers.length - 1
                         aria-label="Move layer up"
                         @click="emit('move', layer.id, index + 1)"
                     >
-                        ↑
+                        <ToolIcon name="arrow-up" />
                     </button>
                     <button
                         class="layers__ctrl"
@@ -118,7 +158,7 @@ const top = () => props.layers.length - 1
                         aria-label="Move layer down"
                         @click="emit('move', layer.id, index - 1)"
                     >
-                        ↓
+                        <ToolIcon name="arrow-down" />
                     </button>
                     <button
                         class="layers__ctrl layers__ctrl--danger"
@@ -127,7 +167,7 @@ const top = () => props.layers.length - 1
                         aria-label="Delete layer"
                         @click="emit('remove', layer.id)"
                     >
-                        ✕
+                        <ToolIcon name="trash" />
                     </button>
                 </div>
             </li>
@@ -164,8 +204,8 @@ const top = () => props.layers.length - 1
     display: grid;
     place-items: center;
 
-    width: 1.9rem;
-    height: 1.9rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
 
     border: none;
     border-radius: var(--ori-size-radius_md, 8px);
@@ -176,7 +216,7 @@ const top = () => props.layers.length - 1
 }
 
 .layers__close:hover {
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 .layers__title {
@@ -262,8 +302,8 @@ const top = () => props.layers.length - 1
     display: grid;
     place-items: center;
 
-    width: 1.9rem;
-    height: 1.9rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
     padding: 0;
 
     border: none;
@@ -281,7 +321,7 @@ const top = () => props.layers.length - 1
 }
 
 .layers__ctrl:hover:not(:disabled) {
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 .layers__ctrl--danger {

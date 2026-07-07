@@ -19,6 +19,11 @@ export type IconName =
     | 'moon'
     | 'monitor'
     | 'help'
+    | 'arrow-up'
+    | 'arrow-down'
+    | 'trash'
+    | 'plus'
+    | 'minus'
 
 const props = defineProps<{ name: IconName }>()
 
@@ -38,7 +43,12 @@ const ICONS: Record<IconName, string> = {
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
     monitor: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
-    help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.33c-.7.27-.9.67-.9 1.67"/><circle cx="12" cy="16.5" r="0.5"/>'
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.33c-.7.27-.9.67-.9 1.67"/><circle cx="12" cy="16.5" r="0.5"/>',
+    'arrow-up': '<line x1="12" y1="20" x2="12" y2="4"/><polyline points="6 10 12 4 18 10"/>',
+    'arrow-down': '<line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/>',
+    trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    minus: '<line x1="5" y1="12" x2="19" y2="12"/>'
 }
 </script>
 

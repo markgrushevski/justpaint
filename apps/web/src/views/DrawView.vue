@@ -7,6 +7,7 @@ import type { ToolId, LayerView } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
 import { isAuthError, toApiError, useLoadLatestDrawing, useSaveDrawing, useSessionStore, useThemeStore } from '@core'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import LayersPanel from '../components/LayersPanel.vue'
 import ShortcutsDialog from '../components/ShortcutsDialog.vue'
@@ -18,9 +19,11 @@ const containerRef = ref<HTMLDivElement | null>(null)
 let editor: Editor | null = null
 let unsubscribe: (() => void) | null = null
 
+type MessageSeverity = 'info' | 'success' | 'error'
+
 /** Id of the drawing currently open (set after a successful save/load). */
 const currentId = ref<string | null>(null)
-const message = ref<string | null>(null)
+const message = ref<{ text: string; severity: MessageSeverity } | null>(null)
 
 // Server data goes through TanStack Query: save/load are mutations, so the view
 // gets `isPending`/`error` + cache invalidation without hand-rolled busy flags.
@@ -61,18 +64,62 @@ watch(cursorRingColor, (color) => editor?.setCursorColor(color || null))
 
 const menuOpen = ref(false)
 const shortcutsOpen = ref(false)
-// Layers start open where there's room, closed on small screens.
-const layersOpen = ref(window.innerWidth > 840) // oriui --ori-size-screen_sm
+// Layers start open where there's room, closed on small screens. Match the CSS
+// reflow breakpoint (601px+ has room for the island).
+const layersOpen = ref(window.innerWidth > 600) // oriui --ori-size-screen_xs (600px)
+
+// True when nothing is drawn yet (no strokes in any layer). Drives both the
+// first-run hint and the "New"-confirm skip.
+const isEmpty = computed(() => layers.value.every((l) => l.strokeCount === 0))
+
+/* --- first-run onboarding hint --------------------------------------- */
+
+const HINT_KEY = 'jp.hintDismissed'
+const hintDismissed = ref(false)
+// Show only on an empty canvas for users who haven't dismissed it; the first
+// stroke flips isEmpty false and the hint disappears on its own.
+const showHint = computed(() => !hintDismissed.value && isEmpty.value)
+function dismissHint() {
+    hintDismissed.value = true
+    try {
+        localStorage.setItem(HINT_KEY, '1')
+    } catch {
+        /* private mode / storage disabled — the hint just won't persist */
+    }
+}
+
+/* --- confirm before "New" wipes the canvas --------------------------- */
+
+const confirmNewOpen = ref(false)
+// Clearing resets history (irreversible), so confirm only when there's work to
+// lose; an already-empty canvas clears straight away.
+function requestNew() {
+    if (isEmpty.value) {
+        clearCanvas()
+    } else {
+        confirmNewOpen.value = true
+    }
+}
+function onConfirmNew() {
+    clearCanvas()
+    confirmNewOpen.value = false
+}
 
 const THEME_ICON: Record<string, IconName> = { auto: 'monitor', light: 'sun', dark: 'moon' }
 const themeIcon = computed(() => THEME_ICON[theme.mode] ?? 'monitor')
 const themeTitle = computed(() => `Theme: ${theme.mode} (click to switch)`)
 
-// Status messages self-dismiss; errors linger a little longer than successes.
+// Status messages self-dismiss; duration scales with severity so errors stay
+// readable longer than successes: success 3.5s, info 5s, error 8s.
+const MESSAGE_DURATION: Record<MessageSeverity, number> = {
+    success: 3500,
+    info: 5000,
+    error: 8000
+}
 let messageTimer: ReturnType<typeof setTimeout> | null = null
 watch(message, (m) => {
     if (messageTimer) clearTimeout(messageTimer)
-    if (m) messageTimer = setTimeout(() => (message.value = null), 6000)
+    if (m) messageTimer = setTimeout(() => (message.value = null), MESSAGE_DURATION[m.severity])
 })
 
 function blankDocument(): Document {
@@ -96,6 +143,11 @@ function syncEditorState() {
 
 onMounted(() => {
     void session.fetchMe() // restore an existing cookie session, if any
+    try {
+        hintDismissed.value = localStorage.getItem(HINT_KEY) === '1'
+    } catch {
+        /* private mode / storage disabled — treat as not-yet-dismissed */
+    }
     if (!containerRef.value) return
     // The editor sizes its Konva stage to the container and fits the document
     // into it (a ResizeObserver keeps it fitted); it never CSS-transforms canvas.
@@ -170,12 +222,14 @@ function onKeydown(e: KeyboardEvent) {
     // While an overlay is open, single keys belong to it — except "?", which
     // still toggles the cheat-sheet closed.
     if (e.key === '?') {
-        if (menuOpen.value) return
+        if (menuOpen.value || confirmNewOpen.value) return
         e.preventDefault()
         shortcutsOpen.value = !shortcutsOpen.value
         return
     }
-    if (menuOpen.value || shortcutsOpen.value) return
+    // Every hand-rolled overlay must be listed here, or its single-key tool
+    // hotkeys (B/E/L/R/O/T) leak to this window listener and fire underneath it.
+    if (menuOpen.value || shortcutsOpen.value || confirmNewOpen.value) return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
         e.preventDefault()
@@ -279,11 +333,19 @@ async function exportPng() {
 
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        message.value = `Sign in to ${action} (menu ☰).`
+        // Open the drawer so the sign-in form is one glance away. Close the
+        // cheat-sheet first: both teleport to body at the same z-index with
+        // independent focus traps, so stacking them fights over focus.
+        shortcutsOpen.value = false
+        menuOpen.value = true
+        message.value = { text: `Sign in from the menu (top-left) to ${action}.`, severity: 'error' }
         return
     }
     const api = toApiError(err)
-    message.value = api ? `Could not ${action}: ${api.message}` : `Could not ${action} (is the server running?).`
+    message.value = {
+        text: api ? `Could not ${action}: ${api.message}` : `Could not ${action} (is the server running?).`,
+        severity: 'error'
+    }
 }
 
 function save() {
@@ -295,7 +357,7 @@ function save() {
         {
             onSuccess: (meta) => {
                 currentId.value = meta.id
-                message.value = existing ? 'Saved.' : `Saved as ${meta.id}.`
+                message.value = { text: existing ? 'Saved.' : `Saved as ${meta.id}.`, severity: 'success' }
             },
             onError: (err) => reportError(err, 'save')
         }
@@ -308,13 +370,13 @@ function load() {
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
             if (!full) {
-                message.value = 'No saved drawings yet.'
+                message.value = { text: 'No saved drawings yet.', severity: 'info' }
                 return
             }
             // full.document is already validated by drawings.get (parseDocument).
             editor?.loadDocument(full.document)
             currentId.value = full.id
-            message.value = `Loaded ${full.id}.`
+            message.value = { text: `Loaded ${full.id}.`, severity: 'success' }
         },
         onError: (err) => reportError(err, 'load')
     })
@@ -370,28 +432,19 @@ function load() {
                     <ToolIcon name="help" />
                 </button>
                 <span class="draw__sep" aria-hidden="true"></span>
-                <OriButton
-                    class="draw__action--desktop"
-                    text="New"
-                    size="sm"
-                    variant="outline"
-                    radius="md"
-                    @click="clearCanvas"
-                />
+                <OriButton class="draw__action--desktop" text="New" variant="outline" radius="md" @click="requestNew" />
                 <OriButton
                     class="draw__action--desktop"
                     text="Load"
-                    size="sm"
                     variant="outline"
                     radius="md"
                     :loading="busy"
                     @click="load"
                 />
-                <OriButton text="Save" size="sm" variant="fill" radius="md" :loading="busy" @click="save" />
+                <OriButton text="Save" variant="fill" radius="md" :loading="busy" @click="save" />
                 <OriButton
                     class="draw__action--desktop"
                     text="Export"
-                    size="sm"
                     variant="outline"
                     radius="md"
                     @click="exportPng"
@@ -401,7 +454,27 @@ function load() {
 
         <!-- Transient status -->
         <Transition name="toast">
-            <p v-if="message" class="draw__message jp-float" role="status">{{ message }}</p>
+            <p
+                v-if="message"
+                class="draw__message jp-float"
+                :class="{ 'draw__message--error': message.severity === 'error' }"
+                :role="message.severity === 'error' ? 'alert' : 'status'"
+            >
+                <span class="draw__message-text">{{ message.text }}</span>
+                <button class="draw__message-dismiss" type="button" aria-label="Dismiss" @click="message = null">
+                    <ToolIcon name="close" />
+                </button>
+            </p>
+        </Transition>
+
+        <!-- First-run hint: only on an empty canvas, until dismissed. -->
+        <Transition name="toast">
+            <p v-if="showHint" class="draw__hint jp-float">
+                Pick a tool and draw. Press <kbd>?</kbd> for shortcuts.
+                <button class="draw__hint-x" type="button" aria-label="Dismiss" @click="dismissHint">
+                    <ToolIcon name="close" />
+                </button>
+            </p>
         </Transition>
 
         <!-- Bottom-center: the floating toolbar -->
@@ -433,11 +506,19 @@ function load() {
                 title="Zoom out — Ctrl+-"
                 @click="zoomOut"
             >
-                −
+                <ToolIcon name="minus" />
             </button>
-            <button class="draw__zoom-value" title="Fit to view — Ctrl+0" @click="fitView">{{ zoomPercent }}%</button>
+            <button
+                class="draw__zoom-value"
+                type="button"
+                :aria-label="`Fit to view (currently ${zoomPercent}%)`"
+                title="Fit to view — Ctrl+0"
+                @click="fitView"
+            >
+                {{ zoomPercent }}%
+            </button>
             <button class="draw__zoom-btn" type="button" aria-label="Zoom in" title="Zoom in — Ctrl+=" @click="zoomIn">
-                +
+                <ToolIcon name="plus" />
             </button>
         </div>
 
@@ -462,13 +543,24 @@ function load() {
             :open="menuOpen"
             :busy="busy"
             @close="menuOpen = false"
-            @new-drawing="clearCanvas"
+            @new-drawing="requestNew"
             @load="load"
             @save="save"
             @export-png="exportPng"
         />
 
         <ShortcutsDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
+
+        <ConfirmDialog
+            :open="confirmNewOpen"
+            title="Clear the canvas?"
+            message="This starts a new drawing and can't be undone."
+            confirm-text="Clear"
+            cancel-text="Cancel"
+            danger
+            @confirm="onConfirmNew"
+            @cancel="confirmNewOpen = false"
+        />
     </div>
 </template>
 
@@ -514,8 +606,8 @@ function load() {
     display: grid;
     place-items: center;
 
-    width: 2.6rem;
-    height: 2.6rem;
+    width: var(--jp-control-lg, 2.4rem);
+    height: var(--jp-control-lg, 2.4rem);
     padding: 0;
 
     color: var(--ori-color-on-surface);
@@ -524,11 +616,11 @@ function load() {
 }
 
 .draw__chip:hover {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 10%, var(--ori-color-surface));
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .draw__brand {
-    padding: 0.45rem 0.8rem;
+    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
 
     font-weight: 700;
     color: var(--ori-color-primary);
@@ -541,15 +633,15 @@ function load() {
     gap: var(--ori-size-gap_sm, 0.25rem);
     flex-wrap: wrap;
 
-    padding: 0.3rem 0.45rem;
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
 }
 
 .draw__chip-inline {
     display: grid;
     place-items: center;
 
-    width: 2rem;
-    height: 2rem;
+    width: var(--ori-size-action_md, 2.75rem);
+    height: var(--ori-size-action_md, 2.75rem);
     padding: 0;
 
     border: none;
@@ -562,11 +654,11 @@ function load() {
 }
 
 .draw__chip-inline:hover {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 12%, transparent);
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .draw__chip-inline--active {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 18%, transparent);
+    background-color: var(--jp-selected-bg, color-mix(in srgb, var(--ori-color-primary) 18%, transparent));
     color: var(--ori-color-primary);
 }
 
@@ -579,10 +671,14 @@ function load() {
 
 .draw__message {
     position: absolute;
-    top: var(--ori-size-gap_md, 0.5rem);
+    top: calc(var(--ori-size-gap_md, 0.5rem) + 3.25rem);
     left: 50%;
     z-index: 12;
     transform: translateX(-50%);
+
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
 
     max-width: min(34rem, 80vw);
     margin: 0;
@@ -592,12 +688,95 @@ function load() {
     font-size: var(--ori-font-size_sm, 0.875rem);
 }
 
+.draw__message--error {
+    border-inline-start: 3px solid var(--ori-color-danger);
+}
+
+.draw__message-text {
+    flex: 1;
+}
+
+/* Bare glyph dismiss — matches the other transparent icon buttons in the shell. */
+.draw__message-dismiss {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+
+    border: none;
+    border-radius: var(--ori-size-radius_md, 8px);
+    background: transparent;
+    color: var(--ori-color-on-surface);
+
+    cursor: pointer;
+}
+
+.draw__message-dismiss:hover {
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
+}
+
 .draw__toolbar {
     position: absolute;
     bottom: var(--ori-size-gap_lg, 0.75rem);
     left: 50%;
     z-index: 10;
     transform: translateX(-50%);
+}
+
+/* First-run hint — sits above the toolbar, clear of it. */
+.draw__hint {
+    position: absolute;
+    bottom: 5rem;
+    left: 50%;
+    z-index: 11;
+    transform: translateX(-50%);
+
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+
+    max-width: min(30rem, 90vw);
+    margin: 0;
+    padding: 0.4rem 0.8rem;
+
+    color: var(--ori-color-on-surface);
+    font-size: var(--ori-font-size_sm, 0.875rem);
+}
+
+.draw__hint kbd {
+    padding: 0.05rem 0.35rem;
+
+    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
+    border-radius: var(--ori-size-radius_sm, 4px);
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
+
+    font-family: var(--ori-font-family_mono, ui-monospace, monospace);
+    font-size: 0.8em;
+}
+
+/* Bare glyph dismiss — matches the shell's other transparent icon buttons. */
+.draw__hint-x {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+
+    width: 1.4rem;
+    height: 1.4rem;
+    padding: 0;
+
+    border: none;
+    border-radius: var(--ori-size-radius_md, 8px);
+    background: transparent;
+    color: var(--ori-color-on-surface);
+
+    cursor: pointer;
+}
+
+.draw__hint-x:hover {
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 .draw__zoom {
@@ -610,7 +789,7 @@ function load() {
     align-items: center;
     gap: 0;
 
-    padding: 0.2rem 0.3rem;
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
 }
 
 /* Compact square zoom glyphs — hand-rolled to match the chip chrome; OriButton
@@ -619,8 +798,8 @@ function load() {
     display: grid;
     place-items: center;
 
-    width: 2rem;
-    height: 2rem;
+    width: var(--jp-control-sm, 2.25rem);
+    height: var(--jp-control-sm, 2.25rem);
     padding: 0;
 
     border: none;
@@ -633,7 +812,7 @@ function load() {
 }
 
 .draw__zoom-btn:hover {
-    background-color: color-mix(in srgb, var(--ori-color-primary) 12%, transparent);
+    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .draw__zoom-value {
@@ -690,8 +869,17 @@ function load() {
         bottom: var(--ori-size-gap_sm, 0.25rem);
     }
 
+    /* Bottom is owned by the toolbar + layers sheet on phones — move zoom to
+       the top-right, just below the actions island, so it stays reachable. */
     .draw__zoom {
-        display: none; /* pinch/buttons later; zoom hotkeys still work */
+        top: 3.6rem;
+        right: var(--ori-size-gap_sm, 0.25rem);
+        bottom: auto;
+    }
+
+    /* Raise the hint so it clears the taller (wrapped) toolbar. */
+    .draw__hint {
+        bottom: 9rem;
     }
 
     .draw__brand {

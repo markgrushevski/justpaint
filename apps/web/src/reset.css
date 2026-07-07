@@ -5,9 +5,11 @@
 }
 
 * {
-    margin: 0;
-    padding: 0;
-    border: 0;
+    /* No box-model reset here (margin/padding/border): @oriui/css already resets
+       all three inside @layer ori.reset (layer-safe). An UNLAYERED reset would beat
+       oriui's layered component styles and strip every Ori* button/input of its
+       padding, margin and border — the real cause of the cramped, borderless
+       controls. We delegate the reset to oriui and only add app-specific bits. */
     font-optical-sizing: auto;
     font-style: normal;
 }
