@@ -20,6 +20,7 @@ type Drawing struct {
 	ThumbnailUrl *string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	Name         string
 }
 
 type Match struct {

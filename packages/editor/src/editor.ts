@@ -54,6 +54,17 @@ import { fitView, panBy, zoomAround, ZOOM_STEP, type ViewState } from "./view";
 /** Wheel notch zoom factor (gentler than the button step). */
 const WHEEL_STEP = 1.1;
 
+/**
+ * A VIEW-ONLY backdrop painted BEHIND the document (the host uses it for
+ * theme "paper" white/black, or a transparency checkerboard). Pure presentation
+ * state: it is NOT part of the {@link Document}, never serialized, and never
+ * exported — {@link Editor.toPNG} / `renderToPNG` (src/render.ts) build a FRESH
+ * stage from the document alone, on which this layer does not exist.
+ */
+export type CanvasBackdrop =
+  | { type: "color"; color: string }
+  | { type: "pattern"; image: CanvasImageSource };
+
 /** A blank single-layer document on the default canvas + background. */
 function blankDocument(): Document {
   return {
@@ -108,6 +119,16 @@ export class Editor {
   /** Non-listening top layer holding the ring; rebuilt with the stage. */
   private cursorLayer: Konva.Layer | null = null;
   private cursorRing: Konva.Circle | null = null;
+
+  /**
+   * The view-only backdrop (see {@link CanvasBackdrop}); null = none. Like the
+   * cursor ring it is stage chrome: remounted on every rerender, never part of
+   * the document.
+   */
+  private backdrop: CanvasBackdrop | null = null;
+  /** Non-listening BOTTOM-MOST layer holding the backdrop rect; rebuilt with the stage. */
+  private backdropLayer: Konva.Layer | null = null;
+  private backdropRect: Konva.Rect | null = null;
 
   /** Viewport (container) size in screen px; {0,0} until the first measure. */
   private viewport = { width: 0, height: 0 };
@@ -165,6 +186,24 @@ export class Editor {
     }
     if (!this.cursorLayer) this.mountCursorOverlay();
     this.syncCursorRing();
+  }
+
+  /**
+   * Set (or clear, with `null`) the view-only canvas backdrop painted BEHIND
+   * the document — below even a non-null `doc.background`. Presentation state
+   * only: {@link getDocument} is unaffected, and exports cannot pick it up
+   * (see {@link mountBackdrop}). A pattern tiles in ~SCREEN space: its scale is
+   * re-compensated on every zoom change so a checkerboard never zooms with the
+   * drawing.
+   */
+  setCanvasBackdrop(backdrop: CanvasBackdrop | null): void {
+    this.backdrop = backdrop;
+    // Recreate from scratch on every change: switching color <-> pattern on one
+    // rect would have to un-set the other fill's attrs; a fresh rect can't leak.
+    this.backdropLayer?.destroy();
+    this.backdropLayer = null;
+    this.backdropRect = null;
+    if (backdrop != null) this.mountBackdrop();
   }
 
   getDocument(): Document {
@@ -250,6 +289,8 @@ export class Editor {
     this.previewGroup = null;
     this.cursorLayer = null;
     this.cursorRing = null;
+    this.backdropLayer = null;
+    this.backdropRect = null;
     this.gesture = null;
     this.pan = null;
   }
@@ -419,6 +460,9 @@ export class Editor {
     this.stage.size({ width: w, height: h });
     this.stage.scale({ x: this.view.zoom, y: this.view.zoom });
     this.stage.position({ x: this.view.panX, y: this.view.panY });
+    // The ONE zoom hook: every zoom/pan/fit funnels through here, so the
+    // backdrop pattern's screen-space compensation can't drift out of sync.
+    this.syncBackdropPatternScale();
     this.stage.batchDraw();
   }
 
@@ -428,12 +472,17 @@ export class Editor {
     this.previewGroup = null;
     this.cursorLayer = null;
     this.cursorRing = null;
+    this.backdropLayer = null;
+    this.backdropRect = null;
     // Any in-flight gesture/pan belongs to the destroyed stage — its pointer id
     // can never match the new stage, so drop it or it becomes stuck dead state.
     this.gesture = null;
     this.pan = null;
     this.stage = toKonva(this.doc, this.container);
     this.bindPointerEvents();
+    // The backdrop died with the old stage; remount it against the CURRENT doc
+    // (loadDocument may have changed the canvas size) before any layer math runs.
+    if (this.backdrop != null) this.mountBackdrop();
     // The overlay died with the old stage; remount it (the ring reappears at the
     // last hover point instead of blinking out after every commit).
     if (this.cursorColor != null) {
@@ -484,11 +533,18 @@ export class Editor {
     target.batchDraw();
   }
 
-  /** The stage layer projecting the active document layer (offset by the background layer). */
+  /**
+   * The stage layer projecting the active document layer. Stage z-order is
+   * `[backdrop?] [background?] [doc layers...] [cursor overlay?]`, so the
+   * document-index → stage-index mapping is offset by BOTH optional bottom
+   * layers. This is the single place that mapping lives — the preview group
+   * (eraser preview included) mounts through here.
+   */
   private activeKonvaLayer(): Konva.Layer | null {
     const idx = this.doc.layers.findIndex((l) => l.id === this.activeLayerId);
     if (idx === -1) return null;
-    const offset = this.doc.background != null ? 1 : 0;
+    const offset =
+      (this.backdropLayer ? 1 : 0) + (this.doc.background != null ? 1 : 0);
     return this.stage.getLayers()[offset + idx] ?? null;
   }
 
@@ -523,6 +579,57 @@ export class Editor {
       // Degenerate gesture / no active layer: just discard the preview.
       this.clearPreview();
     }
+  }
+
+  // --- canvas backdrop (see setCanvasBackdrop) -------------------------------
+
+  /**
+   * Create the backdrop layer + rect on the CURRENT stage and sink it to the
+   * bottom, below even the document background layer. Reads `this.backdrop` and
+   * the CURRENT doc dimensions, so {@link rerender} / {@link loadDocument} can
+   * simply remount after the stage is rebuilt.
+   *
+   * EXPORT SAFETY: this layer lives ONLY on the interactive stage. `toPNG` /
+   * `renderToPNG` (src/render.ts) project a FRESH stage from the document via
+   * `renderToStage`, and the backdrop is not document state — it can never leak
+   * into an exported or judged raster.
+   */
+  private mountBackdrop(): void {
+    if (!this.backdrop) return;
+    const { width, height } = this.doc;
+    // Clipped to the document rect like every projected layer (konva.ts).
+    const layer = new Konva.Layer({
+      listening: false,
+      clip: { x: 0, y: 0, width, height },
+    });
+    const rect = new Konva.Rect({ x: 0, y: 0, width, height, listening: false });
+    layer.add(rect);
+    this.backdropLayer = layer;
+    this.backdropRect = rect;
+    if (this.backdrop.type === "color") {
+      rect.fill(this.backdrop.color);
+    } else {
+      // Konva's setter is typed to the element flavors, but it only feeds
+      // canvas `createPattern()`, which accepts any CanvasImageSource.
+      rect.fillPatternImage(this.backdrop.image as HTMLImageElement);
+      rect.fillPatternRepeat("repeat");
+      this.syncBackdropPatternScale();
+    }
+    this.stage.add(layer);
+    layer.moveToBottom();
+    layer.batchDraw();
+  }
+
+  /**
+   * Keep pattern tiles ~SCREEN-SPACE: the stage transform scales everything by
+   * `view.zoom`, so the pattern is counter-scaled by `1/zoom` (a checkerboard
+   * shouldn't zoom with the drawing). Called from {@link applyView} — the one
+   * place the stage transform is set — and on backdrop creation.
+   */
+  private syncBackdropPatternScale(): void {
+    if (!this.backdropRect || this.backdrop?.type !== "pattern") return;
+    const s = 1 / this.view.zoom; // zoom is clamped to [MIN_ZOOM, MAX_ZOOM], never 0
+    this.backdropRect.fillPatternScale({ x: s, y: s });
   }
 
   // --- cursor ring (see setCursorColor) --------------------------------------

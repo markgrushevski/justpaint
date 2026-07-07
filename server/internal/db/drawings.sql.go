@@ -12,14 +12,22 @@ import (
 )
 
 const createDrawing = `-- name: CreateDrawing :one
-insert into drawings (owner_id, match_id, doc_version, width, height, document, thumbnail_url)
-values ($1, $2, $3, $4, $5, $6, $7)
-returning id, owner_id, match_id, doc_version, width, height, document, thumbnail_url, created_at, updated_at
+insert into drawings (owner_id, match_id, name, doc_version, width, height, document, thumbnail_url)
+values ($1,
+        $2,
+        coalesce($3::text, 'new art'),
+        $4,
+        $5,
+        $6,
+        $7,
+        $8)
+returning id, owner_id, match_id, doc_version, width, height, document, thumbnail_url, created_at, updated_at, name
 `
 
 type CreateDrawingParams struct {
 	OwnerID      string
 	MatchID      *string
+	Name         *string
 	DocVersion   int32
 	Width        int32
 	Height       int32
@@ -27,10 +35,15 @@ type CreateDrawingParams struct {
 	ThumbnailUrl *string
 }
 
+// `name` is user-editable metadata, NOT part of the vector document (the
+// validators never see it — docs/API.md §7). A null name takes the default
+// 'new art' (same value as the column default) via coalesce, so callers with
+// no name concept — game submit — simply pass nil.
 func (q *Queries) CreateDrawing(ctx context.Context, arg CreateDrawingParams) (Drawing, error) {
 	row := q.db.QueryRow(ctx, createDrawing,
 		arg.OwnerID,
 		arg.MatchID,
+		arg.Name,
 		arg.DocVersion,
 		arg.Width,
 		arg.Height,
@@ -49,6 +62,7 @@ func (q *Queries) CreateDrawing(ctx context.Context, arg CreateDrawingParams) (D
 		&i.ThumbnailUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Name,
 	)
 	return i, err
 }
@@ -74,7 +88,7 @@ func (q *Queries) DeleteDrawing(ctx context.Context, arg DeleteDrawingParams) (i
 }
 
 const getDrawing = `-- name: GetDrawing :one
-select id, owner_id, match_id, doc_version, width, height, document, thumbnail_url, created_at, updated_at from drawings
+select id, owner_id, match_id, doc_version, width, height, document, thumbnail_url, created_at, updated_at, name from drawings
 where id = $1 and owner_id = $2
 `
 
@@ -97,12 +111,13 @@ func (q *Queries) GetDrawing(ctx context.Context, arg GetDrawingParams) (Drawing
 		&i.ThumbnailUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Name,
 	)
 	return i, err
 }
 
 const listDrawings = `-- name: ListDrawings :many
-select id, owner_id, match_id, doc_version, width, height, thumbnail_url, created_at, updated_at
+select id, owner_id, match_id, name, doc_version, width, height, thumbnail_url, created_at, updated_at
 from drawings
 where owner_id = $1
   and (
@@ -130,6 +145,7 @@ type ListDrawingsRow struct {
 	ID           string
 	OwnerID      string
 	MatchID      *string
+	Name         string
 	DocVersion   int32
 	Width        int32
 	Height       int32
@@ -159,6 +175,7 @@ func (q *Queries) ListDrawings(ctx context.Context, arg ListDrawingsParams) ([]L
 			&i.ID,
 			&i.OwnerID,
 			&i.MatchID,
+			&i.Name,
 			&i.DocVersion,
 			&i.Width,
 			&i.Height,
@@ -178,22 +195,24 @@ func (q *Queries) ListDrawings(ctx context.Context, arg ListDrawingsParams) ([]L
 
 const updateDrawing = `-- name: UpdateDrawing :one
 update drawings
-set doc_version = $3,
-    width       = $4,
-    height      = $5,
-    document    = $6,
+set name        = coalesce($1::text, name),
+    doc_version = $2,
+    width       = $3,
+    height      = $4,
+    document    = $5,
     updated_at  = now()
-where id = $1 and owner_id = $2 and match_id is null
-returning id, owner_id, match_id, doc_version, width, height, document, thumbnail_url, created_at, updated_at
+where id = $6 and owner_id = $7 and match_id is null
+returning id, owner_id, match_id, doc_version, width, height, document, thumbnail_url, created_at, updated_at, name
 `
 
 type UpdateDrawingParams struct {
-	ID         string
-	OwnerID    string
+	Name       *string
 	DocVersion int32
 	Width      int32
 	Height     int32
 	Document   json.RawMessage
+	ID         string
+	OwnerID    string
 }
 
 // `match_id is null` makes a submitted duel drawing immutable via CRUD (it is
@@ -202,14 +221,18 @@ type UpdateDrawingParams struct {
 // thumbnail_url is intentionally NOT set here: it is a server-generated cached-PNG
 // URL (the render worker owns it — DOCUMENT-FORMAT §7), never a client field, so a
 // document CRUD update must leave it untouched rather than clobber it to NULL.
+// `name` uses coalesce so a null (name absent/blank in the request) KEEPS the
+// existing name instead of clobbering it — an update is a document replace, not
+// necessarily a rename (docs/API.md §7).
 func (q *Queries) UpdateDrawing(ctx context.Context, arg UpdateDrawingParams) (Drawing, error) {
 	row := q.db.QueryRow(ctx, updateDrawing,
-		arg.ID,
-		arg.OwnerID,
+		arg.Name,
 		arg.DocVersion,
 		arg.Width,
 		arg.Height,
 		arg.Document,
+		arg.ID,
+		arg.OwnerID,
 	)
 	var i Drawing
 	err := row.Scan(
@@ -223,6 +246,7 @@ func (q *Queries) UpdateDrawing(ctx context.Context, arg UpdateDrawingParams) (D
 		&i.ThumbnailUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Name,
 	)
 	return i, err
 }

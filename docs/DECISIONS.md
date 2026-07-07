@@ -2,6 +2,18 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-07 — AI Assist v1 design accepted (text drawing commands)
+
+The first AI-in-product feature (item (a) of `IDEAS.md` "AI inside the product") is designed and accepted — full design in **`docs/ASSIST.md`**. The pinned choices:
+
+- **Ops contract over the command seam.** The LLM emits a small discriminated union of document operations (`add_layer`, `add_stroke` restricted to `line|rect|ellipse|polygon` — freehand excluded in v1), never Konva. The Op schema joins the dual-validator contract (`packages/document` TS ⇄ `server/internal/document` Go, 1:1 parity like the Stroke contract). Edit ops (`update_stroke`/`delete_stroke`) are a v2 placeholder.
+- **Go proxy module `internal/assist`, a judge-style seam.** `Assist` interface + fake impl (dev/CI default) + real impl on the official Anthropic Go SDK; `POST /api/assist/ops` (auth required). The proxy exists chiefly so `ANTHROPIC_API_KEY` stays server-side. Server validates every op against the Go validator, one retry with validator errors appended, then 422; per-user rate limit ships with the feature (public demo, paid API).
+- **Anthropic structured outputs** (`output_config.format` json_schema, `additionalProperties: false`, no recursion) guarantee parseable schema-conformant JSON — the retry path handles only semantic failures. Non-streaming `Messages.New`; the client sends a compact doc summary (bboxes, freehand points elided), never the full jsonb.
+- **Ghost-preview + accept UX.** Returned ops render as a ghost preview outside history; Accept maps the batch into one composite `Command` via `Editor.commit()` (whole AI action = one Ctrl+Z), Reject discards.
+- **Model: `claude-opus-4-8`** by default (shape-composition quality), configurable via `ASSIST_MODEL`; `claude-haiku-4-5` documented as the budget option.
+
+Phasing (ASSIST.md §7): A = MVP (v1 ops + preview + fake/real impls + prompt panel), B = edit ops + iterative chat, C = freehand, inpainting (needs a raster stroke type — separate decision), real judge impl on the same Anthropic plumbing.
+
 ## 2026-07-04 — UX-first: polish /draw + shell before the /play UI
 
 The owner directed: improve the site's and `/draw`'s UI/UX **before** building the game-mode UI. The game *backend* (async duel loop + authoritative render) is done and unaffected — this re-sequences only the frontend work: the UX pass now gates the `/play` page (tracked in `ROADMAP.md` Phase 3).

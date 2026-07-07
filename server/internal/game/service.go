@@ -281,6 +281,7 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 	d, err := qtx.CreateDrawing(ctx, db.CreateDrawingParams{
 		OwnerID:    userID,
 		MatchID:    &matchID,
+		Name:       nil, // duel submissions have no user-facing name; the SQL default 'new art' applies
 		DocVersion: int32(doc.Version),
 		Width:      int32(doc.Width),
 		Height:     int32(doc.Height),

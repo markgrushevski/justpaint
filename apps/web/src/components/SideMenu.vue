@@ -1,20 +1,117 @@
 <script lang="ts" setup>
 /**
- * The slide-in side menu (the legacy pattern the owner liked — DECISIONS
- * 2026-07-04): hidden by default, opened by the hamburger, slides in over a
- * backdrop. Holds auth (login ⇄ register), the profile, and the file actions
- * (the phone-reachable home for New/Load/Save/Export); it REPLACES the old
- * top SessionBar. Saved-drawings list + settings land here later.
+ * The right-side slide-in menu — the legacy NON-MODAL pattern (owner's spec,
+ * 2026-07-07): always mounted, slides in from the right over the canvas with
+ * no backdrop and no focus trap, so the canvas stays interactive behind it.
+ * Toggled from DrawView (the toggler lives there, not here). Holds the
+ * drawing title (inline rename), copy actions, file actions, canvas settings,
+ * and — at the bottom, since unregistered users are the /draw priority —
+ * auth (login ⇄ register) / the profile.
  */
 import { computed, nextTick, ref, watch } from 'vue'
-import { OriAvatar, OriButton, OriField, OriInput, OriTabs } from '@oriui/vue'
-import { toApiError, useSessionStore } from '@core'
-import ToolIcon from './icons/ToolIcon.vue'
+import { OriAvatar, OriButton, OriField, OriIcon, OriInput, OriSelect, OriSwitch, OriTabs } from '@oriui/vue'
+import { icons, toApiError, useSessionStore } from '@core'
 
-const props = defineProps<{ open: boolean; busy: boolean }>()
-const emit = defineEmits<{ close: []; newDrawing: []; load: []; save: []; exportPng: [] }>()
+const props = defineProps<{
+    open: boolean
+    busy: boolean
+    canRename: boolean
+    title: string
+    backdropGrid: boolean
+    canvasWidth: number
+    canvasHeight: number
+}>()
+const emit = defineEmits<{
+    close: []
+    newDrawing: []
+    load: []
+    save: []
+    exportPng: []
+    copyText: []
+    copyImage: []
+    rename: [name: string]
+    toggleGrid: [on: boolean]
+    applyCanvasSize: [w: number, h: number]
+}>()
 
 const session = useSessionStore()
+
+// ---------------------------------------------------------------- title row
+
+const TITLE_MAX = 64
+const displayTitle = computed(() => props.title.slice(0, TITLE_MAX))
+
+/** Commit the inline rename: trimmed, capped, only when it actually changed. */
+function commitTitle(e: Event) {
+    const el = e.target as HTMLElement
+    const next = el.innerText.trim().slice(0, TITLE_MAX)
+    if (!next) {
+        // Emptied out — restore the current title instead of renaming to "".
+        el.innerText = displayTitle.value
+        return
+    }
+    if (next !== props.title) emit('rename', next)
+}
+
+/** Enter commits (via blur — single commit path) instead of inserting a newline. */
+function onTitleEnter(e: KeyboardEvent) {
+    e.preventDefault()
+    ;(e.target as HTMLElement).blur()
+}
+
+// ----------------------------------------------------------- canvas section
+
+// Screen dimensions for the "Screen" preset label — refreshed on open so a
+// rotated phone / resized window shows current numbers.
+const screenW = ref(window.innerWidth)
+const screenH = ref(window.innerHeight)
+
+const sizeChoice = ref<string | number | undefined>('screen')
+const sizeOptions = computed(() => [
+    { value: 'screen', label: `Screen (${screenW.value} × ${screenH.value})` },
+    { value: '1080', label: '1080 × 1080 (duel)' },
+    { value: '1920', label: '1920 × 1080' },
+    { value: 'custom', label: 'Custom' }
+])
+
+// Custom W/H — OriInput models a string; prefilled from the live canvas size.
+const customW = ref(String(props.canvasWidth))
+const customH = ref(String(props.canvasHeight))
+
+function clampSize(n: number): number {
+    if (!Number.isFinite(n)) return 1
+    return Math.min(8192, Math.max(1, Math.round(n)))
+}
+
+function applySize() {
+    let w: number
+    let h: number
+    switch (sizeChoice.value) {
+        case '1080':
+            w = 1080
+            h = 1080
+            break
+        case '1920':
+            w = 1920
+            h = 1080
+            break
+        case 'custom':
+            w = Number.parseFloat(customW.value)
+            h = Number.parseFloat(customH.value)
+            break
+        default:
+            w = window.innerWidth
+            h = window.innerHeight
+    }
+    emit('applyCanvasSize', clampSize(w), clampSize(h))
+    emit('close')
+}
+
+function onToggleGrid(on: boolean | undefined) {
+    emit('toggleGrid', on === true)
+}
+
+// ------------------------------------------------------------- auth section
 
 const authMode = ref<'login' | 'register'>('login')
 const loginId = ref('')
@@ -33,17 +130,21 @@ const authTab = computed<string | number | undefined>({
     set: (v) => (authMode.value = v === 'register' ? 'register' : 'login')
 })
 
-// Reset transient form state and move focus into the dialog whenever the menu
+// Reset transient form state and move focus into the panel whenever the menu
 // opens — without focus inside, Esc (keydown on the panel tree) never fires.
 const panelRef = ref<HTMLElement | null>(null)
-// The element focused before the drawer opened (the hamburger) — focus returns
-// here on close so keyboard users aren't dumped on <body>.
+// The element focused before the drawer opened (the toggler in DrawView) —
+// focus returns here on close so keyboard users aren't dumped on <body>.
 const opener = ref<HTMLElement | null>(null)
 watch(
     () => props.open,
     async (open) => {
         if (open) {
             error.value = null
+            screenW.value = window.innerWidth
+            screenH.value = window.innerHeight
+            customW.value = String(props.canvasWidth)
+            customH.value = String(props.canvasHeight)
             opener.value = document.activeElement as HTMLElement | null
             await nextTick()
             panelRef.value?.focus()
@@ -96,215 +197,259 @@ const fileExport = () => {
     emit('close')
 }
 
+// Non-modal: no Tab trap — only Esc (from anywhere inside the panel) closes.
 function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-        emit('close')
-        return
-    }
-    // Trap Tab within the drawer so focus can't escape to the canvas behind it.
-    if (e.key === 'Tab') {
-        const panel = panelRef.value
-        if (!panel) return
-        const focusable = panel.querySelectorAll<HTMLElement>(
-            'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-        if (focusable.length === 0) return
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        const active = document.activeElement
-        if (e.shiftKey) {
-            // Shift+Tab off the first element (or from outside) wraps to the last.
-            if (active === first || !panel.contains(active)) {
-                e.preventDefault()
-                last?.focus()
-            }
-        } else if (active === last) {
-            // Tab off the last element wraps to the first.
-            e.preventDefault()
-            first?.focus()
-        }
-    }
+    if (e.key === 'Escape') emit('close')
 }
 </script>
 
 <template>
     <Teleport to="body">
-        <!-- Explicit duration: Vue then uses a timer, not transitionend — deterministic in hidden tabs/tests. -->
-        <Transition name="menu" :duration="240">
-            <div v-if="props.open" class="menu" @keydown="onKeydown">
-                <div class="menu__backdrop" aria-hidden="true" @click="emit('close')"></div>
-
-                <aside
-                    ref="panelRef"
-                    class="menu__panel"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Menu"
-                    tabindex="-1"
+        <!-- Always mounted; open/closed is pure transform (the legacy mechanic).
+             `inert` while closed keeps the off-screen panel out of the Tab order. -->
+        <aside
+            ref="panelRef"
+            class="menu"
+            :class="{ 'menu--open': props.open }"
+            role="complementary"
+            aria-label="Menu"
+            tabindex="-1"
+            :inert="!props.open"
+            @keydown="onKeydown"
+        >
+            <!-- Title row: the drawing name (inline rename when allowed) -->
+            <header class="menu__title-row">
+                <span
+                    v-if="props.canRename"
+                    class="menu__title menu__title--editable"
+                    contenteditable="true"
+                    role="textbox"
+                    aria-label="Drawing name"
+                    spellcheck="false"
+                    @blur="commitTitle"
+                    @keydown.enter="onTitleEnter"
+                    >{{ displayTitle }}</span
                 >
-                    <header class="menu__head">
-                        <span class="menu__brand">justpaint</span>
-                        <button class="menu__close" type="button" aria-label="Close menu" @click="emit('close')">
-                            <ToolIcon name="close" />
-                        </button>
-                    </header>
+                <span v-else class="menu__title" title="Sign in to rename">{{ displayTitle }}</span>
+                <OriIcon v-if="props.canRename" :icon="icons.mdiRename" class="menu__title-pencil" />
+            </header>
 
-                    <!-- Profile (signed in) -->
-                    <section v-if="session.isLoggedIn" class="menu__section" aria-label="Profile">
-                        <div class="menu__profile">
-                            <OriAvatar
-                                :text="session.user?.displayName ?? session.user?.login ?? '?'"
-                                color="primary"
-                            />
-                            <div class="menu__who">
-                                <b class="menu__name">{{ session.user?.displayName ?? session.user?.login }}</b>
-                                <span class="menu__login">{{ session.user?.login }}</span>
-                            </div>
-                        </div>
-                        <div class="menu__rating">
-                            Rating <b>{{ session.user?.rating }}</b>
-                        </div>
-                        <OriButton text="Log out" variant="outline" radius="md" @click="logout" />
-                    </section>
-
-                    <!-- Auth (anonymous) -->
-                    <section v-else class="menu__section" aria-label="Sign in">
-                        <OriTabs v-model="authTab" :tabs="AUTH_TABS">
-                            <div class="menu__form">
-                                <OriField label="Login">
-                                    <OriInput
-                                        v-model="loginId"
-                                        placeholder="email or nickname"
-                                        autocomplete="username"
-                                        @keyup.enter="submit"
-                                    />
-                                </OriField>
-                                <OriField
-                                    label="Password"
-                                    :error="error ?? undefined"
-                                    hint="Sign in to save and load your drawings."
-                                >
-                                    <OriInput
-                                        v-model="password"
-                                        type="password"
-                                        placeholder="password"
-                                        :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'"
-                                        @keyup.enter="submit"
-                                    />
-                                </OriField>
-                                <OriButton
-                                    :text="authMode === 'register' ? 'Create account' : 'Log in'"
-                                    variant="fill"
-                                    radius="md"
-                                    fluid
-                                    :loading="authBusy"
-                                    @click="submit"
-                                />
-                            </div>
-                        </OriTabs>
-                    </section>
-
-                    <!-- File actions (the only home for New/Load/Export on phones) -->
-                    <section class="menu__section" aria-label="File">
-                        <h2 class="menu__section-title">File</h2>
-                        <div class="menu__file">
-                            <OriButton text="New" variant="outline" radius="md" fluid @click="fileNew" />
-                            <OriButton
-                                text="Load"
-                                variant="outline"
-                                radius="md"
-                                fluid
-                                :loading="props.busy"
-                                :disabled="!session.isLoggedIn"
-                                @click="fileLoad"
-                            />
-                            <OriButton
-                                text="Save"
-                                variant="fill"
-                                radius="md"
-                                fluid
-                                :loading="props.busy"
-                                :disabled="!session.isLoggedIn"
-                                @click="fileSave"
-                            />
-                            <OriButton text="Export" variant="outline" radius="md" fluid @click="fileExport" />
-                        </div>
-                        <p v-if="!session.isLoggedIn" class="menu__file-hint">Sign in to save &amp; load</p>
-                    </section>
-                </aside>
+            <!-- Copy row: stays open after copying (legacy behavior) -->
+            <div class="menu__copy">
+                <OriButton
+                    text="Copy as text"
+                    variant="tonal"
+                    radius="md"
+                    :icon="icons.mdiContentCopy"
+                    icon-position="left"
+                    @click="emit('copyText')"
+                />
+                <OriButton
+                    text="Copy as image"
+                    variant="tonal"
+                    radius="md"
+                    :icon="icons.mdiContentCopy"
+                    icon-position="left"
+                    @click="emit('copyImage')"
+                />
             </div>
-        </Transition>
+
+            <!-- File actions (the only home for New/Load/Export on phones) -->
+            <section class="menu__section" aria-label="File">
+                <h2 class="menu__section-title">File</h2>
+                <div class="menu__stack">
+                    <OriButton
+                        text="Save"
+                        variant="fill"
+                        radius="md"
+                        fluid
+                        :icon="icons.mdiContentSaveOutline"
+                        :loading="props.busy"
+                        :disabled="!session.isLoggedIn"
+                        @click="fileSave"
+                    />
+                    <OriButton
+                        text="Load"
+                        variant="outline"
+                        radius="md"
+                        fluid
+                        :icon="icons.mdiCloudDownloadOutline"
+                        :loading="props.busy"
+                        :disabled="!session.isLoggedIn"
+                        @click="fileLoad"
+                    />
+                    <OriButton text="New" variant="outline" radius="md" fluid :icon="icons.mdiPlus" @click="fileNew" />
+                    <OriButton
+                        text="Export"
+                        variant="outline"
+                        radius="md"
+                        fluid
+                        :icon="icons.mdiDownload"
+                        @click="fileExport"
+                    />
+                </div>
+                <p v-if="!session.isLoggedIn" class="menu__hint">Sign in to save &amp; load</p>
+            </section>
+
+            <!-- Canvas settings -->
+            <section class="menu__section" aria-label="Canvas">
+                <h2 class="menu__section-title">Canvas</h2>
+                <OriSelect v-model="sizeChoice" label="Canvas size" :options="sizeOptions" fluid />
+                <div v-if="sizeChoice === 'custom'" class="menu__size-custom">
+                    <OriInput v-model="customW" label="W" type="number" min="1" max="8192" fluid />
+                    <OriInput v-model="customH" label="H" type="number" min="1" max="8192" fluid />
+                </div>
+                <OriButton text="Apply size" variant="outline" radius="md" size="sm" @click="applySize" />
+                <OriSwitch label="Checkerboard" :model-value="props.backdropGrid" @update:model-value="onToggleGrid" />
+            </section>
+
+            <!-- Profile (signed in) — pinned to the bottom: unregistered users
+                 are the /draw priority, so auth stays out of the way. -->
+            <section v-if="session.isLoggedIn" class="menu__section menu__section--bottom" aria-label="Profile">
+                <div class="menu__profile">
+                    <OriAvatar :text="session.user?.displayName ?? session.user?.login ?? '?'" color="primary" />
+                    <div class="menu__who">
+                        <b class="menu__name">{{ session.user?.displayName ?? session.user?.login }}</b>
+                        <span class="menu__login">{{ session.user?.login }}</span>
+                    </div>
+                </div>
+                <div class="menu__rating">
+                    Rating <b>{{ session.user?.rating }}</b>
+                </div>
+                <OriButton text="Log out" variant="outline" radius="md" :icon="icons.mdiLogout" @click="logout" />
+            </section>
+
+            <!-- Auth (anonymous) -->
+            <section v-else class="menu__section menu__section--bottom" aria-label="Sign in">
+                <OriTabs v-model="authTab" :tabs="AUTH_TABS">
+                    <div class="menu__form">
+                        <OriField label="Login">
+                            <OriInput
+                                v-model="loginId"
+                                placeholder="email or nickname"
+                                autocomplete="username"
+                                @keyup.enter="submit"
+                            />
+                        </OriField>
+                        <OriField
+                            label="Password"
+                            :error="error ?? undefined"
+                            hint="Sign in to save and load your drawings."
+                        >
+                            <OriInput
+                                v-model="password"
+                                type="password"
+                                placeholder="password"
+                                :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'"
+                                @keyup.enter="submit"
+                            />
+                        </OriField>
+                        <OriButton
+                            :text="authMode === 'register' ? 'Create account' : 'Log in'"
+                            variant="fill"
+                            radius="md"
+                            fluid
+                            :loading="authBusy"
+                            @click="submit"
+                        />
+                    </div>
+                </OriTabs>
+            </section>
+        </aside>
     </Teleport>
 </template>
 
 <style scoped>
 .menu {
     position: fixed;
-    inset: 0;
-    z-index: 100;
-}
-
-.menu__backdrop {
-    position: absolute;
-    inset: 0;
-    background-color: rgb(0 0 0 / 35%);
-}
-
-.menu__panel {
-    position: absolute;
     top: 0;
-    bottom: 0;
-    left: 0;
+    right: 0;
+    z-index: 100;
 
     display: flex;
     flex-direction: column;
     gap: var(--ori-size-gap_lg, 0.75rem);
 
-    width: min(20rem, 85vw);
-    padding: var(--ori-size-gap_lg, 0.75rem);
+    width: 400px;
+    max-width: 100dvw; /* full screen on phones */
+    height: 100dvh;
+    padding: 12px;
     overflow-y: auto;
 
+    border-left: 1px solid var(--ori-color-primary);
     background-color: var(--ori-color-surface);
     color: var(--ori-color-on-surface);
-    box-shadow: 8px 0 32px rgb(0 0 0 / 18%);
+
+    /* 101% so the border/shadow can't peek in while closed. */
+    transform: translateX(101%);
+    transition: transform ease-out 0.25s;
 }
 
-.menu__head {
+.menu--open {
+    transform: translateX(0);
+    box-shadow: -8px 0 32px rgb(0 0 0 / 18%);
+}
+
+.menu__title-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+    min-width: 0;
 }
 
-.menu__brand {
+.menu__title {
+    overflow: hidden;
+    min-width: 3ch;
+    max-width: 100%;
+
     font-weight: 700;
     font-size: var(--ori-font-size_lg, 1.15rem);
-    color: var(--ori-color-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
     letter-spacing: -0.01em;
 }
 
-.menu__close {
-    display: grid;
-    place-items: center;
-
-    width: var(--jp-control-sm, 2.25rem);
-    height: var(--jp-control-sm, 2.25rem);
-
-    border: none;
-    border-radius: var(--ori-size-radius_md, 8px);
-    background: transparent;
-    color: var(--ori-color-on-surface);
-
-    cursor: pointer;
+.menu__title--editable {
+    padding: 0 var(--ori-size-gap_xs, 0.125rem);
+    border-radius: var(--ori-size-radius_sm, 4px);
+    cursor: text;
 }
 
-.menu__close:hover {
+.menu__title--editable:hover {
     background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
+}
+
+.menu__title--editable:focus-visible {
+    outline: 2px solid var(--ori-color-primary);
+    outline-offset: 1px;
+    /* Let long names wrap while editing instead of hiding the caret. */
+    text-overflow: clip;
+    white-space: normal;
+}
+
+.menu__title-pencil {
+    flex-shrink: 0;
+    opacity: 0.6;
+}
+
+.menu__copy {
+    display: flex;
+    gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+.menu__copy > * {
+    flex: 1;
 }
 
 .menu__section {
     display: flex;
     flex-direction: column;
     gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+/* Auth/profile sits at the very bottom — content above stays reachable first. */
+.menu__section--bottom {
+    margin-top: auto;
 }
 
 .menu__section-title {
@@ -315,6 +460,27 @@ function onKeydown(e: KeyboardEvent) {
     letter-spacing: 0.06em;
     text-transform: uppercase;
     opacity: 0.6;
+}
+
+.menu__stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+.menu__size-custom {
+    display: flex;
+    gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+.menu__size-custom > * {
+    flex: 1;
+}
+
+.menu__hint {
+    margin: var(--ori-size-gap_xs, 0.25rem) 0 0;
+    font-size: var(--ori-font-size_xs, 0.75rem);
+    opacity: 0.7;
 }
 
 .menu__profile {
@@ -359,38 +525,5 @@ function onKeydown(e: KeyboardEvent) {
     flex-direction: column;
     gap: var(--ori-size-gap_md, 0.5rem);
     padding-top: var(--ori-size-gap_md, 0.5rem);
-}
-
-.menu__file {
-    display: flex;
-    flex-direction: column;
-    gap: var(--ori-size-gap_md, 0.5rem);
-}
-
-.menu__file-hint {
-    margin: var(--ori-size-gap_xs, 0.25rem) 0 0;
-    font-size: var(--ori-font-size_xs, 0.75rem);
-    opacity: 0.7;
-}
-
-/* Slide + fade (the legacy transform pattern). */
-.menu-enter-active,
-.menu-leave-active {
-    transition: opacity 200ms ease;
-}
-
-.menu-enter-active .menu__panel,
-.menu-leave-active .menu__panel {
-    transition: transform 220ms ease;
-}
-
-.menu-enter-from,
-.menu-leave-to {
-    opacity: 0;
-}
-
-.menu-enter-from .menu__panel,
-.menu-leave-to .menu__panel {
-    transform: translateX(-100%);
 }
 </style>

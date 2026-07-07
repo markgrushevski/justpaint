@@ -10,6 +10,7 @@ export { toKonva, stageConfig } from "./konva";
 export { renderToPNG, renderToStage } from "./render";
 export type { RenderOptions } from "./render";
 export { Editor } from "./editor";
+export type { CanvasBackdrop } from "./editor";
 export { TOOLS } from "./tools/index";
 export { penTool } from "./tools/pen";
 export { eraserTool } from "./tools/eraser";

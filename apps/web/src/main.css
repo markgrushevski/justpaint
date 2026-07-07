@@ -1,17 +1,19 @@
 /*
- * justpaint brand tokens — a warm orange over a slightly-warm neutral, layered on
- * the oriui design system. We only set the `*-light`/`*-dark` SOURCES here; oriui
- * resolves them into `--ori-color-*` per theme (its NOTES: a global brand override
- * sets the source at `:root`). Components read the resolved aliases, never these.
+ * justpaint brand tokens — the LEGACY palette (owner-approved 2026-07-07): a pure
+ * orange over neutral grays, layered on the oriui design system. We only set the
+ * `*-light`/`*-dark` SOURCES here; oriui resolves them into `--ori-color-*` per
+ * theme (its NOTES: a global brand override sets the source at `:root`).
+ * Components read the resolved aliases, never these.
  */
 :root {
-    /* Primary — the justpaint orange. On-primary is a dark ink, NOT white: white on
-       this vivid orange is only 3.40:1 (fails WCAG AA for the fill-button labels —
-       Save / Log in). Dark ink on the same orange is 5.11:1 and keeps the brand hue
-       (the conventional a11y choice for a bright accent). */
-    --ori-color-primary-light: hsl(22 95% 48%);
+    /* Primary — the legacy justpaint orange. On-primary is a dark ink, NOT white:
+       white on this vivid orange is only 3.21:1 (fails WCAG AA for the fill-button
+       labels — Save / Log in). Dark ink is 5.42:1 on the light orange and 6.57:1 on
+       the dark one, and keeps the brand hue (the conventional a11y choice for a
+       bright accent). */
+    --ori-color-primary-light: hsl(20 100% 50%);
     --ori-color-on-primary-light: hsl(24 45% 10%);
-    --ori-color-primary-dark: hsl(24 100% 60%);
+    --ori-color-primary-dark: hsl(20 100% 60%);
     --ori-color-on-primary-dark: hsl(24 45% 10%);
 
     /* Secondary — a warm amber, sibling to the orange. */
@@ -20,29 +22,35 @@
     --ori-color-secondary-dark: hsl(30 32% 26%);
     --ori-color-on-secondary-dark: hsl(38 90% 92%);
 
-    /* Surface (cards, panels, toolbar) + page background — warm neutrals. */
-    --ori-color-surface-light: #ffffff;
-    --ori-color-on-surface-light: hsl(24 16% 16%);
-    --ori-color-surface-dark: hsl(24 16% 14%);
-    --ori-color-on-surface-dark: hsl(36 40% 94%);
+    /* Surface (cards, panels, toolbar) + page background — the legacy NEUTRAL grays
+       (the warm tint is gone). Ink/text retinted to match: a near-black cool ink in
+       light (13.7:1 on the surface, 15.4:1 on the background) and a near-white gray
+       in dark (14.7:1 / 15.7:1) — all well past the 7:1 AAA text bar. */
+    --ori-color-surface-light: #f0f2f6;
+    --ori-color-on-surface-light: hsl(220 10% 15%);
+    --ori-color-surface-dark: #191919;
+    --ori-color-on-surface-dark: hsl(0 0% 92%);
 
-    --ori-color-background-light: hsl(30 33% 97%);
-    --ori-color-on-background-light: hsl(24 16% 16%);
-    --ori-color-background-dark: hsl(24 20% 9%);
-    --ori-color-on-background-dark: hsl(36 40% 94%);
+    --ori-color-background-light: #ffffff;
+    --ori-color-on-background-light: hsl(220 10% 15%);
+    --ori-color-background-dark: #121212;
+    --ori-color-on-background-dark: hsl(0 0% 92%);
 
-    /* Outline (borders, dividers). */
-    --ori-color-outline-light: hsl(28 22% 85%);
-    /* Lightness set for >=3:1 non-text (WCAG 1.4.11) border contrast in dark: ~3.4:1
-       against the dark surface hsl(24 16% 14%), ~3.9:1 against the dark background. */
-    --ori-color-outline-dark: hsl(28 13% 46%);
+    /* Outline (borders, dividers) — neutral hues, recomputed for the >=3:1 non-text
+       bar (WCAG 1.4.11) against the NEW surfaces. Light: hsl(220 5% 55%) is 3.45:1
+       on the #ffffff background and 3.08:1 on the #f0f2f6 surface (the binding case —
+       the tinted surface is darker than white, so it, not #ffffff, sets the floor).
+       Dark: hsl(0 0% 46%) is 3.83:1 on the #191919 surface (binding), 4.08:1 on the
+       #121212 background. */
+    --ori-color-outline-light: hsl(220 5% 55%);
+    --ori-color-outline-dark: hsl(0 0% 46%);
 
     /* outline is a justpaint-invented token (oriui ships none) — resolve it for
        light here; the dark block below repoints it. */
     --ori-color-outline: var(--ori-color-outline-light);
 
     /* Shared square-control sizes — two deliberate tiers across every floating island. */
-    --jp-control-lg: 2.4rem; /* toolbar tool buttons + the top-left menu (hamburger) chip */
+    --jp-control-lg: 2.4rem; /* toolbar tool buttons */
     --jp-control-sm: 2.25rem; /* inline top-right chips, zoom buttons, panel close buttons, layer-row controls */
 
     /* Shared interaction surfaces (replace the ad-hoc per-control color-mix recipes). */
@@ -72,9 +80,11 @@
     --ori-color-outline: var(--ori-color-outline-dark);
 
     /* oriui's `danger` is a single light-tuned red (#b91c1c) with no dark variant —
-       on our dark surface it drops to 2.40:1 (the delete-layer button all but
-       vanishes). Lift it for dark only; 5.55:1 on the dark surface. success/warn/info
-       aren't used as foreground colour yet, so they stay oriui's defaults. */
+       on our #191919 dark surface it drops to 2.72:1 (the delete-layer button all but
+       vanishes). Lift it for dark only; 6.29:1 on the #191919 surface, 6.70:1 on the
+       #121212 background (>=4.5:1 text AND >=3:1 border, re-verified against the new
+       neutral surfaces). success/warn/info aren't used as foreground colour yet, so
+       they stay oriui's defaults. */
     --ori-color-danger: hsl(0 80% 70%);
 }
 
