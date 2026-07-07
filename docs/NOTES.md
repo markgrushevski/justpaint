@@ -271,6 +271,19 @@ small practical gotchas go here.
   toggle). Hand-roll controlled modals on the SideMenu/ShortcutsDialog pattern (Teleport +
   `Transition :duration` + `tabindex="-1"` focus-on-open + panel-tree Esc + backdrop click).
   `OriKbd` DOES ship and is the kbd-chip style — use it over custom chips.
+- **An UNLAYERED universal reset silently clobbers oriui's LAYERED box-model** (`feat/draw-ux-polish`,
+  2026-07-05). Cascade rule: unlayered author CSS beats **all** `@layer` styles regardless of
+  specificity. oriui ships `.ori-button { border: 1px solid …; padding-inline: 1em }` and
+  `.ori-input__field { border: 1px solid … }` inside `@layer ori.components`, so an unlayered
+  `* { border: 0; margin: 0; padding: 0 }` in `apps/web/src/reset.css` overrode them — every
+  `OriButton(outline)` rendered borderless and every `OriButton`/`OriInput` got `padding-inline: 0`
+  (the top-right Save button collapsed to 33px wide / 0 padding, reading as a cramped text-link).
+  oriui's OWN `@layer ori.reset` already does `*{margin:0;padding:0;border:0}` **layer-safely** (it
+  loses to `ori.components`, as intended), so the app must NOT re-declare box-model resets unlayered —
+  delegate the reset to oriui and add only app-specific bits (font-optical-sizing, canvas
+  `touch-action`, etc.). Fix: dropped `border`/`margin`/`padding` from the `*` rule in `reset.css`.
+  There are no other oriui-style overrides in `apps/web` (no rule targets `.ori-*`, no `:deep()`, no
+  `!important`).
 
 ## Preview MCP / verification
 
