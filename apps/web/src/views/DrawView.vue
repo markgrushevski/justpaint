@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { OriButton } from '@oriui/vue'
+import { useThemeColor } from '@oriui/headless/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId, LayerView } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
@@ -50,6 +51,14 @@ const MAX_LAYERS = LIMITS.maxLayers
 
 const session = useSessionStore()
 const theme = useThemeStore()
+
+// Konva canvas cannot read CSS custom properties, so the brush-size cursor ring
+// gets `--ori-color-primary` RESOLVED through the @oriui/headless token bridge:
+// '' until mounted, then the computed color, re-resolving on every theme flip
+// (the store toggles `.ori-theme_dark` on <html>; `auto` OS flips are covered
+// too). The editor stays token-agnostic — it only ever sees the color string.
+const cursorRingColor = useThemeColor('primary')
+watch(cursorRingColor, (color) => editor?.setCursorColor(color || null))
 
 /* --- shell chrome state ---------------------------------------------- */
 
@@ -145,6 +154,9 @@ onMounted(() => {
     editor = new Editor(containerRef.value, parseDocument(blankDocument()))
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
+    // useThemeColor resolves in ITS mounted hook (registered before this one),
+    // so the value is usually ready here; the watch covers late/changed values.
+    editor.setCursorColor(cursorRingColor.value || null)
     unsubscribe = editor.onChange(syncEditorState)
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
