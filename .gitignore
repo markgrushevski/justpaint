@@ -4,3 +4,9 @@ dist
 node_modules
 
 *.local
+
+# Playwright (real-browser a11y tests) outputs
+test-results
+playwright-report
+blob-report
+playwright/.cache

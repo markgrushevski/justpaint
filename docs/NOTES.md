@@ -316,6 +316,26 @@ small practical gotchas go here.
   `vueinjar` repo — do **NOT** commit those. Revert `package.json` + the lockfile to the registry range
   and keep the built `node_modules` local for the duration of the preview (precedent: the alpha-4
   preview tarballs).
+- **Stale Vite dep-optimize cache after an out-of-band SAME-VERSION dep swap.** A long-running `vite
+  dev` pre-optimizes deps into `node_modules/.vite` (and `apps/web/node_modules/.vite`) at startup. If
+  node_modules later changes out-of-band but the dependency **keeps the same version string** — e.g.
+  swapping a local `@oriui/* 1.0.0-alpha.6` tarball for the registry build of the same
+  `1.0.0-alpha.6`, or vice versa — a **reused** dev server (Playwright `webServer.reuseExistingServer:
+  true`, or just an already-running `npm run dev`) keeps serving the **stale** optimized bundle, mixing
+  an OLD bundled component with the app's CURRENT CSS. **Symptom this cost us (2026-07-08):** the
+  `/draw` **mobile** layout looked badly broken — the stale bundle's OriTooltip emitted the old
+  `.ori-tooltip__bubble_bottom` class (which the current `@oriui/css` no longer styles), so each hidden
+  tooltip bubble fell back to `position: static` (in normal flow), adding ~40px width to every wrapped
+  control; the top actions island ballooned to ~194px tall and the bottom toolbar's Tools group
+  overflowed (~624px inside a ~350px bar). The **source and a clean `vite build` were correct the whole
+  time** — registry `@oriui/css` alpha-6 already ships the anchored bubble (`.ori-anchored { position:
+  fixed }`, out of flow) and the dedicated `--ori-neutral-900/50` color pairing; it was purely the
+  stale local dev bundle. **Fix:** `rm -rf node_modules/.vite apps/web/node_modules/.vite`, then
+  restart the dev server (a fresh start re-optimizes from current node_modules — verify the OriTooltip
+  bubble computes `position: fixed` with classes `ori-anchored ori-anchored_<placement>`). **Guard:**
+  after ANY out-of-band oriui tarball↔registry swap at the SAME version string, clear `.vite` and
+  restart before trusting the preview. Cross-ref the tarball-swap note above and the parallel-oriui-dev
+  hazard (HEAD can switch under feature work).
 
 ## Preview MCP / verification
 

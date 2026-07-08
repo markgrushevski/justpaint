@@ -2,6 +2,16 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-08 — Browser a11y layer landed; interim `--ori-tooltip` override removed
+
+The a11y-tooling stack decided earlier today got its browser layer, and the now-redundant interim tooltip override came out.
+
+- **A11y verification architecture — three complementary layers, deliberately separate.** Each catches what the others structurally can't:
+  1. **colord token-source WCAG lint** — `apps/web/scripts/check-contrast.mjs`, wired into `lint:all` (fast, no browser; checks our design-token pairs at the source).
+  2. **oriui component-level axe** — happy-dom, structure-only, lives **upstream** in the oriui repo (happy-dom can't compute rendered color-contrast).
+  3. **Browser axe over the REAL rendered `/draw`** — Playwright + `@axe-core/playwright`, script `test:a11y` in `apps/web`, **deliberately NOT in `lint:all`** (a heavy headless-browser run; a separate command). The allowlist is per-element `AxeBuilder.exclude()`, **not** a rule disable — so `color-contrast` stays active everywhere else and a real regression still fails. `apca-w3` is a **future advisory**, not a gate.
+- **Removed the interim `--ori-tooltip` override in `apps/web/src/main.css`.** Registry `@oriui/css` 1.0.0-alpha.6 already ships the correct bubble color pairing via dedicated `--ori-neutral-900` (#0f172a) / `--ori-neutral-50` (#f8fafc) defaults — the exact values the interim override pinned — plus the anchored out-of-flow bubble. The app is on `^1.0.0-alpha.6`, so the override was redundant; worse, being **unlayered** it would have wrongly beaten oriui's role-color rule `.ori-tooltip:where(.ori-color_primary,…)` and forced role-colored tooltips to the neutral chip. Removed; verified zero visual change live.
+
 ## 2026-07-08 — Hand tool, coord readout, and the a11y-tooling architecture
 
 Two editor affordances plus a decided three-layer accessibility-tooling stack (oriui bumped again for a new skin + a tooltip fix).
