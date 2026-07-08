@@ -32,7 +32,7 @@ function gridTile(dark: boolean): HTMLImageElement {
 
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { OriButton, OriIcon, OriToaster, useToast } from '@oriui/vue'
+import { OriIcon, OriToaster, OriTooltip, useToast } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId, LayerView } from '@justpaint/editor'
@@ -559,6 +559,18 @@ function load() {
             <span class="draw__brand jp-float">justpaint</span>
         </div>
 
+        <!-- Top-left (phones only): undo/redo island — the toolbar hides its
+             history group <=600px, so history keeps a one-tap home clear of
+             the tool row. Hidden on desktop (the bar has its own). -->
+        <div class="draw__history jp-float" role="group" aria-label="History">
+            <button class="draw__history-btn" type="button" aria-label="Undo" :disabled="!canUndo" @click="undo">
+                <ToolIcon name="undo" />
+            </button>
+            <button class="draw__history-btn" type="button" aria-label="Redo" :disabled="!canRedo" @click="redo">
+                <ToolIcon name="redo" />
+            </button>
+        </div>
+
         <!-- Top-right corner: the menu toggler. Sits ABOVE the drawer (z-110 >
              menu z-100) so the same chip opens and closes it (the legacy pattern). -->
         <button
@@ -595,7 +607,7 @@ function load() {
                     <ToolIcon :name="themeIcon" />
                 </button>
                 <button
-                    class="draw__chip-inline draw__action--desktop"
+                    class="draw__chip-inline draw__chip-help"
                     :class="{ 'draw__chip-inline--active': shortcutsOpen }"
                     type="button"
                     aria-label="Keyboard shortcuts — ?"
@@ -605,23 +617,42 @@ function load() {
                     <ToolIcon name="help" />
                 </button>
                 <span class="draw__sep" aria-hidden="true"></span>
-                <OriButton class="draw__action--desktop" text="New" variant="outline" radius="md" @click="requestNew" />
-                <OriButton
-                    class="draw__action--desktop"
-                    text="Load"
-                    variant="outline"
-                    radius="md"
-                    :loading="busy"
-                    @click="load"
-                />
-                <OriButton text="Save" variant="fill" radius="md" :loading="busy" @click="save" />
-                <OriButton
-                    class="draw__action--desktop"
-                    text="Export"
-                    variant="outline"
-                    radius="md"
-                    @click="exportPng"
-                />
+                <!-- File actions as icon chips on every breakpoint — the side
+                     menu keeps the text duplicates. -->
+                <OriTooltip content="New">
+                    <button class="draw__chip-inline" type="button" aria-label="New drawing" @click="requestNew">
+                        <OriIcon :icon="icons.mdiPlus" />
+                    </button>
+                </OriTooltip>
+                <OriTooltip content="Load">
+                    <button
+                        class="draw__chip-inline"
+                        type="button"
+                        aria-label="Load latest drawing"
+                        :disabled="!session.isLoggedIn || busy"
+                        :aria-busy="busy || undefined"
+                        @click="load"
+                    >
+                        <OriIcon :icon="icons.mdiCloudDownloadOutline" />
+                    </button>
+                </OriTooltip>
+                <OriTooltip content="Save — Ctrl/⌘+S">
+                    <button
+                        class="draw__chip-inline draw__chip-inline--accent"
+                        type="button"
+                        aria-label="Save drawing"
+                        :disabled="!session.isLoggedIn || busy"
+                        :aria-busy="busy || undefined"
+                        @click="save"
+                    >
+                        <OriIcon :icon="icons.mdiContentSaveOutline" />
+                    </button>
+                </OriTooltip>
+                <OriTooltip content="Export">
+                    <button class="draw__chip-inline" type="button" aria-label="Export PNG" @click="exportPng">
+                        <OriIcon :icon="icons.mdiDownload" />
+                    </button>
+                </OriTooltip>
             </div>
         </div>
 
@@ -669,17 +700,12 @@ function load() {
             >
                 <ToolIcon name="minus" />
             </button>
-            <button
-                class="draw__zoom-value"
-                type="button"
-                :aria-label="`Fit to view (currently ${zoomPercent}%)`"
-                title="Fit to view — Ctrl+0"
-                @click="fitView"
-            >
-                {{ zoomPercent }}%
-            </button>
+            <span class="draw__zoom-value">{{ zoomPercent }}%</span>
             <button class="draw__zoom-btn" type="button" aria-label="Zoom in" title="Zoom in — Ctrl+=" @click="zoomIn">
                 <ToolIcon name="plus" />
+            </button>
+            <button class="draw__zoom-btn" type="button" aria-label="Fit to view" title="Fit — Ctrl+0" @click="fitView">
+                <ToolIcon name="fit" />
             </button>
         </div>
 
@@ -746,8 +772,9 @@ function load() {
 
     /* Letterbox around the fitted document (the view-only backdrop paints the
        "paper" behind the transparent document; this fills the margins, like a
-       canvas on a desk). */
-    background-color: var(--ori-color-background);
+       canvas on a desk). The "desk" sits one step off the paper so the document
+       edge reads at any zoom — never the paper's/background's own color. */
+    background-color: var(--jp-desk, #e9ebef);
 }
 
 .draw__canvas {
@@ -772,10 +799,12 @@ function load() {
     left: var(--ori-size-gap_md, 0.5rem);
 }
 
-/* Shifted left of the corner menu toggler (gap + chip + gap). */
+/* Shifted left of the corner menu toggler (gap + chip + gap). Max width =
+   viewport minus the toggler offset minus a left breathing gap; on very narrow
+   phones (~<=360px) the chips wrap to a second row inside the island. */
 .draw__top-right {
     right: calc(var(--ori-size-gap_md, 0.5rem) * 2 + var(--ori-size-action_md, 2.75rem));
-    max-width: calc(100vw - 8rem);
+    max-width: calc(100vw - (var(--ori-size-gap_md, 0.5rem) * 3 + var(--ori-size-action_md, 2.75rem)));
 }
 
 /* The menu toggler — pinned above the 400px drawer (z-110 > the menu's z-100)
@@ -790,7 +819,10 @@ function load() {
     place-items: center;
 
     width: var(--ori-size-action_md, 2.75rem);
-    height: var(--ori-size-action_md, 2.75rem);
+    /* Match the actions island's outer height (chip + its vertical padding +
+       the 1px jp-float borders; border-box, so the border must be added) so the
+       toggler reads as the rightmost element of the same top row. */
+    height: calc(var(--ori-size-action_md, 2.75rem) + 2 * var(--ori-size-gap_xs, 0.125rem) + 2px);
     padding: 0;
 
     color: var(--ori-color-on-surface);
@@ -835,8 +867,24 @@ function load() {
     cursor: pointer;
 }
 
-.draw__chip-inline:hover {
+.draw__chip-inline:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.draw__chip-inline:hover:not(:disabled) {
     background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
+}
+
+/* Save — the one filled (primary) chip, inheriting the old fill-button role.
+   Hover deliberately stays primary; disabled dims like every other control. */
+.draw__chip-inline--accent {
+    background-color: var(--ori-color-primary);
+    color: var(--ori-color-on-primary);
+}
+
+.draw__chip-inline--accent:hover:not(:disabled) {
+    background-color: var(--ori-color-primary);
 }
 
 .draw__chip-inline--active {
@@ -938,9 +986,10 @@ function load() {
     padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
 }
 
-/* Compact square zoom glyphs — hand-rolled to match the chip chrome; OriButton
-   only renders a fixed square when given an `icon` prop. */
-.draw__zoom-btn {
+/* Compact square zoom/history glyphs — hand-rolled to match the chip chrome;
+   OriButton only renders a fixed square when given an `icon` prop. */
+.draw__zoom-btn,
+.draw__history-btn {
     display: grid;
     place-items: center;
 
@@ -957,22 +1006,47 @@ function load() {
     cursor: pointer;
 }
 
-.draw__zoom-btn:hover {
+.draw__zoom-btn:disabled,
+.draw__history-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.draw__zoom-btn:hover:not(:disabled),
+.draw__history-btn:hover:not(:disabled) {
     background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
+/* Display-only readout — fit-to-view moved to its own explicit chip. */
 .draw__zoom-value {
     min-width: 3.1rem;
     padding: 0.25rem;
 
-    border: none;
-    background: none;
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_sm, 0.85rem);
     font-variant-numeric: tabular-nums;
     text-align: center;
-    cursor: pointer;
+}
+
+/* Mobile-only history island (top-left) — undo/redo keep a one-tap home when
+   the toolbar hides its own history group <=600px. display:none here so it can
+   never show on desktop; the media block flips it on. */
+.draw__history {
+    position: absolute;
+
+    /* SECOND row top-left: the top row belongs to the actions island + toggler,
+       which can stretch across a narrow phone — same-row placement overlapped
+       them (verified at 405px). 3.125rem = the 50px top-row island height. */
+    top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3.125rem);
+    left: var(--ori-size-gap_md, 0.5rem);
+    z-index: 10;
+
+    display: none;
+    align-items: center;
+    gap: 0;
+
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
 }
 
 /* Layers — a dropdown hanging under the actions island (desktop). The wrapper
@@ -1044,27 +1118,33 @@ function load() {
         bottom: var(--ori-size-gap_sm, 0.25rem);
     }
 
-    /* Bottom is owned by the toolbar + layers sheet on phones — move zoom to
-       the top-right, clear of the actions island AND the menu toggler. */
+    /* Zoom tucks into the bottom-right above the one-row toolbar (strip offset
+       0.25rem + bar ~2.83rem: 0.35rem*2 padding + 2rem tools + border —
+       4.25rem clears it with ~1.2rem of air), keeping the top corners for the
+       history island (left) and the actions row (right). */
     .draw__zoom {
-        top: calc(var(--ori-size-gap_md, 0.5rem) + var(--ori-size-action_md, 2.75rem) + 0.5rem);
         right: var(--ori-size-gap_sm, 0.25rem);
-        bottom: auto;
+        bottom: 4.25rem;
     }
 
-    /* Raise the hint so it clears the (now single-row) toolbar. */
+    /* Raise the hint clear of the toolbar AND the relocated zoom island (its
+       top edge sits ~6.9rem up: 4.25rem + 2.25rem chip + padding + border). */
     .draw__hint {
-        bottom: 5.5rem;
+        bottom: 7.25rem;
     }
 
     .draw__brand {
         display: none;
     }
 
-    /* New/Load/Export live in the side menu on phones, and the shortcuts chip
-       goes too (no hardware keyboard) — only Save + the layers/theme chips
-       stay in the top-right island. */
-    .draw__action--desktop {
+    /* Undo/redo island on — the toolbar hides its own history group here. */
+    .draw__history {
+        display: flex;
+    }
+
+    /* The shortcuts chip goes on phones (no hardware keyboard); the file-action
+       icon chips stay — the side menu keeps their text duplicates. */
+    .draw__chip-help {
         display: none;
     }
 }
