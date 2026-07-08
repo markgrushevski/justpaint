@@ -13,7 +13,8 @@ export const TOOL_META: Record<ToolId, { label: string; icon: IconName; key: str
     line: { label: 'Line', icon: 'line', key: 'L' },
     rect: { label: 'Rectangle', icon: 'rect', key: 'R' },
     ellipse: { label: 'Ellipse', icon: 'ellipse', key: 'O' },
-    triangle: { label: 'Triangle', icon: 'triangle', key: 'T' }
+    triangle: { label: 'Triangle', icon: 'triangle', key: 'T' },
+    hand: { label: 'Hand', icon: 'hand', key: 'H' }
 }
 </script>
 
@@ -76,7 +77,12 @@ function onWidth(e: Event) {
 <template>
     <div class="bar jp-float" role="toolbar" aria-label="Drawing tools">
         <div class="bar__group" role="group" aria-label="Tools">
-            <OriTooltip v-for="id in toolIds" :key="id" :content="`${TOOL_META[id].label} — ${TOOL_META[id].key}`">
+            <OriTooltip
+                v-for="id in toolIds"
+                :key="id"
+                placement="top"
+                :content="`${TOOL_META[id].label} — ${TOOL_META[id].key}`"
+            >
                 <button
                     class="bar__tool"
                     :class="{ 'bar__tool--active': props.activeTool === id }"
@@ -206,7 +212,7 @@ function onWidth(e: Event) {
         <span class="bar__divider bar__divider--history" aria-hidden="true"></span>
 
         <div class="bar__group bar__group--history" role="group" aria-label="History">
-            <OriTooltip content="Undo — Ctrl/⌘+Z">
+            <OriTooltip placement="top" content="Undo — Ctrl/⌘+Z">
                 <button
                     class="bar__tool"
                     :disabled="!props.canUndo"
@@ -217,7 +223,7 @@ function onWidth(e: Event) {
                     <ToolIcon name="undo" />
                 </button>
             </OriTooltip>
-            <OriTooltip content="Redo — Ctrl/⌘+Y">
+            <OriTooltip placement="top" content="Redo — Ctrl/⌘+Y">
                 <button
                     class="bar__tool"
                     :disabled="!props.canRedo"
