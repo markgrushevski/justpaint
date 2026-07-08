@@ -203,9 +203,9 @@ function onWidth(e: Event) {
             </div>
         </OriPopover>
 
-        <span class="bar__divider" aria-hidden="true"></span>
+        <span class="bar__divider bar__divider--history" aria-hidden="true"></span>
 
-        <div class="bar__group" role="group" aria-label="History">
+        <div class="bar__group bar__group--history" role="group" aria-label="History">
             <OriTooltip content="Undo — Ctrl/⌘+Z">
                 <button
                     class="bar__tool"
@@ -416,9 +416,16 @@ function onWidth(e: Event) {
         display: none;
     }
 
-    /* Compact chrome: dividers off and tighter buttons — 6 tools + chip +
-       undo/redo add up to ~336px, inside a 360px viewport minus margins. */
+    /* Compact chrome: dividers off and tighter buttons — 6 tools + chip fit
+       one row inside a 360px viewport minus margins. */
     .bar__divider {
+        display: none;
+    }
+
+    /* Undo/redo move to the host view's top-left history island on phones
+       (accidental-tap protection next to the tools). */
+    .bar__divider--history,
+    .bar__group--history {
         display: none;
     }
 
