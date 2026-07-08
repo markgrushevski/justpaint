@@ -60,10 +60,10 @@ User directive 2026-07-04: make justpaint an **AI-product** — AI features in t
   - `.draw__brand` wordmark — #ff5500 on #f0f2f6 = **2.85:1** — brand orange as large wordmark text; a brand/`--ori-color-primary` decision (mobile hides it ≤600px, so it only affects desktop).
   - `.ori-variant_tonal` buttons ("Copy as text"/"Copy as image") — #c24100 on #e5c6b9 = **3.23:1** — oriui tonal-button token → **upstream** (`@oriui/css`).
   - selected tab `.ori-tabs__tab[aria-selected="true"]` ("Log in") — #ff5500 on #f0f2f6 = **2.85:1** — oriui selected-tab uses the primary token → **upstream**.
-  - `.menu__section-title` ("File"/"Canvas") — #74777c on #f0f2f6 = **4.01:1** — app-side muted header, a near-miss vs 4.5:1; easy local fix (darken the muted tone a touch).
+  - ~~`.menu__section-title` ("File"/"Canvas") — 4.01:1~~ — **FIXED 2026-07-08**: the muted header's `opacity` 0.6 → 0.7 lifts it to **5.39:1**; removed from the `test:a11y` allowlist so the suite now **enforces** it (dark theme was already ~6:1).
   - `region` (moderate, non-blocking) — the floating `/draw` chrome isn't wrapped in a `<main>`/landmark — a landmark-structure decision.
 
-  3 of the 4 serious items are oriui-owned tokens (belong upstream in `@oriui/css`); the `.menu__section-title` near-miss and the landmark gap are the only app-side items. *When:* next a11y touch — pairs with the browser a11y layer above.
+  The 3 remaining serious items are all oriui-owned tokens (belong upstream in `@oriui/css`); the only app-side gap left is the moderate `region`/landmark one. *When:* next a11y touch — pairs with the browser a11y layer above.
 
 ## Orchestration / process
 - **Cross-domain parallel agents** — backend (`server/`) and frontend (`packages/` + `apps/`) share no files and both validate against the **frozen contract** (`docs/DOCUMENT-FORMAT.md`), so they can run on **parallel branches**; integration (review + `--no-ff` merge + ROADMAP update) stays **serialized** through one orchestrator. Within a single domain (e.g. the editor's tools), parallelize with git-worktree isolation or sequential commits to avoid same-file conflicts. *When:* as work volume warrants; the editor tool-set is the first good fan-out candidate.
