@@ -2,15 +2,16 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
-## 2026-07-08 — Browser a11y layer landed; interim `--ori-tooltip` override removed
+## 2026-07-08 — Browser a11y layer landed
 
-The a11y-tooling stack decided earlier today got its browser layer, and the now-redundant interim tooltip override came out.
+The a11y-tooling stack decided earlier today got its browser layer.
 
 - **A11y verification architecture — three complementary layers, deliberately separate.** Each catches what the others structurally can't:
   1. **colord token-source WCAG lint** — `apps/web/scripts/check-contrast.mjs`, wired into `lint:all` (fast, no browser; checks our design-token pairs at the source).
   2. **oriui component-level axe** — happy-dom, structure-only, lives **upstream** in the oriui repo (happy-dom can't compute rendered color-contrast).
   3. **Browser axe over the REAL rendered `/draw`** — Playwright + `@axe-core/playwright`, script `test:a11y` in `apps/web`, **deliberately NOT in `lint:all`** (a heavy headless-browser run; a separate command). The allowlist is per-element `AxeBuilder.exclude()`, **not** a rule disable — so `color-contrast` stays active everywhere else and a real regression still fails. `apca-w3` is a **future advisory**, not a gate.
-- **Removed the interim `--ori-tooltip` override in `apps/web/src/main.css`.** Registry `@oriui/css` 1.0.0-alpha.6 already ships the correct bubble color pairing via dedicated `--ori-neutral-900` (#0f172a) / `--ori-neutral-50` (#f8fafc) defaults — the exact values the interim override pinned — plus the anchored out-of-flow bubble. The app is on `^1.0.0-alpha.6`, so the override was redundant; worse, being **unlayered** it would have wrongly beaten oriui's role-color rule `.ori-tooltip:where(.ori-color_primary,…)` and forced role-colored tooltips to the neutral chip. Removed; verified zero visual change live.
+- **`.menu__section-title` contrast fixed.** The muted side-menu section headers composited only 4.01:1 on the light surface; `opacity` 0.6 → 0.7 lifts them to 5.39:1 (dark theme was already ~6:1). Removed from the `test:a11y` allowlist so the browser axe suite now **enforces** it.
+- **Interim `--ori-tooltip` override — briefly removed, then RESTORED (correction, same day).** It was removed on the belief that registry `@oriui/css` 1.0.0-alpha.6 shipped the fixed bubble. **That was wrong.** The fix (self-paired neutral bubble on the anchored, out-of-flow primitive) is committed on oriui `feat/neutral-skin-tooltip-contrast` (`bd3d847`) but **not yet merged/published** — alpha-6 was cut from oriui `main` before it, so published alpha-6's tooltip is still mis-paired (`bg: var(--ori-color)` → invisible on our dark ink) **and** in-flow (crowds tight mobile clusters). This app renders the tooltip correctly only because it currently runs the oriui **branch tarball** locally; a clean install from the registry would regress. So the override stays — inert on the tarball, protective on registry — until oriui publishes the fix and this app bumps (the `IDEAS.md` item). Being **unlayered** it also beats oriui's role-color rule `.ori-tooltip:where(.ori-color_primary,…)`, but the app uses only neutral tooltips, so that's moot.
 
 ## 2026-07-08 — Hand tool, coord readout, and the a11y-tooling architecture
 

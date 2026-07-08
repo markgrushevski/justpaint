@@ -327,10 +327,14 @@ small practical gotchas go here.
   `.ori-tooltip__bubble_bottom` class (which the current `@oriui/css` no longer styles), so each hidden
   tooltip bubble fell back to `position: static` (in normal flow), adding ~40px width to every wrapped
   control; the top actions island ballooned to ~194px tall and the bottom toolbar's Tools group
-  overflowed (~624px inside a ~350px bar). The **source and a clean `vite build` were correct the whole
-  time** — registry `@oriui/css` alpha-6 already ships the anchored bubble (`.ori-anchored { position:
-  fixed }`, out of flow) and the dedicated `--ori-neutral-900/50` color pairing; it was purely the
-  stale local dev bundle. **Fix:** `rm -rf node_modules/.vite apps/web/node_modules/.vite`, then
+  overflowed (~624px inside a ~350px bar). The **locally-installed oriui (the branch tarball) and a
+  clean `vite build` off it were correct the whole time** — that tarball ships the anchored bubble
+  (`.ori-anchored { position: fixed }`, out of flow) and the dedicated `--ori-neutral-900/50` pairing;
+  the break was purely the stale local dev bundle masking it. **NB — do not conflate this with the
+  registry:** PUBLISHED `@oriui/css` alpha-6 is still the OLD in-flow / mis-paired tooltip (the fix is
+  on the unmerged oriui branch `bd3d847`), so a clean-from-registry install WOULD regress — which is
+  why `main.css` keeps the interim `--ori-tooltip` override (DECISIONS 2026-07-08). **Fix (the stale
+  cache):** `rm -rf node_modules/.vite apps/web/node_modules/.vite`, then
   restart the dev server (a fresh start re-optimizes from current node_modules — verify the OriTooltip
   bubble computes `position: fixed` with classes `ori-anchored ori-anchored_<placement>`). **Guard:**
   after ANY out-of-band oriui tarball↔registry swap at the SAME version string, clear `.vite` and
