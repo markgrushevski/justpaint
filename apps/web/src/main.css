@@ -49,6 +49,13 @@
        light here; the dark block below repoints it. */
     --ori-color-outline: var(--ori-color-outline-light);
 
+    /* The letterbox "desk" behind the paper — one step darker (light) / lighter
+       (dark) than the paper so the document edge reads at any zoom; the editor
+       adds a paper shadow on top. Resolved for light here; dark repoints it. */
+    --jp-desk-light: #e9ebef;
+    --jp-desk-dark: #1e1e1e;
+    --jp-desk: var(--jp-desk-light);
+
     /* Shared square-control sizes — two deliberate tiers across every floating island. */
     --jp-control-lg: 2.4rem; /* toolbar tool buttons */
     --jp-control-sm: 2.25rem; /* inline top-right chips, zoom buttons, panel close buttons, layer-row controls */
@@ -78,6 +85,7 @@
     --ori-color-background: var(--ori-color-background-dark);
     --ori-color-on-background: var(--ori-color-on-background-dark);
     --ori-color-outline: var(--ori-color-outline-dark);
+    --jp-desk: var(--jp-desk-dark);
 
     /* oriui's `danger` is a single light-tuned red (#b91c1c) with no dark variant —
        on our #191919 dark surface it drops to 2.72:1 (the delete-layer button all but

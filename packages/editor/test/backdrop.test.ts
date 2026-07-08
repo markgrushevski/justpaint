@@ -145,9 +145,17 @@ describe("Editor.setCanvasBackdrop", () => {
     const r = rectOf(backdrop);
     expect(r.fill()).toBe("#123456");
     expect([r.x(), r.y(), r.width(), r.height()]).toEqual([0, 0, 100, 100]);
-    // Clipped to the document rect like every projected layer.
-    expect(backdrop.clipWidth()).toBe(100);
-    expect(backdrop.clipHeight()).toBe(100);
+    // NOT clipped (unlike projected doc layers): the drop shadow and the outer
+    // half of the border render OUTSIDE the doc rect — a clip would eat them.
+    expect(backdrop.clipWidth()).toBeUndefined();
+    expect(backdrop.clipHeight()).toBeUndefined();
+    // "Paper on a desk": drop shadow + hairline border on the rect.
+    expect(r.shadowColor()).toBe("black");
+    expect(r.shadowOpacity()).toBe(0.22);
+    expect(r.shadowForStrokeEnabled()).toBe(false);
+    expect(r.stroke()).toBe("rgb(0 0 0 / 25%)");
+    expect(r.strokeWidth()).toBe(1);
+    expect(r.strokeScaleEnabled()).toBe(false); // 1 SCREEN px at any zoom
     // The document background (white) sits ABOVE the backdrop.
     expect(rectOf(layers[1]!).fill()).toBe("#ffffff");
     // Presentation state only: the document is untouched.
@@ -173,6 +181,30 @@ describe("Editor.setCanvasBackdrop", () => {
     expect(z1).toBeGreaterThan(z0);
     expect(r.fillPatternScaleX()).toBeCloseTo(1 / z1);
     expect(r.fillPatternScaleY()).toBeCloseTo(1 / z1);
+
+    // The paper chrome applies to the pattern flavor too.
+    expect(r.shadowColor()).toBe("black");
+    expect(r.shadowBlur()).toBeCloseTo(12 / z1);
+    expect(r.stroke()).toBe("rgb(0 0 0 / 25%)");
+  });
+
+  it("shadow: ~screen-space — blur/offset counter-scale against the zoom like the pattern tiles", () => {
+    const e = editor(doc());
+    e.setCanvasBackdrop({ type: "color", color: "#123456" });
+    const r = rectOf(stageOf(e).getLayers()[0]!);
+
+    const z0 = e.getZoom();
+    expect(z0).toBeGreaterThan(1); // 100² doc fit into 800×600 zooms in
+    expect(r.shadowBlur()).toBeCloseTo(12 / z0);
+    expect(r.shadowOffsetX()).toBe(0);
+    expect(r.shadowOffsetY()).toBeCloseTo(2 / z0);
+
+    e.zoomIn();
+    const z1 = e.getZoom();
+    expect(z1).toBeGreaterThan(z0);
+    expect(r.shadowBlur()).toBeCloseTo(12 / z1);
+    expect(r.shadowOffsetX()).toBe(0);
+    expect(r.shadowOffsetY()).toBeCloseTo(2 / z1);
   });
 
   it("survives loadDocument, remounted at the bottom and sized to the NEW doc", () => {
@@ -186,8 +218,8 @@ describe("Editor.setCanvasBackdrop", () => {
     const r = rectOf(layers[0]!);
     expect(r.fill()).toBe("#123456");
     expect([r.width(), r.height()]).toEqual([200, 50]);
-    expect(layers[0]!.clipWidth()).toBe(200);
-    expect(layers[0]!.clipHeight()).toBe(50);
+    expect(layers[0]!.clipWidth()).toBeUndefined(); // still unclipped (shadow/border)
+    expect(r.shadowColor()).toBe("black"); // paper chrome survives the remount
   });
 
   it("null clears the backdrop, including across a later rerender", () => {
