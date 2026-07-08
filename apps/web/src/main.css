@@ -115,20 +115,6 @@
 /* stylelint-enable selector-class-pattern */
 
 /*
- * INTERIM tooltip pairing fix. Registry @oriui/css alpha-6 mis-pairs the bubble:
- * bg from `--ori-color` but text from `--ori-color-on` (globally `currentColor`)
- * → black-on-black on our dark ink. Pin the legible dark-surface/light-text pair
- * (the same values oriui's own root fix now ships). REMOVE this block once oriui
- * publishes the fix (committed on oriui `feat/neutral-skin-tooltip-contrast`:
- * bd3d847) and this app bumps to that version.
- */
-/* stylelint-disable-next-line selector-class-pattern -- oriui's own component class */
-.ori-tooltip {
-    --ori-tooltip-bg: #0f172a;
-    --ori-tooltip-color: #f8fafc;
-}
-
-/*
  * Floating "island" chrome — the one visual language for everything hovering
  * over the canvas (toolbar, zoom, layers, top clusters). Shared by /draw and
  * the future /play shell (DECISIONS 2026-07-04: one design, game chrome on top).
