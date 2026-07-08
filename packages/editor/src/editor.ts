@@ -55,6 +55,21 @@ import { fitView, panBy, zoomAround, ZOOM_STEP, type ViewState } from "./view";
 const WHEEL_STEP = 1.1;
 
 /**
+ * "Sheet of paper on a desk": the backdrop rect's drop shadow, in SCREEN px.
+ * Konva shadows live in stage coordinates and would zoom with the drawing, so
+ * blur/offset are counter-scaled by 1/zoom in {@link Editor.syncBackdropScreenSpace}.
+ */
+const BACKDROP_SHADOW = {
+  color: "black",
+  opacity: 0.22,
+  blur: 12,
+  offset: { x: 0, y: 2 },
+} as const;
+
+/** The document's hairline edge (1 screen px via `strokeScaleEnabled: false`). */
+const BACKDROP_BORDER = { color: "rgb(0 0 0 / 25%)", width: 1 } as const;
+
+/**
  * A VIEW-ONLY backdrop painted BEHIND the document (the host uses it for
  * theme "paper" white/black, or a transparency checkerboard). Pure presentation
  * state: it is NOT part of the {@link Document}, never serialized, and never
@@ -194,7 +209,9 @@ export class Editor {
    * only: {@link getDocument} is unaffected, and exports cannot pick it up
    * (see {@link mountBackdrop}). A pattern tiles in ~SCREEN space: its scale is
    * re-compensated on every zoom change so a checkerboard never zooms with the
-   * drawing.
+   * drawing. Either flavor reads as a sheet of paper on a desk: the rect
+   * carries a drop shadow + a 1px border, both ~screen-space too (see
+   * {@link syncBackdropScreenSpace}) — view chrome only, never exported.
    */
   setCanvasBackdrop(backdrop: CanvasBackdrop | null): void {
     this.backdrop = backdrop;
@@ -461,8 +478,9 @@ export class Editor {
     this.stage.scale({ x: this.view.zoom, y: this.view.zoom });
     this.stage.position({ x: this.view.panX, y: this.view.panY });
     // The ONE zoom hook: every zoom/pan/fit funnels through here, so the
-    // backdrop pattern's screen-space compensation can't drift out of sync.
-    this.syncBackdropPatternScale();
+    // backdrop's screen-space compensation (pattern tiles, shadow) can't
+    // drift out of sync.
+    this.syncBackdropScreenSpace();
     this.stage.batchDraw();
   }
 
@@ -597,12 +615,27 @@ export class Editor {
   private mountBackdrop(): void {
     if (!this.backdrop) return;
     const { width, height } = this.doc;
-    // Clipped to the document rect like every projected layer (konva.ts).
-    const layer = new Konva.Layer({
+    // NOT clipped, unlike every projected layer (konva.ts): the drop shadow and
+    // the outer half of the centered border render OUTSIDE the doc rect, and a
+    // doc-rect clip would swallow both. Safe to skip — the rect itself covers
+    // exactly the doc bounds and nothing else ever mounts on this layer.
+    const layer = new Konva.Layer({ listening: false });
+    const rect = new Konva.Rect({
+      x: 0,
+      y: 0,
+      width,
+      height,
       listening: false,
-      clip: { x: 0, y: 0, width, height },
+      // "Paper on a desk": drop shadow + 1px document edge. Shadow blur/offset
+      // are zoom-compensated in syncBackdropScreenSpace; the border stays a
+      // 1-screen-px hairline via strokeScaleEnabled (the cursor-ring trick).
+      shadowColor: BACKDROP_SHADOW.color,
+      shadowOpacity: BACKDROP_SHADOW.opacity,
+      shadowForStrokeEnabled: false,
+      stroke: BACKDROP_BORDER.color,
+      strokeWidth: BACKDROP_BORDER.width,
+      strokeScaleEnabled: false,
     });
-    const rect = new Konva.Rect({ x: 0, y: 0, width, height, listening: false });
     layer.add(rect);
     this.backdropLayer = layer;
     this.backdropRect = rect;
@@ -613,23 +646,34 @@ export class Editor {
       // canvas `createPattern()`, which accepts any CanvasImageSource.
       rect.fillPatternImage(this.backdrop.image as HTMLImageElement);
       rect.fillPatternRepeat("repeat");
-      this.syncBackdropPatternScale();
     }
+    this.syncBackdropScreenSpace();
     this.stage.add(layer);
     layer.moveToBottom();
     layer.batchDraw();
   }
 
   /**
-   * Keep pattern tiles ~SCREEN-SPACE: the stage transform scales everything by
-   * `view.zoom`, so the pattern is counter-scaled by `1/zoom` (a checkerboard
-   * shouldn't zoom with the drawing). Called from {@link applyView} — the one
-   * place the stage transform is set — and on backdrop creation.
+   * Keep the backdrop's screen-space attrs ~SCREEN-SPACE: the stage transform
+   * scales everything by `view.zoom`, so anything that must read constant on
+   * screen is counter-scaled by `1/zoom` — pattern tiles (a checkerboard
+   * shouldn't zoom with the drawing) and the drop shadow's blur/offset (the
+   * paper sits the same height off the desk at any zoom). The border needs no
+   * entry here: `strokeScaleEnabled: false` already pins it to 1 screen px.
+   * Called from {@link applyView} — the one place the stage transform is set —
+   * and on backdrop creation.
    */
-  private syncBackdropPatternScale(): void {
-    if (!this.backdropRect || this.backdrop?.type !== "pattern") return;
+  private syncBackdropScreenSpace(): void {
+    if (!this.backdropRect) return;
     const s = 1 / this.view.zoom; // zoom is clamped to [MIN_ZOOM, MAX_ZOOM], never 0
-    this.backdropRect.fillPatternScale({ x: s, y: s });
+    this.backdropRect.shadowBlur(BACKDROP_SHADOW.blur * s);
+    this.backdropRect.shadowOffset({
+      x: BACKDROP_SHADOW.offset.x * s,
+      y: BACKDROP_SHADOW.offset.y * s,
+    });
+    if (this.backdrop?.type === "pattern") {
+      this.backdropRect.fillPatternScale({ x: s, y: s });
+    }
   }
 
   // --- cursor ring (see setCursorColor) --------------------------------------
