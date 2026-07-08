@@ -56,6 +56,14 @@ User directive 2026-07-04: make justpaint an **AI-product** — AI features in t
 - **APCA (`apca-w3`) as a supplementary advisory** — an additional contrast signal in the WCAG-3 direction (better-behaved for the vivid brand orange than the WCAG-2 ratio). Advisory only, **not a gate**. *When:* alongside the browser a11y layer, if wanted.
 - **Adopt oriui `data-ori-skin=neutral`** — delegate the base palette to oriui's new `neutral` skin (`DECISIONS.md` 2026-07-08) and drop the `main.css` palette override, keeping only the desk/backdrop token + the light colored-text-tone override. *When:* a shell-token cleanup pass.
 - **Publish the oriui tooltip/neutral fix, then drop justpaint's interim workarounds** — once oriui publishes `feat/neutral-skin-tooltip-contrast` (commit `bd3d847`), bump the app and remove the interim `--ori-tooltip` override + the per-cluster `placement`-only tooltip workarounds (`NOTES.md`). *When:* the next oriui bump.
+- **axe `/draw` contrast triage** — the browser axe suite (`test:a11y`, `DECISIONS.md` 2026-07-08) reported these on `/draw` — all **pre-existing, allowlisted for later triage, none blocking**:
+  - `.draw__brand` wordmark — #ff5500 on #f0f2f6 = **2.85:1** — brand orange as large wordmark text; a brand/`--ori-color-primary` decision (mobile hides it ≤600px, so it only affects desktop).
+  - `.ori-variant_tonal` buttons ("Copy as text"/"Copy as image") — #c24100 on #e5c6b9 = **3.23:1** — oriui tonal-button token → **upstream** (`@oriui/css`).
+  - selected tab `.ori-tabs__tab[aria-selected="true"]` ("Log in") — #ff5500 on #f0f2f6 = **2.85:1** — oriui selected-tab uses the primary token → **upstream**.
+  - `.menu__section-title` ("File"/"Canvas") — #74777c on #f0f2f6 = **4.01:1** — app-side muted header, a near-miss vs 4.5:1; easy local fix (darken the muted tone a touch).
+  - `region` (moderate, non-blocking) — the floating `/draw` chrome isn't wrapped in a `<main>`/landmark — a landmark-structure decision.
+
+  3 of the 4 serious items are oriui-owned tokens (belong upstream in `@oriui/css`); the `.menu__section-title` near-miss and the landmark gap are the only app-side items. *When:* next a11y touch — pairs with the browser a11y layer above.
 
 ## Orchestration / process
 - **Cross-domain parallel agents** — backend (`server/`) and frontend (`packages/` + `apps/`) share no files and both validate against the **frozen contract** (`docs/DOCUMENT-FORMAT.md`), so they can run on **parallel branches**; integration (review + `--no-ff` merge + ROADMAP update) stays **serialized** through one orchestrator. Within a single domain (e.g. the editor's tools), parallelize with git-worktree isolation or sequential commits to avoid same-file conflicts. *When:* as work volume warrants; the editor tool-set is the first good fan-out candidate.
