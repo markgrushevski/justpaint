@@ -5,12 +5,16 @@ import { lineTool } from "./line";
 import { rectTool } from "./rect";
 import { ellipseTool } from "./ellipse";
 import { triangleTool } from "./triangle";
+import { handTool } from "./hand";
 
 /**
  * The tool registry, keyed by {@link ToolId}.
  *
- * Each entry is a pure {@link Tool} implementing `buildStroke` (no Konva, no
- * mutable state). The editor looks tools up here by id.
+ * Most entries are pure stroke tools implementing `buildStroke` (no Konva, no
+ * mutable state); `hand` is the pan-only {@link PanTool} (kind: "pan", no
+ * `buildStroke`). The editor looks tools up here by id and routes on `kind`.
+ * Insertion order is the host toolbar's display order — hand sits last, after
+ * the drawing tools.
  */
 export const TOOLS: Record<ToolId, Tool> = {
   pen: penTool,
@@ -19,4 +23,5 @@ export const TOOLS: Record<ToolId, Tool> = {
   rect: rectTool,
   ellipse: ellipseTool,
   triangle: triangleTool,
+  hand: handTool,
 };

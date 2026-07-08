@@ -1,6 +1,6 @@
 // packages/editor/src/tools/eraser.ts — the eraser tool.
 import type { FreehandPoint, FreehandStroke } from "@justpaint/document";
-import type { LogicalPoint, Tool, ToolContext } from "../types";
+import type { LogicalPoint, StrokeTool, ToolContext } from "../types";
 
 /**
  * Eraser — a freehand stroke that erases earlier content on its own layer.
@@ -17,7 +17,8 @@ import type { LogicalPoint, Tool, ToolContext } from "../types";
  * discarded — a single sample is a valid 1-point dot (§5.3, "a dot is valid").
  * Only a truly empty gesture (zero samples) yields `null`.
  */
-export const eraserTool: Tool = {
+export const eraserTool: StrokeTool = {
+  kind: "stroke",
   id: "eraser",
 
   buildStroke(ctx: ToolContext, gesture: readonly LogicalPoint[]): FreehandStroke | null {

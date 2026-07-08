@@ -1,5 +1,5 @@
 import type { LineStroke } from "@justpaint/document";
-import type { LogicalPoint, Tool, ToolContext } from "../types";
+import type { LogicalPoint, StrokeTool, ToolContext } from "../types";
 
 /**
  * Line tool — a straight, two-point segment (docs/DOCUMENT-FORMAT.md §5.4).
@@ -10,6 +10,7 @@ import type { LogicalPoint, Tool, ToolContext } from "../types";
  * is ignored — a line is anchored at its ends, not its path.
  */
 export const lineTool = {
+  kind: "stroke",
   id: "line",
   buildStroke(ctx: ToolContext, gesture: readonly LogicalPoint[]): LineStroke | null {
     const start = gesture[0];
@@ -33,4 +34,4 @@ export const lineTool = {
       join: "round",
     };
   },
-} satisfies Tool;
+} satisfies StrokeTool;
