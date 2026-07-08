@@ -12,7 +12,8 @@
         "lint:stylelint": "npx stylelint --fix **/*.{vue,css}",
         "lint:eslint": "npx eslint --fix **/*.{vue,js,ts}",
         "lint:contrast": "node scripts/check-contrast.mjs",
-        "lint:all": "npm run lint:prettier && npm run lint:stylelint && npm run lint:eslint && npm run lint:contrast"
+        "lint:all": "npm run lint:prettier && npm run lint:stylelint && npm run lint:eslint && npm run lint:contrast",
+        "test:a11y": "playwright test"
     },
     "dependencies": {
         "@justpaint/document": "*",
@@ -27,7 +28,9 @@
         "vue-router": "^5.1.0"
     },
     "devDependencies": {
+        "@axe-core/playwright": "^4.12.1",
         "@eslint/js": "^10.0.1",
+        "@playwright/test": "^1.61.1",
         "@vitejs/plugin-vue": "^6.0.7",
         "autoprefixer": "^10.5.2",
         "eslint": "^10.6.0",
