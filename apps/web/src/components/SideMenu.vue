@@ -459,7 +459,9 @@ function onKeydown(e: KeyboardEvent) {
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    opacity: 0.6;
+    /* 0.7 (not 0.6) keeps the muted header past WCAG AA: the on-surface ink at 0.6 composited only
+       4.01:1 on the light surface; 0.7 lifts it to ~5.4:1 (dark theme was already ~6:1). */
+    opacity: 0.7;
 }
 
 .menu__stack {

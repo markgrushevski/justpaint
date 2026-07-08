@@ -47,14 +47,6 @@ const AUDIT_EXCLUSIONS: { selector: string; rule: string; reason: string }[] = [
         reason: 'brand wordmark in oriui --ori-color-primary — deliberate brand color, design decision'
     },
     {
-        selector: '.menu__section-title',
-        rule: 'color-contrast',
-        // Intentionally de-emphasized side-menu section headers ("File",
-        // "Canvas") — #74777c on #f0f2f6 = 4.01:1, a near-miss vs 4.5:1. The
-        // muted treatment is a deliberate visual-hierarchy choice. TRIAGE.
-        reason: 'deliberately muted menu section headers (4.01:1 near-miss) — design decision'
-    },
-    {
         selector: '.ori-variant_tonal',
         rule: 'color-contrast',
         // oriui tonal buttons ("Copy as text/image") — #c24100 on #e5c6b9 =
@@ -106,7 +98,6 @@ async function expectNoSeriousViolations(page: Page, label: string): Promise<voi
     const nonBlocking = results.violations.filter((v) => !BLOCKING_IMPACTS.has(v.impact ?? ''))
 
     if (nonBlocking.length > 0) {
-         
         console.log(`\n[a11y:${label}] non-blocking (moderate/minor) findings:\n${formatViolations(nonBlocking)}`)
     }
 
