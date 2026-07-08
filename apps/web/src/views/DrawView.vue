@@ -1,12 +1,54 @@
+<script lang="ts">
+/**
+ * The legacy 8px checkerboard tiles (SVG data-URIs; 24-unit viewBox, 2×2 cells).
+ * Theme-specific: translucent black cells on light, translucent white on dark.
+ * Module scope: the two HTMLImageElements are built lazily on first use and
+ * shared across mounts.
+ */
+const GRID_TILE_LIGHT =
+    "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='8' height='8'%3e%3crect x='12' y='0' width='12' height='12' fill='%230002'/%3e%3crect x='0' y='12' width='12' height='12' fill='%230002'/%3e%3c/svg%3e"
+const GRID_TILE_DARK =
+    "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='8' height='8'%3e%3crect x='0' y='0' width='12' height='12' fill='%23fff2'/%3e%3crect x='12' y='12' width='12' height='12' fill='%23fff2'/%3e%3c/svg%3e"
+
+let gridTileLightImg: HTMLImageElement | null = null
+let gridTileDarkImg: HTMLImageElement | null = null
+
+/** The checkerboard tile for the given theme, created (and loading) on demand. */
+function gridTile(dark: boolean): HTMLImageElement {
+    if (dark) {
+        if (!gridTileDarkImg) {
+            gridTileDarkImg = new Image()
+            gridTileDarkImg.src = GRID_TILE_DARK
+        }
+        return gridTileDarkImg
+    }
+    if (!gridTileLightImg) {
+        gridTileLightImg = new Image()
+        gridTileLightImg.src = GRID_TILE_LIGHT
+    }
+    return gridTileLightImg
+}
+</script>
+
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { OriButton } from '@oriui/vue'
+import { OriButton, OriIcon, OriToaster, useToast } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId, LayerView } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
-import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
-import { isAuthError, toApiError, useLoadLatestDrawing, useSaveDrawing, useSessionStore, useThemeStore } from '@core'
+import { DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
+import {
+    copyImage,
+    copyText,
+    icons,
+    isAuthError,
+    toApiError,
+    useLoadLatestDrawing,
+    useSaveDrawing,
+    useSessionStore,
+    useThemeStore
+} from '@core'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import LayersPanel from '../components/LayersPanel.vue'
@@ -19,11 +61,20 @@ const containerRef = ref<HTMLDivElement | null>(null)
 let editor: Editor | null = null
 let unsubscribe: (() => void) | null = null
 
-type MessageSeverity = 'info' | 'success' | 'error'
-
 /** Id of the drawing currently open (set after a successful save/load). */
 const currentId = ref<string | null>(null)
-const message = ref<{ text: string; severity: MessageSeverity } | null>(null)
+
+/** Drawing name — shown/renamed in the side menu, persisted with save. */
+const DEFAULT_NAME = 'new art'
+const drawingName = ref(DEFAULT_NAME)
+
+// Transient status goes through the oriui toast queue (rendered by the single
+// <OriToaster> below); duration scales with severity so errors stay readable
+// longer than successes.
+const toaster = useToast()
+const TOAST_SUCCESS = 3500
+const TOAST_INFO = 5000
+const TOAST_ERROR = 8000
 
 // Server data goes through TanStack Query: save/load are mutations, so the view
 // gets `isPending`/`error` + cache invalidation without hand-rolled busy flags.
@@ -40,13 +91,17 @@ const ui = reactive({
 })
 
 // Editor-derived state, kept in sync via the editor's onChange subscription so
-// Vue re-renders the toolbar (undo/redo enablement), the layers panel, and zoom.
+// Vue re-renders the toolbar (undo/redo enablement), the layers panel, zoom,
+// and the side menu's canvas-size fields.
 const layers = ref<LayerView[]>([])
 const activeLayerId = ref('')
 const canUndo = ref(false)
 const canRedo = ref(false)
 const zoom = ref(1)
 const zoomPercent = computed(() => Math.round(zoom.value * 100))
+// Widened: DEFAULT_CANVAS is `as const`, so a bare ref() would narrow to the literal.
+const docWidth = ref<number>(DEFAULT_CANVAS.width)
+const docHeight = ref<number>(DEFAULT_CANVAS.height)
 const MAX_LAYERS = LIMITS.maxLayers
 
 const session = useSessionStore()
@@ -68,8 +123,8 @@ const shortcutsOpen = ref(false)
 // reflow breakpoint (601px+ has room for the island).
 const layersOpen = ref(window.innerWidth > 600) // oriui --ori-size-screen_xs (600px)
 
-// True when nothing is drawn yet (no strokes in any layer). Drives both the
-// first-run hint and the "New"-confirm skip.
+// True when nothing is drawn yet (no strokes in any layer). Drives the
+// first-run hint and the "New"/apply-size confirm skip.
 const isEmpty = computed(() => layers.value.every((l) => l.strokeCount === 0))
 
 /* --- first-run onboarding hint --------------------------------------- */
@@ -88,20 +143,42 @@ function dismissHint() {
     }
 }
 
-/* --- confirm before "New" wipes the canvas --------------------------- */
+/* --- confirm before "New" / apply-size wipes the canvas -------------- */
 
 const confirmNewOpen = ref(false)
+/** Size for a pending confirm — set when Apply-size hits a non-empty canvas. */
+const pendingSize = ref<{ w: number; h: number } | null>(null)
+
 // Clearing resets history (irreversible), so confirm only when there's work to
 // lose; an already-empty canvas clears straight away.
 function requestNew() {
+    pendingSize.value = null
     if (isEmpty.value) {
         clearCanvas()
     } else {
         confirmNewOpen.value = true
     }
 }
+
+/** Apply-size from the menu = "New at this size" — same confirm-if-dirty flow. */
+function onApplyCanvasSize(w: number, h: number) {
+    if (isEmpty.value) {
+        clearCanvas(w, h)
+    } else {
+        pendingSize.value = { w, h }
+        confirmNewOpen.value = true
+    }
+}
+
 function onConfirmNew() {
-    clearCanvas()
+    const size = pendingSize.value
+    pendingSize.value = null
+    clearCanvas(size?.w, size?.h)
+    confirmNewOpen.value = false
+}
+
+function onCancelNew() {
+    pendingSize.value = null
     confirmNewOpen.value = false
 }
 
@@ -109,25 +186,26 @@ const THEME_ICON: Record<string, IconName> = { auto: 'monitor', light: 'sun', da
 const themeIcon = computed(() => THEME_ICON[theme.mode] ?? 'monitor')
 const themeTitle = computed(() => `Theme: ${theme.mode} (click to switch)`)
 
-// Status messages self-dismiss; duration scales with severity so errors stay
-// readable longer than successes: success 3.5s, info 5s, error 8s.
-const MESSAGE_DURATION: Record<MessageSeverity, number> = {
-    success: 3500,
-    info: 5000,
-    error: 8000
+/** Clamp a canvas dimension to the document's integer [1, maxCanvasDimension] domain. */
+function clampDim(n: number): number {
+    return Math.min(LIMITS.maxCanvasDimension, Math.max(1, Math.round(n)))
 }
-let messageTimer: ReturnType<typeof setTimeout> | null = null
-watch(message, (m) => {
-    if (messageTimer) clearTimeout(messageTimer)
-    if (m) messageTimer = setTimeout(() => (message.value = null), MESSAGE_DURATION[m.severity])
-})
 
-function blankDocument(): Document {
+/**
+ * A blank single-layer document. Unsized, it matches the current viewport (the
+ * canvas fills the screen on a fresh /draw), falling back to DEFAULT_CANVAS
+ * before layout. Background is null — the transparent document lets the
+ * view-only backdrop below (paper / checkerboard) show through.
+ */
+function blankDocument(w?: number, h?: number): Document {
+    const el = containerRef.value
+    const width = clampDim(w ?? (el && el.clientWidth > 0 ? el.clientWidth : DEFAULT_CANVAS.width))
+    const height = clampDim(h ?? (el && el.clientHeight > 0 ? el.clientHeight : DEFAULT_CANVAS.height))
     return {
         version: DOC_VERSION,
-        width: DEFAULT_CANVAS.width,
-        height: DEFAULT_CANVAS.height,
-        background: DEFAULT_BACKGROUND,
+        width,
+        height,
+        background: null,
         layers: [{ id: newId(), name: 'Layer 1', visible: true, opacity: 1, strokes: [] }]
     }
 }
@@ -139,14 +217,60 @@ function syncEditorState() {
     canUndo.value = editor.canUndo()
     canRedo.value = editor.canRedo()
     zoom.value = editor.getZoom()
+    const doc = editor.getDocument()
+    docWidth.value = doc.width
+    docHeight.value = doc.height
+}
+
+/* --- canvas backdrop (paper / checkerboard, a persisted view pref) ---- */
+
+const BACKDROP_KEY = 'jp.backdropGrid'
+const backdropGrid = ref(false)
+
+/**
+ * Push the current backdrop pref into the editor: the checkerboard pattern when
+ * the grid is on (waiting for the tile image to decode on first use), else the
+ * theme "paper" (white/black) behind the transparent document. View-only — the
+ * editor guarantees it can never leak into exports or the judged raster.
+ */
+async function applyBackdrop() {
+    if (!editor) return
+    if (!backdropGrid.value) {
+        editor.setCanvasBackdrop({ type: 'color', color: theme.isDark ? '#000000' : '#ffffff' })
+        return
+    }
+    const img = gridTile(theme.isDark)
+    if (!img.complete) {
+        try {
+            await img.decode()
+        } catch {
+            return // a data-URI that fails to decode won't succeed on retry
+        }
+        // Async gap: re-check the pref/theme still want THIS tile before applying.
+        if (!editor || !backdropGrid.value || img !== gridTile(theme.isDark)) return
+    }
+    editor.setCanvasBackdrop({ type: 'pattern', image: img })
+}
+
+// Theme flips and grid toggles both re-apply (the tiles are theme-specific).
+watch([() => theme.isDark, backdropGrid], () => void applyBackdrop())
+
+function onToggleGrid(on: boolean) {
+    backdropGrid.value = on
+    try {
+        localStorage.setItem(BACKDROP_KEY, on ? '1' : '0')
+    } catch {
+        /* private mode / storage disabled — the pref just won't persist */
+    }
 }
 
 onMounted(() => {
     void session.fetchMe() // restore an existing cookie session, if any
     try {
         hintDismissed.value = localStorage.getItem(HINT_KEY) === '1'
+        backdropGrid.value = localStorage.getItem(BACKDROP_KEY) === '1'
     } catch {
-        /* private mode / storage disabled — treat as not-yet-dismissed */
+        /* private mode / storage disabled — defaults (hint on, paper backdrop) */
     }
     if (!containerRef.value) return
     // The editor sizes its Konva stage to the container and fits the document
@@ -157,6 +281,7 @@ onMounted(() => {
     // useThemeColor resolves in ITS mounted hook (registered before this one),
     // so the value is usually ready here; the watch covers late/changed values.
     editor.setCursorColor(cursorRingColor.value || null)
+    void applyBackdrop()
     unsubscribe = editor.onChange(syncEditorState)
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
@@ -164,7 +289,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeydown)
-    if (messageTimer) clearTimeout(messageTimer)
     unsubscribe?.()
     unsubscribe = null
     // Destroy the Konva stage (removes it from Konva's module-global registry and
@@ -181,8 +305,9 @@ const KEY_TO_TOOL = new Map<string, ToolId>(
 /**
  * Keyboard shortcuts (DECISIONS 2026-07-04): Ctrl/Cmd+Z/Y undo-redo, Ctrl/Cmd+
  * 0/+/- zoom, Ctrl/Cmd+S save, modifier-free B/E/L/R/O/T tool keys, and "?"
- * for the cheat-sheet. Skips form fields; single keys are also suppressed
- * while the side menu or the cheat-sheet is open (they own the keyboard then).
+ * for the cheat-sheet. Skips form fields and contenteditable (the menu's title
+ * rename). The side menu is NON-MODAL — the canvas stays interactive behind
+ * it — so it does NOT suppress single keys; only the modal overlays do.
  */
 function onKeydown(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null
@@ -213,23 +338,25 @@ function onKeydown(e: KeyboardEvent) {
         return
     }
     if (e.altKey) return
-    // Esc closes the cheat-sheet even when focus never entered it (the SideMenu
-    // handles its own Esc — focus moves into its panel on open).
+    // Esc: the menu first — it's non-modal, so focus may still sit on the
+    // canvas where its own panel-scoped Esc never fires — then the cheat-sheet.
     if (e.key === 'Escape') {
-        if (shortcutsOpen.value) shortcutsOpen.value = false
+        if (menuOpen.value) menuOpen.value = false
+        else if (shortcutsOpen.value) shortcutsOpen.value = false
         return
     }
-    // While an overlay is open, single keys belong to it — except "?", which
-    // still toggles the cheat-sheet closed.
+    // "?" toggles the cheat-sheet — desktop only (the chip is hidden <=600px).
     if (e.key === '?') {
-        if (menuOpen.value || confirmNewOpen.value) return
+        if (window.innerWidth <= 600) return
+        if (confirmNewOpen.value) return
         e.preventDefault()
         shortcutsOpen.value = !shortcutsOpen.value
         return
     }
-    // Every hand-rolled overlay must be listed here, or its single-key tool
-    // hotkeys (B/E/L/R/O/T) leak to this window listener and fire underneath it.
-    if (menuOpen.value || shortcutsOpen.value || confirmNewOpen.value) return
+    // Every MODAL overlay must be listed here, or its single-key tool hotkeys
+    // (B/E/L/R/O/T) leak to this window listener and fire underneath it. The
+    // non-modal side menu deliberately is not — drawing under it is a feature.
+    if (shortcutsOpen.value || confirmNewOpen.value) return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
         e.preventDefault()
@@ -284,13 +411,13 @@ function fitView() {
     editor?.fitToViewport()
 }
 
-function clearCanvas() {
+function clearCanvas(w?: number, h?: number) {
     if (!editor) return
     // Validate the freshly built blank doc before loading (loadDocument does
     // not validate). parseDocument throws DocumentValidationError on bad input.
-    editor.loadDocument(parseDocument(blankDocument()))
+    editor.loadDocument(parseDocument(blankDocument(w, h)))
     currentId.value = null
-    message.value = null
+    drawingName.value = DEFAULT_NAME
 }
 
 /* --- layers panel handlers ------------------------------------------ */
@@ -317,6 +444,12 @@ function renameLayer(id: string, name: string) {
     editor?.renameLayer(id, name)
 }
 
+/* --- menu handlers ---------------------------------------------------- */
+
+function onRename(name: string) {
+    drawingName.value = name.trim() || DEFAULT_NAME
+}
+
 async function exportPng() {
     if (!editor) return
     const doc = editor.getDocument()
@@ -331,33 +464,64 @@ async function exportPng() {
     setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
+/** Copy the raw vector document (JSON) — the menu's "Copy as text". */
+async function copyDocJson() {
+    if (!editor) return
+    try {
+        await copyText(JSON.stringify(editor.getDocument()))
+        toaster.success({ text: 'Copied document JSON', duration: TOAST_SUCCESS })
+    } catch (err) {
+        toaster.error({
+            text: err instanceof Error ? err.message : 'Could not copy to the clipboard.',
+            duration: TOAST_ERROR,
+            closable: true
+        })
+    }
+}
+
+/** Copy a rendered PNG at the document's own size — the menu's "Copy as image". */
+async function copyPngToClipboard() {
+    if (!editor) return
+    try {
+        const doc = editor.getDocument()
+        const blob = await editor.toPNG({ outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
+        await copyImage(blob)
+        toaster.success({ text: 'Copied image', duration: TOAST_SUCCESS })
+    } catch (err) {
+        toaster.error({
+            text: err instanceof Error ? err.message : 'Could not copy the image.',
+            duration: TOAST_ERROR,
+            closable: true
+        })
+    }
+}
+
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
         // Open the drawer so the sign-in form is one glance away. Close the
-        // cheat-sheet first: both teleport to body at the same z-index with
-        // independent focus traps, so stacking them fights over focus.
+        // cheat-sheet first: its focus trap would fight the incoming drawer.
         shortcutsOpen.value = false
         menuOpen.value = true
-        message.value = { text: `Sign in from the menu (top-left) to ${action}.`, severity: 'error' }
+        toaster.error({ text: `Sign in from the menu to ${action}.`, duration: TOAST_ERROR, closable: true })
         return
     }
     const api = toApiError(err)
-    message.value = {
+    toaster.error({
         text: api ? `Could not ${action}: ${api.message}` : `Could not ${action} (is the server running?).`,
-        severity: 'error'
-    }
+        duration: TOAST_ERROR,
+        closable: true
+    })
 }
 
 function save() {
     if (!editor || busy.value) return
-    message.value = null
     const existing = currentId.value
     saveMutation.mutate(
-        { id: existing ?? undefined, document: editor.getDocument() },
+        { id: existing ?? undefined, document: editor.getDocument(), name: drawingName.value },
         {
             onSuccess: (meta) => {
                 currentId.value = meta.id
-                message.value = { text: existing ? 'Saved.' : `Saved as ${meta.id}.`, severity: 'success' }
+                toaster.success({ text: existing ? 'Saved.' : `Saved as ${meta.id}.`, duration: TOAST_SUCCESS })
             },
             onError: (err) => reportError(err, 'save')
         }
@@ -366,17 +530,17 @@ function save() {
 
 function load() {
     if (!editor || busy.value) return
-    message.value = null
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
             if (!full) {
-                message.value = { text: 'No saved drawings yet.', severity: 'info' }
+                toaster.info({ text: 'No saved drawings yet.', duration: TOAST_INFO })
                 return
             }
             // full.document is already validated by drawings.get (parseDocument).
             editor?.loadDocument(full.document)
             currentId.value = full.id
-            message.value = { text: `Loaded ${full.id}.`, severity: 'success' }
+            drawingName.value = full.name
+            toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST_SUCCESS })
         },
         onError: (err) => reportError(err, 'load')
     })
@@ -390,15 +554,24 @@ function load() {
              else floats above the canvas — the shared /draw+/play shell language. -->
         <div ref="containerRef" class="draw__canvas"></div>
 
-        <!-- Top-left: menu + brand -->
+        <!-- Top-left: brand -->
         <div class="draw__top-left">
-            <button class="draw__chip jp-float" type="button" aria-label="Open menu" @click="menuOpen = true">
-                <ToolIcon name="menu" />
-            </button>
             <span class="draw__brand jp-float">justpaint</span>
         </div>
 
-        <!-- Top-right: panels, theme, file actions -->
+        <!-- Top-right corner: the menu toggler. Sits ABOVE the drawer (z-110 >
+             menu z-100) so the same chip opens and closes it (the legacy pattern). -->
+        <button
+            class="draw__menu-toggle jp-float"
+            type="button"
+            :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
+            :aria-expanded="menuOpen"
+            @click="menuOpen = !menuOpen"
+        >
+            <OriIcon :icon="menuOpen ? icons.mdiMenuOpen : icons.mdiMenu" />
+        </button>
+
+        <!-- Top-right: panels, theme, file actions (left of the toggler) -->
         <div class="draw__top-right">
             <div class="draw__actions jp-float">
                 <button
@@ -422,7 +595,7 @@ function load() {
                     <ToolIcon :name="themeIcon" />
                 </button>
                 <button
-                    class="draw__chip-inline"
+                    class="draw__chip-inline draw__action--desktop"
                     :class="{ 'draw__chip-inline--active': shortcutsOpen }"
                     type="button"
                     aria-label="Keyboard shortcuts — ?"
@@ -452,20 +625,8 @@ function load() {
             </div>
         </div>
 
-        <!-- Transient status -->
-        <Transition name="toast">
-            <p
-                v-if="message"
-                class="draw__message jp-float"
-                :class="{ 'draw__message--error': message.severity === 'error' }"
-                :role="message.severity === 'error' ? 'alert' : 'status'"
-            >
-                <span class="draw__message-text">{{ message.text }}</span>
-                <button class="draw__message-dismiss" type="button" aria-label="Dismiss" @click="message = null">
-                    <ToolIcon name="close" />
-                </button>
-            </p>
-        </Transition>
+        <!-- Transient status: the oriui toast queue (pushed via useToast()) -->
+        <OriToaster position="top-center" />
 
         <!-- First-run hint: only on an empty canvas, until dismissed. -->
         <Transition name="toast">
@@ -522,7 +683,10 @@ function load() {
             </button>
         </div>
 
-        <!-- Right: layers island -->
+        <!-- Scrim behind the mobile layers bottom sheet (display:none >600px) -->
+        <div v-if="layersOpen" class="draw__layers-scrim" @click="layersOpen = false"></div>
+
+        <!-- Layers: a dropdown under the actions island (desktop), bottom sheet (phones) -->
         <div v-show="layersOpen" class="draw__layers">
             <LayersPanel
                 :layers="layers"
@@ -542,11 +706,21 @@ function load() {
         <SideMenu
             :open="menuOpen"
             :busy="busy"
+            :can-rename="session.isLoggedIn"
+            :title="drawingName"
+            :backdrop-grid="backdropGrid"
+            :canvas-width="docWidth"
+            :canvas-height="docHeight"
             @close="menuOpen = false"
             @new-drawing="requestNew"
             @load="load"
             @save="save"
             @export-png="exportPng"
+            @copy-text="copyDocJson"
+            @copy-image="copyPngToClipboard"
+            @rename="onRename"
+            @toggle-grid="onToggleGrid"
+            @apply-canvas-size="onApplyCanvasSize"
         />
 
         <ShortcutsDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
@@ -559,7 +733,7 @@ function load() {
             cancel-text="Cancel"
             danger
             @confirm="onConfirmNew"
-            @cancel="confirmNewOpen = false"
+            @cancel="onCancelNew"
         />
     </div>
 </template>
@@ -570,8 +744,9 @@ function load() {
     height: 100%;
     overflow: hidden;
 
-    /* Letterbox around the fitted document (its own white background shows the
-       "paper"; this fills the margins, like a canvas on a desk). */
+    /* Letterbox around the fitted document (the view-only backdrop paints the
+       "paper" behind the transparent document; this fills the margins, like a
+       canvas on a desk). */
     background-color: var(--ori-color-background);
 }
 
@@ -597,25 +772,32 @@ function load() {
     left: var(--ori-size-gap_md, 0.5rem);
 }
 
+/* Shifted left of the corner menu toggler (gap + chip + gap). */
 .draw__top-right {
-    right: var(--ori-size-gap_md, 0.5rem);
+    right: calc(var(--ori-size-gap_md, 0.5rem) * 2 + var(--ori-size-action_md, 2.75rem));
     max-width: calc(100vw - 8rem);
 }
 
-.draw__chip {
+/* The menu toggler — pinned above the 400px drawer (z-110 > the menu's z-100)
+   so it stays clickable, flipping to a "close" glyph, while the menu is open. */
+.draw__menu-toggle {
+    position: absolute;
+    top: var(--ori-size-gap_md, 0.5rem);
+    right: var(--ori-size-gap_md, 0.5rem);
+    z-index: 110;
+
     display: grid;
     place-items: center;
 
-    width: var(--jp-control-lg, 2.4rem);
-    height: var(--jp-control-lg, 2.4rem);
+    width: var(--ori-size-action_md, 2.75rem);
+    height: var(--ori-size-action_md, 2.75rem);
     padding: 0;
 
     color: var(--ori-color-on-surface);
-    font-size: 1.05rem;
     cursor: pointer;
 }
 
-.draw__chip:hover {
+.draw__menu-toggle:hover {
     background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
@@ -669,61 +851,25 @@ function load() {
     background-color: var(--ori-color-outline, rgb(0 0 0 / 12%));
 }
 
-.draw__message {
-    position: absolute;
-    top: calc(var(--ori-size-gap_md, 0.5rem) + 3.25rem);
-    left: 50%;
-    z-index: 12;
-    transform: translateX(-50%);
-
-    display: flex;
-    align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
-
-    max-width: min(34rem, 80vw);
-    margin: 0;
-    padding: 0.5rem 0.9rem;
-
-    color: var(--ori-color-on-surface);
-    font-size: var(--ori-font-size_sm, 0.875rem);
-}
-
-.draw__message--error {
-    border-inline-start: 3px solid var(--ori-color-danger);
-}
-
-.draw__message-text {
-    flex: 1;
-}
-
-/* Bare glyph dismiss — matches the other transparent icon buttons in the shell. */
-.draw__message-dismiss {
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0;
-
-    border: none;
-    border-radius: var(--ori-size-radius_md, 8px);
-    background: transparent;
-    color: var(--ori-color-on-surface);
-
-    cursor: pointer;
-}
-
-.draw__message-dismiss:hover {
-    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
-}
-
+/* Full-width centering strip (NOT left:50% + translate): an absolutely
+   positioned box with a left offset gets shrink-to-fit against the REMAINING
+   half of the viewport, which squeezed the bar to min-content and wrapped it
+   on phones. The strip itself must not eat canvas events. */
 .draw__toolbar {
     position: absolute;
     bottom: var(--ori-size-gap_lg, 0.75rem);
-    left: 50%;
+    left: 0;
+    right: 0;
     z-index: 10;
-    transform: translateX(-50%);
+
+    display: flex;
+    justify-content: center;
+
+    pointer-events: none;
+}
+
+.draw__toolbar > * {
+    pointer-events: auto;
 }
 
 /* First-run hint — sits above the toolbar, clear of it. */
@@ -829,17 +975,33 @@ function load() {
     cursor: pointer;
 }
 
+/* Layers — a dropdown hanging under the actions island (desktop). The wrapper
+   stretches the panel to its clamped height so the panel's own list scrolls. */
 .draw__layers {
     position: absolute;
-    top: 4.1rem;
+    top: calc(
+        var(--ori-size-gap_md, 0.5rem) + var(--ori-size-action_md, 2.75rem) + var(--ori-size-gap_sm, 0.25rem) + 0.35rem
+    );
     right: var(--ori-size-gap_md, 0.5rem);
-    bottom: 4.6rem;
     z-index: 9;
 
     display: flex;
-    align-items: flex-start;
+    align-items: stretch;
 
-    width: 15.5rem;
+    width: 16rem;
+    max-height: calc(100dvh - 10rem);
+}
+
+/* Scrim behind the mobile layers sheet — display:none here so it can never
+   show on desktop; the <=600px media query turns it on. */
+.draw__layers-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 59;
+
+    display: none;
+
+    background-color: rgb(0 0 0 / 35%);
 }
 
 .toast-enter-active,
@@ -858,11 +1020,24 @@ function load() {
 /* --- small screens ----------------------------------------------------- */
 
 @media (width <= 600px) {
-    /* The layers island becomes a bottom sheet above the toolbar. */
-    .draw__layers {
-        inset: auto var(--ori-size-gap_sm, 0.25rem) 5rem var(--ori-size-gap_sm, 0.25rem);
+    .draw__layers-scrim {
+        display: block;
+    }
 
-        width: auto;
+    /* The layers island becomes a full-width bottom sheet over the scrim. The
+       wrapper carries the sheet chrome (top radius + surface) so the panel's
+       own rounded bottom corners can't notch the screen edge. */
+    .draw__layers {
+        position: fixed;
+        inset: auto 0 0;
+        z-index: 60;
+
+        width: 100%;
+        max-height: 60dvh;
+        overflow: hidden;
+
+        border-radius: var(--ori-size-radius_lg, 12px) var(--ori-size-radius_lg, 12px) 0 0;
+        background-color: var(--ori-color-surface);
     }
 
     .draw__toolbar {
@@ -870,24 +1045,25 @@ function load() {
     }
 
     /* Bottom is owned by the toolbar + layers sheet on phones — move zoom to
-       the top-right, just below the actions island, so it stays reachable. */
+       the top-right, clear of the actions island AND the menu toggler. */
     .draw__zoom {
-        top: 3.6rem;
+        top: calc(var(--ori-size-gap_md, 0.5rem) + var(--ori-size-action_md, 2.75rem) + 0.5rem);
         right: var(--ori-size-gap_sm, 0.25rem);
         bottom: auto;
     }
 
-    /* Raise the hint so it clears the taller (wrapped) toolbar. */
+    /* Raise the hint so it clears the (now single-row) toolbar. */
     .draw__hint {
-        bottom: 9rem;
+        bottom: 5.5rem;
     }
 
     .draw__brand {
         display: none;
     }
 
-    /* New/Load/Export live in the side menu on phones — only Save + the two
-       chips stay in the top-right island (it was wrapping over the canvas). */
+    /* New/Load/Export live in the side menu on phones, and the shortcuts chip
+       goes too (no hardware keyboard) — only Save + the layers/theme chips
+       stay in the top-right island. */
     .draw__action--desktop {
         display: none;
     }

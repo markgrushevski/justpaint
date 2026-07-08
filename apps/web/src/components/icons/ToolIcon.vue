@@ -27,7 +27,7 @@ export type IconName =
 
 const props = defineProps<{ name: IconName }>()
 
-/** Static, hand-written markup — safe for v-html (nothing user-supplied). */
+/** Static, handwritten markup — safe for v-html (nothing user-supplied). */
 const ICONS: Record<IconName, string> = {
     pen: '<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>',
     eraser: '<path d="m7 21-4.35-4.35a1 1 0 0 1 0-1.41L13.3 4.6a2 2 0 0 1 2.83 0l3.28 3.28a2 2 0 0 1 0 2.83L11 19"/><path d="M22 21H7"/><path d="m9 8.6 6.4 6.4"/>',

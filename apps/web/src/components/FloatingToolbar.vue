@@ -22,8 +22,13 @@ export const TOOL_META: Record<ToolId, { label: string; icon: IconName; key: str
  * The floating bottom toolbar (tldraw-style — DECISIONS 2026-07-04): tools as
  * icon buttons, stroke/fill controls, undo/redo. Part of the shared /draw+/play
  * editor shell; file actions and panels live in the top clusters, not here.
+ *
+ * The stroke/fill controls render TWICE with shared handlers: inline in the bar
+ * (>600px) and inside a popover panel behind a swatch chip (<=600px, variant C).
+ * A slot/component split is overkill for one consumer — CSS media queries show
+ * exactly one copy per breakpoint.
  */
-import { OriCheckbox, OriSlider } from '@oriui/vue'
+import { OriCheckbox, OriPopover, OriSlider, OriTooltip } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'
 import ToolIcon from './icons/ToolIcon.vue'
 
@@ -55,29 +60,40 @@ function onColor(e: Event) {
 function onFill(e: Event) {
     emit('setFill', (e.target as HTMLInputElement).value)
 }
+/** Free-typed px width: clamp to the slider's [1, 64] integer domain, reflect the clamp, emit. */
+function onWidth(e: Event) {
+    const el = e.target as HTMLInputElement
+    const parsed = Math.round(Number(el.value))
+    const width =
+        el.value.trim() !== '' && Number.isFinite(parsed) ? Math.min(64, Math.max(1, parsed)) : props.strokeWidth
+    // Write back so an out-of-range entry snaps visibly even when the emitted
+    // value equals the current prop (no re-render to correct the field).
+    el.value = String(width)
+    emit('setWidth', width)
+}
 </script>
 
 <template>
     <div class="bar jp-float" role="toolbar" aria-label="Drawing tools">
         <div class="bar__group" role="group" aria-label="Tools">
-            <button
-                v-for="id in toolIds"
-                :key="id"
-                class="bar__tool"
-                :class="{ 'bar__tool--active': props.activeTool === id }"
-                :aria-pressed="props.activeTool === id"
-                :aria-label="TOOL_META[id].label"
-                :title="`${TOOL_META[id].label} — ${TOOL_META[id].key}`"
-                type="button"
-                @click="emit('pickTool', id)"
-            >
-                <ToolIcon :name="TOOL_META[id].icon" />
-            </button>
+            <OriTooltip v-for="id in toolIds" :key="id" :content="`${TOOL_META[id].label} — ${TOOL_META[id].key}`">
+                <button
+                    class="bar__tool"
+                    :class="{ 'bar__tool--active': props.activeTool === id }"
+                    :aria-pressed="props.activeTool === id"
+                    :aria-label="TOOL_META[id].label"
+                    type="button"
+                    @click="emit('pickTool', id)"
+                >
+                    <ToolIcon :name="TOOL_META[id].icon" />
+                </button>
+            </OriTooltip>
         </div>
 
         <span class="bar__divider" aria-hidden="true"></span>
 
-        <div class="bar__group" role="group" aria-label="Stroke and fill">
+        <!-- Inline style controls — visible >600px only. -->
+        <div class="bar__group bar__style-inline" role="group" aria-label="Stroke and fill">
             <label class="bar__swatch" title="Stroke color">
                 <input type="color" :value="props.color" aria-label="Stroke color" @input="onColor" />
             </label>
@@ -91,7 +107,16 @@ function onFill(e: Event) {
                     aria-label="Stroke width"
                     @update:model-value="(v: number) => emit('setWidth', v)"
                 />
-                <span class="bar__slider-value">{{ props.strokeWidth }}</span>
+                <input
+                    class="bar__width-input"
+                    type="number"
+                    min="1"
+                    max="64"
+                    step="1"
+                    :value="props.strokeWidth"
+                    aria-label="Stroke width in px"
+                    @change="onWidth"
+                />
             </div>
 
             <div class="bar__fill">
@@ -112,29 +137,97 @@ function onFill(e: Event) {
             </div>
         </div>
 
+        <!--
+            Mobile style popover (variant C) — visible <=600px only. Toggle, light
+            dismiss, and Esc come from the native HTML Popover API; positioning is
+            CSS anchor (placement="top" — the bar sits bottom-center). NB: CSS
+            anchor positioning isn't in Firefox yet, so there the panel opens
+            viewport-centered (the [popover] UA default) — acceptable.
+        -->
+        <OriPopover placement="top">
+            <template #trigger="{ props: popoverTrigger }">
+                <!-- Cast: the slot types aria-haspopup as plain string; Vue's
+                     ButtonHTMLAttributes wants its literal union. -->
+                <button
+                    v-bind="popoverTrigger as Record<string, unknown>"
+                    class="bar__tool bar__style-trigger"
+                    type="button"
+                    aria-label="Stroke & fill"
+                >
+                    <span class="bar__style-dot" :style="{ background: props.color }" aria-hidden="true"></span>
+                </button>
+            </template>
+
+            <div class="bar__style-panel">
+                <label class="bar__swatch" title="Stroke color">
+                    <input type="color" :value="props.color" aria-label="Stroke color" @input="onColor" />
+                </label>
+
+                <div class="bar__slider" :title="`Width — ${props.strokeWidth}`">
+                    <OriSlider
+                        :model-value="props.strokeWidth"
+                        :min="1"
+                        :max="64"
+                        :step="1"
+                        aria-label="Stroke width"
+                        @update:model-value="(v: number) => emit('setWidth', v)"
+                    />
+                    <input
+                        class="bar__width-input"
+                        type="number"
+                        min="1"
+                        max="64"
+                        step="1"
+                        :value="props.strokeWidth"
+                        aria-label="Stroke width in px"
+                        @change="onWidth"
+                    />
+                </div>
+
+                <div class="bar__fill">
+                    <OriCheckbox
+                        :model-value="props.fillEnabled"
+                        label="Fill"
+                        @update:model-value="(v) => emit('toggleFill', v === true)"
+                    />
+                    <label class="bar__swatch" title="Fill color">
+                        <input
+                            type="color"
+                            :value="props.fill"
+                            :disabled="!props.fillEnabled"
+                            aria-label="Fill color"
+                            @input="onFill"
+                        />
+                    </label>
+                </div>
+            </div>
+        </OriPopover>
+
         <span class="bar__divider" aria-hidden="true"></span>
 
         <div class="bar__group" role="group" aria-label="History">
-            <button
-                class="bar__tool"
-                :disabled="!props.canUndo"
-                aria-label="Undo"
-                title="Undo — Ctrl/⌘+Z"
-                type="button"
-                @click="emit('undo')"
-            >
-                <ToolIcon name="undo" />
-            </button>
-            <button
-                class="bar__tool"
-                :disabled="!props.canRedo"
-                aria-label="Redo"
-                title="Redo — Ctrl/⌘+Y"
-                type="button"
-                @click="emit('redo')"
-            >
-                <ToolIcon name="redo" />
-            </button>
+            <OriTooltip content="Undo — Ctrl/⌘+Z">
+                <button
+                    class="bar__tool"
+                    :disabled="!props.canUndo"
+                    aria-label="Undo"
+                    type="button"
+                    @click="emit('undo')"
+                >
+                    <ToolIcon name="undo" />
+                </button>
+            </OriTooltip>
+            <OriTooltip content="Redo — Ctrl/⌘+Y">
+                <button
+                    class="bar__tool"
+                    :disabled="!props.canRedo"
+                    aria-label="Redo"
+                    type="button"
+                    @click="emit('redo')"
+                >
+                    <ToolIcon name="redo" />
+                </button>
+            </OriTooltip>
         </div>
     </div>
 </template>
@@ -245,20 +338,72 @@ function onFill(e: Event) {
     display: flex;
     align-items: center;
     gap: var(--ori-size-gap_sm, 0.25rem);
-    width: 9rem;
+    width: 10rem;
 }
 
-.bar__slider-value {
-    min-width: 1.6rem;
-    text-align: right;
+.bar__width-input {
+    flex: none;
+    width: 3.2rem;
+    padding: 0.15rem 0.3rem;
+
+    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
+    border-radius: var(--ori-size-radius_sm, 4px);
+    background: transparent;
+    color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_xs, 0.75rem);
     font-variant-numeric: tabular-nums;
-    color: var(--ori-color-on-surface);
-    opacity: 0.75;
+    text-align: right;
+
+    /* Spinners would eat most of 3.2rem — hide them; the slider is the coarse control. */
+    appearance: textfield;
 }
 
-/* Phones: wrap so every control stays on-screen, tighten paddings, hide readout. */
+.bar__width-input::-webkit-outer-spin-button,
+.bar__width-input::-webkit-inner-spin-button {
+    margin: 0;
+    appearance: none;
+}
+
+/* The popover trigger chip: current stroke color as a ringed dot. */
+.bar__style-dot {
+    width: 1.25rem;
+    height: 1.25rem;
+
+    border: 2px solid var(--ori-color-surface, #ffffff);
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px var(--ori-color-outline, rgb(0 0 0 / 20%));
+}
+
+/* The popover panel: vertical stack of the same stroke/fill controls. */
+.bar__style-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ori-size-gap_md, 0.5rem);
+
+    min-width: 14rem;
+    padding: var(--ori-size-gap_md, 0.5rem);
+}
+
+.bar__style-panel .bar__slider {
+    width: auto;
+}
+
+.bar__style-panel .bar__swatch {
+    justify-items: start;
+}
+
+/* Desktop: the style controls live inline; the popover chip (and its panel) hide. */
+@media (width > 600px) {
+    .bar__style-trigger,
+    .bar__style-panel {
+        display: none;
+    }
+}
+
+/* Phones: the style group collapses into the popover chip so the bar fits one
+   row at 360-430px; flex-wrap stays as the safety net. */
 @media (width <= 600px) {
     .bar {
         flex-wrap: wrap;
@@ -267,22 +412,25 @@ function onFill(e: Event) {
         padding: 0.35rem 0.5rem;
     }
 
-    .bar__tool {
-        width: var(--jp-control-sm, 2.25rem);
-        height: var(--jp-control-sm, 2.25rem);
+    .bar__style-inline {
+        display: none;
     }
 
+    /* Compact chrome: dividers off and tighter buttons — 6 tools + chip +
+       undo/redo add up to ~336px, inside a 360px viewport minus margins. */
+    .bar__divider {
+        display: none;
+    }
+
+    .bar__tool {
+        width: 2rem;
+        height: 2rem;
+    }
+
+    /* Color wells now only render inside the popover panel — keep them tappable. */
     .bar__swatch input[type='color'] {
         width: var(--jp-control-sm, 2.25rem);
         height: var(--jp-control-sm, 2.25rem);
-    }
-
-    .bar__slider {
-        width: 5rem;
-    }
-
-    .bar__slider-value {
-        display: none;
     }
 }
 </style>

@@ -132,6 +132,7 @@ These exact numbers are pinned **here** (`DOCUMENT-FORMAT.md` §7 step 1 & step 
 | Points per single stroke | **10,000** | Document validator | Bounds one pathological stroke. |
 | Total strokes (all layers) | **5,000** | Document validator | Sanity ceiling; the points cap binds first. |
 | Layers | **64** | Document validator | Far above any hand-editor need. |
+| Drawing `name` | **64 runes** | Drawings handler | Metadata, **not** part of the document (the validators never see it). Counted in runes like the layer-name cap; over-cap ⇒ `400 validation_failed`. |
 
 - The **8 MB body cap** is wired via `http.MaxBytesReader` on the request body of every document-bearing route; it trips *before* allocation/parse, so a multi-million-point blob can't OOM the parser or the render worker.
 - We **do not advertise a per-layer stroke cap** — the total-points budget makes it unreachable (`DOCUMENT-FORMAT.md` §7 step 5).
@@ -139,25 +140,27 @@ These exact numbers are pinned **here** (`DOCUMENT-FORMAT.md` §7 step 1 & step 
 
 ## 7. Drawings CRUD
 
-All under `/api/drawings`. **Auth: required** on every route. **Every operation is ownership-scoped by the authenticated user** (`owner_id`) — no IDOR; foreign-owned ids are `404 not_found` (§1). The `drawings` table DDL is owned by `DOCUMENT-FORMAT.md` §7 (columns: `id, owner_id, match_id, doc_version, width, height, document jsonb, thumbnail_url, created_at, updated_at`).
+All under `/api/drawings`. **Auth: required** on every route. **Every operation is ownership-scoped by the authenticated user** (`owner_id`) — no IDOR; foreign-owned ids are `404 not_found` (§1). The `drawings` table DDL is owned by `DOCUMENT-FORMAT.md` §7 (columns: `id, owner_id, match_id, name, doc_version, width, height, document jsonb, thumbnail_url, created_at, updated_at`).
 
 **The write path (create + update) runs the Go document validator at the write edge, exactly per `DOCUMENT-FORMAT.md` §7 (steps 1–6):** 8 MB `http.MaxBytesReader` → typed decode via `Stroke.UnmarshalJSON` (allow unknown fields) → nullable `*Color` tri-state → invariants (known `version`; `1 ≤ width,height ≤ 8192`; ≥1 layer; hex-color regex; enum membership; `opacity`/`pressure ∈ [0,1]`; finite numbers; sizes/radii/tapers ≥0; `rx,ry>0`; rect `width,height>0`; **`strokeWidth>0` whenever `stroke` present**; point arity freehand-3-tuple≥1 / line-2-tuple≥2 / polygon-2-tuple≥3; `id` non-empty ≤64, unique across all layers+strokes) → DoS caps (§6) → server **derives** `doc_version`, `width`, `height` columns from the validated doc. The client does **not** set those columns; any client-sent values are ignored.
 
-The request payload is `{ "document": <vector document> }`. The `document` value is the full schema from `DOCUMENT-FORMAT.md` §3–§5. A client `thumbnail` may ride along but is **advisory only** (trust boundary, `DOCUMENT-FORMAT.md` §10) and is never the source of truth.
+The request payload is `{ "document": <vector document>, "name"?: <string> }`. The `document` value is the full schema from `DOCUMENT-FORMAT.md` §3–§5. `name` is optional user-editable **drawing metadata** — it lives outside the document and never reaches the document validators. It is trimmed of surrounding whitespace and capped at **64 runes** (§6); absent/blank means "no name sent" (see each route for the effect). A client `thumbnail` may ride along but is **advisory only** (trust boundary, `DOCUMENT-FORMAT.md` §10) and is never the source of truth.
 
 ### `POST /api/drawings`
 Create a free-draw drawing. `match_id` is **null** (duel submissions are created via the game submit route, §8.3, not here).
 
 Request:
 ```json
-{ "document": { "version": 1, "width": 1920, "height": 1080, "background": "#ffffff", "layers": [ … ] } }
+{ "name": "sunset study", "document": { "version": 1, "width": 1920, "height": 1080, "background": "#ffffff", "layers": [ … ] } }
 ```
+- `name` — optional, ≤ 64 runes after trimming (§6). Absent/blank ⇒ the drawing is created as **`"new art"`** (the DB default).
 
 Success `201 Created`:
 ```json
 {
   "drawing": {
     "id": "…", "ownerId": "…", "matchId": null,
+    "name": "sunset study",
     "docVersion": 1, "width": 1920, "height": 1080,
     "thumbnailUrl": null,
     "createdAt": "…", "updatedAt": "…"
@@ -176,6 +179,7 @@ Success `200 OK`:
 {
   "drawing": {
     "id": "…", "ownerId": "…", "matchId": null,
+    "name": "sunset study",
     "docVersion": 1, "width": 1920, "height": 1080,
     "document": { "version": 1, "width": 1920, "height": 1080, "background": "#ffffff", "layers": [ … ] },
     "thumbnailUrl": "https://…/thumb.png",
@@ -197,7 +201,7 @@ Success `200 OK`:
 ```json
 {
   "drawings": [
-    { "id": "…", "matchId": null, "docVersion": 1, "width": 1920, "height": 1080,
+    { "id": "…", "matchId": null, "name": "sunset study", "docVersion": 1, "width": 1920, "height": 1080,
       "thumbnailUrl": "https://…/thumb.png", "createdAt": "…", "updatedAt": "…" }
   ],
   "nextCursor": "eyJ…",   // null when there are no more pages
@@ -209,7 +213,8 @@ Errors: `400 validation_failed` (bad cursor / bad `kind`), `401 unauthorized`.
 ### `PUT /api/drawings/{id}`
 Replace a drawing's document. **Ownership-scoped.** Full replace (no partial patch in v1); runs the full validator + caps. The server re-derives `doc_version/width/height`. `match_id` is immutable here (a free save stays free; you cannot retarget it at a match).
 
-Request: `{ "document": { … } }` (same as create).
+Request: `{ "document": { … }, "name"?: "…" }` (same as create).
+- `name` present ⇒ **replaces** the stored name (same trim + 64-rune cap). Absent/blank ⇒ the existing name is **kept** — an update is a document replace, not a rename, so a client that only re-sends the document never clobbers the name. (Implemented as `COALESCE` in the update SQL, not a read-modify-write.)
 
 Success `200 OK` — returns the updated metadata envelope (same shape as `POST`).
 

@@ -22,14 +22,16 @@ export interface SaveDrawingVars {
     /** Existing drawing id to update, or undefined to create a new one. */
     id?: string
     document: Document
+    /** Drawing name; omitted = server default on create / keep the current name on update. */
+    name?: string
 }
 
 /** Create-or-update the current drawing; invalidates the cached list on success. */
 export function useSaveDrawing() {
     const qc = useQueryClient()
     return useMutation({
-        mutationFn: ({ id, document }: SaveDrawingVars): Promise<DrawingMeta> =>
-            id ? drawings.update(id, document) : drawings.create(document),
+        mutationFn: ({ id, document, name }: SaveDrawingVars): Promise<DrawingMeta> =>
+            id ? drawings.update(id, document, name) : drawings.create(document, name),
         onSuccess: () => {
             void qc.invalidateQueries({ queryKey: drawingsKeys.list })
         }

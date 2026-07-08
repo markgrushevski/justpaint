@@ -279,6 +279,7 @@ create table drawings (
   id            uuid primary key,
   owner_id      uuid not null references users(id),
   match_id      uuid null references matches(id),
+  name          text not null default 'new art', -- drawing metadata (64-rune cap, API.md §6), NOT part of the document
   doc_version   int  not null,          -- mirror of document.version (cheap filter/migrate)
   width         int  not null,          -- promoted from jsonb
   height        int  not null,

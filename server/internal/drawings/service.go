@@ -35,13 +35,15 @@ type cursor struct {
 
 // Create stores a new free-draw drawing (match_id null). The server derives
 // doc_version/width/height from the validated document; raw is the canonical
-// jsonb payload (unknown fields preserved).
-func (s *Service) Create(ctx context.Context, ownerID string, doc document.Document, raw []byte) (db.Drawing, error) {
+// jsonb payload (unknown fields preserved). name is normalized metadata from
+// the handler; nil ⇒ the SQL default 'new art' (queries/drawings.sql).
+func (s *Service) Create(ctx context.Context, ownerID string, name *string, doc document.Document, raw []byte) (db.Drawing, error) {
 	// int32 narrowing is safe: ParseAndValidate already bounds version==1 and
 	// width/height to [1,8192] before the service is ever reached.
 	return s.q.CreateDrawing(ctx, db.CreateDrawingParams{
 		OwnerID:    ownerID,
 		MatchID:    nil, // free /draw save; duel submissions go through the game route
+		Name:       name,
 		DocVersion: int32(doc.Version),
 		Width:      int32(doc.Width),
 		Height:     int32(doc.Height),
@@ -53,10 +55,14 @@ func (s *Service) Get(ctx context.Context, ownerID, id string) (db.Drawing, erro
 	return s.q.GetDrawing(ctx, db.GetDrawingParams{ID: id, OwnerID: ownerID})
 }
 
-func (s *Service) Update(ctx context.Context, ownerID, id string, doc document.Document, raw []byte) (db.Drawing, error) {
+// Update replaces an owned free drawing's document. name nil (absent/blank in
+// the request) KEEPS the stored name — the query coalesces, so no read-modify-
+// write round trip is needed; non-nil REPLACES it.
+func (s *Service) Update(ctx context.Context, ownerID, id string, name *string, doc document.Document, raw []byte) (db.Drawing, error) {
 	d, err := s.q.UpdateDrawing(ctx, db.UpdateDrawingParams{
 		ID:         id,
 		OwnerID:    ownerID,
+		Name:       name,
 		DocVersion: int32(doc.Version),
 		Width:      int32(doc.Width),
 		Height:     int32(doc.Height),

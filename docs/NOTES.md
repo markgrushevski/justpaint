@@ -165,6 +165,10 @@ small practical gotchas go here.
   `curl http://localhost:8080/healthz` returned a stray Quasar HTML page, not our `{"status":"ok"}`.
   **Verify against `http://127.0.0.1:8080` (forces IPv4) to reach our server.** `netstat -ano | grep :8080`
   shows the competing PIDs.
+- **`internal/drawings` has a DB-backed integration test** (`roundtrip_test.go` `TestNameRoundtrip_DB`)
+  that needs `DATABASE_URL` pointing at a **migrated** database — it `t.Skip`s otherwise. Plain
+  `go test ./internal/drawings/...` silently skips the COALESCE default/keep-name SQL semantics unless
+  the DB env is exported (docker compose up + goose up first).
 
 ## Konva / editor / render determinism
 
@@ -282,8 +286,24 @@ small practical gotchas go here.
   loses to `ori.components`, as intended), so the app must NOT re-declare box-model resets unlayered —
   delegate the reset to oriui and add only app-specific bits (font-optical-sizing, canvas
   `touch-action`, etc.). Fix: dropped `border`/`margin`/`padding` from the `*` rule in `reset.css`.
-  There are no other oriui-style overrides in `apps/web` (no rule targets `.ori-*`, no `:deep()`, no
-  `!important`).
+  There is exactly ONE deliberate `.ori-*` override in `apps/web` (below); otherwise no rule targets
+  `.ori-*`, no `:deep()`, no `!important`.
+- **The one sanctioned `.ori-*` override: light-theme colored-TEXT tone.** Outline/tonal/text OriButtons
+  read their label color from `--ori-color`; the brand `hsl(20 100% 50%)` is only 2.86:1 on the
+  `#f0f2f6` surface (fails AA text). `main.css` darkens the TEXT tone to `hsl(20 100% 38%)` for
+  `.ori-button.ori-color_primary:where(.ori-variant_outline, _tonal, _text)` in light only — fills keep
+  the vivid brand (contrast there is the dark ink ON orange). NB: every OriButton always carries
+  `ori-color_<role>`, so guard by pinning `ori-color_primary`, NOT by `:not([class*='ori-color_'])`
+  (that matches everything and disables the rule).
+- **OriPopover/OriMenu position via CSS Anchor Positioning — not in Firefox** (mid-2026). The popover
+  still opens/dismisses (native Popover API is baseline) but ignores `position-anchor`/`position-area`,
+  falling back to the UA default (viewport-centered) — degraded but functional. Fine for the toolbar's
+  mobile style panel; don't build anchor-critical UI on it yet.
+- **Don't center overlays with `position:absolute; left:50%; translateX(-50%)`.** An abs-positioned box
+  with a `left` offset shrink-to-fits against the REMAINING space (viewport − left), so on a 405px phone
+  the bottom toolbar got squeezed to min-content and wrapped. Use a full-width strip instead:
+  `left:0; right:0; display:flex; justify-content:center` + `pointer-events:none` on the strip and
+  `pointer-events:auto` on the child.
 
 ## Preview MCP / verification
 
@@ -300,6 +320,11 @@ small practical gotchas go here.
   counters, panel state) still work hidden. Vue `<Transition>` completion also hangs in the hidden
   preview tab (its pipeline uses rAF), so menu/panel open-close animations can't be end-verified
   there — check them in a real browser.
+- **CSS transitions also freeze mid-flight in the hidden tab** — and that includes property values:
+  a button with `transition: color …` reports the OLD `getComputedStyle(...).color` indefinitely even
+  though its `--ori-*` custom properties (not transitioned) already show the new value. If a computed
+  color "didn't change" but the tokens did, reload the page (fresh paint has no transition) before
+  concluding the CSS is broken.
 
 ## Orchestration / role agents
 
