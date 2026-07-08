@@ -4,11 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -23,6 +25,9 @@ const (
 	maxDocumentBodyBytes = 8 << 20 // 8 MiB (docs/API.md §6)
 	defaultPageLimit     = 20
 	maxPageLimit         = 100
+	// maxNameRunes caps the user-editable drawing name (docs/API.md §6/§7) —
+	// runes, not bytes, mirroring the document validator's layer-name cap.
+	maxNameRunes = 64
 )
 
 // Handler is the HTTP layer for drawings CRUD.
@@ -49,6 +54,10 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 
 type documentRequest struct {
 	Document json.RawMessage `json:"document"`
+	// Name is optional drawing METADATA (never part of the vector document).
+	// Absent/blank ⇒ default "new art" on create, keep the current name on
+	// update (docs/API.md §7).
+	Name string `json:"name"`
 	// A client `thumbnail` may ride along but is advisory only and ignored here.
 }
 
@@ -56,6 +65,7 @@ type drawingMeta struct {
 	ID           string    `json:"id"`
 	OwnerID      string    `json:"ownerId"`
 	MatchID      *string   `json:"matchId"`
+	Name         string    `json:"name"`
 	DocVersion   int32     `json:"docVersion"`
 	Width        int32     `json:"width"`
 	Height       int32     `json:"height"`
@@ -87,11 +97,11 @@ type listEnvelope struct {
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context()) // RequireAuth guarantees presence
-	doc, raw, ok := h.decodeAndValidate(w, r)
+	doc, raw, name, ok := h.decodeAndValidate(w, r)
 	if !ok {
 		return
 	}
-	d, err := h.svc.Create(r.Context(), uid, doc, raw)
+	d, err := h.svc.Create(r.Context(), uid, name, doc, raw)
 	if err != nil {
 		h.internal(w, "create drawing", err)
 		return
@@ -123,11 +133,11 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	doc, raw, ok := h.decodeAndValidate(w, r)
+	doc, raw, name, ok := h.decodeAndValidate(w, r)
 	if !ok {
 		return
 	}
-	d, err := h.svc.Update(r.Context(), uid, id, doc, raw)
+	d, err := h.svc.Update(r.Context(), uid, id, name, doc, raw)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrDuelLocked):
@@ -204,9 +214,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 // --- shared helpers ---
 
-// decodeAndValidate reads the {document} body (8 MB cap), validates the vector
-// document at the write edge, and reports the right HTTP error on failure.
-func (h *Handler) decodeAndValidate(w http.ResponseWriter, r *http.Request) (document.Document, []byte, bool) {
+// decodeAndValidate reads the {document, name?} body (8 MB cap), validates the
+// vector document at the write edge plus the name metadata, and reports the
+// right HTTP error on failure. The returned name is nil when absent/blank —
+// the SQL layer then defaults it (create) or keeps the current one (update).
+func (h *Handler) decodeAndValidate(w http.ResponseWriter, r *http.Request) (document.Document, []byte, *string, bool) {
 	var req documentRequest
 	if err := web.DecodeJSONLax(w, r, &req, maxDocumentBodyBytes); err != nil {
 		var maxErr *http.MaxBytesError
@@ -215,7 +227,7 @@ func (h *Handler) decodeAndValidate(w http.ResponseWriter, r *http.Request) (doc
 		} else {
 			web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "invalid request body")
 		}
-		return document.Document{}, nil, false
+		return document.Document{}, nil, nil, false
 	}
 
 	doc, err := document.ParseAndValidate(req.Document)
@@ -226,9 +238,30 @@ func (h *Handler) decodeAndValidate(w http.ResponseWriter, r *http.Request) (doc
 			msg = ve.Msg
 		}
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, msg)
-		return document.Document{}, nil, false
+		return document.Document{}, nil, nil, false
 	}
-	return doc, req.Document, true
+
+	name, err := normalizeName(req.Name)
+	if err != nil {
+		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, err.Error())
+		return document.Document{}, nil, nil, false
+	}
+	return doc, req.Document, name, true
+}
+
+// normalizeName canonicalizes the user-supplied drawing name: surrounding
+// whitespace is trimmed; absent/blank collapses to nil (⇒ the SQL default
+// 'new art' on create, keep-current on update). Over-cap names are rejected —
+// the cap counts RUNES, mirroring the document validator's layer-name cap.
+func normalizeName(raw string) (*string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return nil, nil
+	}
+	if utf8.RuneCountInString(name) > maxNameRunes {
+		return nil, fmt.Errorf("name must be at most %d chars", maxNameRunes)
+	}
+	return &name, nil
 }
 
 func (h *Handler) internal(w http.ResponseWriter, what string, err error) {
@@ -292,7 +325,7 @@ func decodeCursor(s string) (*cursor, error) {
 
 func toMeta(d db.Drawing) drawingMeta {
 	return drawingMeta{
-		ID: d.ID, OwnerID: d.OwnerID, MatchID: d.MatchID,
+		ID: d.ID, OwnerID: d.OwnerID, MatchID: d.MatchID, Name: d.Name,
 		DocVersion: d.DocVersion, Width: d.Width, Height: d.Height,
 		ThumbnailURL: d.ThumbnailUrl, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
@@ -300,7 +333,7 @@ func toMeta(d db.Drawing) drawingMeta {
 
 func rowToMeta(d db.ListDrawingsRow) drawingMeta {
 	return drawingMeta{
-		ID: d.ID, OwnerID: d.OwnerID, MatchID: d.MatchID,
+		ID: d.ID, OwnerID: d.OwnerID, MatchID: d.MatchID, Name: d.Name,
 		DocVersion: d.DocVersion, Width: d.Width, Height: d.Height,
 		ThumbnailURL: d.ThumbnailUrl, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}

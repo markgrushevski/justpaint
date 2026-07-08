@@ -122,6 +122,7 @@ export interface DrawingMeta {
     id: string
     ownerId: string
     matchId: string | null
+    name: string
     docVersion: number
     width: number
     height: number
@@ -185,12 +186,15 @@ export const auth = {
 }
 
 /* ------------------------------------------------------------------ */
-/* Drawings CRUD. Body is `{ document: <vector doc> }`.               */
+/* Drawings CRUD. Body is `{ document: <vector doc>, name? }` — name  */
+/* omitted when undefined (server defaults create to 'new art' and    */
+/* keeps the existing name on update).                                */
 /* ------------------------------------------------------------------ */
 
 export const drawings = {
-    async create(doc: Document): Promise<DrawingMeta> {
-        return (await request<DrawingMetaEnvelope>('/drawings', { method: 'POST', body: { document: doc } })).drawing
+    async create(doc: Document, name?: string): Promise<DrawingMeta> {
+        const body = name === undefined ? { document: doc } : { document: doc, name }
+        return (await request<DrawingMetaEnvelope>('/drawings', { method: 'POST', body })).drawing
     },
     async get(id: string): Promise<DrawingFull> {
         const { drawing } = await request<DrawingFullEnvelope>('/drawings/' + id)
@@ -198,9 +202,9 @@ export const drawings = {
         // the editor (loadDocument does NOT validate). Throws on a bad body.
         return { ...drawing, document: parseDocument(drawing.document) }
     },
-    async update(id: string, doc: Document): Promise<DrawingMeta> {
-        return (await request<DrawingMetaEnvelope>('/drawings/' + id, { method: 'PUT', body: { document: doc } }))
-            .drawing
+    async update(id: string, doc: Document, name?: string): Promise<DrawingMeta> {
+        const body = name === undefined ? { document: doc } : { document: doc, name }
+        return (await request<DrawingMetaEnvelope>('/drawings/' + id, { method: 'PUT', body })).drawing
     },
     async remove(id: string): Promise<void> {
         await request<void>('/drawings/' + id, { method: 'DELETE' })

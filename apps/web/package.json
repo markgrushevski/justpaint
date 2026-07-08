@@ -16,9 +16,9 @@
     "dependencies": {
         "@justpaint/document": "*",
         "@justpaint/editor": "*",
-        "@oriui/css": "1.0.0-alpha.4",
-        "@oriui/headless": "1.0.0-alpha.4",
-        "@oriui/vue": "1.0.0-alpha.4",
+        "@oriui/css": "^1.0.0-alpha.6",
+        "@oriui/headless": "^1.0.0-alpha.6",
+        "@oriui/vue": "^1.0.0-alpha.6",
         "@tanstack/vue-query": "^5.101.2",
         "pinia": "^3.0.4",
         "vue": "^3.5.11",
