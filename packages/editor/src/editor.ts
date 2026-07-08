@@ -16,7 +16,9 @@
  * (size + scale + position) — never a CSS transform on the `<canvas>`, so
  * `getRelativePointerPosition` keeps returning logical coordinates at any zoom.
  * The editor auto-fits on resize (until the user zooms/pans), zooms toward the
- * cursor on wheel, and pans on a middle-button drag. See {@link ./view}.
+ * cursor on wheel, and pans on a middle-button drag with any tool — or on a
+ * PRIMARY drag (mouse or single-finger touch) when the hand tool is active.
+ * Both routes share one pan path. See {@link ./view}.
  *
  * Host UIs (a Vue view) subscribe with {@link Editor.onChange} and read
  * {@link Editor.getLayers} / {@link Editor.canUndo} / {@link Editor.getZoom}
@@ -48,7 +50,7 @@ import { renderToPNG } from "./render";
 import type { RenderOptions } from "./render";
 import { DEFAULT_STYLE } from "./style";
 import { penTool } from "./tools/pen";
-import type { LayerView, LogicalPoint, Tool, ToolContext, ToolStyle } from "./types";
+import type { LayerView, LogicalPoint, StrokeTool, Tool, ToolContext, ToolStyle } from "./types";
 import { fitView, panBy, zoomAround, ZOOM_STEP, type ViewState } from "./view";
 
 /** Wheel notch zoom factor (gentler than the button step). */
@@ -166,6 +168,8 @@ export class Editor {
     // would leave the gesture/pan stuck. Window-level fallbacks commit/reset.
     window.addEventListener("pointerup", this.onWindowPointerUp);
     window.addEventListener("pointercancel", this.onWindowPointerCancel);
+    // Escape mid-drag abandons an in-flight pan (keyboard-flavored pointercancel).
+    window.addEventListener("keydown", this.onWindowKeyDown);
     // The stage only sees moves INSIDE the container — leaving it must hide the ring.
     container.addEventListener("pointerleave", this.onContainerPointerLeave);
     this.resizeObserver = new ResizeObserver(() => this.measureAndApply());
@@ -178,6 +182,14 @@ export class Editor {
 
   setTool(tool: Tool): void {
     this.activeTool = tool;
+    // Switching to the hand mid-drag: a pan tool cannot finish a stroke
+    // gesture — abandon it (never half-commit through the wrong tool).
+    if (tool.kind === "pan" && this.gesture) {
+      this.gesture = null;
+      this.clearPreview();
+    }
+    this.syncCursorRing(); // the brush ring hides while the hand is active
+    this.syncContainerCursor();
   }
 
   setStyle(patch: Partial<ToolStyle>): void {
@@ -262,6 +274,33 @@ export class Editor {
     return this.view.zoom;
   }
 
+  /**
+   * Map a viewport/client point (e.g. `PointerEvent.clientX`/`clientY`) to
+   * LOGICAL document coordinates through the current stage transform — the
+   * inverse of the same transform `getRelativePointerPosition` reads for
+   * drawing, so a host coordinate readout matches where a stroke would land
+   * exactly, at any zoom/pan.
+   *
+   * Returns `null` when the point lies outside the stage container. Inside it,
+   * coordinates are returned RAW (unrounded) and may fall outside the document
+   * rect (the letterbox maps to negative / >size values) — rounding, clamping,
+   * and formatting are presentation and belong to the host. The editor adds NO
+   * listeners for this: subscribe to `pointermove` yourself and call it.
+   */
+  toDocumentCoords(clientX: number, clientY: number): { x: number; y: number } | null {
+    // Konva's own pointer math measures stage.content; headless (tests, no
+    // DOM build) it does not exist — the container is its parent and the stage
+    // is sized to it, so its rect is the same frame.
+    const el = (this.stage.content as HTMLDivElement | undefined) ?? this.container;
+    const rect = el.getBoundingClientRect();
+    const sx = clientX - rect.left;
+    const sy = clientY - rect.top;
+    if (sx < 0 || sy < 0 || sx > rect.width || sy > rect.height) return null;
+    // Invert the stage transform (applyView is its only writer): screen → logical.
+    const p = this.stage.getAbsoluteTransform().copy().invert().point({ x: sx, y: sy });
+    return { x: p.x, y: p.y };
+  }
+
   /** Scale-to-fit + center the document in the viewport; re-enables auto-fit. */
   fitToViewport(): void {
     if (this.viewport.width <= 0 || this.viewport.height <= 0) return;
@@ -300,7 +339,11 @@ export class Editor {
     this.resizeObserver.disconnect();
     window.removeEventListener("pointerup", this.onWindowPointerUp);
     window.removeEventListener("pointercancel", this.onWindowPointerCancel);
+    window.removeEventListener("keydown", this.onWindowKeyDown);
     this.container.removeEventListener("pointerleave", this.onContainerPointerLeave);
+    // Give the cursor back to the host iff we own it (hand active / mid-pan).
+    const cursor = this.container.style.cursor;
+    if (cursor === "grab" || cursor === "grabbing") this.container.style.cursor = "";
     this.listeners.clear();
     this.stage.destroy();
     this.previewGroup = null;
@@ -508,6 +551,8 @@ export class Editor {
       this.syncCursorRing();
     }
     this.applyView();
+    // The pan was force-dropped above — don't leave a stale "grabbing" cursor.
+    this.syncContainerCursor();
   }
 
   /** Capture the current pointer position in LOGICAL document coords. */
@@ -524,10 +569,11 @@ export class Editor {
    * content beneath it. The target layer's clip also bounds the preview.
    */
   private renderPreview(): void {
-    if (!this.gesture) return;
+    const tool = this.strokeTool();
+    if (!this.gesture || !tool) return;
     const target = this.activeKonvaLayer();
     if (!target) return;
-    const stroke = this.activeTool.buildStroke(this.toolContext(), this.gesture);
+    const stroke = tool.buildStroke(this.toolContext(), this.gesture);
 
     if (!this.previewGroup) {
       this.previewGroup = new Konva.Group({ listening: false });
@@ -583,11 +629,23 @@ export class Editor {
     return pt.x >= 0 && pt.y >= 0 && pt.x <= this.doc.width && pt.y <= this.doc.height;
   }
 
+  /** The active tool when it draws strokes; null while the hand (pan) tool is up. */
+  private strokeTool(): StrokeTool | null {
+    return this.activeTool.kind === "stroke" ? this.activeTool : null;
+  }
+
   /** Commit (or discard) the in-flight gesture; pt is the final point when known. */
   private finishGesture(pt: LogicalPoint | null): void {
     if (!this.gesture) return;
+    const tool = this.strokeTool();
+    if (!tool) {
+      // Defensive: setTool already drops the gesture on a switch to a pan tool.
+      this.gesture = null;
+      this.clearPreview();
+      return;
+    }
     if (pt) this.gesture.push(pt);
-    const stroke = this.activeTool.buildStroke(this.toolContext(), this.gesture);
+    const stroke = tool.buildStroke(this.toolContext(), this.gesture);
     this.gesture = null;
 
     if (stroke && this.activeLayer()) {
@@ -696,7 +754,9 @@ export class Editor {
   /** Push color/diameter/position/visibility onto the ring and repaint its layer. */
   private syncCursorRing(): void {
     if (!this.cursorRing || !this.cursorLayer || this.cursorColor == null) return;
-    const visible = this.cursor != null && this.pan == null;
+    // Hidden while panning AND while the hand tool is armed — the hand never
+    // draws, so a brush-size ring would lie (the grab cursor takes over).
+    const visible = this.cursor != null && this.pan == null && this.activeTool.kind !== "pan";
     this.cursorRing.visible(visible);
     if (visible && this.cursor) {
       this.cursorRing.position(this.cursor);
@@ -729,24 +789,75 @@ export class Editor {
 
   /** A pointer released OUTSIDE the container still ends the gesture/pan. */
   private readonly onWindowPointerUp = (): void => {
-    this.pan = null;
+    this.endPan(); // no-op without a pan
     this.finishGesture(null); // no-op when the stage handler already ran
   };
 
   /** A cancelled pointer (e.g. touch interrupted) abandons the gesture/pan. */
   private readonly onWindowPointerCancel = (): void => {
-    this.pan = null;
+    this.endPan();
     this.gesture = null;
     this.clearPreview();
   };
 
+  /** Escape mid-drag ends an in-flight pan cleanly (the pointercancel hardening, on a key). */
+  private readonly onWindowKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") this.endPan();
+  };
+
+  // --- pan (middle-button with any tool; primary pointer with the hand tool) --
+
+  /**
+   * Anchor a view-pan drag at the CURRENT pointer position (screen coords —
+   * deliberately NOT `readPoint`/`insideDocument`: a pan may grab the letterbox
+   * outside the document rect). One shared path: the hand tool's primary drag
+   * and the always-available middle-button drag both come through here, so the
+   * clamping/transform behavior can never fork. Ignored while another pan is
+   * live (a second touch must not re-anchor the view mid-drag).
+   */
+  private beginPan(pointerId: number): void {
+    if (this.pan) return;
+    const p = this.stage.getPointerPosition();
+    if (!p) return;
+    this.pan = { pointerId, startX: p.x, startY: p.y, view: { ...this.view } };
+    this.syncCursorRing(); // the brush ring hides for the duration of the pan
+    this.syncContainerCursor(); // grab → grabbing
+  }
+
+  /** Ends a pan from ANY exit (pointerup, window fallback, cancel, Escape); no-op without one. */
+  private endPan(): void {
+    if (!this.pan) return;
+    this.pan = null;
+    this.syncCursorRing();
+    this.syncContainerCursor();
+  }
+
+  /**
+   * Reflect pan/hand state on the CONTAINER's cursor so the host needs no
+   * wiring: `grabbing` during any pan, `grab` while the hand tool is armed.
+   * Only a grab/grabbing value we set ourselves is ever cleared — a host that
+   * styles the container cursor for other tools keeps full ownership of it.
+   */
+  private syncContainerCursor(): void {
+    const style = this.container.style;
+    if (this.pan) {
+      style.cursor = "grabbing";
+    } else if (this.activeTool.kind === "pan") {
+      style.cursor = "grab";
+    } else if (style.cursor === "grab" || style.cursor === "grabbing") {
+      style.cursor = "";
+    }
+  }
+
   private bindPointerEvents(): void {
     this.stage.on("pointerdown", (evt) => {
-      // Middle-button drag pans the view instead of drawing.
-      if (evt.evt.button === 1) {
+      // PAN routes BEFORE the stroke-gesture path: the hand tool grabs with ANY
+      // pointer (primary mouse drag, single-finger touch — Konva may hand us a
+      // raw TouchEvent with no `button` at all), and a middle-button drag pans
+      // with every tool. No insideDocument gate here: the letterbox is grabbable.
+      if (this.activeTool.kind === "pan" || evt.evt.button === 1) {
         evt.evt.preventDefault();
-        const p = this.stage.getPointerPosition();
-        if (p) this.pan = { pointerId: evt.evt.pointerId, startX: p.x, startY: p.y, view: { ...this.view } };
+        this.beginPan(evt.evt.pointerId);
         return;
       }
       const pt = this.readPoint(evt);
@@ -757,10 +868,13 @@ export class Editor {
     });
 
     this.stage.on("pointermove", (evt) => {
-      this.trackCursor(evt); // ring follows every non-touch move (pan hides it)
+      this.trackCursor(evt); // ring follows every non-touch move (pan/hand hides it)
       if (this.pan && evt.evt.pointerId === this.pan.pointerId) {
         const p = this.stage.getPointerPosition();
         if (p) {
+          // A real pan is a manual view change: stop auto-fit from undoing it
+          // on the next resize (same contract as zoomBy/wheel).
+          this.autoFit = false;
           this.view = panBy(this.pan.view, p.x - this.pan.startX, p.y - this.pan.startY);
           this.applyView();
         }
@@ -775,7 +889,7 @@ export class Editor {
 
     this.stage.on("pointerup", (evt) => {
       if (this.pan && evt.evt.pointerId === this.pan.pointerId) {
-        this.pan = null;
+        this.endPan();
         return;
       }
       if (!this.gesture) return;

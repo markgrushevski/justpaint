@@ -18,3 +18,4 @@ export { lineTool } from "./tools/line";
 export { rectTool } from "./tools/rect";
 export { ellipseTool } from "./tools/ellipse";
 export { triangleTool } from "./tools/triangle";
+export { handTool } from "./tools/hand";
