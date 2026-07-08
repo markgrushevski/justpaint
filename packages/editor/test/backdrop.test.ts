@@ -38,6 +38,7 @@ function fakeContainer(): HTMLDivElement {
   return {
     clientWidth: VIEWPORT.width,
     clientHeight: VIEWPORT.height,
+    style: { cursor: "" }, // the editor reflects pan/hand state on style.cursor
     addEventListener: (): void => {},
     removeEventListener: (): void => {},
   } as unknown as HTMLDivElement;

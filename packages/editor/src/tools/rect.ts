@@ -1,5 +1,5 @@
 import type { RectStroke } from "@justpaint/document";
-import type { Tool } from "../types";
+import type { StrokeTool } from "../types";
 
 /**
  * Rectangle tool. Builds a {@link RectStroke} from the axis-aligned bounding
@@ -11,7 +11,8 @@ import type { Tool } from "../types";
  * docs/DOCUMENT-FORMAT.md §5.5. Returns `null` for a zero-area (degenerate)
  * rect, which the validator would reject anyway.
  */
-export const rectTool: Tool = {
+export const rectTool: StrokeTool = {
+  kind: "stroke",
   id: "rect",
   buildStroke(ctx, gesture) {
     const a = gesture[0];

@@ -1,6 +1,6 @@
 // packages/editor/src/tools/ellipse.ts — the ellipse tool (DOCUMENT-FORMAT §5.6).
 import type { EllipseStroke } from "@justpaint/document";
-import type { Tool } from "../types";
+import type { StrokeTool } from "../types";
 
 /**
  * Ellipse tool: a PURE transformer from a drag gesture to a single
@@ -13,7 +13,8 @@ import type { Tool } from "../types";
  * are ignored — only the down/up corners define the bbox. Returns `null` for a
  * degenerate gesture (rx ≤ 0 or ry ≤ 0), which the editor discards.
  */
-export const ellipseTool: Tool = {
+export const ellipseTool: StrokeTool = {
+  kind: "stroke",
   id: "ellipse",
   buildStroke(ctx, gesture) {
     const first = gesture[0];

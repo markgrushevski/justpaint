@@ -11,7 +11,8 @@
         "lint:prettier": "npx prettier --write **/*.{vue,js,ts,css,json,md,html}",
         "lint:stylelint": "npx stylelint --fix **/*.{vue,css}",
         "lint:eslint": "npx eslint --fix **/*.{vue,js,ts}",
-        "lint:all": "npm run lint:prettier && npm run lint:stylelint && npm run lint:eslint"
+        "lint:contrast": "node scripts/check-contrast.mjs",
+        "lint:all": "npm run lint:prettier && npm run lint:stylelint && npm run lint:eslint && npm run lint:contrast"
     },
     "dependencies": {
         "@justpaint/document": "*",
@@ -20,6 +21,7 @@
         "@oriui/headless": "^1.0.0-alpha.6",
         "@oriui/vue": "^1.0.0-alpha.6",
         "@tanstack/vue-query": "^5.101.2",
+        "colord": "^2.9.3",
         "pinia": "^3.0.4",
         "vue": "^3.5.11",
         "vue-router": "^5.1.0"

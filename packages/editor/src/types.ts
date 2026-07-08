@@ -1,7 +1,11 @@
 // packages/editor/src/types.ts — the FROZEN contract every tool implements.
 import type { BrushOptions, Stroke } from "@justpaint/document";
 
-export type ToolId = "pen" | "eraser" | "line" | "rect" | "ellipse" | "triangle";
+/** Ids of the stroke-producing drawing tools (see {@link StrokeTool}). */
+export type StrokeToolId = "pen" | "eraser" | "line" | "rect" | "ellipse" | "triangle";
+
+/** Every selectable tool: the stroke tools plus the pan-only hand. */
+export type ToolId = StrokeToolId | "hand";
 
 /** A pointer sample in LOGICAL document coordinates. pressure in [0,1]. */
 export interface LogicalPoint { x: number; y: number; pressure: number; }
@@ -40,7 +44,27 @@ export interface ToolContext {
  * No internal mutable state, no Konva imports — unit-testable in isolation.
  * Returns null for a degenerate gesture that must be discarded.
  */
-export interface Tool {
-  readonly id: ToolId;
+export interface StrokeTool {
+  readonly kind: "stroke";
+  readonly id: StrokeToolId;
   buildStroke(ctx: ToolContext, gesture: readonly LogicalPoint[]): Stroke | null;
 }
+
+/**
+ * A view-manipulation tool: no `buildStroke` AT ALL — the type system, not a
+ * runtime check, guarantees it can never touch the document or the history.
+ * The editor routes its pointerdowns to the pan path (the same mechanics as a
+ * middle-button drag) BEFORE the stroke-gesture pipeline, skipping the
+ * inside-document gate (you can grab the letterbox).
+ */
+export interface PanTool {
+  readonly kind: "pan";
+  readonly id: "hand";
+}
+
+/**
+ * Any selectable tool. Discriminated on `kind`: the editor narrows once at
+ * pointerdown — `"stroke"` enters the gesture→stroke pipeline, `"pan"` drags
+ * the view. New non-stroke tools add a `kind`, not an id-list check.
+ */
+export type Tool = StrokeTool | PanTool;
