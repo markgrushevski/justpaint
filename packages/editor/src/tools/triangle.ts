@@ -1,5 +1,5 @@
 import type { PolygonStroke } from "@justpaint/document";
-import type { LogicalPoint, Tool, ToolContext } from "../types";
+import type { LogicalPoint, StrokeTool, ToolContext } from "../types";
 
 /**
  * Triangle tool — builds a real closed 3-vertex {@link PolygonStroke} from the
@@ -11,6 +11,7 @@ import type { LogicalPoint, Tool, ToolContext } from "../types";
  * current/pointerup; the bbox spans the gesture's min/max in x and y.
  */
 export const triangleTool = {
+  kind: "stroke",
   id: "triangle",
 
   buildStroke(
@@ -58,4 +59,4 @@ export const triangleTool = {
       join: "round",
     };
   },
-} satisfies Tool;
+} satisfies StrokeTool;

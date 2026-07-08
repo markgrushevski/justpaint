@@ -2,6 +2,19 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-08 — Hand tool, coord readout, and the a11y-tooling architecture
+
+Two editor affordances plus a decided three-layer accessibility-tooling stack (oriui bumped again for a new skin + a tooltip fix).
+
+- **Hand (pan) tool — a type-safe non-stroke tool.** Added to the editor as a `kind: 'pan'` member of the tool union; the editor routes pan **before** the stroke path and it has no `buildStroke`, so it structurally cannot touch the document or history (a pan can't mutate or undo anything). It brings **single-finger touch pan** — touch users previously couldn't pan at all (middle-button only) — a grab cursor, and hides the brush ring while active. Ships alongside `editor.toDocumentCoords(clientX, clientY)`, which backs a desktop cursor-coordinate readout.
+- **oriui bump — a new `neutral` skin.** oriui now ships a `neutral` skin (pure neutral grays, monochrome accent — the vueinjar-era palette, now a first-class oriui skin). The app still sets its own tokens in `main.css`; adopting `data-ori-skin=neutral` to delegate the base palette to oriui is a future option (`IDEAS.md`), not done here.
+- **A11y-tooling architecture — three complementary layers, decided.** Each catches what the others structurally can't:
+  1. **Token-source WCAG check (colord + its a11y plugin).** justpaint's `scripts/check-contrast.mjs` and oriui's `tests/tokens.contrast.test.ts` both now use **colord** (shared, vetted — replaces the hand-rolled contrast math). This is the layer axe **cannot** do: a static token guard with no render.
+  2. **Component axe in happy-dom** (oriui already has it) — structure only (roles / ARIA / names), **NOT** contrast (happy-dom doesn't render, so it can't judge color pairings).
+  3. **Browser axe (Playwright + `@axe-core/playwright`)** over the **real rendered** app — the only layer that catches rendered mis-pairings like the tooltip bug. oriui already runs 40 Playwright e2e; justpaint's browser-axe over `/draw` is the **pending next unit** (`IDEAS.md`).
+  `apca-w3` (WCAG-3 draft Lc) is a **future advisory** signal, not a gate.
+- **Tooltip pairing/collision bug fixed at the oriui root** (oriui branch `feat/neutral-skin-tooltip-contrast`, commit `bd3d847`) — **not yet published**. Until oriui publishes, justpaint carries an **interim** `--ori-tooltip` override + per-cluster `placement` (`NOTES.md`); drop both on the version bump (`IDEAS.md`).
+
 ## 2026-07-08 — Legacy shell returns: right-side menu, palette, names, backdrop (owner batch 2026-07-07)
 
 The owner's 13-point batch restored the legacy justpaint shell on the new vector editor (oriui bumped to **1.0.0-alpha.6**). Pinned choices:

@@ -264,6 +264,37 @@ function onToggleGrid(on: boolean) {
     }
 }
 
+/* --- cursor document-coordinate readout (desktop) -------------------- */
+
+// A subtle bottom-left readout of the pointer's DOCUMENT coordinates, mapped
+// through the editor's own stage transform (so it matches where a stroke would
+// land at any zoom/pan). Null = hidden: pointer off-canvas, over chrome, or touch
+// (the chip is display:none <=600px and toDocumentCoords returns null off-stage).
+const coords = ref<{ x: number; y: number } | null>(null)
+// rAF throttle: pointermove fires far faster than we need to repaint — coalesce
+// to one read per frame off the latest client position instead of per raw move.
+let coordsRaf = 0
+let lastPointer: { x: number; y: number } | null = null
+
+function onCanvasPointerMove(e: PointerEvent) {
+    lastPointer = { x: e.clientX, y: e.clientY }
+    if (coordsRaf) return
+    coordsRaf = requestAnimationFrame(() => {
+        coordsRaf = 0
+        if (!editor || !lastPointer) return
+        coords.value = editor.toDocumentCoords(lastPointer.x, lastPointer.y)
+    })
+}
+
+function onCanvasPointerLeave() {
+    if (coordsRaf) {
+        cancelAnimationFrame(coordsRaf)
+        coordsRaf = 0
+    }
+    lastPointer = null
+    coords.value = null
+}
+
 onMounted(() => {
     void session.fetchMe() // restore an existing cookie session, if any
     try {
@@ -273,9 +304,10 @@ onMounted(() => {
         /* private mode / storage disabled — defaults (hint on, paper backdrop) */
     }
     if (!containerRef.value) return
+    const container = containerRef.value
     // The editor sizes its Konva stage to the container and fits the document
     // into it (a ResizeObserver keeps it fitted); it never CSS-transforms canvas.
-    editor = new Editor(containerRef.value, parseDocument(blankDocument()))
+    editor = new Editor(container, parseDocument(blankDocument()))
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
     // useThemeColor resolves in ITS mounted hook (registered before this one),
@@ -285,10 +317,18 @@ onMounted(() => {
     unsubscribe = editor.onChange(syncEditorState)
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
+    // Desktop cursor-coordinate readout: a container-level pointermove drives it
+    // (the chip is hidden <=600px; the listener is harmless on touch).
+    container.addEventListener('pointermove', onCanvasPointerMove)
+    container.addEventListener('pointerleave', onCanvasPointerLeave)
 })
 
 onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeydown)
+    // Drop the coords readout listeners + any pending frame.
+    if (coordsRaf) cancelAnimationFrame(coordsRaf)
+    containerRef.value?.removeEventListener('pointermove', onCanvasPointerMove)
+    containerRef.value?.removeEventListener('pointerleave', onCanvasPointerLeave)
     unsubscribe?.()
     unsubscribe = null
     // Destroy the Konva stage (removes it from Konva's module-global registry and
@@ -571,60 +611,67 @@ function load() {
             </button>
         </div>
 
-        <!-- Top-right corner: the menu toggler. Sits ABOVE the drawer (z-110 >
-             menu z-100) so the same chip opens and closes it (the legacy pattern). -->
-        <button
-            class="draw__menu-toggle jp-float"
-            type="button"
-            :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
-            :aria-expanded="menuOpen"
-            @click="menuOpen = !menuOpen"
-        >
-            <OriIcon :icon="menuOpen ? icons.mdiMenuOpen : icons.mdiMenu" />
-        </button>
+        <!-- Top-right corner: the menu toggler. Its OriTooltip wrapper carries the
+             absolute corner pin (z-110 > menu z-100) so the same chip opens and
+             closes it (the legacy pattern); the tooltip drops BELOW to stay
+             on-screen at the top edge. -->
+        <OriTooltip class="draw__menu-toggle-tip" placement="bottom" :content="menuOpen ? 'Close menu' : 'Open menu'">
+            <button
+                class="draw__menu-toggle jp-float"
+                type="button"
+                :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
+                :aria-expanded="menuOpen"
+                @click="menuOpen = !menuOpen"
+            >
+                <OriIcon :icon="menuOpen ? icons.mdiMenuOpen : icons.mdiMenu" />
+            </button>
+        </OriTooltip>
 
-        <!-- Top-right: panels, theme, file actions (left of the toggler) -->
+        <!-- Top-right: panels, theme, file actions (left of the toggler). Every
+             chip's tooltip drops BELOW (placement="bottom") so the bubble stays
+             on-screen at the top edge (.draw has overflow:hidden, clipping any
+             upward bubble). -->
         <div class="draw__top-right">
             <div class="draw__actions jp-float">
-                <button
-                    class="draw__chip-inline"
-                    :class="{ 'draw__chip-inline--active': layersOpen }"
-                    type="button"
-                    :aria-pressed="layersOpen"
-                    aria-label="Toggle layers panel"
-                    title="Layers"
-                    @click="layersOpen = !layersOpen"
-                >
-                    <ToolIcon name="layers" />
-                </button>
-                <button
-                    class="draw__chip-inline"
-                    type="button"
-                    :aria-label="themeTitle"
-                    :title="themeTitle"
-                    @click="theme.cycle()"
-                >
-                    <ToolIcon :name="themeIcon" />
-                </button>
-                <button
-                    class="draw__chip-inline draw__chip-help"
-                    :class="{ 'draw__chip-inline--active': shortcutsOpen }"
-                    type="button"
-                    aria-label="Keyboard shortcuts — ?"
-                    title="Keyboard shortcuts — ?"
-                    @click="shortcutsOpen = !shortcutsOpen"
-                >
-                    <ToolIcon name="help" />
-                </button>
+                <OriTooltip placement="bottom" content="Layers">
+                    <button
+                        class="draw__chip-inline"
+                        :class="{ 'draw__chip-inline--active': layersOpen }"
+                        type="button"
+                        :aria-pressed="layersOpen"
+                        aria-label="Toggle layers panel"
+                        @click="layersOpen = !layersOpen"
+                    >
+                        <ToolIcon name="layers" />
+                    </button>
+                </OriTooltip>
+                <OriTooltip placement="bottom" :content="themeTitle">
+                    <button class="draw__chip-inline" type="button" :aria-label="themeTitle" @click="theme.cycle()">
+                        <ToolIcon :name="themeIcon" />
+                    </button>
+                </OriTooltip>
+                <!-- draw__chip-help rides the WRAPPER (not the button) so it's the
+                     wrapper that display:none-s <=600px, leaving no empty flex gap. -->
+                <OriTooltip class="draw__chip-help" placement="bottom" content="Keyboard shortcuts — ?">
+                    <button
+                        class="draw__chip-inline"
+                        :class="{ 'draw__chip-inline--active': shortcutsOpen }"
+                        type="button"
+                        aria-label="Keyboard shortcuts — ?"
+                        @click="shortcutsOpen = !shortcutsOpen"
+                    >
+                        <ToolIcon name="help" />
+                    </button>
+                </OriTooltip>
                 <span class="draw__sep" aria-hidden="true"></span>
                 <!-- File actions as icon chips on every breakpoint — the side
                      menu keeps the text duplicates. -->
-                <OriTooltip content="New">
+                <OriTooltip placement="bottom" content="New drawing">
                     <button class="draw__chip-inline" type="button" aria-label="New drawing" @click="requestNew">
                         <OriIcon :icon="icons.mdiPlus" />
                     </button>
                 </OriTooltip>
-                <OriTooltip content="Load">
+                <OriTooltip placement="bottom" content="Load">
                     <button
                         class="draw__chip-inline"
                         type="button"
@@ -636,7 +683,7 @@ function load() {
                         <OriIcon :icon="icons.mdiCloudDownloadOutline" />
                     </button>
                 </OriTooltip>
-                <OriTooltip content="Save — Ctrl/⌘+S">
+                <OriTooltip placement="bottom" content="Save — Ctrl/⌘+S">
                     <button
                         class="draw__chip-inline draw__chip-inline--accent"
                         type="button"
@@ -648,7 +695,7 @@ function load() {
                         <OriIcon :icon="icons.mdiContentSaveOutline" />
                     </button>
                 </OriTooltip>
-                <OriTooltip content="Export">
+                <OriTooltip placement="bottom" content="Export">
                     <button class="draw__chip-inline" type="button" aria-label="Export PNG" @click="exportPng">
                         <OriIcon :icon="icons.mdiDownload" />
                     </button>
@@ -689,24 +736,33 @@ function load() {
             />
         </div>
 
-        <!-- Bottom-right: zoom -->
+        <!-- Bottom-right: zoom. Tooltips point UP (placement="top") — the island
+             sits at the bottom edge. -->
         <div class="draw__zoom jp-float" role="group" aria-label="Zoom">
-            <button
-                class="draw__zoom-btn"
-                type="button"
-                aria-label="Zoom out"
-                title="Zoom out — Ctrl+-"
-                @click="zoomOut"
-            >
-                <ToolIcon name="minus" />
-            </button>
+            <OriTooltip placement="top" content="Zoom out — Ctrl+-">
+                <button class="draw__zoom-btn" type="button" aria-label="Zoom out" @click="zoomOut">
+                    <ToolIcon name="minus" />
+                </button>
+            </OriTooltip>
             <span class="draw__zoom-value">{{ zoomPercent }}%</span>
-            <button class="draw__zoom-btn" type="button" aria-label="Zoom in" title="Zoom in — Ctrl+=" @click="zoomIn">
-                <ToolIcon name="plus" />
-            </button>
-            <button class="draw__zoom-btn" type="button" aria-label="Fit to view" title="Fit — Ctrl+0" @click="fitView">
-                <ToolIcon name="fit" />
-            </button>
+            <OriTooltip placement="top" content="Zoom in — Ctrl+=">
+                <button class="draw__zoom-btn" type="button" aria-label="Zoom in" @click="zoomIn">
+                    <ToolIcon name="plus" />
+                </button>
+            </OriTooltip>
+            <OriTooltip placement="top" content="Fit — Ctrl+0">
+                <button class="draw__zoom-btn" type="button" aria-label="Fit to view" @click="fitView">
+                    <ToolIcon name="fit" />
+                </button>
+            </OriTooltip>
+        </div>
+
+        <!-- Bottom-left: cursor document-coordinate readout (desktop only —
+             hidden <=600px; no hover on touch). Shows where a stroke would land,
+             mapped through the editor's own stage transform at any zoom/pan. -->
+        <div v-if="coords" class="draw__coords jp-float">
+            <span class="draw__coords-mark" aria-hidden="true">⌖</span>
+            <span class="draw__coords-value">{{ Math.round(coords.x) }}, {{ Math.round(coords.y) }}</span>
         </div>
 
         <!-- Scrim behind the mobile layers bottom sheet (display:none >600px) -->
@@ -807,14 +863,19 @@ function load() {
     max-width: calc(100vw - (var(--ori-size-gap_md, 0.5rem) * 3 + var(--ori-size-action_md, 2.75rem)));
 }
 
-/* The menu toggler — pinned above the 400px drawer (z-110 > the menu's z-100)
-   so it stays clickable, flipping to a "close" glyph, while the menu is open. */
-.draw__menu-toggle {
+/* The menu toggler's OriTooltip wrapper — pinned above the 400px drawer (z-110 >
+   the menu's z-100) so the toggler stays clickable, flipping to a "close" glyph,
+   while the menu is open. The pin lives on the wrapper (not the button) so the
+   tooltip bubble anchors to the button; unlayered, so it beats .ori-tooltip's
+   own layered position:relative. */
+.draw__menu-toggle-tip {
     position: absolute;
     top: var(--ori-size-gap_md, 0.5rem);
     right: var(--ori-size-gap_md, 0.5rem);
     z-index: 110;
+}
 
+.draw__menu-toggle {
     display: grid;
     place-items: center;
 
@@ -1029,6 +1090,37 @@ function load() {
     text-align: center;
 }
 
+/* Cursor document-coordinate readout — bottom-left, desktop only. That corner is
+   free: the history group lives in the bar on desktop (its top-left island is
+   <=600px only), and the readout is hidden on touch (no hover to drive it). A
+   passive readout: pointer-events:none so it never intercepts canvas drawing. */
+.draw__coords {
+    position: absolute;
+    left: var(--ori-size-gap_md, 0.5rem);
+    bottom: var(--ori-size-gap_lg, 0.75rem);
+    z-index: 10;
+
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_xs, 0.125rem);
+
+    padding: 0.2rem 0.5rem;
+
+    color: var(--ori-color-on-surface);
+
+    font-size: var(--ori-font-size_xs, 0.75rem);
+    font-variant-numeric: tabular-nums;
+
+    opacity: 0.7;
+    pointer-events: none;
+    user-select: none;
+}
+
+.draw__coords-mark {
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
 /* Mobile-only history island (top-left) — undo/redo keep a one-tap home when
    the toolbar hides its own history group <=600px. display:none here so it can
    never show on desktop; the media block flips it on. */
@@ -1143,8 +1235,14 @@ function load() {
     }
 
     /* The shortcuts chip goes on phones (no hardware keyboard); the file-action
-       icon chips stay — the side menu keeps their text duplicates. */
+       icon chips stay — the side menu keeps their text duplicates. The class now
+       rides the OriTooltip wrapper, so display:none drops the whole tip (no gap). */
     .draw__chip-help {
+        display: none;
+    }
+
+    /* No hover on touch — the coordinate readout has nothing to track. */
+    .draw__coords {
         display: none;
     }
 }

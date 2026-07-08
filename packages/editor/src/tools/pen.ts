@@ -1,5 +1,5 @@
 import type { FreehandStroke } from "@justpaint/document";
-import type { LogicalPoint, Tool, ToolContext } from "../types";
+import type { LogicalPoint, StrokeTool, ToolContext } from "../types";
 
 /**
  * Pen / brush — the freehand tool (DOCUMENT-FORMAT §5.3).
@@ -13,7 +13,8 @@ import type { LogicalPoint, Tool, ToolContext } from "../types";
  * ≥1 point). The only way the editor avoids a stroke is by not committing a
  * zero-sample gesture, which the editor never produces.
  */
-export const penTool: Tool = {
+export const penTool: StrokeTool = {
+  kind: "stroke",
   id: "pen",
   buildStroke(ctx: ToolContext, gesture: readonly LogicalPoint[]): FreehandStroke | null {
     if (gesture.length < 1) return null;
