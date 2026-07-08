@@ -115,23 +115,6 @@
 /* stylelint-enable selector-class-pattern */
 
 /*
- * INTERIM tooltip pairing fix for the PUBLISHED registry @oriui/css alpha-6, whose tooltip is
- * still broken: the bubble takes its bg from `--ori-color` (globally `currentColor`) → dark-on-dark
- * / invisible on our dark ink. Pin the legible dark-surface/light-text pair. The real fix (self-paired
- * neutral bubble on the anchored, out-of-flow primitive) is committed on oriui
- * `feat/neutral-skin-tooltip-contrast` (bd3d847) but NOT yet merged/published — alpha-6 was cut from
- * oriui main before it. This app currently runs the branch tarball locally (already anchored + paired),
- * so this block is inert there; it protects clean/registry builds. REMOVE once oriui publishes the fix
- * and this app bumps. (The registry bubble is also in-flow, which can crowd tight mobile clusters —
- * fully resolved only by that publish; see docs/NOTES.md.)
- */
-/* stylelint-disable-next-line selector-class-pattern -- oriui's own component class */
-.ori-tooltip {
-    --ori-tooltip-bg: #0f172a;
-    --ori-tooltip-color: #f8fafc;
-}
-
-/*
  * Floating "island" chrome — the one visual language for everything hovering
  * over the canvas (toolbar, zoom, layers, top clusters). Shared by /draw and
  * the future /play shell (DECISIONS 2026-07-04: one design, game chrome on top).
