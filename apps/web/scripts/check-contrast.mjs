@@ -3,9 +3,9 @@
  * check-contrast.mjs — machine-checks the WCAG contrast claims made in the
  * comments of apps/web/src/main.css against the actual token values.
  *
- * Zero dependencies. Parses the brand-token custom properties (hex and
- * `hsl(H S% L%)` forms), computes WCAG 2.x relative luminance + contrast
- * ratios, and asserts the palette matrix:
+ * Parses the brand-token custom properties (hex and `hsl(H S% L%)` forms) out
+ * of main.css and uses **colord** (+ its a11y plugin) to compute WCAG 2.x
+ * contrast ratios, then asserts the palette matrix:
  *
  *   TEXT     >= 4.5:1  (WCAG 1.4.3 AA)      — every on-* ink vs its ground,
  *                                             the light primary TEXT tone,
@@ -20,6 +20,10 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { colord, extend } from 'colord';
+import a11yPlugin from 'colord/plugins/a11y';
+
+extend([a11yPlugin]);
 
 const CSS_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main.css');
 const css = readFileSync(CSS_PATH, 'utf8');
@@ -42,48 +46,16 @@ function prop(body, name, label) {
     return m[1].trim();
 }
 
-/** #rgb | #rrggbb | hsl(H S% L%) -> [r, g, b] in 0..255. */
+/** #rgb | #rrggbb | hsl(H S% L%) -> a parsed colord() instance (colord parses all three natively). */
 function parseColor(value, name) {
-    let m = /^#([0-9a-f]{3})$/i.exec(value);
-    if (m) return [...m[1]].map((c) => parseInt(c + c, 16));
-    m = /^#([0-9a-f]{6})$/i.exec(value);
-    if (m) return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
-    m = /^hsl\(\s*(-?[\d.]+)(?:deg)?\s+([\d.]+)%\s+([\d.]+)%\s*\)$/i.exec(value);
-    if (m) return hslToRgb(Number(m[1]), Number(m[2]) / 100, Number(m[3]) / 100);
-    fail(`token ${name} has unsupported color value "${value}" (expected #rgb, #rrggbb or hsl(H S% L%))`);
-}
-
-function hslToRgb(h, s, l) {
-    h = ((h % 360) + 360) % 360;
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-    const m = l - c / 2;
-    const sextant = Math.floor(h / 60) % 6;
-    const rgb1 = [
-        [c, x, 0],
-        [x, c, 0],
-        [0, c, x],
-        [0, x, c],
-        [x, 0, c],
-        [c, 0, x],
-    ][sextant];
-    return rgb1.map((v) => Math.round((v + m) * 255));
+    const c = colord(value);
+    if (!c.isValid()) {
+        fail(`token ${name} has unsupported color value "${value}" (expected #rgb, #rrggbb or hsl(H S% L%))`);
+    }
+    return c;
 }
 
 /* ------------------------------------------------------------------- WCAG */
-
-function luminance([r, g, b]) {
-    const lin = (c8) => {
-        const c = c8 / 255;
-        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    };
-    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-
-function contrast(a, b) {
-    const [hi, lo] = luminance(a) > luminance(b) ? [a, b] : [b, a];
-    return (luminance(hi) + 0.05) / (luminance(lo) + 0.05);
-}
 
 function fail(msg) {
     console.error(`check-contrast: ${msg}`);
@@ -160,7 +132,7 @@ const MATRIX = [
 const failures = [];
 const rows = [];
 for (const [fg, bg, min] of MATRIX) {
-    const ratio = contrast(tokens[fg], tokens[bg]);
+    const ratio = tokens[fg].contrast(tokens[bg]);
     const pair = `${fg} vs ${bg}`;
     const kind = min === TEXT ? 'text' : 'non-text';
     rows.push({ pair, kind, min, ratio });

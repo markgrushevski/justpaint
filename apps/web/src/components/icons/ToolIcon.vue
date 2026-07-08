@@ -10,6 +10,7 @@ export type IconName =
     | 'rect'
     | 'ellipse'
     | 'triangle'
+    | 'hand'
     | 'undo'
     | 'redo'
     | 'menu'
@@ -36,6 +37,7 @@ const ICONS: Record<IconName, string> = {
     rect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
     ellipse: '<ellipse cx="12" cy="12" rx="8.5" ry="6"/>',
     triangle: '<path d="M12 5 20 19H4L12 5z"/>',
+    hand: '<path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
     undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
     redo: '<polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>',
     menu: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>',
