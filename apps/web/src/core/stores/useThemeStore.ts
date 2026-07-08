@@ -1,3 +1,4 @@
+import { applyTheme } from '@oriui/headless'
 import { defineStore } from 'pinia'
 import { computed, ref, watchEffect } from 'vue'
 
@@ -17,6 +18,10 @@ function storedMode(): ThemeMode {
  * class — oriui flips its own tokens on it, and main.css keys the justpaint brand
  * aliases off the same class. `auto` is implemented HERE via matchMedia (not a
  * CSS media query, which the in-app toggle could not override).
+ *
+ * Applied via oriui's `applyTheme` (not a bare classList toggle): it flips the class
+ * AND works around a Chromium bug where runtime theme switching leaves styled
+ * components on the previous theme's colours until re-render (see oriui NOTES).
  */
 export const useThemeStore = defineStore('theme', () => {
     const mode = ref<ThemeMode>(storedMode())
@@ -30,7 +35,7 @@ export const useThemeStore = defineStore('theme', () => {
     const isDark = computed(() => mode.value === 'dark' || (mode.value === 'auto' && systemDark.value))
 
     watchEffect(() => {
-        document.documentElement.classList.toggle('ori-theme_dark', isDark.value)
+        applyTheme(isDark.value ? 'dark' : 'light')
         localStorage.setItem(STORAGE_KEY, mode.value)
     })
 
