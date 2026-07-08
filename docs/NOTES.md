@@ -304,6 +304,18 @@ small practical gotchas go here.
   the bottom toolbar got squeezed to min-content and wrapped. Use a full-width strip instead:
   `left:0; right:0; display:flex; justify-content:center` + `pointer-events:none` on the strip and
   `pointer-events:auto` on the child.
+- **The registry `@oriui/css` alpha-6 `OriTooltip` mis-pairs the bubble** — background comes from
+  `--ori-color`, but text from `--ori-color-on` (= the global `currentColor`), so on dark ink the
+  tooltip renders **black-on-black**. App-side interim fix pins `--ori-tooltip-bg`/`--ori-tooltip-color`
+  on `.ori-tooltip`. The **root** fix is in oriui (self-pairing bubble + viewport flip/clamp + a static
+  arrow — the `anchor(center)` arrow was invalid CSS), on `feat/neutral-skin-tooltip-contrast`
+  (commit `bd3d847`, unpublished). **Remove the app override when the app bumps to the published oriui
+  fix.**
+- **Preview-testing an UNPUBLISHED oriui build rewrites `package.json`.** `npm install <abs path>.tgz`
+  on a local oriui tarball rewrites the `@oriui/*` deps to fragile `file:` refs pointing at the sibling
+  `vueinjar` repo — do **NOT** commit those. Revert `package.json` + the lockfile to the registry range
+  and keep the built `node_modules` local for the duration of the preview (precedent: the alpha-4
+  preview tarballs).
 
 ## Preview MCP / verification
 
@@ -325,6 +337,10 @@ small practical gotchas go here.
   though its `--ori-*` custom properties (not transitioned) already show the new value. If a computed
   color "didn't change" but the tokens did, reload the page (fresh paint has no transition) before
   concluding the CSS is broken.
+- **The desktop cursor-coord readout is rAF-throttled, and rAF is PAUSED in a hidden preview tab** — so
+  the coords chip never appears under `preview_eval` there, and any eval that `await`s
+  `requestAnimationFrame` **hangs to the 30 s timeout**. Verify the coord readout in a real visible
+  browser; never `await` rAF in a preview eval.
 
 ## Orchestration / role agents
 
