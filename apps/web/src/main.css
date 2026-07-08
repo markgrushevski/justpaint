@@ -89,6 +89,24 @@
 }
 
 /*
+ * Colored-TEXT button variants (outline/tonal/text) read their LABEL color from
+ * `--ori-color`. The brand orange hsl(20 100% 50%) is only 2.86:1 on the #f0f2f6
+ * surface (below the 4.5:1 AA text bar), so LIGHT theme darkens the TEXT tone of
+ * the same hue: hsl(20 100% 38%) = 4.64:1 on the surface, 5.20:1 on white. Fills
+ * keep the vivid brand (their contrast is the dark ink ON them); dark theme's
+ * hsl(20 100% 60%) already passes (6.65:1). This is the one deliberate `.ori-*`
+ * targeting in the app — the token override point oriui sanctions — and it pins
+ * the PRIMARY role explicitly (every OriButton carries `ori-color_<role>`), so
+ * danger/success/etc. buttons keep their own hues.
+ */
+/* stylelint-disable selector-class-pattern -- oriui's own variant/theme classes */
+:root:not(.ori-theme_dark)
+    .ori-button.ori-color_primary:where(.ori-variant_outline, .ori-variant_tonal, .ori-variant_text) {
+    --ori-color: hsl(20 100% 38%);
+}
+/* stylelint-enable selector-class-pattern */
+
+/*
  * Floating "island" chrome — the one visual language for everything hovering
  * over the canvas (toolbar, zoom, layers, top clusters). Shared by /draw and
  * the future /play shell (DECISIONS 2026-07-04: one design, game chrome on top).

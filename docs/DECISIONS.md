@@ -2,6 +2,17 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-08 — Legacy shell returns: right-side menu, palette, names, backdrop (owner batch 2026-07-07)
+
+The owner's 13-point batch restored the legacy justpaint shell on the new vector editor (oriui bumped to **1.0.0-alpha.6**). Pinned choices:
+
+- **Menu opens from the RIGHT, non-modal** (the legacy mechanic): always-mounted 400px panel (`max-width: 100dvw` — full-screen on phones), `translateX(101%) ⇄ 0`, `border-left` primary, NO backdrop — the canvas stays interactive behind it. The toggler is a fixed top-right chip ABOVE the open panel (`z-index` 110 vs 100), icon `mdiMenu ⇄ mdiMenuOpen`. Non-modal ⇒ no focus trap / no `aria-modal` (Esc + focus-return kept).
+- **Unregistered users are the `/draw` priority** (game mode prioritizes registered): menu order is title → Copy as text/image → File → Canvas → auth at the BOTTOM. "Copy as text" copies the **document JSON** (the raster data-URL was a legacy artifact); "Copy as image" copies a PNG blob.
+- **Drawing `name` is drawing METADATA, not document format**: a `drawings.name` column (64-rune cap, `'new art'` default, update-keeps-on-absent) through migration/sqlc/handler/client — the document validators are untouched. Title edited in the menu header (contenteditable, signed-in only), persisted on save.
+- **Legacy palette**: surfaces `#f0f2f6`/`#191919`, backgrounds `#ffffff`/`#121212`, primary `hsl(20 100% 50%)`/`hsl(20 100% 60%)` with DARK-INK on-primary (white fails AA on this orange). Colored-TEXT button variants darken to `hsl(20 100% 38%)` in light (4.64:1 — the accent/readable-text split); outlines recomputed ≥3:1 vs the new surfaces.
+- **Canvas backdrop is a VIEW preference, not document state**: new docs are viewport-sized with `background: null`; behind them the editor paints theme paper (white/black) or the legacy checkerboard via `Editor.setCanvasBackdrop` (view-only Konva layer, zoom-compensated tiles, never exported). Persisted in `localStorage['jp.backdropGrid']`; default = paper. PNG export of a transparent doc stays transparent (legacy parity); the judge renders on white regardless.
+- **Layers panel**: desktop = dropdown under the top-right actions island; phones = full-width bottom sheet with a scrim. Toolbar style controls collapse into an **OriPopover** on phones (variant C); numeric px width input beside the slider; shortcuts cheat-sheet is desktop-only.
+
 ## 2026-07-07 — AI Assist v1 design accepted (text drawing commands)
 
 The first AI-in-product feature (item (a) of `IDEAS.md` "AI inside the product") is designed and accepted — full design in **`docs/ASSIST.md`**. The pinned choices:
