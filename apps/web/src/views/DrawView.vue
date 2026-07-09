@@ -50,12 +50,12 @@ import {
     useThemeStore
 } from '@core'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import EmptyState from '../components/EmptyState.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import LayersPanel from '../components/LayersPanel.vue'
 import ShortcutsDialog from '../components/ShortcutsDialog.vue'
 import SideMenu from '../components/SideMenu.vue'
 import ToolIcon from '../components/icons/ToolIcon.vue'
-import type { IconName } from '../components/icons/ToolIcon.vue'
 
 const containerRef = ref<HTMLDivElement | null>(null)
 let editor: Editor | null = null
@@ -181,10 +181,6 @@ function onCancelNew() {
     pendingSize.value = null
     confirmNewOpen.value = false
 }
-
-const THEME_ICON: Record<string, IconName> = { auto: 'monitor', light: 'sun', dark: 'moon' }
-const themeIcon = computed(() => THEME_ICON[theme.mode] ?? 'monitor')
-const themeTitle = computed(() => `Theme: ${theme.mode} (click to switch)`)
 
 /** Clamp a canvas dimension to the document's integer [1, maxCanvasDimension] domain. */
 function clampDim(n: number): number {
@@ -627,10 +623,10 @@ function load() {
             </button>
         </OriTooltip>
 
-        <!-- Top-right: panels, theme, file actions (left of the toggler). Every
-             chip's tooltip drops BELOW (placement="bottom") so the bubble stays
-             on-screen at the top edge (.draw has overflow:hidden, clipping any
-             upward bubble). -->
+        <!-- Top-right: panels + save (left of the toggler). Every chip's tooltip
+             drops BELOW (placement="bottom") so the bubble stays on-screen at the
+             top edge (.draw has overflow:hidden, clipping any upward bubble). New /
+             Load / Export and the theme control now live in the side-menu drawer. -->
         <div class="draw__top-right">
             <div class="draw__actions jp-float">
                 <OriTooltip placement="bottom" content="Layers">
@@ -643,11 +639,6 @@ function load() {
                         @click="layersOpen = !layersOpen"
                     >
                         <ToolIcon name="layers" />
-                    </button>
-                </OriTooltip>
-                <OriTooltip placement="bottom" :content="themeTitle">
-                    <button class="draw__chip-inline" type="button" :aria-label="themeTitle" @click="theme.cycle()">
-                        <ToolIcon :name="themeIcon" />
                     </button>
                 </OriTooltip>
                 <!-- draw__chip-help rides the WRAPPER (not the button) so it's the
@@ -664,25 +655,8 @@ function load() {
                     </button>
                 </OriTooltip>
                 <span class="draw__sep" aria-hidden="true"></span>
-                <!-- File actions as icon chips on every breakpoint — the side
-                     menu keeps the text duplicates. -->
-                <OriTooltip placement="bottom" content="New drawing">
-                    <button class="draw__chip-inline" type="button" aria-label="New drawing" @click="requestNew">
-                        <OriIcon :icon="icons.mdiPlus" />
-                    </button>
-                </OriTooltip>
-                <OriTooltip placement="bottom" content="Load">
-                    <button
-                        class="draw__chip-inline"
-                        type="button"
-                        aria-label="Load latest drawing"
-                        :disabled="!session.isLoggedIn || busy"
-                        :aria-busy="busy || undefined"
-                        @click="load"
-                    >
-                        <OriIcon :icon="icons.mdiCloudDownloadOutline" />
-                    </button>
-                </OriTooltip>
+                <!-- Save is the one file action kept in the island (accent); New /
+                     Load / Export live in the side-menu File section. -->
                 <OriTooltip placement="bottom" content="Save — Ctrl/⌘+S">
                     <button
                         class="draw__chip-inline draw__chip-inline--accent"
@@ -695,26 +669,28 @@ function load() {
                         <OriIcon :icon="icons.mdiContentSaveOutline" />
                     </button>
                 </OriTooltip>
-                <OriTooltip placement="bottom" content="Export">
-                    <button class="draw__chip-inline" type="button" aria-label="Export PNG" @click="exportPng">
-                        <OriIcon :icon="icons.mdiDownload" />
-                    </button>
-                </OriTooltip>
             </div>
         </div>
 
         <!-- Transient status: the oriui toast queue (pushed via useToast()) -->
         <OriToaster position="top-center" />
 
-        <!-- First-run hint: only on an empty canvas, until dismissed. -->
-        <Transition name="toast">
-            <p v-if="showHint" class="draw__hint jp-float">
-                Pick a tool and draw. Press <kbd>?</kbd> for shortcuts.
-                <button class="draw__hint-x" type="button" aria-label="Dismiss" @click="dismissHint">
-                    <ToolIcon name="close" />
-                </button>
-            </p>
-        </Transition>
+        <!-- First-run empty state: a welcome card centered on a blank canvas, only
+             until dismissed or the first stroke lands (same showHint gating + fade
+             as the old hint pill). The layer lets pointer events pass THROUGH so
+             drawing around the card still works — only the card is interactive. -->
+        <div class="draw__empty-layer">
+            <Transition name="jp-pop">
+                <EmptyState
+                    v-if="showHint"
+                    class="draw__empty"
+                    :signed-in="session.isLoggedIn"
+                    @dismiss="dismissHint"
+                    @sign-in="menuOpen = true"
+                    @shortcuts="shortcutsOpen = true"
+                />
+            </Transition>
+        </div>
 
         <!-- Bottom-center: the floating toolbar -->
         <div class="draw__toolbar">
@@ -981,57 +957,37 @@ function load() {
     pointer-events: auto;
 }
 
-/* First-run hint — sits above the toolbar, clear of it. */
-.draw__hint {
+/* First-run empty state — a centered welcome card over the canvas. The layer is
+   full-bleed but pointer-events:none so it never blocks drawing; only the card
+   (pointer-events:auto) is interactive. z-11 keeps it above the toolbar. */
+.draw__empty-layer {
     position: absolute;
-    bottom: 5rem;
-    left: 50%;
+    inset: 0;
     z-index: 11;
-    transform: translateX(-50%);
 
-    display: flex;
-    align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
-
-    max-width: min(30rem, 90vw);
-    margin: 0;
-    padding: 0.4rem 0.8rem;
-
-    color: var(--ori-color-on-surface);
-    font-size: var(--ori-font-size_sm, 0.875rem);
-}
-
-.draw__hint kbd {
-    padding: 0.05rem 0.35rem;
-
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-    border-radius: var(--ori-size-radius_sm, 4px);
-    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
-
-    font-family: var(--ori-font-family_mono, ui-monospace, monospace);
-    font-size: 0.8em;
-}
-
-/* Bare glyph dismiss — matches the shell's other transparent icon buttons. */
-.draw__hint-x {
     display: grid;
     place-items: center;
-    flex-shrink: 0;
 
-    width: 1.4rem;
-    height: 1.4rem;
-    padding: 0;
-
-    border: none;
-    border-radius: var(--ori-size-radius_md, 8px);
-    background: transparent;
-    color: var(--ori-color-on-surface);
-
-    cursor: pointer;
+    pointer-events: none;
 }
 
-.draw__hint-x:hover {
-    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
+.draw__empty {
+    pointer-events: auto;
+}
+
+/* The card fades + settles in place (a straight fade/scale — NOT the toast's
+   horizontal slide, which reads wrong on a centered welcome card). */
+.jp-pop-enter-active,
+.jp-pop-leave-active {
+    transition:
+        opacity 0.18s ease-out,
+        transform 0.18s ease-out;
+}
+
+.jp-pop-enter-from,
+.jp-pop-leave-to {
+    opacity: 0;
+    transform: scale(0.96);
 }
 
 .draw__zoom {
@@ -1217,12 +1173,6 @@ function load() {
     .draw__zoom {
         right: var(--ori-size-gap_sm, 0.25rem);
         bottom: 4.25rem;
-    }
-
-    /* Raise the hint clear of the toolbar AND the relocated zoom island (its
-       top edge sits ~6.9rem up: 4.25rem + 2.25rem chip + padding + border). */
-    .draw__hint {
-        bottom: 7.25rem;
     }
 
     .draw__brand {
