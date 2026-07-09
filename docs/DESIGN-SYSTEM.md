@@ -85,22 +85,26 @@ not an override.)
 
 Build a justpaint component **only** where oriui has a genuine gap or we want a project default. Keep them thin.
 
-- **`JpFloat`** — the elevated floating-surface island (toolbar / zoom / panel over the canvas). oriui has **no**
-  elevation primitive (`OriCard` is a flat content card with `gap_xl` padding + header/title semantics — wrong for
-  chrome). `JpFloat` = surface bg + hairline + `radius_lg` + drop shadow, tight padding. Replaces the ad-hoc `.jp-float`
-  utility. *(Upstream candidate: an oriui `OriSheet`/`elevation` — see §6.)*
+- **`JpFloat`** — the elevated floating-surface island (toolbar / zoom / panel over the canvas). `OriCard` is a flat
+  content card (`gap_xl` padding + header/title semantics — wrong for chrome), so `JpFloat` composes the pieces oriui
+  DOES ship: `surface` bg + `outline` hairline + `radius_lg` + the **`--ori-shadow-lg`** elevation token (the same one
+  `OriDialog`/`OriPopover` use), tight padding. A thin convenience — not a missing primitive.
 - **`IconButton`** — `OriButton` preset for icon-only toolbar actions: `icon`, `variant` (default `text`), `active`,
   `disabled`, `label` (a11y + `OriTooltip`). Centralizes the toolbar-chip look so every island matches and no view
   re-styles a `<button>`. A SELECTED/on toggle passes `color="primary"` + `active`; a PRIMARY action is a `fill`
   `OriButton`, not this.
 - **`SegmentedControl`** — single-select segmented button group (the theme Light/Dark/Auto picker; reusable for any
-  small settings pick). oriui has no segmented/radio-group primitive (`OriTabs` is a label-only view-switching tablist,
-  `OriSwitch` is binary), so this fills the gap. Built on `OriButton` (selected = `fill`, others = `text` — no
-  hand-rolled `--active`/`color-mix`), with `role="radiogroup"` + roving-tabindex arrow-key a11y. *(Upstream candidate
-  — see §6.)*
+  small settings pick). COMPOSES `.ori-join` (oriui's segment-joiner) + `OriButton` (selected = `fill`, others =
+  `outline` — no hand-rolled `--active`/`color-mix`) and ADDS the single-select model + radiogroup a11y
+  (`role="radiogroup"`/`radio`, `aria-checked`, roving-tabindex arrow keys). `OriRadioGroup` exists but is the wrong
+  visual here (radio circles, not a segmented look).
 
-Content containers are **not** a justpaint primitive: use **`OriCard`** directly (result reveal, empty state, judging
-card, dialog bodies) — it already models header/title/subtitle/body/actions.
+Everything else is **oriui direct**: **content** → `OriCard` (the ResultReveal sides — winner = `tonal`/`primary`).
+**Modal dialogs** → `OriDialog` is the target (native `<dialog>`: focus-trap, scroll-lock, Esc, backdrop) — but the
+**installed** alpha-10 build is *uncontrolled* (no `open` prop/emit — `NOTES.md`); the controlled `v-model:open` form
+lives in the `../vueinjar` source but isn't published, so **ConfirmDialog / ShortcutsDialog stay hand-rolled controlled
+modals until oriui republishes** (then migrate). A bespoke overlay whose layout isn't a textbook card (EmptyState,
+JudgingOverlay) stays a `JpFloat` with custom content — don't force it into `OriCard`.
 
 ## 5. Migration checklist (a change touching chrome)
 
@@ -111,19 +115,22 @@ card, dialog bodies) — it already models header/title/subtitle/body/actions.
 - [ ] Floating chrome → `JpFloat`; content card → `OriCard`.
 - [ ] `npm run lint:all` (incl. contrast) + `npm run test:a11y` still green.
 
-## 6. Gaps to push upstream to oriui (owner's repo — spec, don't fork here)
+## 6. oriui capability map — read the source, don't assume gaps
 
-oriui is consumed from npm; changes are the owner's, in the oriui repo. Track wants here:
+Every "gap" I first assumed (from `dist`) turned out to already exist in the source — that IS the lesson of §0's
+"read the source". Current status, so no one re-spawns these as wants:
 
-**Genuine gaps** (real candidates for the owner to add upstream):
-- **Elevation / `OriSheet`** — a floating-surface primitive (shadow + tight padding, no header semantics). Would let
-  `JpFloat` become a re-export instead of a bespoke component.
-- **Segmented / radio-group control** — no oriui primitive for a single-select segment group (theme picker, view
-  toggles). `SegmentedControl` (§4) fills it justpaint-side; an oriui `OriSegmented` / `OriRadioGroup` would let it
-  become a re-export.
+- **Elevation** — `--ori-shadow-{sm,md,lg,ring}` tokens (theme-aware; `OriDialog`/`OriPopover` use `-lg`). `JpFloat`
+  composes them — no missing primitive. (A pre-composed `OriSheet` raised-surface would be a minor nicety at most.)
+- **Segmented / single-select** — `OriJoin` collapses adjacent controls into one segmented unit; `OriRadioGroup` is a
+  native single-select radiogroup. `SegmentedControl` (§4) composes `.ori-join` + `OriButton`. Not a gap.
+- **Neutral glyph** — `surface`/`background` ARE neutral roles; `color="surface"` (its `-text` alias resolves to
+  `--ori-color-on-surface`) is the intended neutral. No `neutral` role needed.
+- **Modal dialogs** — `OriDialog` exists (native `<dialog>` + `showModal()`). ⚠ The controlled `v-model:open` form is in
+  the `../vueinjar` source but NOT the installed alpha-10 build (uncontrolled — `NOTES.md`); consuming it needs an oriui
+  **republish** (bumped prerelease, lockstep). Until then the dialogs stay hand-rolled — this is the one real "blocked
+  on upstream" item.
+- **`llms-full.txt`** — published (oriui.vercel.app + `/guides/*`), just not in the npm tarball. Read it.
 
-**Not gaps** (corrected after reading the source — the sanctioned path already exists):
-- **Neutral glyph** — `surface` / `background` ARE neutral roles. `color="surface"` (whose `-text` alias resolves to
-  `--ori-color-on-surface`) is the intended neutral, per customization §1; no `neutral` `ThemeColor` is needed.
-- **`llms-full.txt`** — oriui *does* publish it (see the header) plus `/guides/*`; it's only absent from the npm
-  tarball. The fix is "read the docs/source", not a package change.
+**If something IS genuinely missing**, tell the owner (they maintain oriui) — but confirm against `../vueinjar`
+first, never assume from `dist`.
