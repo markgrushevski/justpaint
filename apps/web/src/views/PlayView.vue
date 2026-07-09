@@ -7,19 +7,24 @@
  * game chrome (round timer, prompt banner, opponent status, submit, judging +
  * result overlays) filling the regions instead of /draw's file/layer chrome.
  *
- * SCAFFOLD: the match loop is driven by LOCAL MOCK STATE (a small phase machine
- * + a ticking countdown), so /play is fully explorable with no server. Every
- * place a real create/poll/submit/result call will swap in is marked
- * `// TODO(play-api):`. The live /api/matches client is the NEXT unit.
+ * LIVE against the async-duel API (docs/API.md §8, docs/GAME.md): on mount it
+ * creates/auto-joins a match (`POST /api/matches`), polls the roster until the
+ * opponent joins, reveals the pinned prompt, and — on submit — POSTs the vector
+ * document and polls the verdict (`GET /api/matches/:id/result`) until the judge
+ * decides. Reads that drive the flow are polled directly (an ephemeral per-round
+ * flow); create/submit go through TanStack mutations. WS push replaces the polling
+ * later (docs/API.md §9, not-v1). The authoritative judged raster is rendered
+ * server-side — the client PNG here is an advisory preview only (GAME.md §6).
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { OriTooltip } from '@oriui/vue'
+import { OriButton, OriTooltip } from '@oriui/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DOC_VERSION, parseDocument } from '@justpaint/document'
 import { useThemeColor } from '@oriui/headless/vue'
-import { useSessionStore } from '@core'
+import { useSessionStore, useCreateMatch, useSubmitMatch, matches, isAuthError, toApiError } from '@core'
+import type { Match, MatchResultDone } from '@core'
 import EditorShell from '../components/shell/EditorShell.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import ToolIcon from '../components/icons/ToolIcon.vue'
@@ -35,8 +40,16 @@ import type { DuelResult } from '../components/game/ResultReveal.vue'
 /** The canonical square duel canvas (GAME.md §2 — GAME_CANVAS = 1080×1080). */
 const GAME_CANVAS = 1080
 
-/** How long a round lasts (mock). TODO(play-api): comes from the match record. */
+/**
+ * Soft client round length. v1 has no server-authoritative deadline, so this is a
+ * UX pressure timer only (auto-submits on expiry); it is not reconciled against
+ * the match. TODO(play-api): drive from a server deadline once the match record
+ * carries one.
+ */
 const ROUND_SECONDS = 90
+
+/** How often to poll the roster / verdict while a round is in flight. */
+const POLL_MS = 2000
 
 /* --- editor mount seam (identical to DrawView) ------------------------- */
 
@@ -52,6 +65,8 @@ let unsubscribe: (() => void) | null = null
 const cursorRingColor = useThemeColor('primary')
 
 const session = useSessionStore()
+const createMatch = useCreateMatch()
+const submitMatch = useSubmitMatch()
 
 /** A blank single-layer document at the square GAME canvas size. */
 function blankGameDocument(): Document {
@@ -86,27 +101,35 @@ function syncEditorState() {
     zoom.value = editor.getZoom()
 }
 
-/* --- mock match state machine ------------------------------------------ */
+/* --- match state machine (driven by the live API) ---------------------- */
 
 /**
- * Phases (superset of GAME.md's states for the client view):
+ * Phases (a client view over GAME.md's match states):
+ *  connecting → creating/auto-joining the match (POST /matches)
  *  waiting    → roster filling; prompt redacted (GAME.md `open`)
  *  drawing    → prompt revealed; timer running (GAME.md `drawing`)
- *  submitting → submit clicked; capturing the raster (transient)
- *  judging    → rendered + awaiting the judge (GAME.md `judging`)
+ *  submitting → submit POST in flight (transient)
+ *  judging    → submitted; awaiting the opponent + verdict (GAME.md `judging`)
  *  done       → result revealed (GAME.md `done`)
+ *  error      → auth needed / network / unrecoverable
  */
-type Phase = 'waiting' | 'drawing' | 'submitting' | 'judging' | 'done'
-const phase = ref<Phase>('waiting')
+type Phase = 'connecting' | 'waiting' | 'drawing' | 'submitting' | 'judging' | 'done' | 'error'
+const phase = ref<Phase>('connecting')
 
-// TODO(play-api): the prompt is delivered by the server only once the match
-// enters `drawing` (GAME.md §5 reveal timing) — do not ship it to the client
-// while waiting. Hardcoded here for the scaffold.
-const prompt = ref('a lighthouse at night')
-const promptRevealed = computed(() => phase.value !== 'waiting')
+// Set true on unmount; every async continuation checks it before touching state.
+let disposed = false
+
+// The live match id + my resolved user id (to pick "me" out of the roster).
+let matchId: string | null = null
+let myUserId = ''
+
+// The pinned prompt (server-delivered; redacted until `drawing`). Empty until known.
+const prompt = ref('')
+const REVEAL_PHASES = new Set<Phase>(['drawing', 'submitting', 'judging', 'done'])
+const promptRevealed = computed(() => prompt.value !== '' && REVEAL_PHASES.has(phase.value))
 
 // The opponent — a safe display label + coarse status (NEVER a login; GAME.md
-// §4.2). TODO(play-api): comes from match_players / WS room events.
+// §4.2). Populated from the roster once they join; the flag is polled.
 const opponent = reactive<{ name: string; status: OpponentStatus }>({
     name: 'Player 2',
     status: 'drawing'
@@ -117,10 +140,14 @@ const submitting = computed(() => phase.value === 'submitting')
 const canSubmit = computed(() => phase.value === 'drawing')
 
 const result = ref<DuelResult | null>(null)
+// Error surface for the `error` phase.
+const errorMsg = ref('')
+const needsAuth = ref(false)
+
 // Object URL of the player's captured raster — revoked on reset/unmount.
 let youImageUrl: string | null = null
 
-// Timers we own and must clear on reset/unmount.
+// Timers we own and must clear on reset/unmount (the countdown + poll ticks).
 let tick: number | null = null
 const timeouts = new Set<number>()
 
@@ -132,40 +159,107 @@ function later(fn: () => void, ms: number): void {
     timeouts.add(id)
 }
 
-function clearTimers(): void {
+function stopCountdown(): void {
     if (tick !== null) {
         clearInterval(tick)
         tick = null
     }
+}
+
+function clearTimers(): void {
+    stopCountdown()
     for (const id of timeouts) clearTimeout(id)
     timeouts.clear()
 }
 
 function startCountdown(): void {
-    if (tick !== null) clearInterval(tick)
+    stopCountdown()
     tick = window.setInterval(() => {
         remaining.value = Math.max(0, remaining.value - 1)
-        // TODO(play-api): the server is the authoritative clock; a real round
-        // reconciles against match state rather than trusting this interval.
         if (remaining.value <= 0) {
-            if (tick !== null) clearInterval(tick)
-            tick = null
+            stopCountdown()
             void submit() // out of time — auto-submit whatever is on the canvas
         }
     }, 1000)
 }
 
-/** Enter the drawing phase: reveal the prompt, reset + start the clock. */
+/** Move to the terminal error phase (auth = show a sign-in path instead of retry). */
+function toError(msg: string, auth = false): void {
+    errorMsg.value = msg
+    needsAuth.value = auth
+    phase.value = 'error'
+    stopCountdown()
+}
+
+/** Map any thrown API error onto the error phase (auth → sign-in prompt). */
+function handleError(err: unknown): void {
+    if (isAuthError(err)) {
+        toError('Sign in to play a duel.', true)
+        return
+    }
+    toError(toApiError(err)?.message ?? 'Something went wrong. Try again.')
+}
+
+/** Reflect the roster into the opponent chip + the revealed prompt. */
+function applyRoster(m: Match): void {
+    if (m.prompt.text) prompt.value = m.prompt.text
+    const opp = m.players.find((p) => p.userId !== myUserId)
+    if (opp) {
+        opponent.name = opp.displayName ?? 'Player 2'
+        opponent.status = m.status === 'judging' ? 'judging' : opp.submitted ? 'submitted' : 'drawing'
+    }
+}
+
+/** Enter the drawing phase: reveal the prompt, reset + start the soft clock. */
 function beginDrawing(): void {
     phase.value = 'drawing'
-    opponent.status = 'drawing'
     remaining.value = ROUND_SECONDS
     startCountdown()
-    // Mock: the opponent locks in partway through so the status chip visibly
-    // changes. TODO(play-api): driven by an "opponent submitted" room event.
-    later(() => {
-        if (phase.value === 'drawing') opponent.status = 'submitted'
-    }, 6500)
+}
+
+/**
+ * The single poll loop. It reschedules itself every POLL_MS until a terminal phase
+ * (done/error) — spanning waiting → drawing → (submitting) → judging — so there is
+ * exactly one loop for the whole round. `submitting` falls through untouched (it
+ * just waits for the next tick, by which point the phase is `judging`).
+ */
+async function pollTick(): Promise<void> {
+    if (disposed || matchId === null) return
+    if (phase.value === 'done' || phase.value === 'error') return
+    try {
+        if (phase.value === 'waiting' || phase.value === 'drawing') {
+            const m = await matches.get(matchId)
+            if (disposed) return
+            applyRoster(m)
+            if (m.status === 'abandoned') {
+                toError('This match was abandoned.')
+                return
+            }
+            if (m.status === 'drawing' && phase.value === 'waiting') beginDrawing()
+        } else if (phase.value === 'judging') {
+            const r = await matches.result(matchId)
+            if (disposed) return
+            if (r.ready) {
+                applyResult(r)
+                return
+            }
+            if (r.status === 'abandoned') {
+                toError('This match was abandoned.')
+                return
+            }
+            opponent.status = r.status === 'judging' ? 'judging' : 'drawing'
+        }
+    } catch (err) {
+        if (disposed) return
+        handleError(err)
+        return
+    }
+    scheduleNextPoll()
+}
+
+function scheduleNextPoll(): void {
+    if (disposed) return
+    later(() => void pollTick(), POLL_MS)
 }
 
 /** Capture the player's drawing as a PNG object URL (advisory preview only). */
@@ -173,8 +267,8 @@ async function captureYourRaster(): Promise<string | null> {
     if (!editor) return null
     try {
         const doc = editor.getDocument()
-        // Client PNG is advisory (GAME.md §6) — the authoritative judged raster
-        // is rendered server-side. This is only for the reveal preview.
+        // Client PNG is advisory (GAME.md §6) — the authoritative judged raster is
+        // rendered server-side. This is only for the reveal preview.
         const blob = await editor.toPNG({ outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
         return URL.createObjectURL(blob)
     } catch {
@@ -189,49 +283,91 @@ function revokeYourRaster(): void {
     }
 }
 
-async function submit(): Promise<void> {
-    if (phase.value !== 'drawing') return
-    phase.value = 'submitting'
-    if (tick !== null) {
-        clearInterval(tick)
-        tick = null
+/** Create or auto-join a match and start the poll loop. */
+async function startMatch(): Promise<void> {
+    phase.value = 'connecting'
+    errorMsg.value = ''
+    needsAuth.value = false
+    prompt.value = ''
+    opponent.name = 'Player 2'
+    opponent.status = 'drawing'
+    remaining.value = ROUND_SECONDS
+    try {
+        const m = await createMatch.mutateAsync()
+        if (disposed) return
+        matchId = m.id
+        applyRoster(m)
+        // Auto-joined an existing open match ⇒ the round is already live; otherwise
+        // we opened one and wait for an opponent (prompt stays redacted).
+        if (m.status === 'drawing') beginDrawing()
+        else phase.value = 'waiting'
+        scheduleNextPoll()
+    } catch (err) {
+        if (disposed) return
+        handleError(err)
     }
-    // TODO(play-api): POST /api/matches/:id/submit with the vector document.
-    // The server validates (1080² check), persists, renders the authoritative
-    // raster, and flips the match to `judging` when the last slot is stamped.
+}
+
+/** Submit the current drawing, then hand off to the verdict poll. */
+async function submit(): Promise<void> {
+    if (phase.value !== 'drawing' || matchId === null || !editor) return
+    phase.value = 'submitting'
+    stopCountdown()
+    // Snapshot the advisory preview before we hand the document to the server.
     revokeYourRaster()
     youImageUrl = await captureYourRaster()
-
-    phase.value = 'judging'
-    opponent.status = 'judging'
-    // TODO(play-api): poll GET /api/matches/:id (or await a WS `result` event)
-    // instead of this fixed delay; then map the server result into DuelResult.
-    later(finishJudging, 2200)
+    if (disposed) return
+    try {
+        await submitMatch.mutateAsync({ id: matchId, document: editor.getDocument() })
+        if (disposed) return
+        // Recorded (202). The live poll loop picks up the `judging` branch and
+        // polls the verdict; the opponent status resolves from there.
+        opponent.status = 'judging'
+        phase.value = 'judging'
+    } catch (err) {
+        if (disposed) return
+        // A 409 means the submission is already recorded / the match moved on —
+        // proceed to poll the verdict rather than erroring the player out.
+        if (toApiError(err)?.status === 409) {
+            phase.value = 'judging'
+            return
+        }
+        handleError(err)
+    }
 }
 
-function finishJudging(): void {
-    // TODO(play-api): replace this mock with the real judged result — scores,
-    // winner (mapped from the judge's positional A/B per GAME.md §7.1), reason,
-    // and the Elo delta computed server-side.
+/** Map the decided server verdict into the reveal shape (GAME.md §7.1). */
+function applyResult(r: MatchResultDone): void {
+    const me = r.players.find((p) => p.userId === myUserId)
+    const opp = r.players.find((p) => p.userId !== myUserId)
+    const before = me?.ratingBefore ?? session.user?.rating ?? 1200
+    const after = me?.ratingAfter ?? before
     result.value = {
-        you: { score: 78, image: youImageUrl },
-        opponent: { name: opponent.name, score: 64, image: null },
-        winner: 'you',
-        reason: 'Your lighthouse reads clearly against the night sky — a stronger silhouette and better contrast than the opponent’s.',
-        eloDelta: 15,
-        ratingBefore: 1200
+        // Judge scores are 0..1; the reveal bar is 0..100.
+        you: { score: (me?.score ?? 0) * 100, image: youImageUrl },
+        opponent: {
+            name: opp?.displayName ?? opponent.name,
+            score: (opp?.score ?? 0) * 100,
+            // Opponent preview waits on the object-storage + render seam (null in v1).
+            image: opp?.judgedImageUrl ?? null
+        },
+        winner: r.winnerUserId === null ? 'tie' : r.winnerUserId === myUserId ? 'you' : 'opponent',
+        reason: r.reason ?? '',
+        eloDelta: after - before,
+        ratingBefore: before
     }
     phase.value = 'done'
+    stopCountdown()
 }
 
+/** Reset the canvas and create a fresh match. */
 function playAgain(): void {
-    // TODO(play-api): create/join a fresh match instead of resetting locally.
     clearTimers()
     revokeYourRaster()
     result.value = null
     editor?.loadDocument(parseDocument(blankGameDocument()))
     syncEditorState()
-    beginDrawing()
+    void startMatch()
 }
 
 /* --- toolbar handlers (mirror DrawView) -------------------------------- */
@@ -308,7 +444,7 @@ function onKeydown(e: KeyboardEvent) {
     }
     if (e.altKey) return
     // Only bind tool keys while actually drawing (not during judging/result).
-    if (phase.value !== 'drawing' && phase.value !== 'waiting') return
+    if (phase.value !== 'drawing') return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
         e.preventDefault()
@@ -318,8 +454,7 @@ function onKeydown(e: KeyboardEvent) {
 
 /* --- lifecycle --------------------------------------------------------- */
 
-onMounted(() => {
-    void session.fetchMe() // restore an existing cookie session, if any
+onMounted(async () => {
     const container = shell.value?.canvasEl ?? null
     if (!container) return
     // The editor sizes its Konva stage to the container and fits the 1080²
@@ -332,13 +467,20 @@ onMounted(() => {
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
 
-    // Kick off the mock reveal: brief "waiting for opponent", then the roster
-    // fills and the prompt is revealed. TODO(play-api): replace with create +
-    // poll/subscribe until the match enters `drawing`.
-    later(beginDrawing, 1400)
+    // A duel is auth-required. Restore an existing cookie session, then create or
+    // auto-join a match; an anonymous visitor gets the sign-in path.
+    await session.fetchMe()
+    if (disposed) return
+    if (!session.isLoggedIn || !session.user) {
+        toError('Sign in to play a duel.', true)
+        return
+    }
+    myUserId = session.user.id
+    void startMatch()
 })
 
 onBeforeUnmount(() => {
+    disposed = true
     window.removeEventListener('keydown', onKeydown)
     clearTimers()
     revokeYourRaster()
@@ -419,9 +561,17 @@ onBeforeUnmount(() => {
             </div>
         </template>
 
-        <!-- Overlay: judging skeleton, then the result reveal — one per phase. -->
+        <!-- Overlay: one card per terminal/pending phase — error, judging, result. -->
         <template #overlay>
-            <JudgingOverlay v-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
+            <div v-if="phase === 'error'" class="play__notice jp-float" role="alert">
+                <h2 class="play__notice-title">{{ needsAuth ? 'Sign in to duel' : 'Can’t start the duel' }}</h2>
+                <p class="play__notice-msg">{{ errorMsg }}</p>
+                <RouterLink v-if="needsAuth" class="play__notice-link" to="/draw">
+                    Go to the draw page to sign in →
+                </RouterLink>
+                <OriButton v-else text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
+            </div>
+            <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
             <ResultReveal v-else-if="phase === 'done' && result" :result="result" @play-again="playAgain" />
         </template>
     </EditorShell>
@@ -485,5 +635,47 @@ onBeforeUnmount(() => {
     font-size: var(--ori-font-size_sm, 0.85rem);
     font-variant-numeric: tabular-nums;
     text-align: center;
+}
+
+/* Error / sign-in card — centred in the shell's pointer-events:none overlay, so
+   it opts back in. Same jp-float chrome as the other overlays. */
+.play__notice {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+
+    width: min(92vw, 24rem);
+    padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem) var(--ori-size-gap_xl, 1rem);
+
+    pointer-events: auto;
+    text-align: center;
+}
+
+.play__notice-title {
+    margin: 0;
+
+    font-size: var(--ori-font-size_lg, 1.15rem);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+}
+
+.play__notice-msg {
+    margin: 0 0 var(--ori-size-gap_sm, 0.25rem);
+
+    font-size: var(--ori-font-size_sm, 0.9rem);
+    opacity: 0.8;
+}
+
+.play__notice-link {
+    color: var(--ori-color-primary);
+
+    font-size: var(--ori-font-size_sm, 0.9rem);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.play__notice-link:hover {
+    text-decoration: underline;
 }
 </style>
