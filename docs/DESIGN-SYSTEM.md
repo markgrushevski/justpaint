@@ -53,11 +53,15 @@ or a `--active`/`--accent` class, stop — oriui already has it.
 
 ## 3. Icon buttons — a circle/rounded-square is built in
 
-- `OriButton` in **icon mode** (`icon` prop, or our `IconButton`) renders a square of `--ori-size-action` with
-  `radius`: `radius="rounded"` (the default) ⇒ **circle**; `radius="md"` ⇒ rounded square. There is **no** need to
-  hand-roll a square `<button>` for an icon — that was a stale assumption in the old `/draw` chrome.
-- **One icon renderer.** Icons go through **`OriIcon`** (or `ToolIcon` only where it wraps `OriIcon`). Do **not** mix
-  two icon components in one cluster — that's the "icons look different sizes" bug (`ToolIcon` vs `OriIcon` side by side).
+- `OriButton` in **icon mode** (the `ori-button_icon` sizing — via the `icon` prop or the public class) renders a
+  square of `--ori-size-action` with `radius`: `radius="rounded"` (the default) ⇒ **circle**; `radius="md"` ⇒ rounded
+  square. There is **no** need to hand-roll a square `<button>` for an icon — that was a stale assumption in the old
+  `/draw` chrome.
+- **One icon set per surface.** `ToolIcon` (custom 24×24 stroke SVGs, zero-dep) is the app's icon set; toolbar/island
+  icon buttons render it through `IconButton` (§4), so every glyph in a cluster is one size. `OriIcon` (mdi paths from
+  `icons.ts`) is used only where an oriui component takes an `icon` **path** prop (drawer/dialog buttons). **Never mix
+  `ToolIcon` and `OriIcon` in the same cluster** — that was the "icons look different sizes" bug (Save via `OriIcon`
+  next to Layers/Help via `ToolIcon`).
 
 ## 4. justpaint UI primitives (thin wrappers, `apps/web/src/components/ui/`)
 
@@ -68,8 +72,14 @@ Build a justpaint component **only** where oriui has a genuine gap or we want a 
   chrome). `JpFloat` = surface bg + hairline + `radius_lg` + drop shadow, tight padding. Replaces the ad-hoc `.jp-float`
   utility. *(Upstream candidate: an oriui `OriSheet`/`elevation` — see §6.)*
 - **`IconButton`** — `OriButton` preset for icon-only toolbar actions: `icon`, `variant` (default `text`), `active`,
-  `disabled`, `label` (a11y + optional `OriTooltip`). Centralizes the toolbar-chip look so every island matches and no
-  view re-styles a `<button>`.
+  `disabled`, `label` (a11y + `OriTooltip`). Centralizes the toolbar-chip look so every island matches and no view
+  re-styles a `<button>`. A SELECTED/on toggle passes `color="primary"` + `active`; a PRIMARY action is a `fill`
+  `OriButton`, not this.
+- **`SegmentedControl`** — single-select segmented button group (the theme Light/Dark/Auto picker; reusable for any
+  small settings pick). oriui has no segmented/radio-group primitive (`OriTabs` is a label-only view-switching tablist,
+  `OriSwitch` is binary), so this fills the gap. Built on `OriButton` (selected = `fill`, others = `text` — no
+  hand-rolled `--active`/`color-mix`), with `role="radiogroup"` + roving-tabindex arrow-key a11y. *(Upstream candidate
+  — see §6.)*
 
 Content containers are **not** a justpaint primitive: use **`OriCard`** directly (result reveal, empty state, judging
 card, dialog bodies) — it already models header/title/subtitle/body/actions.
@@ -90,8 +100,11 @@ oriui is consumed from npm; changes are the owner's, in the oriui repo. Track wa
 - **Elevation / `OriSheet`** — a floating-surface primitive (shadow + tight padding, no header semantics). Would let
   `JpFloat` become a re-export instead of a bespoke component.
 - **Neutral ghost color for icon buttons** — `text`/`plain` derive text from `--ori-color` (defaults to `primary`);
-  there is no first-class *neutral* role, so a plain grey toolbar glyph needs `color="surface"`-ish gymnastics. A
-  `neutral` `ThemeColor` (or a documented pattern) would close it.
+  there is no first-class *neutral* role, so a plain grey toolbar glyph uses `color="surface"` (whose `-text` token is
+  `--ori-color-on-surface`). A `neutral` `ThemeColor` (or a documented pattern) would make this intent explicit.
+- **Segmented / radio-group control** — no oriui primitive for a single-select segment group (theme picker, view
+  toggles). `SegmentedControl` (§4) fills it justpaint-side; an oriui `OriSegmented`/`OriRadioGroup` would let it become
+  a re-export.
 - **`llms.txt` / `AGENTS.md`** — a one-page index (components, variants, `ThemeColor`/`RadiusSize` unions, the
   "colors at root only" rule). The `.d.ts` are great contracts but there's no discoverability entry point; its absence
   cost a round of wrong assumptions about the Button API.
