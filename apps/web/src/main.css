@@ -64,10 +64,6 @@
        the mobile swatch trigger). oriui components own their own hover via props;
        this is the only shared interaction token left. */
     --jp-neutral-hover-bg: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
-    /* TODO(wave-2): the winner-side highlight in ResultReveal still uses this
-       brand tint — it becomes OriCard `variant="tonal" color="primary"` when the
-       content cards migrate to OriCard (DESIGN-SYSTEM §4), then this drops. */
-    --jp-selected-bg: color-mix(in srgb, var(--ori-color-primary) 18%, transparent);
 }
 
 /*
@@ -109,7 +105,9 @@
     border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
     border-radius: var(--ori-size-radius_lg, 12px);
     background-color: var(--ori-color-surface);
-    box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+    /* oriui's theme-aware elevation token (the same one OriDialog/OriPopover use),
+       not a hand-rolled shadow — DESIGN-SYSTEM §1. */
+    box-shadow: var(--ori-shadow-lg, 0 8px 24px rgb(0 0 0 / 14%));
 }
 
 /* One visible focus ring for the hand-rolled shell controls (oriui components

@@ -34,7 +34,7 @@ export interface DuelResult {
  * "Play again".
  */
 import { computed } from 'vue'
-import { OriButton } from '@oriui/vue'
+import { OriButton, OriCard } from '@oriui/vue'
 
 const props = defineProps<{ result: DuelResult }>()
 const emit = defineEmits<{ playAgain: [] }>()
@@ -71,7 +71,12 @@ function scoreText(score: number): string {
 
         <div class="result__frames">
             <!-- You -->
-            <div class="result__side" :class="{ 'result__side--winner': youWon }">
+            <OriCard
+                class="result__side"
+                :variant="youWon ? 'tonal' : 'outline'"
+                :color="youWon ? 'primary' : 'surface'"
+                radius="md"
+            >
                 <span v-if="youWon" class="result__crown" aria-label="Winner">▲ Winner</span>
                 <div class="result__canvas">
                     <img v-if="result.you.image" :src="result.you.image" alt="Your drawing" />
@@ -84,10 +89,15 @@ function scoreText(score: number): string {
                 <div class="result__bar">
                     <div class="result__bar-fill result__bar-fill--you" :style="{ width: pct(result.you.score) }"></div>
                 </div>
-            </div>
+            </OriCard>
 
             <!-- Opponent -->
-            <div class="result__side" :class="{ 'result__side--winner': winnerIsOpp }">
+            <OriCard
+                class="result__side"
+                :variant="winnerIsOpp ? 'tonal' : 'outline'"
+                :color="winnerIsOpp ? 'primary' : 'surface'"
+                radius="md"
+            >
                 <span v-if="winnerIsOpp" class="result__crown" aria-label="Winner">▲ Winner</span>
                 <div class="result__canvas">
                     <img
@@ -107,7 +117,7 @@ function scoreText(score: number): string {
                         :style="{ width: pct(result.opponent.score) }"
                     ></div>
                 </div>
-            </div>
+            </OriCard>
         </div>
 
         <p class="result__reason">
@@ -180,6 +190,10 @@ function scoreText(score: number): string {
 }
 
 .result__side {
+    /* Winner tint is now owned by OriCard's variant/color props (tonal+primary vs
+       outline+surface) — no local border/background here. A hardcoded border would
+       double up with OriCard's own variant border and always win (unlayered component
+       styles beat oriui's @layer rules), silently forcing the outline variant transparent. */
     position: relative;
 
     display: flex;
@@ -188,13 +202,7 @@ function scoreText(score: number): string {
 
     padding: var(--ori-size-gap_sm, 0.25rem);
 
-    border: 1px solid transparent;
     border-radius: var(--ori-size-radius_md, 8px);
-}
-
-.result__side--winner {
-    border-color: var(--ori-color-primary);
-    background-color: var(--jp-selected-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 .result__crown {

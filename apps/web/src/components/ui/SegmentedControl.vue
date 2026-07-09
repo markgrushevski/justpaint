@@ -12,15 +12,15 @@ export interface SegmentOption {
 <script lang="ts" setup>
 /**
  * SegmentedControl — a single-select segmented button group (a compact settings
- * picker like the theme Light/Dark/Auto). oriui ships no segmented / radio-group
- * primitive (OriTabs is a view-switching tablist with label-only items and
- * tabpanel semantics; OriSwitch is binary), so this is a justpaint UI primitive
- * filling that gap (docs/DESIGN-SYSTEM.md §4, §6). Built ON oriui: each segment
- * is an `OriButton` whose SELECTED state is the `fill` variant and unselected is
- * `text` — the colour comes from oriui props, never a hand-rolled `--active`
- * class or a brand `color-mix` (§1). Proper radiogroup a11y: `role="radiogroup"`
- * with `role="radio"` segments, `aria-checked`, roving tabindex, and Arrow-key
- * selection.
+ * picker like the theme Light/Dark/Auto). It COMPOSES oriui: `.ori-join` collapses
+ * the segments' adjacent borders/radii into one unit, and each segment is an
+ * `OriButton` (selected = `fill`, others = `outline` — the colour comes from
+ * props, never a hand-rolled `--active` class or a brand `color-mix`, §1). What it
+ * adds over a bare `OriJoin` is the single-select model + radiogroup a11y
+ * (`role="radiogroup"` / `role="radio"` segments, `aria-checked`, roving tabindex,
+ * Arrow-key selection). oriui also ships `OriRadioGroup` (native radio-circle
+ * single-select), but that's the wrong VISUAL here — we want a segmented button
+ * look (docs/DESIGN-SYSTEM.md §4).
  */
 import { ref } from 'vue'
 import { OriButton } from '@oriui/vue'
@@ -62,7 +62,7 @@ function onKeydown(e: KeyboardEvent, index: number): void {
 </script>
 
 <template>
-    <div ref="group" class="seg" role="radiogroup" :aria-label="label">
+    <div ref="group" class="seg ori-join" role="radiogroup" :aria-label="label">
         <OriButton
             v-for="(opt, i) in options"
             :key="opt.value"
@@ -70,9 +70,9 @@ function onKeydown(e: KeyboardEvent, index: number): void {
             role="radio"
             :aria-checked="opt.value === modelValue"
             :tabindex="opt.value === modelValue ? 0 : -1"
-            :variant="opt.value === modelValue ? 'fill' : 'text'"
+            :variant="opt.value === modelValue ? 'fill' : 'outline'"
             :color="opt.value === modelValue ? color : 'surface'"
-            radius="sm"
+            radius="md"
             size="sm"
             fluid
             @click="select(opt.value)"
@@ -85,16 +85,12 @@ function onKeydown(e: KeyboardEvent, index: number): void {
 </template>
 
 <style scoped>
-/* A subtle bordered track holding the segments; the selected one fills (oriui
-   `fill` variant), so the track just groups them. Full-width by default. */
+/* `.ori-join` (oriui) collapses the segments' adjacent borders + radii into one
+   segmented unit — the selected one fills, the rest are outlined. We only stretch
+   it to full width and make the segments share the space equally. */
 .seg {
     display: flex;
-    gap: 2px;
-
-    padding: 2px;
-
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-    border-radius: var(--ori-size-radius_md, 8px);
+    width: 100%;
 }
 
 .seg__item {
