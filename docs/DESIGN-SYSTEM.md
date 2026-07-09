@@ -5,14 +5,32 @@
 > the library already owns. Same spirit as `DOCUMENT-FORMAT.md`: a small set of invariants everyone honors.
 >
 > **Status:** adopted 2026-07-09 (from the owner's review of the `/draw` chrome). Companion to
-> `ARCHITECTURE.md` (boundaries), `REVIEW.md` (the per-change bar), `NOTES.md` (gotchas). When this
-> disagrees with the oriui source in `node_modules/@oriui`, **the library wins — fix this doc.**
+> `ARCHITECTURE.md` (boundaries), `REVIEW.md` (the per-change bar), `NOTES.md` (gotchas).
+>
+> **Read the oriui source, not `dist`.** The authority is the oriui repo checked out alongside this one —
+> **`../vueinjar`** (`@oriui/{css,headless,vue}` under `packages/`, guides under `docs/content/guides/`) — and the
+> published docs: <https://oriui.vercel.app/llms-full.txt> (everything in one file) + `/guides/{customization,theming,design-tokens}`.
+> Reading `node_modules/**/dist` instead cost two wrong claims about the Button API (2026-07-09); don't repeat that.
+> When this doc disagrees with that source, **the library wins — fix this doc.** If a needed component is genuinely
+> missing, tell the owner (they maintain oriui) rather than only wrapping it here.
 
 ## 0. The one rule
 
 **Rent the design system; don't re-implement it.** Every color, state, and variant oriui already models is
 consumed via **props**, never re-derived in a `.vue`'s `<style>`. If you're writing `color-mix(… var(--ori-color-*) …)`
-or a `--active`/`--accent` class, stop — oriui already has it.
+or a `--active`/`--accent` class, stop — oriui already has it. And **wrap, don't repeat**: when the app needs a
+recurring shape oriui doesn't ship, build ONE thin justpaint component (`components/ui/`) over oriui, so a future change
+is one file, not a scattered find-and-replace (that's why `JpFloat`/`IconButton`/`SegmentedControl` exist).
+
+**The customization ladder** (oriui's own `/guides/customization`, safest → most manual): (1) **props** — `color` role
++ `variant` mapping (the WCAG-AA contrast guarantee lives here); (2) **global rebrand** — repoint the
+`--ori-color-<role>-light` / `-dark` **source** tokens in an **unlayered** `:root` (oriui ships in `@layer`, so your
+unlayered rule wins with no `!important`; never repoint the resolved `--ori-color-<role>` alias — it flattens dark mode);
+(3) **per-instance escape hatch** — `--ori-color` / `--ori-color-on` (+ `--ori-color-text` for a non-fill variant) on the
+element, for a colour that isn't one of the eight roles; (4) **theming / canvas** — `useTheme` / `useThemeColor` from
+`@oriui/headless/vue`. **Never override `.ori-*` internals** — they break between versions; props + tokens are the
+stable public API. (Adding a documented *utility* class like `.ori-button_icon` is fine — that's the sanctioned §3 path,
+not an override.)
 
 ## 1. Color — set once at the root, never in components
 
@@ -97,14 +115,15 @@ card, dialog bodies) — it already models header/title/subtitle/body/actions.
 
 oriui is consumed from npm; changes are the owner's, in the oriui repo. Track wants here:
 
+**Genuine gaps** (real candidates for the owner to add upstream):
 - **Elevation / `OriSheet`** — a floating-surface primitive (shadow + tight padding, no header semantics). Would let
   `JpFloat` become a re-export instead of a bespoke component.
-- **Neutral ghost color for icon buttons** — `text`/`plain` derive text from `--ori-color` (defaults to `primary`);
-  there is no first-class *neutral* role, so a plain grey toolbar glyph uses `color="surface"` (whose `-text` token is
-  `--ori-color-on-surface`). A `neutral` `ThemeColor` (or a documented pattern) would make this intent explicit.
 - **Segmented / radio-group control** — no oriui primitive for a single-select segment group (theme picker, view
-  toggles). `SegmentedControl` (§4) fills it justpaint-side; an oriui `OriSegmented`/`OriRadioGroup` would let it become
-  a re-export.
-- **`llms.txt` / `AGENTS.md`** — a one-page index (components, variants, `ThemeColor`/`RadiusSize` unions, the
-  "colors at root only" rule). The `.d.ts` are great contracts but there's no discoverability entry point; its absence
-  cost a round of wrong assumptions about the Button API.
+  toggles). `SegmentedControl` (§4) fills it justpaint-side; an oriui `OriSegmented` / `OriRadioGroup` would let it
+  become a re-export.
+
+**Not gaps** (corrected after reading the source — the sanctioned path already exists):
+- **Neutral glyph** — `surface` / `background` ARE neutral roles. `color="surface"` (whose `-text` alias resolves to
+  `--ori-color-on-surface`) is the intended neutral, per customization §1; no `neutral` `ThemeColor` is needed.
+- **`llms-full.txt`** — oriui *does* publish it (see the header) plus `/guides/*`; it's only absent from the npm
+  tarball. The fix is "read the docs/source", not a package change.
