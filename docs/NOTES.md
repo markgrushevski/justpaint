@@ -254,7 +254,7 @@ small practical gotchas go here.
   keeps the frozen contract checked.
 - **`URL.revokeObjectURL` in the same tick as `a.click()` can abort the download** in some browsers —
   defer the revoke (`setTimeout(…, 0)`).
-- **oriui is a normal npm dependency** now (`@oriui/{vue,css,headless}` pinned to `1.0.0-alpha.2`, the
+- **oriui is a normal npm dependency** now (`@oriui/{vue,css,headless}` pinned to `1.0.0-alpha.10`, the
   owner's own alpha lib — was vendored under `vendor/oriui/` until the swap). The three move in
   **lockstep** — bump all three together (`@oriui/vue` pins its `css`/`headless` deps to the exact
   same version). `@oriui/css` must be imported for side effects (done in `main.ts`) or components
@@ -269,7 +269,7 @@ small practical gotchas go here.
   `color-mix()` (first used in the shell) sets the browser floor at ~2023 evergreens;
   `eslint-disable-next-line` in SFC templates covers only the literal next LINE — with
   attribute-per-line formatting it must sit right above the `v-html=` line (or use a block disable).
-- **`OriDialog` (alpha-2) is UNCONTROLLED** — props are only
+- **`OriDialog` (through alpha-10) is UNCONTROLLED** — props are only
   `defaultOpen`/`closeOnEscape`/`closeOnInteractOutside`/`modal`/`title` + a `trigger` slot; there
   is no `open` prop and no close emit, so it cannot be driven by external state (a hotkey, a chip
   toggle). Hand-roll controlled modals on the SideMenu/ShortcutsDialog pattern (Teleport +
@@ -286,9 +286,9 @@ small practical gotchas go here.
   loses to `ori.components`, as intended), so the app must NOT re-declare box-model resets unlayered —
   delegate the reset to oriui and add only app-specific bits (font-optical-sizing, canvas
   `touch-action`, etc.). Fix: dropped `border`/`margin`/`padding` from the `*` rule in `reset.css`.
-  There is exactly ONE deliberate `.ori-*` override in `apps/web` (below); otherwise no rule targets
-  `.ori-*`, no `:deep()`, no `!important`.
-- **The one sanctioned `.ori-*` override: light-theme colored-TEXT tone.** Outline/tonal/text OriButtons
+  apps/web now carries NO `.ori-*` overrides (the last one — the light colored-text tone — went with
+  oriui alpha-8's role-as-text AA tokens); no rule targets `.ori-*`, no `:deep()`, no `!important`.
+- **The one sanctioned `.ori-*` override: light-theme colored-TEXT tone.** **RESOLVED alpha-8 (2026-07-08)** — kept below as history. Outline/tonal/text OriButtons
   read their label color from `--ori-color`; the brand `hsl(20 100% 50%)` is only 2.86:1 on the
   `#f0f2f6` surface (fails AA text). `main.css` darkens the TEXT tone to `hsl(20 100% 38%)` for
   `.ori-button.ori-color_primary:where(.ori-variant_outline, _tonal, _text)` in light only — fills keep
@@ -309,8 +309,8 @@ small practical gotchas go here.
   tooltip renders **black-on-black**. App-side interim fix pins `--ori-tooltip-bg`/`--ori-tooltip-color`
   on `.ori-tooltip`. The **root** fix is in oriui (self-pairing bubble + viewport flip/clamp + a static
   arrow — the `anchor(center)` arrow was invalid CSS), on `feat/neutral-skin-tooltip-contrast`
-  (commit `bd3d847`, unpublished). **Remove the app override when the app bumps to the published oriui
-  fix.**
+  (commit `bd3d847`, unpublished). **RESOLVED alpha-7 (2026-07-08):** the app bumped and the interim
+  override was dropped; the published bubble is self-paired + anchored.
 - **Preview-testing an UNPUBLISHED oriui build rewrites `package.json`.** `npm install <abs path>.tgz`
   on a local oriui tarball rewrites the `@oriui/*` deps to fragile `file:` refs pointing at the sibling
   `vueinjar` repo — do **NOT** commit those. Revert `package.json` + the lockfile to the registry range
@@ -331,9 +331,10 @@ small practical gotchas go here.
   clean `vite build` off it were correct the whole time** — that tarball ships the anchored bubble
   (`.ori-anchored { position: fixed }`, out of flow) and the dedicated `--ori-neutral-900/50` pairing;
   the break was purely the stale local dev bundle masking it. **NB — do not conflate this with the
-  registry:** PUBLISHED `@oriui/css` alpha-6 is still the OLD in-flow / mis-paired tooltip (the fix is
-  on the unmerged oriui branch `bd3d847`), so a clean-from-registry install WOULD regress — which is
-  why `main.css` keeps the interim `--ori-tooltip` override (DECISIONS 2026-07-08). **Fix (the stale
+  registry:** PUBLISHED `@oriui/css` alpha-6 WAS the OLD in-flow / mis-paired tooltip (the fix was
+  on the oriui branch `bd3d847`, since published in alpha-7 — the app now runs alpha-10)
+  (the published alpha-7+ bubble is anchored + self-paired, so no app override is needed — the
+  stale-cache hazard is purely about mismatched bundles at the same version string). **Fix (the stale
   cache):** `rm -rf node_modules/.vite apps/web/node_modules/.vite`, then
   restart the dev server (a fresh start re-optimizes from current node_modules — verify the OriTooltip
   bubble computes `position: fixed` with classes `ori-anchored ori-anchored_<placement>`). **Guard:**

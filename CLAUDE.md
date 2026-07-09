@@ -15,7 +15,7 @@ Greenfield — no production data to preserve; schema/format may be redesigned f
 - **Planned:** AI **inside the product** (text drawing commands, AI inpainting, canvas co-author) — the portfolio differentiator; see `docs/IDEAS.md` "AI inside the product" + `DECISIONS.md` 2026-07-04.
 
 ## Stack
-- **Frontend:** Vue 3 + Vite + Pinia + TanStack Query. Rendering on **Konva** (+ `perfect-freehand` for brush quality). We do NOT hand-write a render engine. Component lib: **oriui** — the owner's own library, installed from npm (`@oriui/{vue,css,headless}` `1.0.0-alpha.6`, the three in lockstep); in use on `/draw` (replaced `vueinjar`).
+- **Frontend:** Vue 3 + Vite + Pinia + TanStack Query. Rendering on **Konva** (+ `perfect-freehand` for brush quality). We do NOT hand-write a render engine. Component lib: **oriui** — the owner's own library, installed from npm (`@oriui/{vue,css,headless}` `1.0.0-alpha.10`, the three in lockstep); in use on `/draw` (replaced `vueinjar`).
 - **Backend:** **Go 1.26** — net/http (stdlib, no framework) + pgx/v5 + sqlc + golang-jwt/v5 + bcrypt + slog. One Postgres. goose and sqlc are **external CLIs** (not Go deps). `coder/websocket` for realtime is Phase 3 (not yet a dependency).
 - **Storage:** drawings as a **vector document (jsonb)**; rendered PNGs (judge/thumbnails) to object storage later.
 
