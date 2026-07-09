@@ -32,7 +32,7 @@ function gridTile(dark: boolean): HTMLImageElement {
 
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { OriIcon, OriToaster, OriTooltip, useToast } from '@oriui/vue'
+import { OriToaster, useToast } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId, LayerView } from '@justpaint/editor'
@@ -41,7 +41,6 @@ import { DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/d
 import {
     copyImage,
     copyText,
-    icons,
     isAuthError,
     toApiError,
     useLoadLatestDrawing,
@@ -56,7 +55,8 @@ import LayersPanel from '../components/LayersPanel.vue'
 import ShortcutsDialog from '../components/ShortcutsDialog.vue'
 import SideMenu from '../components/SideMenu.vue'
 import EditorShell from '../components/shell/EditorShell.vue'
-import ToolIcon from '../components/icons/ToolIcon.vue'
+import IconButton from '../components/ui/IconButton.vue'
+import JpFloat from '../components/ui/JpFloat.vue'
 
 // The shared layout skeleton (desk + Konva mount + floating regions). We read
 // its exposed canvas mount element in onMounted and build the Editor into it.
@@ -597,59 +597,25 @@ function load() {
          mount, and the floating-region layout; /draw fills the regions with its
          chrome. /play will compose the SAME shell (one design, game chrome on top). -->
     <EditorShell ref="shell" mode="draw">
-        <!-- Top-left: brand -->
+        <!-- Top-left: help + layers island -->
         <template #top-left>
-            <span class="draw__brand jp-float">justpaint</span>
-        </template>
-
-        <!-- Top-right: panels + save island (left of the corner toggler). Every
-             chip's tooltip drops BELOW (placement="bottom") so the bubble stays
-             on-screen at the top edge (the shell has overflow:hidden, clipping any
-             upward bubble). New / Load / Export and the theme control live in the
-             side-menu drawer. -->
-        <template #top-right>
-            <div class="draw__actions jp-float">
-                <OriTooltip placement="bottom" content="Layers">
-                    <button
-                        class="draw__chip-inline"
-                        :class="{ 'draw__chip-inline--active': layersOpen }"
-                        type="button"
-                        :aria-pressed="layersOpen"
-                        aria-label="Toggle layers panel"
-                        @click="layersOpen = !layersOpen"
-                    >
-                        <ToolIcon name="layers" />
-                    </button>
-                </OriTooltip>
-                <!-- draw__chip-help rides the WRAPPER (not the button) so it's the
-                     wrapper that display:none-s <=600px, leaving no empty flex gap. -->
-                <OriTooltip class="draw__chip-help" placement="bottom" content="Keyboard shortcuts — ?">
-                    <button
-                        class="draw__chip-inline"
-                        :class="{ 'draw__chip-inline--active': shortcutsOpen }"
-                        type="button"
-                        aria-label="Keyboard shortcuts — ?"
-                        @click="shortcutsOpen = !shortcutsOpen"
-                    >
-                        <ToolIcon name="help" />
-                    </button>
-                </OriTooltip>
-                <span class="draw__sep" aria-hidden="true"></span>
-                <!-- Save is the one file action kept in the island (accent); New /
-                     Load / Export live in the side-menu File section. -->
-                <OriTooltip placement="bottom" content="Save — Ctrl/⌘+S">
-                    <button
-                        class="draw__chip-inline draw__chip-inline--accent"
-                        type="button"
-                        aria-label="Save drawing"
-                        :disabled="!session.isLoggedIn || busy"
-                        :aria-busy="busy || undefined"
-                        @click="save"
-                    >
-                        <OriIcon :icon="icons.mdiContentSaveOutline" />
-                    </button>
-                </OriTooltip>
-            </div>
+            <JpFloat class="draw__actions">
+                <IconButton
+                    class="draw__help-btn"
+                    icon="help"
+                    label="Keyboard shortcuts — ?"
+                    placement="bottom"
+                    :active="shortcutsOpen"
+                    @click="shortcutsOpen = !shortcutsOpen"
+                />
+                <IconButton
+                    icon="layers"
+                    label="Toggle layers panel"
+                    placement="bottom"
+                    :active="layersOpen"
+                    @click="layersOpen = !layersOpen"
+                />
+            </JpFloat>
         </template>
 
         <!-- Bottom-center: the floating toolbar. The shell's centering strip is
@@ -678,34 +644,22 @@ function load() {
         <!-- Bottom-right: zoom. Tooltips point UP (placement="top") — the island
              sits at the bottom edge. -->
         <template #bottom-right>
-            <div class="draw__zoom jp-float" role="group" aria-label="Zoom">
-                <OriTooltip placement="top" content="Zoom out — Ctrl+-">
-                    <button class="draw__zoom-btn" type="button" aria-label="Zoom out" @click="zoomOut">
-                        <ToolIcon name="minus" />
-                    </button>
-                </OriTooltip>
+            <JpFloat class="draw__zoom" role="group" aria-label="Zoom">
+                <IconButton icon="minus" label="Zoom out — Ctrl+-" @click="zoomOut" />
                 <span class="draw__zoom-value">{{ zoomPercent }}%</span>
-                <OriTooltip placement="top" content="Zoom in — Ctrl+=">
-                    <button class="draw__zoom-btn" type="button" aria-label="Zoom in" @click="zoomIn">
-                        <ToolIcon name="plus" />
-                    </button>
-                </OriTooltip>
-                <OriTooltip placement="top" content="Fit — Ctrl+0">
-                    <button class="draw__zoom-btn" type="button" aria-label="Fit to view" @click="fitView">
-                        <ToolIcon name="fit" />
-                    </button>
-                </OriTooltip>
-            </div>
+                <IconButton icon="plus" label="Zoom in — Ctrl+=" @click="zoomIn" />
+                <IconButton icon="fit" label="Fit — Ctrl+0" @click="fitView" />
+            </JpFloat>
         </template>
 
         <!-- Bottom-left: cursor document-coordinate readout (desktop only —
              hidden <=600px; no hover on touch). Shows where a stroke would land,
              mapped through the editor's own stage transform at any zoom/pan. -->
         <template #bottom-left>
-            <div v-if="coords" class="draw__coords jp-float">
+            <JpFloat v-if="coords" as="div" class="draw__coords">
                 <span class="draw__coords-mark" aria-hidden="true">⌖</span>
                 <span class="draw__coords-value">{{ Math.round(coords.x) }}, {{ Math.round(coords.y) }}</span>
-            </div>
+            </JpFloat>
         </template>
 
         <!-- Centered overlay layer: the toast queue, the first-run empty-state
@@ -770,32 +724,26 @@ function load() {
         <!-- Free-floating /draw chrome (self-positioned, into the shell's default
              slot as direct children of the non-stacking-context root). -->
 
-        <!-- Top-right corner: the menu toggler. Its OriTooltip wrapper carries the
+        <!-- Top-right corner: the menu toggler. The JpFloat wrapper carries the
              absolute corner pin (z-110 > drawer z-100) so the same chip opens and
              closes it; the tooltip drops BELOW to stay on-screen at the top edge. -->
-        <OriTooltip class="draw__menu-toggle-tip" placement="bottom" :content="menuOpen ? 'Close menu' : 'Open menu'">
-            <button
-                class="draw__menu-toggle jp-float"
-                type="button"
-                :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
-                :aria-expanded="menuOpen"
+        <JpFloat class="draw__menu-toggle">
+            <IconButton
+                :icon="menuOpen ? 'close' : 'menu'"
+                :label="menuOpen ? 'Close menu' : 'Open menu'"
+                placement="bottom"
+                :active="menuOpen"
                 @click="menuOpen = !menuOpen"
-            >
-                <OriIcon :icon="menuOpen ? icons.mdiMenuOpen : icons.mdiMenu" />
-            </button>
-        </OriTooltip>
+            />
+        </JpFloat>
 
         <!-- Top-left (phones only): undo/redo island — the toolbar hides its
              history group <=600px, so history keeps a one-tap home clear of the
              tool row. Hidden on desktop (the bar has its own). -->
-        <div class="draw__history jp-float" role="group" aria-label="History">
-            <button class="draw__history-btn" type="button" aria-label="Undo" :disabled="!canUndo" @click="undo">
-                <ToolIcon name="undo" />
-            </button>
-            <button class="draw__history-btn" type="button" aria-label="Redo" :disabled="!canRedo" @click="redo">
-                <ToolIcon name="redo" />
-            </button>
-        </div>
+        <JpFloat as="div" class="draw__history" role="group" aria-label="History">
+            <IconButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
+            <IconButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
+        </JpFloat>
 
         <!-- Scrim behind the mobile layers bottom sheet (display:none >600px) -->
         <div v-if="layersOpen" class="draw__layers-scrim" @click="layersOpen = false"></div>
@@ -827,43 +775,13 @@ function load() {
 
 /* --- floating chrome -------------------------------------------------- */
 
-/* The menu toggler's OriTooltip wrapper — pinned above the 400px drawer (z-110 >
-   the menu's z-100) so the toggler stays clickable, flipping to a "close" glyph,
-   while the menu is open. The pin lives on the wrapper (not the button) so the
-   tooltip bubble anchors to the button; unlayered, so it beats .ori-tooltip's
-   own layered position:relative. */
-.draw__menu-toggle-tip {
+.draw__menu-toggle {
     position: absolute;
     top: var(--ori-size-gap_md, 0.5rem);
     right: var(--ori-size-gap_md, 0.5rem);
     z-index: 110;
-}
 
-.draw__menu-toggle {
-    display: grid;
-    place-items: center;
-
-    width: var(--ori-size-action_md, 2.75rem);
-    /* Match the actions island's outer height (chip + its vertical padding +
-       the 1px jp-float borders; border-box, so the border must be added) so the
-       toggler reads as the rightmost element of the same top row. */
-    height: calc(var(--ori-size-action_md, 2.75rem) + 2 * var(--ori-size-gap_xs, 0.125rem) + 2px);
-    padding: 0;
-
-    color: var(--ori-color-on-surface);
-    cursor: pointer;
-}
-
-.draw__menu-toggle:hover {
-    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
-}
-
-.draw__brand {
-    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
-
-    font-weight: 700;
-    color: var(--ori-color-primary);
-    letter-spacing: -0.01em;
+    padding: var(--ori-size-gap_xs, 0.125rem);
 }
 
 .draw__actions {
@@ -873,55 +791,6 @@ function load() {
     flex-wrap: wrap;
 
     padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
-}
-
-.draw__chip-inline {
-    display: grid;
-    place-items: center;
-
-    width: var(--ori-size-action_md, 2.75rem);
-    height: var(--ori-size-action_md, 2.75rem);
-    padding: 0;
-
-    border: none;
-    border-radius: var(--ori-size-radius_md, 8px);
-    background: transparent;
-    color: var(--ori-color-on-surface);
-
-    font-size: 0.95rem;
-    cursor: pointer;
-}
-
-.draw__chip-inline:disabled {
-    opacity: 0.35;
-    cursor: default;
-}
-
-.draw__chip-inline:hover:not(:disabled) {
-    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
-}
-
-/* Save — the one filled (primary) chip, inheriting the old fill-button role.
-   Hover deliberately stays primary; disabled dims like every other control. */
-.draw__chip-inline--accent {
-    background-color: var(--ori-color-primary);
-    color: var(--ori-color-on-primary);
-}
-
-.draw__chip-inline--accent:hover:not(:disabled) {
-    background-color: var(--ori-color-primary);
-}
-
-.draw__chip-inline--active {
-    background-color: var(--jp-selected-bg, color-mix(in srgb, var(--ori-color-primary) 18%, transparent));
-    color: var(--ori-color-primary);
-}
-
-.draw__sep {
-    align-self: stretch;
-    width: 1px;
-    margin: 0.25rem 0.15rem;
-    background-color: var(--ori-color-outline, rgb(0 0 0 / 12%));
 }
 
 /* EditorShell's bottom-center strip is pointer-events:none (its empty flanks
@@ -959,37 +828,6 @@ function load() {
     gap: 0;
 
     padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
-}
-
-/* Compact square zoom/history glyphs — hand-rolled to match the chip chrome;
-   OriButton only renders a fixed square when given an `icon` prop. */
-.draw__zoom-btn,
-.draw__history-btn {
-    display: grid;
-    place-items: center;
-
-    width: var(--jp-control-sm, 2.25rem);
-    height: var(--jp-control-sm, 2.25rem);
-    padding: 0;
-
-    border: none;
-    border-radius: var(--ori-size-radius_md, 8px);
-    background: transparent;
-    color: var(--ori-color-on-surface);
-
-    font-size: 1.05rem;
-    cursor: pointer;
-}
-
-.draw__zoom-btn:disabled,
-.draw__history-btn:disabled {
-    opacity: 0.35;
-    cursor: default;
-}
-
-.draw__zoom-btn:hover:not(:disabled),
-.draw__history-btn:hover:not(:disabled) {
-    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
 /* Display-only readout — fit-to-view moved to its own explicit chip. */
@@ -1057,7 +895,7 @@ function load() {
     top: calc(
         var(--ori-size-gap_md, 0.5rem) + var(--ori-size-action_md, 2.75rem) + var(--ori-size-gap_sm, 0.25rem) + 0.35rem
     );
-    right: var(--ori-size-gap_md, 0.5rem);
+    left: var(--ori-size-gap_md, 0.5rem);
     z-index: 9;
 
     display: flex;
@@ -1115,19 +953,15 @@ function load() {
         background-color: var(--ori-color-surface);
     }
 
-    .draw__brand {
-        display: none;
-    }
-
     /* Undo/redo island on — the toolbar hides its own history group here. */
     .draw__history {
         display: flex;
     }
 
-    /* The shortcuts chip goes on phones (no hardware keyboard); the file-action
-       icon chips stay — the side menu keeps their text duplicates. The class now
-       rides the OriTooltip wrapper, so display:none drops the whole tip (no gap). */
-    .draw__chip-help {
+    /* The Help button goes on phones (no hardware keyboard); Layers stays in the
+       same island. The class rides the IconButton directly, so display:none
+       drops the whole control (no empty flex gap). */
+    .draw__help-btn {
         display: none;
     }
 

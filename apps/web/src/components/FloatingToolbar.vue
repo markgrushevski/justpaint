@@ -29,9 +29,9 @@ export const TOOL_META: Record<ToolId, { label: string; icon: IconName; key: str
  * A slot/component split is overkill for one consumer — CSS media queries show
  * exactly one copy per breakpoint.
  */
-import { OriCheckbox, OriPopover, OriSlider, OriTooltip } from '@oriui/vue'
+import { OriCheckbox, OriPopover, OriSlider } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'
-import ToolIcon from './icons/ToolIcon.vue'
+import IconButton from './ui/IconButton.vue'
 
 const toolIds = Object.keys(TOOLS) as ToolId[]
 
@@ -77,26 +77,20 @@ function onWidth(e: Event) {
 <template>
     <div class="bar jp-float" role="toolbar" aria-label="Drawing tools">
         <div class="bar__group" role="group" aria-label="Tools">
-            <OriTooltip
-                v-for="id in toolIds"
-                :key="id"
-                placement="top"
-                :content="`${TOOL_META[id].label} — ${TOOL_META[id].key}`"
-            >
-                <button
-                    class="bar__tool"
-                    :class="{ 'bar__tool--active': props.activeTool === id }"
-                    :aria-pressed="props.activeTool === id"
-                    :aria-label="TOOL_META[id].label"
-                    type="button"
+            <div v-for="id in toolIds" :key="id" class="bar__tool-wrap">
+                <IconButton
+                    :icon="TOOL_META[id].icon"
+                    :label="`${TOOL_META[id].label} — ${TOOL_META[id].key}`"
+                    :active="props.activeTool === id"
+                    :color="props.activeTool === id ? 'primary' : 'surface'"
                     @click="emit('pickTool', id)"
-                >
-                    <ToolIcon :name="TOOL_META[id].icon" />
-                    <!-- Excalidraw-style hotkey badge: discoverability hint, redundant with
-                         the tooltip for AT (aria-hidden). Desktop-only — hidden <=600px. -->
-                    <span class="bar__tool-key" aria-hidden="true">{{ TOOL_META[id].key }}</span>
-                </button>
-            </OriTooltip>
+                />
+                <!-- Excalidraw-style hotkey badge: discoverability hint, redundant with
+                     the tooltip for AT (aria-hidden). Desktop-only — hidden <=600px.
+                     IconButton is icon-only, so the badge stays a sibling, corner-positioned
+                     over it via .bar__tool-wrap rather than nested inside the button. -->
+                <span class="bar__tool-key" aria-hidden="true">{{ TOOL_META[id].key }}</span>
+            </div>
         </div>
 
         <span class="bar__divider" aria-hidden="true"></span>
@@ -215,28 +209,8 @@ function onWidth(e: Event) {
         <span class="bar__divider bar__divider--history" aria-hidden="true"></span>
 
         <div class="bar__group bar__group--history" role="group" aria-label="History">
-            <OriTooltip placement="top" content="Undo — Ctrl/⌘+Z">
-                <button
-                    class="bar__tool"
-                    :disabled="!props.canUndo"
-                    aria-label="Undo"
-                    type="button"
-                    @click="emit('undo')"
-                >
-                    <ToolIcon name="undo" />
-                </button>
-            </OriTooltip>
-            <OriTooltip placement="top" content="Redo — Ctrl/⌘+Y">
-                <button
-                    class="bar__tool"
-                    :disabled="!props.canRedo"
-                    aria-label="Redo"
-                    type="button"
-                    @click="emit('redo')"
-                >
-                    <ToolIcon name="redo" />
-                </button>
-            </OriTooltip>
+            <IconButton icon="undo" label="Undo — Ctrl/⌘+Z" :disabled="!props.canUndo" @click="emit('undo')" />
+            <IconButton icon="redo" label="Redo — Ctrl/⌘+Y" :disabled="!props.canRedo" @click="emit('redo')" />
         </div>
     </div>
 </template>
@@ -266,6 +240,11 @@ function onWidth(e: Event) {
     background-color: var(--ori-color-outline, rgb(0 0 0 / 12%));
 }
 
+/* Base chrome for the one remaining raw button — the mobile stroke/fill popover
+   trigger (.bar__style-trigger below), a bespoke swatch-preview control IconButton
+   can't express (its icon is a fixed ToolIcon glyph, not a live color dot). The
+   tool/undo/redo buttons above now render via IconButton, which owns its own box
+   model, so this rule (and its hover) no longer reaches any converted button. */
 .bar__tool {
     position: relative;
 
@@ -288,22 +267,18 @@ function onWidth(e: Event) {
         color 120ms ease;
 }
 
-.bar__tool:disabled {
-    opacity: 0.35;
-    cursor: default;
-}
-
 .bar__tool:hover:not(:disabled) {
     background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
 }
 
-.bar__tool--active {
-    background-color: var(--ori-color-primary);
-    color: var(--ori-color-on-primary);
-}
-
-.bar__tool--active:hover:not(:disabled) {
-    background-color: var(--ori-color-primary);
+/* Positioning context for the hotkey badge below. IconButton is icon-only (no
+   slot for a corner badge), so the badge renders as a sibling; this wrapper
+   shrink-wraps to the button so the badge's corner offset still lands on the
+   button's own edge, matching the pre-IconButton layout where the badge sat
+   inside the button. */
+.bar__tool-wrap {
+    position: relative;
+    display: inline-flex;
 }
 
 /* Excalidraw-style hotkey badge — corner glyph on the 7 tool buttons only.
@@ -320,11 +295,6 @@ function onWidth(e: Event) {
     line-height: 1;
 
     pointer-events: none;
-}
-
-/* On the filled-primary active tool, invert to the on-primary ink so it stays legible. */
-.bar__tool--active .bar__tool-key {
-    color: var(--ori-color-on-primary);
 }
 
 .bar__swatch {

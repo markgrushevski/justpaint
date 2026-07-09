@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { OriButton, OriCheckbox } from '@oriui/vue'
 import type { LayerView } from '@justpaint/editor'
-import ToolIcon from './icons/ToolIcon.vue'
+import IconButton from './ui/IconButton.vue'
 
 const props = defineProps<{
     layers: LayerView[]
@@ -95,9 +95,7 @@ const top = () => props.layers.length - 1
                     :disabled="!props.canAdd"
                     @click="emit('add')"
                 />
-                <button class="layers__close" type="button" aria-label="Close layers panel" @click="emit('close')">
-                    <ToolIcon name="close" />
-                </button>
+                <IconButton icon="close" label="Close layers panel" @click="emit('close')" />
             </div>
         </header>
 
@@ -142,33 +140,25 @@ const top = () => props.layers.length - 1
                         :aria-label="`${layer.name} opacity`"
                         @change="onOpacityChange(layer.id, $event)"
                     />
-                    <button
-                        class="layers__ctrl"
-                        type="button"
+                    <IconButton
+                        icon="arrow-up"
+                        label="Move layer up"
                         :disabled="index >= top()"
-                        aria-label="Move layer up"
                         @click="emit('move', layer.id, index + 1)"
-                    >
-                        <ToolIcon name="arrow-up" />
-                    </button>
-                    <button
-                        class="layers__ctrl"
-                        type="button"
+                    />
+                    <IconButton
+                        icon="arrow-down"
+                        label="Move layer down"
                         :disabled="index <= 0"
-                        aria-label="Move layer down"
                         @click="emit('move', layer.id, index - 1)"
-                    >
-                        <ToolIcon name="arrow-down" />
-                    </button>
-                    <button
-                        class="layers__ctrl layers__ctrl--danger"
-                        type="button"
+                    />
+                    <IconButton
+                        icon="trash"
+                        label="Delete layer"
+                        color="danger"
                         :disabled="props.layers.length <= 1"
-                        aria-label="Delete layer"
                         @click="emit('remove', layer.id)"
-                    >
-                        <ToolIcon name="trash" />
-                    </button>
+                    />
                 </div>
             </li>
         </ul>
@@ -198,25 +188,6 @@ const top = () => props.layers.length - 1
     display: flex;
     align-items: center;
     gap: var(--ori-size-gap_sm, 0.25rem);
-}
-
-.layers__close {
-    display: grid;
-    place-items: center;
-
-    width: var(--jp-control-sm, 2.25rem);
-    height: var(--jp-control-sm, 2.25rem);
-
-    border: none;
-    border-radius: var(--ori-size-radius_md, 8px);
-    background: transparent;
-    color: var(--ori-color-on-surface);
-
-    cursor: pointer;
-}
-
-.layers__close:hover {
-    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 .layers__title {
@@ -294,38 +265,6 @@ const top = () => props.layers.length - 1
     flex: 1 1 auto;
     min-width: 0;
     accent-color: var(--ori-color-primary);
-}
-
-/* Compact square glyph controls (move up/down, delete) — hand-rolled to match the
-   panel chrome; OriButton only renders a fixed square when given an `icon` prop. */
-.layers__ctrl {
-    display: grid;
-    place-items: center;
-
-    width: var(--jp-control-sm, 2.25rem);
-    height: var(--jp-control-sm, 2.25rem);
-    padding: 0;
-
-    border: none;
-    border-radius: var(--ori-size-radius_md, 8px);
-    background: transparent;
-    color: var(--ori-color-on-surface);
-
-    font-size: var(--ori-font-size_sm, 0.9rem);
-    cursor: pointer;
-}
-
-.layers__ctrl:disabled {
-    opacity: 0.35;
-    cursor: default;
-}
-
-.layers__ctrl:hover:not(:disabled) {
-    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
-}
-
-.layers__ctrl--danger {
-    color: var(--ori-color-danger);
 }
 
 @media (width <= 600px) {
