@@ -12,7 +12,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { OriAvatar, OriButton, OriField, OriIcon, OriInput, OriSelect, OriSwitch, OriTabs } from '@oriui/vue'
 import { icons, toApiError, useSessionStore, useThemeStore } from '@core'
 import type { ThemeMode } from '@core'
-import ToolIcon from './icons/ToolIcon.vue'
+import SegmentedControl from './ui/SegmentedControl.vue'
 import type { IconName } from './icons/ToolIcon.vue'
 
 const props = defineProps<{
@@ -42,15 +42,19 @@ const theme = useThemeStore()
 
 // --------------------------------------------------------------- appearance
 
-// Theme lives here now (moved out of the /draw actions island). A 3-way
-// segmented control bound to the theme store's writable `mode`: assigning
-// applies + persists through useThemeStore (the single source of truth). oriui
-// ships no segmented primitive, so this is a small hand-rolled segment group.
+// Theme lives here now (moved out of the /draw actions island). The reusable
+// SegmentedControl (ui/) binds to the theme store's writable `mode`: assigning
+// applies + persists through useThemeStore (the single source of truth).
 const THEME_OPTIONS: { value: ThemeMode; label: string; icon: IconName }[] = [
     { value: 'light', label: 'Light', icon: 'sun' },
     { value: 'dark', label: 'Dark', icon: 'moon' },
     { value: 'auto', label: 'Auto', icon: 'monitor' }
 ]
+
+/** SegmentedControl emits a plain string; narrow it back to the theme union. */
+function selectTheme(mode: string): void {
+    theme.mode = mode as ThemeMode
+}
 
 // ---------------------------------------------------------------- title row
 
@@ -323,20 +327,12 @@ function onKeydown(e: KeyboardEvent) {
                  store's writable `mode` applies + persists on assignment. -->
             <section class="menu__section" aria-label="Appearance">
                 <h2 class="menu__section-title">Appearance</h2>
-                <div class="menu__theme" role="group" aria-label="Theme">
-                    <button
-                        v-for="opt in THEME_OPTIONS"
-                        :key="opt.value"
-                        type="button"
-                        class="menu__theme-btn"
-                        :class="{ 'menu__theme-btn--active': theme.mode === opt.value }"
-                        :aria-pressed="theme.mode === opt.value"
-                        @click="theme.mode = opt.value"
-                    >
-                        <ToolIcon :name="opt.icon" />
-                        <span class="menu__theme-label">{{ opt.label }}</span>
-                    </button>
-                </div>
+                <SegmentedControl
+                    :model-value="theme.mode"
+                    :options="THEME_OPTIONS"
+                    label="Theme"
+                    @update:model-value="selectTheme"
+                />
             </section>
 
             <!-- Profile (signed in) — pinned to the bottom: unregistered users
@@ -519,58 +515,6 @@ function onKeydown(e: KeyboardEvent) {
     margin: var(--ori-size-gap_xs, 0.25rem) 0 0;
     font-size: var(--ori-font-size_xs, 0.75rem);
     opacity: 0.7;
-}
-
-/* Theme segmented control — three joined segments (oriui ships no segmented
-   primitive). The active segment fills primary, mirroring the accent Save chip
-   in the /draw shell; unlayered so it needs no !important. */
-.menu__theme {
-    display: flex;
-
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-    border-radius: var(--ori-size-radius_md, 8px);
-    overflow: hidden;
-}
-
-.menu__theme-btn {
-    flex: 1;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
-
-    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
-
-    border: none;
-    background: transparent;
-    color: var(--ori-color-on-surface);
-
-    font-size: var(--ori-font-size_sm, 0.85rem);
-    cursor: pointer;
-}
-
-/* Hairline dividers between segments (not before the first). */
-.menu__theme-btn + .menu__theme-btn {
-    border-left: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-}
-
-.menu__theme-btn:focus-visible {
-    outline: 2px solid var(--ori-color-primary);
-    outline-offset: -2px;
-}
-
-.menu__theme-btn:hover:not(.menu__theme-btn--active) {
-    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
-}
-
-.menu__theme-btn--active {
-    background-color: var(--ori-color-primary);
-    color: var(--ori-color-on-primary);
-}
-
-.menu__theme-label {
-    font-weight: 600;
 }
 
 .menu__profile {
