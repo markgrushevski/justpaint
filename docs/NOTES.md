@@ -342,11 +342,40 @@ small practical gotchas go here.
   restart before trusting the preview. Cross-ref the tarball-swap note above and the parallel-oriui-dev
   hazard (HEAD can switch under feature work).
 
+## /play — async-duel client
+
+- **The HTTP `fetch` plumbing is shared, not per-client.** `core/api/http.ts` owns `BASE`, the
+  `ApiError` envelope, and `request`; `drawings.ts` **and** `matches.ts` import it. The barrel
+  (`core/api/index.ts`) re-exports all three, so every `@core` consumer of `ApiError`/`isAuthError`
+  is unaffected by the split — but a **new** api module must import `request` from `./http`, never
+  re-implement the cookie/`credentials:'include'` + error-envelope logic.
+- **`matches.ts` wire types are 1:1 with the Go DTOs** in `server/internal/game` (handler.go), NOT
+  just with API.md — read the structs when changing them (e.g. `MatchResult` is a union discriminated
+  on `ready`; scores are **0..1** from the judge and the reveal multiplies to 0..100; `judgedImageUrl`
+  is always `null` until the object-storage seam lands).
+- **PlayView runs exactly ONE self-rescheduling poll loop** for the whole round (waiting → drawing →
+  judging), reached from `startMatch`. `submit()` does **not** start a second loop — it only flips the
+  phase to `judging`; the existing loop (which reschedules through the transient `submitting` phase)
+  picks up the verdict branch. Adding a `scheduleNextPoll()` in `submit` would double every poll.
+- **The round timer is a soft client-side UX pressure only** — v1 has no server-authoritative
+  deadline, so the countdown is not reconciled against the match (it auto-submits on expiry). Don't
+  treat `remaining` as authoritative; a real deadline is a `TODO(play-api)`.
+- **Every async continuation checks the `disposed` flag** (set in `onBeforeUnmount`) before touching
+  reactive state — the poll loop + `await`ed create/submit/capture can resolve after the route
+  changes. `clearTimers()` clears both the countdown interval and the tracked poll `setTimeout`s.
+- **A duel is auth-required**; `/play` has no sign-in form. An anonymous visitor (or a `fetchMe`
+  failure) routes to the sign-in card, which links to `/draw` (where the SideMenu auth lives). A `409`
+  on submit is treated as already-recorded and proceeds to the verdict poll, not an error.
+
 ## Preview MCP / verification
 
 - **`preview_screenshot` times out (~30 s) on the Konva canvas page** — Konva's rAF loop likely
   defeats idle detection. Verify `/draw` with `preview_eval` (DOM / `getComputedStyle`),
   `preview_snapshot`, and console/network logs instead; don't retry screenshots there.
+- **`/play` needs the Go backend + a SECOND authenticated player** to reach `judging`/`done` — not
+  drivable from one browser preview. Smoke-test the mount + auth-gated card without a backend
+  (`/api/auth/me` 502 → the sign-in card renders); the client shapes are verified against the Go DTOs
+  by reading them, not by driving the full happy-path.
 - The vite dev server runs via `.claude/launch.json` (`preview_start` name `web`, port 7777). Previewing
   the full app also needs the Go backend on :8080 up separately (not in launch.json).
 - **rAF is fully PAUSED while the preview tab is hidden** (`document.hidden === true`) — Konva's
