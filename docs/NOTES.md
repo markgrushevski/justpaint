@@ -275,6 +275,10 @@ small practical gotchas go here.
   toggle). Hand-roll controlled modals on the SideMenu/ShortcutsDialog pattern (Teleport +
   `Transition :duration` + `tabindex="-1"` focus-on-open + panel-tree Esc + backdrop click).
   `OriKbd` DOES ship and is the kbd-chip style — use it over custom chips.
+  **Update 2026-07-10:** the controlled form (`open` prop + `update:open`/`close` emits, `v-model:open`)
+  now exists in the **`../vueinjar` source** but is NOT in the published `alpha-10` build justpaint has
+  installed, so dialogs are still hand-rolled here. Migrate ConfirmDialog/ShortcutsDialog to `OriDialog`
+  once oriui republishes (source ahead of package — the parallel-oriui hazard). Verified 2026-07-10.
 - **An UNLAYERED universal reset silently clobbers oriui's LAYERED box-model** (`feat/draw-ux-polish`,
   2026-07-05). Cascade rule: unlayered author CSS beats **all** `@layer` styles regardless of
   specificity. oriui ships `.ori-button { border: 1px solid …; padding-inline: 1em }` and
