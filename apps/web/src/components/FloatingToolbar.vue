@@ -268,7 +268,10 @@ function onWidth(e: Event) {
 }
 
 .bar__tool:hover:not(:disabled) {
-    background-color: var(--jp-hover-bg, color-mix(in srgb, var(--ori-color-primary) 12%, transparent));
+    /* Neutral overlay off a structural token — NOT a brand role (DESIGN-SYSTEM
+       §1). The only control this still styles is the bespoke .bar__style-trigger
+       swatch, which IconButton can't express (a live colour dot, not a glyph). */
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 /* Positioning context for the hotkey badge below. IconButton is icon-only (no

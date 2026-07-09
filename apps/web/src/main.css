@@ -60,10 +60,14 @@
     --jp-control-lg: 2.4rem; /* toolbar tool buttons */
     --jp-control-sm: 2.25rem; /* inline top-right chips, zoom buttons, panel close buttons, layer-row controls */
 
-    /* Shared interaction surfaces (replace the ad-hoc per-control color-mix recipes). */
-    --jp-hover-bg: color-mix(in srgb, var(--ori-color-primary) 12%, transparent);
-    --jp-selected-bg: color-mix(in srgb, var(--ori-color-primary) 18%, transparent);
+    /* Neutral hover overlay for the few bespoke controls oriui can't model (e.g.
+       the mobile swatch trigger). oriui components own their own hover via props;
+       this is the only shared interaction token left. */
     --jp-neutral-hover-bg: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+    /* TODO(wave-2): the winner-side highlight in ResultReveal still uses this
+       brand tint — it becomes OriCard `variant="tonal" color="primary"` when the
+       content cards migrate to OriCard (DESIGN-SYSTEM §4), then this drops. */
+    --jp-selected-bg: color-mix(in srgb, var(--ori-color-primary) 18%, transparent);
 }
 
 /*
