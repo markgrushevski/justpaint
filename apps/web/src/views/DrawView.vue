@@ -55,9 +55,15 @@ import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import LayersPanel from '../components/LayersPanel.vue'
 import ShortcutsDialog from '../components/ShortcutsDialog.vue'
 import SideMenu from '../components/SideMenu.vue'
+import EditorShell from '../components/shell/EditorShell.vue'
 import ToolIcon from '../components/icons/ToolIcon.vue'
 
-const containerRef = ref<HTMLDivElement | null>(null)
+// The shared layout skeleton (desk + Konva mount + floating regions). We read
+// its exposed canvas mount element in onMounted and build the Editor into it.
+const shell = ref<{ canvasEl: HTMLDivElement | null } | null>(null)
+// The canvas mount element, captured once at mount: blankDocument sizes to it,
+// and it owns the coords-readout pointer listeners we add/remove ourselves.
+let canvasHost: HTMLDivElement | null = null
 let editor: Editor | null = null
 let unsubscribe: (() => void) | null = null
 
@@ -194,7 +200,7 @@ function clampDim(n: number): number {
  * view-only backdrop below (paper / checkerboard) show through.
  */
 function blankDocument(w?: number, h?: number): Document {
-    const el = containerRef.value
+    const el = canvasHost
     const width = clampDim(w ?? (el && el.clientWidth > 0 ? el.clientWidth : DEFAULT_CANVAS.width))
     const height = clampDim(h ?? (el && el.clientHeight > 0 ? el.clientHeight : DEFAULT_CANVAS.height))
     return {
@@ -299,8 +305,10 @@ onMounted(() => {
     } catch {
         /* private mode / storage disabled — defaults (hint on, paper backdrop) */
     }
-    if (!containerRef.value) return
-    const container = containerRef.value
+    // The shell exposes its Konva mount element; build the Editor into it.
+    const container = shell.value?.canvasEl ?? null
+    if (!container) return
+    canvasHost = container
     // The editor sizes its Konva stage to the container and fits the document
     // into it (a ResizeObserver keeps it fitted); it never CSS-transforms canvas.
     editor = new Editor(container, parseDocument(blankDocument()))
@@ -323,8 +331,9 @@ onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeydown)
     // Drop the coords readout listeners + any pending frame.
     if (coordsRaf) cancelAnimationFrame(coordsRaf)
-    containerRef.value?.removeEventListener('pointermove', onCanvasPointerMove)
-    containerRef.value?.removeEventListener('pointerleave', onCanvasPointerLeave)
+    canvasHost?.removeEventListener('pointermove', onCanvasPointerMove)
+    canvasHost?.removeEventListener('pointerleave', onCanvasPointerLeave)
+    canvasHost = null
     unsubscribe?.()
     unsubscribe = null
     // Destroy the Konva stage (removes it from Konva's module-global registry and
@@ -584,50 +593,21 @@ function load() {
 </script>
 
 <template>
-    <div class="draw">
-        <!-- The Editor sizes its Konva stage to this full-bleed wrapper and fits
-             the document into it (zoom/pan via the stage transform). Everything
-             else floats above the canvas — the shared /draw+/play shell language. -->
-        <div ref="containerRef" class="draw__canvas"></div>
-
+    <!-- The shared editor shell owns the desk/letterbox surface, the Konva canvas
+         mount, and the floating-region layout; /draw fills the regions with its
+         chrome. /play will compose the SAME shell (one design, game chrome on top). -->
+    <EditorShell ref="shell" mode="draw">
         <!-- Top-left: brand -->
-        <div class="draw__top-left">
+        <template #top-left>
             <span class="draw__brand jp-float">justpaint</span>
-        </div>
+        </template>
 
-        <!-- Top-left (phones only): undo/redo island — the toolbar hides its
-             history group <=600px, so history keeps a one-tap home clear of
-             the tool row. Hidden on desktop (the bar has its own). -->
-        <div class="draw__history jp-float" role="group" aria-label="History">
-            <button class="draw__history-btn" type="button" aria-label="Undo" :disabled="!canUndo" @click="undo">
-                <ToolIcon name="undo" />
-            </button>
-            <button class="draw__history-btn" type="button" aria-label="Redo" :disabled="!canRedo" @click="redo">
-                <ToolIcon name="redo" />
-            </button>
-        </div>
-
-        <!-- Top-right corner: the menu toggler. Its OriTooltip wrapper carries the
-             absolute corner pin (z-110 > menu z-100) so the same chip opens and
-             closes it (the legacy pattern); the tooltip drops BELOW to stay
-             on-screen at the top edge. -->
-        <OriTooltip class="draw__menu-toggle-tip" placement="bottom" :content="menuOpen ? 'Close menu' : 'Open menu'">
-            <button
-                class="draw__menu-toggle jp-float"
-                type="button"
-                :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
-                :aria-expanded="menuOpen"
-                @click="menuOpen = !menuOpen"
-            >
-                <OriIcon :icon="menuOpen ? icons.mdiMenuOpen : icons.mdiMenu" />
-            </button>
-        </OriTooltip>
-
-        <!-- Top-right: panels + save (left of the toggler). Every chip's tooltip
-             drops BELOW (placement="bottom") so the bubble stays on-screen at the
-             top edge (.draw has overflow:hidden, clipping any upward bubble). New /
-             Load / Export and the theme control now live in the side-menu drawer. -->
-        <div class="draw__top-right">
+        <!-- Top-right: panels + save island (left of the corner toggler). Every
+             chip's tooltip drops BELOW (placement="bottom") so the bubble stays
+             on-screen at the top edge (the shell has overflow:hidden, clipping any
+             upward bubble). New / Load / Export and the theme control live in the
+             side-menu drawer. -->
+        <template #top-right>
             <div class="draw__actions jp-float">
                 <OriTooltip placement="bottom" content="Layers">
                     <button
@@ -670,31 +650,14 @@ function load() {
                     </button>
                 </OriTooltip>
             </div>
-        </div>
+        </template>
 
-        <!-- Transient status: the oriui toast queue (pushed via useToast()) -->
-        <OriToaster position="top-center" />
-
-        <!-- First-run empty state: a welcome card centered on a blank canvas, only
-             until dismissed or the first stroke lands (same showHint gating + fade
-             as the old hint pill). The layer lets pointer events pass THROUGH so
-             drawing around the card still works — only the card is interactive. -->
-        <div class="draw__empty-layer">
-            <Transition name="jp-pop">
-                <EmptyState
-                    v-if="showHint"
-                    class="draw__empty"
-                    :signed-in="session.isLoggedIn"
-                    @dismiss="dismissHint"
-                    @sign-in="menuOpen = true"
-                    @shortcuts="shortcutsOpen = true"
-                />
-            </Transition>
-        </div>
-
-        <!-- Bottom-center: the floating toolbar -->
-        <div class="draw__toolbar">
+        <!-- Bottom-center: the floating toolbar. The shell's centering strip is
+             pointer-events:none; the bar opts back in so drawing passes through
+             the empty flanks either side of it. -->
+        <template #bottom-center>
             <FloatingToolbar
+                class="draw__toolbar-item"
                 :active-tool="ui.activeTool"
                 :color="ui.color"
                 :stroke-width="ui.strokeWidth"
@@ -710,35 +673,128 @@ function load() {
                 @undo="undo"
                 @redo="redo"
             />
-        </div>
+        </template>
 
         <!-- Bottom-right: zoom. Tooltips point UP (placement="top") — the island
              sits at the bottom edge. -->
-        <div class="draw__zoom jp-float" role="group" aria-label="Zoom">
-            <OriTooltip placement="top" content="Zoom out — Ctrl+-">
-                <button class="draw__zoom-btn" type="button" aria-label="Zoom out" @click="zoomOut">
-                    <ToolIcon name="minus" />
-                </button>
-            </OriTooltip>
-            <span class="draw__zoom-value">{{ zoomPercent }}%</span>
-            <OriTooltip placement="top" content="Zoom in — Ctrl+=">
-                <button class="draw__zoom-btn" type="button" aria-label="Zoom in" @click="zoomIn">
-                    <ToolIcon name="plus" />
-                </button>
-            </OriTooltip>
-            <OriTooltip placement="top" content="Fit — Ctrl+0">
-                <button class="draw__zoom-btn" type="button" aria-label="Fit to view" @click="fitView">
-                    <ToolIcon name="fit" />
-                </button>
-            </OriTooltip>
-        </div>
+        <template #bottom-right>
+            <div class="draw__zoom jp-float" role="group" aria-label="Zoom">
+                <OriTooltip placement="top" content="Zoom out — Ctrl+-">
+                    <button class="draw__zoom-btn" type="button" aria-label="Zoom out" @click="zoomOut">
+                        <ToolIcon name="minus" />
+                    </button>
+                </OriTooltip>
+                <span class="draw__zoom-value">{{ zoomPercent }}%</span>
+                <OriTooltip placement="top" content="Zoom in — Ctrl+=">
+                    <button class="draw__zoom-btn" type="button" aria-label="Zoom in" @click="zoomIn">
+                        <ToolIcon name="plus" />
+                    </button>
+                </OriTooltip>
+                <OriTooltip placement="top" content="Fit — Ctrl+0">
+                    <button class="draw__zoom-btn" type="button" aria-label="Fit to view" @click="fitView">
+                        <ToolIcon name="fit" />
+                    </button>
+                </OriTooltip>
+            </div>
+        </template>
 
         <!-- Bottom-left: cursor document-coordinate readout (desktop only —
              hidden <=600px; no hover on touch). Shows where a stroke would land,
              mapped through the editor's own stage transform at any zoom/pan. -->
-        <div v-if="coords" class="draw__coords jp-float">
-            <span class="draw__coords-mark" aria-hidden="true">⌖</span>
-            <span class="draw__coords-value">{{ Math.round(coords.x) }}, {{ Math.round(coords.y) }}</span>
+        <template #bottom-left>
+            <div v-if="coords" class="draw__coords jp-float">
+                <span class="draw__coords-mark" aria-hidden="true">⌖</span>
+                <span class="draw__coords-value">{{ Math.round(coords.x) }}, {{ Math.round(coords.y) }}</span>
+            </div>
+        </template>
+
+        <!-- Centered overlay layer: the toast queue, the first-run empty-state
+             card, and the modal dialogs. All but the card teleport to body /
+             manage their own stacking; the card opts back into pointer events. -->
+        <template #overlay>
+            <!-- Transient status: the oriui toast queue (pushed via useToast()) -->
+            <OriToaster position="top-center" />
+
+            <!-- First-run empty state: a welcome card centered on a blank canvas,
+                 only until dismissed or the first stroke lands. The shell overlay
+                 lets pointer events pass THROUGH so drawing around the card still
+                 works — only the card (pointer-events:auto) is interactive. -->
+            <Transition name="jp-pop">
+                <EmptyState
+                    v-if="showHint"
+                    class="draw__empty"
+                    :signed-in="session.isLoggedIn"
+                    @dismiss="dismissHint"
+                    @sign-in="menuOpen = true"
+                    @shortcuts="shortcutsOpen = true"
+                />
+            </Transition>
+
+            <ShortcutsDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
+
+            <ConfirmDialog
+                :open="confirmNewOpen"
+                title="Clear the canvas?"
+                message="This starts a new drawing and can't be undone."
+                confirm-text="Clear"
+                cancel-text="Cancel"
+                danger
+                @confirm="onConfirmNew"
+                @cancel="onCancelNew"
+            />
+        </template>
+
+        <!-- Side drawer (self-teleports to body; non-modal, canvas stays live). -->
+        <template #drawer>
+            <SideMenu
+                :open="menuOpen"
+                :busy="busy"
+                :can-rename="session.isLoggedIn"
+                :title="drawingName"
+                :backdrop-grid="backdropGrid"
+                :canvas-width="docWidth"
+                :canvas-height="docHeight"
+                @close="menuOpen = false"
+                @new-drawing="requestNew"
+                @load="load"
+                @save="save"
+                @export-png="exportPng"
+                @copy-text="copyDocJson"
+                @copy-image="copyPngToClipboard"
+                @rename="onRename"
+                @toggle-grid="onToggleGrid"
+                @apply-canvas-size="onApplyCanvasSize"
+            />
+        </template>
+
+        <!-- Free-floating /draw chrome (self-positioned, into the shell's default
+             slot as direct children of the non-stacking-context root). -->
+
+        <!-- Top-right corner: the menu toggler. Its OriTooltip wrapper carries the
+             absolute corner pin (z-110 > drawer z-100) so the same chip opens and
+             closes it; the tooltip drops BELOW to stay on-screen at the top edge. -->
+        <OriTooltip class="draw__menu-toggle-tip" placement="bottom" :content="menuOpen ? 'Close menu' : 'Open menu'">
+            <button
+                class="draw__menu-toggle jp-float"
+                type="button"
+                :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
+                :aria-expanded="menuOpen"
+                @click="menuOpen = !menuOpen"
+            >
+                <OriIcon :icon="menuOpen ? icons.mdiMenuOpen : icons.mdiMenu" />
+            </button>
+        </OriTooltip>
+
+        <!-- Top-left (phones only): undo/redo island — the toolbar hides its
+             history group <=600px, so history keeps a one-tap home clear of the
+             tool row. Hidden on desktop (the bar has its own). -->
+        <div class="draw__history jp-float" role="group" aria-label="History">
+            <button class="draw__history-btn" type="button" aria-label="Undo" :disabled="!canUndo" @click="undo">
+                <ToolIcon name="undo" />
+            </button>
+            <button class="draw__history-btn" type="button" aria-label="Redo" :disabled="!canRedo" @click="redo">
+                <ToolIcon name="redo" />
+            </button>
         </div>
 
         <!-- Scrim behind the mobile layers bottom sheet (display:none >600px) -->
@@ -760,84 +816,16 @@ function load() {
                 @close="layersOpen = false"
             />
         </div>
-
-        <SideMenu
-            :open="menuOpen"
-            :busy="busy"
-            :can-rename="session.isLoggedIn"
-            :title="drawingName"
-            :backdrop-grid="backdropGrid"
-            :canvas-width="docWidth"
-            :canvas-height="docHeight"
-            @close="menuOpen = false"
-            @new-drawing="requestNew"
-            @load="load"
-            @save="save"
-            @export-png="exportPng"
-            @copy-text="copyDocJson"
-            @copy-image="copyPngToClipboard"
-            @rename="onRename"
-            @toggle-grid="onToggleGrid"
-            @apply-canvas-size="onApplyCanvasSize"
-        />
-
-        <ShortcutsDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
-
-        <ConfirmDialog
-            :open="confirmNewOpen"
-            title="Clear the canvas?"
-            message="This starts a new drawing and can't be undone."
-            confirm-text="Clear"
-            cancel-text="Cancel"
-            danger
-            @confirm="onConfirmNew"
-            @cancel="onCancelNew"
-        />
-    </div>
+    </EditorShell>
 </template>
 
 <style scoped>
-.draw {
-    position: relative;
-    height: 100%;
-    overflow: hidden;
-
-    /* Letterbox around the fitted document (the view-only backdrop paints the
-       "paper" behind the transparent document; this fills the margins, like a
-       canvas on a desk). The "desk" sits one step off the paper so the document
-       edge reads at any zoom — never the paper's/background's own color. */
-    background-color: var(--jp-desk, #e9ebef);
-}
-
-.draw__canvas {
-    position: absolute;
-    inset: 0;
-}
+/* The desk/letterbox surface, the Konva canvas mount, and the floating-region
+   POSITIONING all live in EditorShell now (the shared /draw+/play skeleton).
+   What remains here is /draw's own chrome: island visuals + the self-positioned
+   extras (menu toggler, mobile history, layers panel + scrim). */
 
 /* --- floating chrome -------------------------------------------------- */
-
-.draw__top-left,
-.draw__top-right {
-    position: absolute;
-    top: var(--ori-size-gap_md, 0.5rem);
-    z-index: 10;
-
-    display: flex;
-    align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
-}
-
-.draw__top-left {
-    left: var(--ori-size-gap_md, 0.5rem);
-}
-
-/* Shifted left of the corner menu toggler (gap + chip + gap). Max width =
-   viewport minus the toggler offset minus a left breathing gap; on very narrow
-   phones (~<=360px) the chips wrap to a second row inside the island. */
-.draw__top-right {
-    right: calc(var(--ori-size-gap_md, 0.5rem) * 2 + var(--ori-size-action_md, 2.75rem));
-    max-width: calc(100vw - (var(--ori-size-gap_md, 0.5rem) * 3 + var(--ori-size-action_md, 2.75rem)));
-}
 
 /* The menu toggler's OriTooltip wrapper — pinned above the 400px drawer (z-110 >
    the menu's z-100) so the toggler stays clickable, flipping to a "close" glyph,
@@ -936,41 +924,15 @@ function load() {
     background-color: var(--ori-color-outline, rgb(0 0 0 / 12%));
 }
 
-/* Full-width centering strip (NOT left:50% + translate): an absolutely
-   positioned box with a left offset gets shrink-to-fit against the REMAINING
-   half of the viewport, which squeezed the bar to min-content and wrapped it
-   on phones. The strip itself must not eat canvas events. */
-.draw__toolbar {
-    position: absolute;
-    bottom: var(--ori-size-gap_lg, 0.75rem);
-    left: 0;
-    right: 0;
-    z-index: 10;
-
-    display: flex;
-    justify-content: center;
-
-    pointer-events: none;
-}
-
-.draw__toolbar > * {
+/* EditorShell's bottom-center strip is pointer-events:none (its empty flanks
+   never eat canvas events) — the toolbar opts back in so it stays interactive. */
+.draw__toolbar-item {
     pointer-events: auto;
 }
 
-/* First-run empty state — a centered welcome card over the canvas. The layer is
-   full-bleed but pointer-events:none so it never blocks drawing; only the card
-   (pointer-events:auto) is interactive. z-11 keeps it above the toolbar. */
-.draw__empty-layer {
-    position: absolute;
-    inset: 0;
-    z-index: 11;
-
-    display: grid;
-    place-items: center;
-
-    pointer-events: none;
-}
-
+/* First-run empty state — the centered welcome card. EditorShell's overlay layer
+   is full-bleed but pointer-events:none so it never blocks drawing; only the
+   card (pointer-events:auto) is interactive. */
 .draw__empty {
     pointer-events: auto;
 }
@@ -990,12 +952,8 @@ function load() {
     transform: scale(0.96);
 }
 
+/* The bottom-right zoom island — EditorShell's bottom-right region positions it. */
 .draw__zoom {
-    position: absolute;
-    right: var(--ori-size-gap_md, 0.5rem);
-    bottom: var(--ori-size-gap_lg, 0.75rem);
-    z-index: 10;
-
     display: flex;
     align-items: center;
     gap: 0;
@@ -1046,16 +1004,11 @@ function load() {
     text-align: center;
 }
 
-/* Cursor document-coordinate readout — bottom-left, desktop only. That corner is
-   free: the history group lives in the bar on desktop (its top-left island is
-   <=600px only), and the readout is hidden on touch (no hover to drive it). A
-   passive readout: pointer-events:none so it never intercepts canvas drawing. */
+/* Cursor document-coordinate readout — the bottom-left corner (desktop only;
+   hidden <=600px, no hover on touch). EditorShell's bottom-left region positions
+   it and is itself pointer-events:none; the chip stays a passive readout, so it
+   never intercepts canvas drawing at any zoom/pan. */
 .draw__coords {
-    position: absolute;
-    left: var(--ori-size-gap_md, 0.5rem);
-    bottom: var(--ori-size-gap_lg, 0.75rem);
-    z-index: 10;
-
     display: flex;
     align-items: center;
     gap: var(--ori-size-gap_xs, 0.125rem);
@@ -1160,19 +1113,6 @@ function load() {
 
         border-radius: var(--ori-size-radius_lg, 12px) var(--ori-size-radius_lg, 12px) 0 0;
         background-color: var(--ori-color-surface);
-    }
-
-    .draw__toolbar {
-        bottom: var(--ori-size-gap_sm, 0.25rem);
-    }
-
-    /* Zoom tucks into the bottom-right above the one-row toolbar (strip offset
-       0.25rem + bar ~2.83rem: 0.35rem*2 padding + 2rem tools + border —
-       4.25rem clears it with ~1.2rem of air), keeping the top corners for the
-       history island (left) and the actions row (right). */
-    .draw__zoom {
-        right: var(--ori-size-gap_sm, 0.25rem);
-        bottom: 4.25rem;
     }
 
     .draw__brand {
