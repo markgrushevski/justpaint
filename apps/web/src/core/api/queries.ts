@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import type { Document } from '@justpaint/document'
 import { drawings } from './drawings'
 import type { DrawingFull, DrawingMeta } from './drawings'
+import { matches } from './matches'
+import type { Match, SubmitMatch } from './matches'
 
 /**
  * TanStack Query bindings for the drawings API (ROADMAP Phase 2 "state" pass:
@@ -46,5 +48,29 @@ export function useLoadLatestDrawing() {
             const first = page.drawings[0]
             return first ? drawings.get(first.id) : null
         }
+    })
+}
+
+/**
+ * Match mutations for the imperative duel actions (create/auto-join + submit).
+ * The reads that DRIVE the flow — the roster poll (`matches.get`) and the verdict
+ * poll (`matches.result`) — are called directly from the /play phase machine (an
+ * ephemeral per-round flow with no shared cache to own, mirroring how
+ * `useLoadLatestDrawing` reaches straight to `drawings.get`). WS push replaces the
+ * polling later (docs/API.md §9, not-v1).
+ */
+
+/** Create or auto-join an async match. */
+export function useCreateMatch() {
+    return useMutation({
+        mutationFn: (): Promise<Match> => matches.create()
+    })
+}
+
+/** Submit the caller's vector document for a match. */
+export function useSubmitMatch() {
+    return useMutation({
+        mutationFn: ({ id, document }: { id: string; document: Document }): Promise<SubmitMatch> =>
+            matches.submit(id, document)
     })
 }
