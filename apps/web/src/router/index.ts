@@ -3,7 +3,8 @@ import type { RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
     { path: '/', redirect: '/draw' },
-    { path: '/draw', name: 'draw', component: () => import('../views/DrawView.vue') }
+    { path: '/draw', name: 'draw', component: () => import('../views/DrawView.vue') },
+    { path: '/play', name: 'play', component: () => import('../views/PlayView.vue') }
 ]
 
 export const router = createRouter({

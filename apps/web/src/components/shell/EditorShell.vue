@@ -128,6 +128,14 @@ defineExpose({ canvasEl })
     max-width: calc(100vw - (var(--ori-size-gap_md, 0.5rem) * 3 + var(--ori-size-action_md, 2.75rem)));
 }
 
+/* /play has no corner menu toggler, so its top-right island reclaims the full
+   corner — Submit sits at the edge, clear of the centered round-timer clock on
+   narrow phones. (The one place the `mode` prop tunes the shared layout.) */
+.shell--play .shell__region--top-right {
+    right: var(--ori-size-gap_md, 0.5rem);
+    max-width: calc(100vw - var(--ori-size-gap_md, 0.5rem) * 2);
+}
+
 /* Full-width centering strip (NOT left:50% + translate: an offset absolute box
    shrink-to-fits against the REMAINING half of the viewport and wraps on
    phones). The strip must not eat canvas events — content opts back in. */
