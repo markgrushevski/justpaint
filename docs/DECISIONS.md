@@ -2,6 +2,17 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-08 — Excalidraw-inspired shell + navigable `/play` (redesign)
+
+The owner asked to make `/draw` feel like Excalidraw and to reuse that shell for the game. Decided: borrow Excalidraw's *patterns* (a warm empty-state card with quick actions, corner discipline, tool hotkey badges, cleaner menu organization) but render them in **oriui + the brand orange** — NOT a pixel clone. A clone would fight oriui (the owner's own dogfooded library), mean maintaining two visual languages, and edge into brand mimicry. Two Excalidraw placements were **deliberately not adopted** — both owner-confirmed:
+
+- **Kept the right-side slide-in drawer** (not Excalidraw's top-left dropdown). The drawer is *non-modal*, so the canvas — and an in-progress duel — stay live behind it; it is the natural persistent home for the `/play` profile + rating + match context, which a transient dropdown can't hold. We borrow Excalidraw's menu *organization*, not its placement.
+- **Kept the bottom-center floating toolbar** (not a top bar; owner-pinned 2026-07-04). Decisive for the shared shell: `/play` owns the **top band** for the prompt banner + round timer, so a top toolbar would collide and force `/draw` and `/play` to diverge — the one thing the shared-shell rule (2026-07-04) forbids. A free top band is the strongest argument against Excalidraw fidelity here.
+
+**Made the shared shell structural**, not just a CSS convention: extracted `apps/web/src/components/shell/EditorShell.vue` — the desk/letterbox + the Konva mount element (exposed via `defineExpose({ canvasEl })` so the composing view builds the `Editor` into it) + named region slots (`#top-left/-center/-right`, `#bottom-left/-center/-right`, `#overlay`, `#drawer`). Both `DrawView` and the new `PlayView` **compose** it; a `mode: 'draw' | 'play'` prop tunes per-mode (e.g. `/play` reclaims the top-right corner `/draw` reserves for its menu toggler). `/play` is therefore a composition of the same regions, not a fork — matching ARCHITECTURE's "reuse = package/module boundaries" and making a later `/play` split mechanical.
+
+`/play` shipped as a **navigable scaffold on local mock state** (`waiting → drawing → submit → judging → done`); the live `/api/matches` client (create/poll/submit/result, native fetch + TanStack) is the **next unit** (`TODO(play-api)` markers), and the result reveal's opponent image waits on the deferred render worker (`judgedImageUrl`, `IDEAS.md`). Sequencing followed the 2026-07-04 plan: `/draw` UX polish (Phase A) → shared-shell extraction + `/play` scaffold (Phase B) → live duel loop. Also: the theme store is now constructed at the app root (`App.vue`) so the persisted/OS theme applies on **every** route, not only `/draw`.
+
 ## 2026-07-08 — oriui alpha-7 → alpha-10: all local oriui compensations dropped
 
 Four back-to-back oriui bumps (`chore/oriui-alpha{7,8,9,10}`) each shipped an upstream fix that let this app **delete** a local workaround. After alpha-10 there are **zero** `.ori-*` selector overrides and **zero** interim oriui tokens in `apps/web` — consumption is clean, and every "drop when oriui publishes" NOTES/IDEAS item is closed. The three packages move in lockstep, now pinned at **`1.0.0-alpha.10`**.
