@@ -92,6 +92,9 @@ function onWidth(e: Event) {
                     @click="emit('pickTool', id)"
                 >
                     <ToolIcon :name="TOOL_META[id].icon" />
+                    <!-- Excalidraw-style hotkey badge: discoverability hint, redundant with
+                         the tooltip for AT (aria-hidden). Desktop-only — hidden <=600px. -->
+                    <span class="bar__tool-key" aria-hidden="true">{{ TOOL_META[id].key }}</span>
                 </button>
             </OriTooltip>
         </div>
@@ -264,6 +267,8 @@ function onWidth(e: Event) {
 }
 
 .bar__tool {
+    position: relative;
+
     display: grid;
     place-items: center;
 
@@ -299,6 +304,27 @@ function onWidth(e: Event) {
 
 .bar__tool--active:hover:not(:disabled) {
     background-color: var(--ori-color-primary);
+}
+
+/* Excalidraw-style hotkey badge — corner glyph on the 7 tool buttons only.
+   Absolute so it never nudges the centered icon out of place. */
+.bar__tool-key {
+    position: absolute;
+    right: 0.2rem;
+    bottom: 0.1rem;
+
+    color: color-mix(in srgb, var(--ori-color-on-surface) 55%, transparent);
+
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+
+    pointer-events: none;
+}
+
+/* On the filled-primary active tool, invert to the on-primary ink so it stays legible. */
+.bar__tool--active .bar__tool-key {
+    color: var(--ori-color-on-primary);
 }
 
 .bar__swatch {
@@ -438,6 +464,12 @@ function onWidth(e: Event) {
     .bar__tool {
         width: 2rem;
         height: 2rem;
+    }
+
+    /* Touch phones have no hardware keyboard — drop the hotkey badges (matches
+       how the bar hides its other keyboard affordances at this breakpoint). */
+    .bar__tool-key {
+        display: none;
     }
 
     /* Color wells now only render inside the popover panel — keep them tappable. */
