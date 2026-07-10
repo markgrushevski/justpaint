@@ -136,10 +136,15 @@ test.describe('/draw — open overlays (desktop)', () => {
         await gotoDraw(page)
         // "?" toggles the cheat-sheet (desktop only — suppressed <=600px).
         await page.keyboard.press('Shift+Slash')
-        await page.locator('[role="dialog"][aria-label="Keyboard shortcuts"]').waitFor({ state: 'visible' })
+        // OriDialog names its <dialog> via aria-labelledby (the title), not a raw
+        // aria-label attribute — so match by accessible NAME (getByRole resolves
+        // labelledby), and gate the fade on the dialog element itself (the old
+        // hand-rolled `.shortcuts` wrapper is gone since the OriDialog migration).
+        const shortcutsDialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+        await shortcutsDialog.waitFor({ state: 'visible' })
         // The dialog fades in (opacity 0->1); wait for it to settle so axe never
         // reads a transient mid-fade composite (that flaked color-contrast).
-        await expect(page.locator('.shortcuts')).toHaveCSS('opacity', '1')
+        await expect(shortcutsDialog).toHaveCSS('opacity', '1')
         await expectNoSeriousViolations(page, 'shortcuts-open')
     })
 })
