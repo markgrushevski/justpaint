@@ -20,7 +20,7 @@
 consumed via **props**, never re-derived in a `.vue`'s `<style>`. If you're writing `color-mix(… var(--ori-color-*) …)`
 or a `--active`/`--accent` class, stop — oriui already has it. And **wrap, don't repeat**: when the app needs a
 recurring shape oriui doesn't ship, build ONE thin justpaint component (`components/ui/`) over oriui, so a future change
-is one file, not a scattered find-and-replace (that's why `JpFloat`/`IconButton`/`SegmentedControl` exist).
+is one file, not a scattered find-and-replace (that's why `IconButton`/`SegmentedControl` exist).
 
 **The customization ladder** (oriui's own `/guides/customization`, safest → most manual): (1) **props** — `color` role
 + `variant` mapping (the WCAG-AA contrast guarantee lives here); (2) **global rebrand** — repoint the
@@ -85,10 +85,6 @@ not an override.)
 
 Build a justpaint component **only** where oriui has a genuine gap or we want a project default. Keep them thin.
 
-- **`JpFloat`** — the elevated floating-surface island (toolbar / zoom / panel over the canvas). `OriCard` is a flat
-  content card (`gap_xl` padding + header/title semantics — wrong for chrome), so `JpFloat` composes the pieces oriui
-  DOES ship: `surface` bg + `outline` hairline + `radius_lg` + the **`--ori-shadow-lg`** elevation token (the same one
-  `OriDialog`/`OriPopover` use), tight padding. A thin convenience — not a missing primitive.
 - **`IconButton`** — `OriButton` preset for icon-only toolbar actions: `icon`, `variant` (default `text`), `active`,
   `disabled`, `label` (a11y + `OriTooltip`). Centralizes the toolbar-chip look so every island matches and no view
   re-styles a `<button>`. A SELECTED/on toggle passes `color="primary"` + `active`; a PRIMARY action is a `fill`
@@ -100,11 +96,14 @@ Build a justpaint component **only** where oriui has a genuine gap or we want a 
   visual here (radio circles, not a segmented look).
 
 Everything else is **oriui direct**: **content** → `OriCard` (the ResultReveal sides — winner = `tonal`/`primary`).
-**Modal dialogs** → `OriDialog` is the target (native `<dialog>`: focus-trap, scroll-lock, Esc, backdrop) — but the
-**installed** alpha-10 build is *uncontrolled* (no `open` prop/emit — `NOTES.md`); the controlled `v-model:open` form
-lives in the `../vueinjar` source but isn't published, so **ConfirmDialog / ShortcutsDialog stay hand-rolled controlled
-modals until oriui republishes** (then migrate). A bespoke overlay whose layout isn't a textbook card (EmptyState,
-JudgingOverlay) stays a `JpFloat` with custom content — don't force it into `OriCard`.
+**Floating chrome** (toolbar / zoom / panel over the canvas) → **`OriSurface`** — oriui's elevation primitive
+(alpha-11; `as`, `bordered` default `true`, `elevation` default `'lg'` → **`--ori-shadow-lg`**, `radius` default
+`'lg'`, its DEFAULTS are exactly the old `.jp-float` island look). **`JpFloat` is deleted** — use `OriSurface`
+directly, no wrapper needed. (The `.jp-float` CSS *class* still exists in `main.css`: `FloatingToolbar.vue` hasn't
+migrated off it yet — §6.) **Modal dialogs** → `OriDialog` (native `<dialog>`: focus-trap, scroll-lock, Esc,
+backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`close` emits, `v-model:open`);
+**ConfirmDialog / ShortcutsDialog are migrated to it.** A bespoke overlay whose layout isn't a textbook card
+(EmptyState, JudgingOverlay) stays an `OriSurface` with custom content — don't force it into `OriCard`.
 
 ## 5. Migration checklist (a change touching chrome)
 
@@ -112,7 +111,7 @@ JudgingOverlay) stays a `JpFloat` with custom content — don't force it into `O
 - [ ] No `color-mix()` of a **brand** role in a component `<style>`; no `--active`/`--accent` class → `active` prop.
 - [ ] No `opacity` disabled override → `disabled` prop.
 - [ ] One icon component per cluster (`OriIcon`).
-- [ ] Floating chrome → `JpFloat`; content card → `OriCard`.
+- [ ] Floating chrome → `OriSurface`; content card → `OriCard`.
 - [ ] `npm run lint:all` (incl. contrast) + `npm run test:a11y` still green.
 
 ## 6. oriui capability map — read the source, don't assume gaps
@@ -120,16 +119,19 @@ JudgingOverlay) stays a `JpFloat` with custom content — don't force it into `O
 Every "gap" I first assumed (from `dist`) turned out to already exist in the source — that IS the lesson of §0's
 "read the source". Current status, so no one re-spawns these as wants:
 
-- **Elevation** — `--ori-shadow-{sm,md,lg,ring}` tokens (theme-aware; `OriDialog`/`OriPopover` use `-lg`). `JpFloat`
-  composes them — no missing primitive. (A pre-composed `OriSheet` raised-surface would be a minor nicety at most.)
+- **Elevation** — `--ori-shadow-{sm,md,lg,ring}` tokens (theme-aware; `OriDialog`/`OriPopover` use `-lg`). Alpha-11
+  shipped **`OriSurface`**, oriui's elevation primitive, whose defaults reproduce the old `.jp-float` island look —
+  `JpFloat` is retired (§4) in favor of `OriSurface` used directly. Not a gap.
 - **Segmented / single-select** — `OriJoin` collapses adjacent controls into one segmented unit; `OriRadioGroup` is a
   native single-select radiogroup. `SegmentedControl` (§4) composes `.ori-join` + `OriButton`. Not a gap.
 - **Neutral glyph** — `surface`/`background` ARE neutral roles; `color="surface"` (its `-text` alias resolves to
   `--ori-color-on-surface`) is the intended neutral. No `neutral` role needed.
-- **Modal dialogs** — `OriDialog` exists (native `<dialog>` + `showModal()`). ⚠ The controlled `v-model:open` form is in
-  the `../vueinjar` source but NOT the installed alpha-10 build (uncontrolled — `NOTES.md`); consuming it needs an oriui
-  **republish** (bumped prerelease, lockstep). Until then the dialogs stay hand-rolled — this is the one real "blocked
-  on upstream" item.
+- **Modal dialogs** — `OriDialog` exists (native `<dialog>` + `showModal()`) and, as of alpha-11, is **controlled**
+  (`open` prop + `update:open`/`close` emits, `v-model:open`) — ConfirmDialog / ShortcutsDialog are migrated to it
+  (§4). No longer a gap or an upstream-blocked item.
+- **Toolbar chrome** — alpha-11 also shipped **`OriToolbar`**. `FloatingToolbar.vue` hasn't migrated to it yet
+  (pending an icon-artwork decision) — the one remaining migration, and the reason the `.jp-float` CSS class still
+  lives in `main.css` even though the `JpFloat` *component* is gone.
 - **`llms-full.txt`** — published (oriui.vercel.app + `/guides/*`), just not in the npm tarball. Read it.
 
 **If something IS genuinely missing**, tell the owner (they maintain oriui) — but confirm against `../vueinjar`

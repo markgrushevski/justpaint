@@ -269,16 +269,13 @@ small practical gotchas go here.
   `color-mix()` (first used in the shell) sets the browser floor at ~2023 evergreens;
   `eslint-disable-next-line` in SFC templates covers only the literal next LINE — with
   attribute-per-line formatting it must sit right above the `v-html=` line (or use a block disable).
-- **`OriDialog` (through alpha-10) is UNCONTROLLED** — props are only
-  `defaultOpen`/`closeOnEscape`/`closeOnInteractOutside`/`modal`/`title` + a `trigger` slot; there
-  is no `open` prop and no close emit, so it cannot be driven by external state (a hotkey, a chip
-  toggle). Hand-roll controlled modals on the SideMenu/ShortcutsDialog pattern (Teleport +
-  `Transition :duration` + `tabindex="-1"` focus-on-open + panel-tree Esc + backdrop click).
-  `OriKbd` DOES ship and is the kbd-chip style — use it over custom chips.
-  **Update 2026-07-10:** the controlled form (`open` prop + `update:open`/`close` emits, `v-model:open`)
-  now exists in the **`../vueinjar` source** but is NOT in the published `alpha-10` build justpaint has
-  installed, so dialogs are still hand-rolled here. Migrate ConfirmDialog/ShortcutsDialog to `OriDialog`
-  once oriui republishes (source ahead of package — the parallel-oriui hazard). Verified 2026-07-10.
+- **`OriDialog` is CONTROLLED as of alpha-11 — RESOLVED 2026-07-10.** Through alpha-10 it had no `open`
+  prop or close emit (only `defaultOpen`/`closeOnEscape`/`closeOnInteractOutside`/`modal`/`title` + a
+  `trigger` slot), so external state (a hotkey, a chip toggle) couldn't drive it and ConfirmDialog /
+  ShortcutsDialog were hand-rolled controlled modals (Teleport + `Transition :duration` +
+  `tabindex="-1"` focus-on-open + panel-tree Esc + backdrop click) — that pattern is now historical.
+  Alpha-11 added `open` + `update:open`/`close` emits (`v-model:open`); both are migrated to
+  `OriDialog`. `OriKbd` still ships as the kbd-chip style — use it over custom chips.
 - **An UNLAYERED universal reset silently clobbers oriui's LAYERED box-model** (`feat/draw-ux-polish`,
   2026-07-05). Cascade rule: unlayered author CSS beats **all** `@layer` styles regardless of
   specificity. oriui ships `.ori-button { border: 1px solid …; padding-inline: 1em }` and
