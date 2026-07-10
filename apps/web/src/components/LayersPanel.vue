@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { OriButton, OriCheckbox } from '@oriui/vue'
+import { OriButton, OriCheckbox, OriSlider, OriSurface } from '@oriui/vue'
 import type { LayerView } from '@justpaint/editor'
 import IconButton from './ui/IconButton.vue'
 
@@ -25,14 +25,6 @@ const emit = defineEmits<{
 // real document z-index; the up/down arrows move toward the top/bottom.
 function rows() {
     return props.layers.map((layer, index) => ({ layer, index })).reverse()
-}
-
-// Opacity commits on release (`change`), not every `input` tick, so a whole
-// slider drag collapses into a single undo step. (This is why it stays a native
-// range and not OriSlider, which would emit per-tick and flood history — unlike
-// the toolbar width slider, which isn't recorded in history.)
-function onOpacityChange(id: string, e: Event) {
-    emit('setOpacity', id, Number((e.target as HTMLInputElement).value) / 100)
 }
 
 function onRename(id: string, e: Event) {
@@ -83,7 +75,7 @@ const top = () => props.layers.length - 1
 </script>
 
 <template>
-    <aside class="layers jp-float" aria-label="Layers">
+    <OriSurface as="aside" class="layers" aria-label="Layers">
         <header class="layers__head">
             <span class="layers__title">Layers</span>
             <div class="layers__head-actions">
@@ -130,15 +122,18 @@ const top = () => props.layers.length - 1
                 </div>
 
                 <div class="layers__row layers__row--controls" @click.stop>
-                    <input
+                    <!-- Opacity commits on release via OriSlider's `change` emit (settled
+                    value, not every drag tick), so a whole slider drag collapses into a
+                    single undo step — unlike the toolbar width slider, which isn't
+                    recorded in history. -->
+                    <OriSlider
                         class="layers__opacity"
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
-                        :value="Math.round(layer.opacity * 100)"
+                        :model-value="Math.round(layer.opacity * 100)"
+                        :min="0"
+                        :max="100"
+                        :step="1"
                         :aria-label="`${layer.name} opacity`"
-                        @change="onOpacityChange(layer.id, $event)"
+                        @change="(v) => emit('setOpacity', layer.id, v / 100)"
                     />
                     <IconButton
                         icon="arrow-up"
@@ -162,11 +157,11 @@ const top = () => props.layers.length - 1
                 </div>
             </li>
         </ul>
-    </aside>
+    </OriSurface>
 </template>
 
 <style scoped>
-/* A floating island (the host positions it); .jp-float supplies the chrome. */
+/* A floating island (the host positions it); OriSurface supplies the chrome. */
 .layers {
     width: 100%;
     max-height: 100%;
@@ -264,7 +259,6 @@ const top = () => props.layers.length - 1
 .layers__opacity {
     flex: 1 1 auto;
     min-width: 0;
-    accent-color: var(--ori-color-primary);
 }
 
 @media (width <= 600px) {

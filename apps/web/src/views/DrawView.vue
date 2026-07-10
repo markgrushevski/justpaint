@@ -32,7 +32,7 @@ function gridTile(dark: boolean): HTMLImageElement {
 
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { OriToaster, useToast } from '@oriui/vue'
+import { OriSurface, OriToaster, useToast } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId, LayerView } from '@justpaint/editor'
@@ -56,7 +56,6 @@ import ShortcutsDialog from '../components/ShortcutsDialog.vue'
 import SideMenu from '../components/SideMenu.vue'
 import EditorShell from '../components/shell/EditorShell.vue'
 import IconButton from '../components/ui/IconButton.vue'
-import JpFloat from '../components/ui/JpFloat.vue'
 
 // The shared layout skeleton (desk + Konva mount + floating regions). We read
 // its exposed canvas mount element in onMounted and build the Editor into it.
@@ -599,7 +598,7 @@ function load() {
     <EditorShell ref="shell" mode="draw">
         <!-- Top-left: help + layers island -->
         <template #top-left>
-            <JpFloat class="draw__actions">
+            <OriSurface class="draw__actions">
                 <IconButton
                     class="draw__help-btn"
                     icon="help"
@@ -615,7 +614,7 @@ function load() {
                     :active="layersOpen"
                     @click="layersOpen = !layersOpen"
                 />
-            </JpFloat>
+            </OriSurface>
         </template>
 
         <!-- Bottom-center: the floating toolbar. The shell's centering strip is
@@ -644,22 +643,22 @@ function load() {
         <!-- Bottom-right: zoom. Tooltips point UP (placement="top") — the island
              sits at the bottom edge. -->
         <template #bottom-right>
-            <JpFloat class="draw__zoom" role="group" aria-label="Zoom">
+            <OriSurface class="draw__zoom" role="group" aria-label="Zoom">
                 <IconButton icon="minus" label="Zoom out — Ctrl+-" @click="zoomOut" />
                 <span class="draw__zoom-value">{{ zoomPercent }}%</span>
                 <IconButton icon="plus" label="Zoom in — Ctrl+=" @click="zoomIn" />
                 <IconButton icon="fit" label="Fit — Ctrl+0" @click="fitView" />
-            </JpFloat>
+            </OriSurface>
         </template>
 
         <!-- Bottom-left: cursor document-coordinate readout (desktop only —
              hidden <=600px; no hover on touch). Shows where a stroke would land,
              mapped through the editor's own stage transform at any zoom/pan. -->
         <template #bottom-left>
-            <JpFloat v-if="coords" as="div" class="draw__coords">
+            <OriSurface v-if="coords" class="draw__coords">
                 <span class="draw__coords-mark" aria-hidden="true">⌖</span>
                 <span class="draw__coords-value">{{ Math.round(coords.x) }}, {{ Math.round(coords.y) }}</span>
-            </JpFloat>
+            </OriSurface>
         </template>
 
         <!-- Centered overlay layer: the toast queue, the first-run empty-state
@@ -724,10 +723,10 @@ function load() {
         <!-- Free-floating /draw chrome (self-positioned, into the shell's default
              slot as direct children of the non-stacking-context root). -->
 
-        <!-- Top-right corner: the menu toggler. The JpFloat wrapper carries the
+        <!-- Top-right corner: the menu toggler. The OriSurface wrapper carries the
              absolute corner pin (z-110 > drawer z-100) so the same chip opens and
              closes it; the tooltip drops BELOW to stay on-screen at the top edge. -->
-        <JpFloat class="draw__menu-toggle">
+        <OriSurface class="draw__menu-toggle">
             <IconButton
                 :icon="menuOpen ? 'close' : 'menu'"
                 :label="menuOpen ? 'Close menu' : 'Open menu'"
@@ -735,15 +734,15 @@ function load() {
                 :active="menuOpen"
                 @click="menuOpen = !menuOpen"
             />
-        </JpFloat>
+        </OriSurface>
 
         <!-- Top-left (phones only): undo/redo island — the toolbar hides its
              history group <=600px, so history keeps a one-tap home clear of the
              tool row. Hidden on desktop (the bar has its own). -->
-        <JpFloat as="div" class="draw__history" role="group" aria-label="History">
+        <OriSurface class="draw__history" role="group" aria-label="History">
             <IconButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
             <IconButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
-        </JpFloat>
+        </OriSurface>
 
         <!-- Scrim behind the mobile layers bottom sheet (display:none >600px) -->
         <div v-if="layersOpen" class="draw__layers-scrim" @click="layersOpen = false"></div>

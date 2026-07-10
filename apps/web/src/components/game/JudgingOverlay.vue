@@ -9,14 +9,14 @@
  * mid-judging; the shell's overlay layer is pointer-events:none, so opting back
  * in here is required.
  */
-import { OriSkeleton, OriSpinner } from '@oriui/vue'
+import { OriSkeleton, OriSpinner, OriSurface } from '@oriui/vue'
 
 withDefaults(defineProps<{ opponentName?: string }>(), { opponentName: 'Player 2' })
 </script>
 
 <template>
     <div class="judging">
-        <div class="judging__card jp-float">
+        <OriSurface class="judging__card">
             <OriSpinner size="lg" color="primary" />
             <h2 class="judging__title">Judging the duel…</h2>
             <p class="judging__sub">Scoring both drawings against the prompt.</p>
@@ -31,7 +31,7 @@ withDefaults(defineProps<{ opponentName?: string }>(), { opponentName: 'Player 2
                     <span class="judging__cap">{{ opponentName }}</span>
                 </div>
             </div>
-        </div>
+        </OriSurface>
     </div>
 </template>
 

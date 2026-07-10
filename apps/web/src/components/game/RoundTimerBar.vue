@@ -11,6 +11,7 @@
  * `pointer-events: none`, so it never intercepts drawing on the canvas below.
  */
 import { computed } from 'vue'
+import { OriSurface } from '@oriui/vue'
 
 const props = defineProps<{
     /** Seconds left in the round (clamped to >= 0 for display). */
@@ -49,7 +50,7 @@ const clock = computed(() => {
         <div class="timer__rail">
             <div class="timer__fill" :style="{ transform: `scaleX(${fraction})` }"></div>
         </div>
-        <span class="timer__clock jp-float">{{ clock }}</span>
+        <OriSurface as="span" class="timer__clock">{{ clock }}</OriSurface>
     </div>
 </template>
 
@@ -88,7 +89,7 @@ const clock = computed(() => {
         background-color 0.4s ease;
 }
 
-/* Small centred readout tucked just under the rail. jp-float gives it the shared
+/* Small centred readout tucked just under the rail. OriSurface gives it the shared
    island chrome; the ink tracks the current severity colour. */
 .timer__clock {
     position: absolute;
