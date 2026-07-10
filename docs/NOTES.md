@@ -342,6 +342,19 @@ small practical gotchas go here.
   after ANY out-of-band oriui tarball↔registry swap at the SAME version string, clear `.vite` and
   restart before trusting the preview. Cross-ref the tarball-swap note above and the parallel-oriui-dev
   hazard (HEAD can switch under feature work).
+- **Two oriui CSS gotchas the `FloatingToolbar` → `OriToolbar` migration surfaced (2026-07-10; both
+  oriui-owned, to report upstream — full detail + the app-side workaround in `DESIGN-SYSTEM.md` §6).**
+  **(A) layer order beats specificity:** a toggle item's pressed *fill*
+  (`.ori-toolbar .ori-button[aria-pressed=true]`, layer `ori.components`) is defeated by `.ori-variant_text`
+  re-setting `--ori-variant-bg-color: transparent` in the LATER layer `ori.utilities`, so the active tool
+  shows the inset ring only (no fill). **(B) relative-colour transitions get stuck:** `.ori-button`'s
+  `transition: color` can't interpolate oriui's `oklch(from … )` role tokens, so swapping `color` per
+  selection leaves the glyph frozen on the previous colour until a repaint — the tools sidestep it with a
+  CONSTANT `color="surface"`. **Corollary that nearly tripped the review:** the focus ring stays visible on
+  `color="surface"` buttons ONLY because `main.css`'s **unlayered** `:where(button, …):focus-visible {
+  outline: var(--ori-color-primary) }` outranks oriui's layered `.ori-button:focus-visible { outline:
+  var(--ori-color) }` (which for `surface` resolves to background-on-background = invisible). Unlayered
+  author styles beat ANY `@layer` regardless of specificity — the same mechanic as (A), used in our favour.
 
 ## /play — async-duel client
 

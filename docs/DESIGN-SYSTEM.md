@@ -99,8 +99,9 @@ Everything else is **oriui direct**: **content** → `OriCard` (the ResultReveal
 **Floating chrome** (toolbar / zoom / panel over the canvas) → **`OriSurface`** — oriui's elevation primitive
 (alpha-11; `as`, `bordered` default `true`, `elevation` default `'lg'` → **`--ori-shadow-lg`**, `radius` default
 `'lg'`, its DEFAULTS are exactly the old `.jp-float` island look). **`JpFloat` is deleted** — use `OriSurface`
-directly, no wrapper needed. (The `.jp-float` CSS *class* still exists in `main.css`: `FloatingToolbar.vue` hasn't
-migrated off it yet — §6.) **Modal dialogs** → `OriDialog` (native `<dialog>`: focus-trap, scroll-lock, Esc,
+directly, no wrapper needed. **Every island now uses `OriSurface`; the `.jp-float` CSS class is gone from `main.css`**
+(the last holdout, `FloatingToolbar`, migrated to `OriSurface` + `OriToolbar` — §6). **Modal dialogs** → `OriDialog`
+(native `<dialog>`: focus-trap, scroll-lock, Esc,
 backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`close` emits, `v-model:open`);
 **ConfirmDialog / ShortcutsDialog are migrated to it.** A bespoke overlay whose layout isn't a textbook card
 (EmptyState, JudgingOverlay) stays an `OriSurface` with custom content — don't force it into `OriCard`.
@@ -130,11 +131,28 @@ Every "gap" I first assumed (from `dist`) turned out to already exist in the sou
   (`open` prop + `update:open`/`close` emits, `v-model:open`) — ConfirmDialog / ShortcutsDialog are migrated to it
   (§4). No longer a gap or an upstream-blocked item.
 - **Toolbar chrome** — alpha-11 shipped **`OriToolbar`**; **alpha-12** added a **content slot** on
-  `OriToolbarButton` / `OriToolbarToggleItem`, so our multi-path `ToolIcon` can slot straight in (keep the icon set,
-  no headless `useToolbar`). `FloatingToolbar.vue` → `OriToolbar` is the **one remaining migration** — and the reason
-  the `.jp-float` CSS class still lives in `main.css` even though the `JpFloat` *component* is gone (its `.bar jp-float`
-  is the last user; it becomes `OriSurface` and the class is deleted in that migration).
+  `OriToolbarButton` / `OriToolbarToggleItem`, so our multi-path `ToolIcon` slots straight in (keep the icon set,
+  no headless `useToolbar`). **`FloatingToolbar.vue` is migrated** (2026-07-10): an `OriSurface` island wrapping two
+  `OriToolbar`s — the 7 tools as a single-select `OriToolbarToggleGroup` (parent owns `activeTool`, bound one-way with
+  a guard that ignores the deselect-to-`undefined` a single group allows), undo/redo as `OriToolbarButton`s — with the
+  stroke/fill form controls a plain group between them. This retired the **last** `.jp-float` user, so the CSS class is
+  **deleted** from `main.css`. Item sizing uses `class="ori-button_icon"` (alpha-12's explicit icon-mode) exactly like
+  `IconButton`; the mobile 32px shrink repoints `--ori-size-action` on the button (the §0 token escape-hatch).
+
+  **Two oriui-side issues this surfaced (report upstream — the owner maintains oriui):**
+  - **(A) toolbar pressed FILL is defeated by layer order.** `.ori-toolbar .ori-button[aria-pressed=true]` sets the
+    active fill via `--ori-variant-bg-color` in `@layer ori.components`, but `.ori-variant_text` in `@layer
+    ori.utilities` re-sets that token to `transparent` — a **later layer beats specificity**, so the fill never lands
+    (only the inset ring survives). Any variant-styled toggle item (they all default to `variant="text"`) loses its
+    pressed fill. Fix belongs in oriui (move the pressed rule to `utilities`, or don't hard-set the token in the
+    variant). Until then the active tool shows **ring only**.
+  - **(B) `color` transitions can't interpolate oriui's relative-colour role tokens.** `.ori-button` has
+    `transition: … color …`; the role text tokens are `oklch(from <color> …)` relative colours, which the browser
+    can't interpolate — so swapping `color` per selection leaves the glyph **stuck** on the previous colour until a
+    repaint. Workaround here: the tool glyphs use a **constant** `color="surface"` (active is the toolbar's own
+    pressed affordance, not a colour swap), which sidesteps (B) entirely. When (A)+(B) land upstream, flip the active
+    item to `color="primary"` for the fill + brand-glyph look — no structural change needed.
 - **`llms-full.txt`** — published (oriui.vercel.app + `/guides/*`), just not in the npm tarball. Read it.
 
-**If something IS genuinely missing**, tell the owner (they maintain oriui) — but confirm against `../vueinjar`
-first, never assume from `dist`.
+**If something IS genuinely missing** (or broken, like A/B above), tell the owner (they maintain oriui) — but confirm
+against `../vueinjar` first, never assume from `dist`.
