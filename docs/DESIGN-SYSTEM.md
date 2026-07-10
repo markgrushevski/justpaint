@@ -137,21 +137,23 @@ Every "gap" I first assumed (from `dist`) turned out to already exist in the sou
   a guard that ignores the deselect-to-`undefined` a single group allows), undo/redo as `OriToolbarButton`s — with the
   stroke/fill form controls a plain group between them. This retired the **last** `.jp-float` user, so the CSS class is
   **deleted** from `main.css`. Item sizing uses `class="ori-button_icon"` (alpha-12's explicit icon-mode) exactly like
-  `IconButton`; the mobile 32px shrink repoints `--ori-size-action` on the button (the §0 token escape-hatch).
+  `IconButton`; the mobile 32px shrink repoints `--ori-size-action` on the button (the §0 token escape-hatch). The
+  active tool renders the intended **neutral 18% fill + inset ring** (OriToolbar's `[aria-pressed=true]`) with a
+  **brand-tinted glyph** (`:color="active ? 'primary' : 'surface'"`); resting tools are the neutral `surface` glyph.
 
-  **Two oriui-side issues this surfaced (report upstream — the owner maintains oriui):**
-  - **(A) toolbar pressed FILL is defeated by layer order.** `.ori-toolbar .ori-button[aria-pressed=true]` sets the
-    active fill via `--ori-variant-bg-color` in `@layer ori.components`, but `.ori-variant_text` in `@layer
-    ori.utilities` re-sets that token to `transparent` — a **later layer beats specificity**, so the fill never lands
-    (only the inset ring survives). Any variant-styled toggle item (they all default to `variant="text"`) loses its
-    pressed fill. Fix belongs in oriui (move the pressed rule to `utilities`, or don't hard-set the token in the
-    variant). Until then the active tool shows **ring only**.
-  - **(B) `color` transitions can't interpolate oriui's relative-colour role tokens.** `.ori-button` has
-    `transition: … color …`; the role text tokens are `oklch(from <color> …)` relative colours, which the browser
-    can't interpolate — so swapping `color` per selection leaves the glyph **stuck** on the previous colour until a
-    repaint. Workaround here: the tool glyphs use a **constant** `color="surface"` (active is the toolbar's own
-    pressed affordance, not a colour swap), which sidesteps (B) entirely. When (A)+(B) land upstream, flip the active
-    item to `color="primary"` for the fill + brand-glyph look — no structural change needed.
+  **Two oriui-side bugs this migration surfaced — both FIXED in alpha-13 (2026-07-10), kept here as the lesson:**
+  - **(A) layer order beat specificity — the pressed FILL didn't land.** alpha-12's
+    `.ori-toolbar .ori-button[aria-pressed=true]` set the fill via `--ori-variant-bg-color` (layer `ori.components`),
+    but `.ori-variant_text` in the **later** layer `ori.utilities` re-set that token to `transparent` — a later layer
+    beats specificity — so every variant-styled toggle item (all default `variant="text"`) lost its fill, showing the
+    ring only. **alpha-13 fix:** the pressed rule now paints `background-color` **directly** (not via the token), so
+    `.ori-variant_text`'s token no longer defeats it. (The same layer mechanic still works FOR us elsewhere: `main.css`'s
+    unlayered `:where(button,…):focus-visible` outline beats oriui's layered one — see NOTES.)
+  - **(B) `color` transitions couldn't interpolate relative-colour role tokens.** alpha-12's `.ori-button` had
+    `transition: … color …`; the role text tokens are `oklch(from <color> …)` relative colours the browser can't
+    interpolate, so a per-selection `color` swap left the glyph **stuck** until a repaint. **alpha-13 fix:** `color`
+    was dropped from `.ori-button`'s transition (only `opacity` / `background-color` / `border-color` animate now), so
+    a glyph swap is instant — which is what unblocked flipping the active item to `color="primary"` above.
 - **`llms-full.txt`** — published (oriui.vercel.app + `/guides/*`), just not in the npm tarball. Read it.
 
 **If something IS genuinely missing** (or broken, like A/B above), tell the owner (they maintain oriui) — but confirm

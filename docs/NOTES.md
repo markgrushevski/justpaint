@@ -342,15 +342,17 @@ small practical gotchas go here.
   after ANY out-of-band oriui tarball↔registry swap at the SAME version string, clear `.vite` and
   restart before trusting the preview. Cross-ref the tarball-swap note above and the parallel-oriui-dev
   hazard (HEAD can switch under feature work).
-- **Two oriui CSS gotchas the `FloatingToolbar` → `OriToolbar` migration surfaced (2026-07-10; both
-  oriui-owned, to report upstream — full detail + the app-side workaround in `DESIGN-SYSTEM.md` §6).**
-  **(A) layer order beats specificity:** a toggle item's pressed *fill*
-  (`.ori-toolbar .ori-button[aria-pressed=true]`, layer `ori.components`) is defeated by `.ori-variant_text`
+- **Two oriui CSS gotchas the `FloatingToolbar` → `OriToolbar` migration surfaced — both FIXED in oriui
+  alpha-13 (2026-07-10); kept as the lesson (full detail in `DESIGN-SYSTEM.md` §6).**
+  **(A) layer order beats specificity:** alpha-12's pressed *fill*
+  (`.ori-toolbar .ori-button[aria-pressed=true]`, layer `ori.components`) was defeated by `.ori-variant_text`
   re-setting `--ori-variant-bg-color: transparent` in the LATER layer `ori.utilities`, so the active tool
-  shows the inset ring only (no fill). **(B) relative-colour transitions get stuck:** `.ori-button`'s
-  `transition: color` can't interpolate oriui's `oklch(from … )` role tokens, so swapping `color` per
-  selection leaves the glyph frozen on the previous colour until a repaint — the tools sidestep it with a
-  CONSTANT `color="surface"`. **Corollary that nearly tripped the review:** the focus ring stays visible on
+  showed the inset ring only (no fill). *alpha-13:* the pressed rule paints `background-color` directly, not
+  via the token. **(B) relative-colour transitions get stuck:** alpha-12's `.ori-button`
+  `transition: color` couldn't interpolate oriui's `oklch(from … )` role tokens, so swapping `color` per
+  selection left the glyph frozen on the previous colour until a repaint. *alpha-13:* `color` was dropped from
+  the transition, so the swap is instant — the active tool now uses `:color="active ? 'primary' : 'surface'"`.
+  **Corollary still live (it nearly tripped the review):** the focus ring stays visible on
   `color="surface"` buttons ONLY because `main.css`'s **unlayered** `:where(button, …):focus-visible {
   outline: var(--ori-color-primary) }` outranks oriui's layered `.ori-button:focus-visible { outline:
   var(--ori-color) }` (which for `surface` resolves to background-on-background = invisible). Unlayered
