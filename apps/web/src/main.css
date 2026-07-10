@@ -96,20 +96,6 @@
     --ori-color-danger: hsl(0 80% 70%);
 }
 
-/*
- * Floating "island" chrome — the one visual language for everything hovering
- * over the canvas (toolbar, zoom, layers, top clusters). Shared by /draw and
- * the future /play shell (DECISIONS 2026-07-04: one design, game chrome on top).
- */
-.jp-float {
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
-    border-radius: var(--ori-size-radius_lg, 12px);
-    background-color: var(--ori-color-surface);
-    /* oriui's theme-aware elevation token (the same one OriDialog/OriPopover use),
-       not a hand-rolled shadow — DESIGN-SYSTEM §1. */
-    box-shadow: var(--ori-shadow-lg, 0 8px 24px rgb(0 0 0 / 14%));
-}
-
 /* One visible focus ring for the hand-rolled shell controls (oriui components
    bring their own). */
 :where(button, input, [tabindex]):focus-visible {
