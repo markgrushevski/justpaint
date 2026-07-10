@@ -34,7 +34,7 @@ export interface DuelResult {
  * "Play again".
  */
 import { computed } from 'vue'
-import { OriButton, OriCard } from '@oriui/vue'
+import { OriButton, OriCard, OriSurface } from '@oriui/vue'
 
 const props = defineProps<{ result: DuelResult }>()
 const emit = defineEmits<{ playAgain: [] }>()
@@ -60,7 +60,7 @@ function scoreText(score: number): string {
 </script>
 
 <template>
-    <div class="result jp-float" role="dialog" aria-modal="false" aria-labelledby="result-headline">
+    <OriSurface class="result" role="dialog" aria-modal="false" aria-labelledby="result-headline">
         <h2
             id="result-headline"
             class="result__headline"
@@ -143,7 +143,7 @@ function scoreText(score: number): string {
             fluid
             @click="emit('playAgain')"
         />
-    </div>
+    </OriSurface>
 </template>
 
 <style scoped>

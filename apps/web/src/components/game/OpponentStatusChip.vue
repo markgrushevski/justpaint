@@ -17,7 +17,7 @@ export type OpponentStatus = 'drawing' | 'submitted' | 'judging'
  * resolved to a safe label; this component never sees a login.
  */
 import { computed } from 'vue'
-import { OriAvatar } from '@oriui/vue'
+import { OriAvatar, OriSurface } from '@oriui/vue'
 
 const props = defineProps<{
     /** A safe display label — a nickname or "Player 2", NEVER a login. */
@@ -37,7 +37,7 @@ const inProgress = computed(() => props.status !== 'submitted')
 </script>
 
 <template>
-    <div class="opp jp-float">
+    <OriSurface class="opp">
         <OriAvatar class="opp__avatar" :text="name" color="secondary" size="sm" />
         <div class="opp__who">
             <span class="opp__name">{{ name }}</span>
@@ -46,7 +46,7 @@ const inProgress = computed(() => props.status !== 'submitted')
                 <span class="opp__status-text">{{ label }}<template v-if="inProgress">…</template></span>
             </span>
         </div>
-    </div>
+    </OriSurface>
 </template>
 
 <style scoped>

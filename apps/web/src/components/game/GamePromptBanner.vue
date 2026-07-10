@@ -13,6 +13,8 @@
  * the `banner--revealed` class (pure CSS) — no Vue <Transition mode="out-in">,
  * which can stall waiting on a leave and strand the wrong text on screen.
  */
+import { OriSurface } from '@oriui/vue'
+
 defineProps<{
     /** The prompt both players draw — shown only once revealed. */
     prompt: string
@@ -22,7 +24,7 @@ defineProps<{
 </script>
 
 <template>
-    <div class="banner jp-float" role="status" aria-live="polite">
+    <OriSurface class="banner" role="status" aria-live="polite">
         <!-- Both states stay mounted, stacked in one grid cell, cross-faded by an
              inline opacity bound straight to `revealed` — no descendant-combinator
              cascade, no Vue <Transition> to stall; the fade is the CSS transition
@@ -43,7 +45,7 @@ defineProps<{
             <span class="banner__label">Draw</span>
             <span class="banner__prompt">{{ prompt }}</span>
         </div>
-    </div>
+    </OriSurface>
 </template>
 
 <style scoped>

@@ -6,10 +6,10 @@
  * /play. Presentational — every action is an emit or a RouterLink; the host
  * (DrawView) owns the actual behavior and decides when to show/hide the card.
  *
- * The card sits on the shared `.jp-float` island language (surface + 1px
+ * The card sits on the shared `OriSurface` island language (surface + 1px
  * outline + soft shadow), same as the toolbar/zoom/layers chrome.
  */
-import { OriButton } from '@oriui/vue'
+import { OriButton, OriSurface } from '@oriui/vue'
 import { RouterLink } from 'vue-router'
 import { icons } from '@core'
 
@@ -23,7 +23,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-    <div class="empty jp-float" role="group" aria-labelledby="empty-title">
+    <OriSurface class="empty" role="group" aria-labelledby="empty-title">
         <h2 id="empty-title" class="empty__brand">justpaint</h2>
         <p class="empty__tagline">A tiny vector editor — and an AI-judged drawing duel.</p>
 
@@ -87,12 +87,12 @@ const emit = defineEmits<{
                 />
             </li>
         </ul>
-    </div>
+    </OriSurface>
 </template>
 
 <style scoped>
 .empty {
-    /* .jp-float supplies the border / radius / shadow; override its surface to the
+    /* OriSurface supplies the border / radius / shadow; override its surface to the
        page background (white in light) so the brand wordmark clears the WCAG
        large-text 3:1 bar — #ff5500 is 2.85:1 on the surface but 3.21:1 on the
        background (matching how the card reads in the design mockup). */

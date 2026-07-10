@@ -17,7 +17,7 @@
  * server-side — the client PNG here is an advisory preview only (GAME.md §6).
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { OriButton } from '@oriui/vue'
+import { OriButton, OriSurface } from '@oriui/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
@@ -28,7 +28,6 @@ import type { Match, MatchResultDone } from '@core'
 import EditorShell from '../components/shell/EditorShell.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import IconButton from '../components/ui/IconButton.vue'
-import JpFloat from '../components/ui/JpFloat.vue'
 import RoundTimerBar from '../components/game/RoundTimerBar.vue'
 import GamePromptBanner from '../components/game/GamePromptBanner.vue'
 import OpponentStatusChip from '../components/game/OpponentStatusChip.vue'
@@ -542,24 +541,24 @@ onBeforeUnmount(() => {
 
         <!-- Bottom-right: zoom island (mirrors DrawView's). -->
         <template #bottom-right>
-            <JpFloat class="play__zoom" role="group" aria-label="Zoom">
+            <OriSurface class="play__zoom" role="group" aria-label="Zoom">
                 <IconButton icon="minus" label="Zoom out — Ctrl+-" @click="zoomOut" />
                 <span class="play__zoom-value">{{ zoomPercent }}%</span>
                 <IconButton icon="plus" label="Zoom in — Ctrl+=" @click="zoomIn" />
                 <IconButton icon="fit" label="Fit — Ctrl+0" @click="fitView" />
-            </JpFloat>
+            </OriSurface>
         </template>
 
         <!-- Overlay: one card per terminal/pending phase — error, judging, result. -->
         <template #overlay>
-            <JpFloat v-if="phase === 'error'" as="div" class="play__notice" role="alert">
+            <OriSurface v-if="phase === 'error'" class="play__notice" role="alert">
                 <h2 class="play__notice-title">{{ needsAuth ? 'Sign in to duel' : 'Can’t start the duel' }}</h2>
                 <p class="play__notice-msg">{{ errorMsg }}</p>
                 <RouterLink v-if="needsAuth" class="play__notice-link" to="/draw">
                     Go to the draw page to sign in →
                 </RouterLink>
                 <OriButton v-else text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
-            </JpFloat>
+            </OriSurface>
             <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
             <ResultReveal v-else-if="phase === 'done' && result" :result="result" @play-again="playAgain" />
         </template>
@@ -606,7 +605,7 @@ onBeforeUnmount(() => {
 }
 
 /* Error / sign-in card — centred in the shell's pointer-events:none overlay, so
-   it opts back in. Same jp-float chrome as the other overlays. */
+   it opts back in. Same OriSurface chrome as the other overlays. */
 .play__notice {
     display: flex;
     flex-direction: column;
