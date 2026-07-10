@@ -129,9 +129,11 @@ Every "gap" I first assumed (from `dist`) turned out to already exist in the sou
 - **Modal dialogs** — `OriDialog` exists (native `<dialog>` + `showModal()`) and, as of alpha-11, is **controlled**
   (`open` prop + `update:open`/`close` emits, `v-model:open`) — ConfirmDialog / ShortcutsDialog are migrated to it
   (§4). No longer a gap or an upstream-blocked item.
-- **Toolbar chrome** — alpha-11 also shipped **`OriToolbar`**. `FloatingToolbar.vue` hasn't migrated to it yet
-  (pending an icon-artwork decision) — the one remaining migration, and the reason the `.jp-float` CSS class still
-  lives in `main.css` even though the `JpFloat` *component* is gone.
+- **Toolbar chrome** — alpha-11 shipped **`OriToolbar`**; **alpha-12** added a **content slot** on
+  `OriToolbarButton` / `OriToolbarToggleItem`, so our multi-path `ToolIcon` can slot straight in (keep the icon set,
+  no headless `useToolbar`). `FloatingToolbar.vue` → `OriToolbar` is the **one remaining migration** — and the reason
+  the `.jp-float` CSS class still lives in `main.css` even though the `JpFloat` *component* is gone (its `.bar jp-float`
+  is the last user; it becomes `OriSurface` and the class is deleted in that migration).
 - **`llms-full.txt`** — published (oriui.vercel.app + `/guides/*`), just not in the npm tarball. Read it.
 
 **If something IS genuinely missing**, tell the owner (they maintain oriui) — but confirm against `../vueinjar`
