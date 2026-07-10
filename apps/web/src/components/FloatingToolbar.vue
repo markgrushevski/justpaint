@@ -114,21 +114,20 @@ function onWidth(e: Event) {
                 @update:model-value="onToolChange"
             >
                 <span v-for="id in toolIds" :key="id" class="bar__tool-wrap">
-                    <!-- Glyph colour is a CONSTANT neutral (`surface`); the active tool is
-                         signalled by OriToolbar's own pressed affordance (`aria-pressed` →
-                         inset ring), NOT by a `color` swap. Two oriui-side reasons (both
-                         reported upstream, see DESIGN-SYSTEM §6): (A) the toolbar's pressed
-                         FILL is defeated by the variant token in the higher `ori.utilities`
-                         layer, so only the ring lands; (B) swapping `color` per selection
-                         hits `.ori-button`'s `transition: color`, which can't interpolate
-                         oriui's relative-colour role tokens and leaves the glyph stuck on the
-                         previous colour. A constant colour sidesteps (B) entirely; when (A)
-                         lands, the active fill appears with no change here. -->
+                    <!-- Active tool = OriToolbar's own pressed affordance (a neutral 18% fill
+                         + inset ring, from `[aria-pressed=true]`) plus a brand-tinted glyph
+                         (`color="primary"`); resting tools are the neutral `surface` glyph.
+                         This intended look was unblocked by oriui alpha-13, which fixed the two
+                         bugs the alpha-12 migration surfaced (DESIGN-SYSTEM §6): the pressed
+                         fill now paints `background-color` directly instead of the
+                         layer-defeated `--ori-variant-bg-color` token, and `color` was dropped
+                         from `.ori-button`'s transition so a per-selection glyph swap is instant
+                         (no stuck relative-colour interpolation). -->
                     <OriToolbarToggleItem
                         class="ori-button_icon"
                         :value="id"
                         radius="md"
-                        color="surface"
+                        :color="props.activeTool === id ? 'primary' : 'surface'"
                         :tooltip="`${TOOL_META[id].label} — ${TOOL_META[id].key}`"
                     >
                         <ToolIcon :name="TOOL_META[id].icon" />
