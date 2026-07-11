@@ -337,18 +337,29 @@ When decided (`status: "done"`), `200 OK`:
       { "userId": "…", "displayName": "Ada",
         "drawingId": "…", "score": 0.81,
         "ratingBefore": 1200, "ratingAfter": 1212,
-        "judgedImageUrl": "https://…/matchX-A.png" },
+        "judgedImageUrl": null },
       { "userId": "…", "displayName": "Bo",
         "drawingId": "…", "score": 0.64,
         "ratingBefore": 1200, "ratingAfter": 1188,
-        "judgedImageUrl": "https://…/matchX-B.png" }
+        "judgedImageUrl": null }
     ]
   }
 }
 ```
 - `winnerUserId` is the **resolved player id** (`matches.winner_player_id`) — the `game` module mapped the judge's positional `A`/`B`/`tie` onto it at submit time (`JUDGE.md` / `ARCHITECTURE.md` §5). `null` ⇔ `isTie: true`.
-- `score` / `reason` come from the judge (`match_players.score`, `matches.judge_reason`). `judgedImageUrl` points at the **server-rendered authoritative raster** in object storage (the judge consumes these PNGs — `JUDGE.md`).
+- `score` / `reason` come from the judge (`match_players.score`, `matches.judge_reason`). `judgedImageUrl` **stays `null`**: it *would* point at the server-rendered authoritative raster in object storage, but object storage is **deferred** (not built). The reveal shows the opponent's canvas via `GET …/players/{userId}/drawing` (below) + a client render instead, so no raster URL is needed for it; the field is kept for a future feed-thumbnail / render-offload use.
 - Errors: `404 not_found`, `401 unauthorized`.
+
+### `GET /api/matches/{id}/players/{userId}/drawing`
+A match participant's submitted **vector document** — how the reveal shows the **opponent's** canvas. **Auth: required**; the caller must be a co-player of the match **and** the match must be `done`, else `404 not_found`. The 404 is a **uniform hide** — it never says which gate failed, so it leaks neither match membership nor status nor the existence of a submission. `userId` may be the caller's own (a uniform participant-drawing read).
+
+Why a dedicated route: `GET /api/drawings/{id}` (§7) is ownership-scoped and `404`s a non-owner, so it cannot serve the opponent's canvas. Authorization here is **match membership**, gated on the reveal (`done`), so an opponent's drawing is never fetchable mid-duel. **No object storage** — the client renders the returned document with the editor's own renderer (the same one that draws the local canvas), so both reveal sides are uniform.
+
+Success `200 OK` — the raw vector document inline (the same shape §7 stores):
+```json
+{ "document": { "version": 1, "width": 1080, "height": 1080, "background": "#ffffff", "layers": [ … ] } }
+```
+- Errors: `404 not_found` (not a co-player, match not `done`, or no such match / player / submission — all indistinguishable), `401 unauthorized`.
 
 ### `POST /api/matches/{id}/abandon` *(optional, v1-thin)*
 Concede / abandon an unfinished match. **Auth: required**; caller must be a player. Moves the match → `abandoned` (terminal). Useful so an opponent who never submits doesn't strand the match forever. (Forfeit/rating effects are a `GAME.md` detail; the route may ship in Phase 3 rather than day one.)

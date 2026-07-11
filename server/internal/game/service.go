@@ -8,6 +8,7 @@ package game
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -532,6 +533,28 @@ func (s *Service) Result(ctx context.Context, userID, matchID string) (ResultVie
 		WinnerUserID: m.WinnerPlayerID, Reason: m.JudgeReason,
 		Players: players,
 	}, nil
+}
+
+// PlayerDrawing returns the vector document a fellow match participant submitted,
+// for the result reveal. Authorization is match MEMBERSHIP (not drawing ownership,
+// which 404s a non-owner and so can't serve the opponent's canvas), gated on the
+// match being `done` (no peeking mid-duel). The single query folds all three trust
+// gates; any miss — a non-member viewer, an unfinished match, a non-player target —
+// yields pgx.ErrNoRows, which becomes ErrNotFound → a hidden 404 that leaks nothing
+// (docs/API.md §8, docs/IDEAS.md). No object storage: the caller renders the
+// returned document with the same editor renderer that draws the local canvas.
+// (targetID == viewerID also works, so it's a uniform "participant drawing" read.)
+func (s *Service) PlayerDrawing(ctx context.Context, viewerID, matchID, targetID string) (json.RawMessage, error) {
+	doc, err := s.q.GetMatchPlayerDrawing(ctx, db.GetMatchPlayerDrawingParams{
+		MatchID: matchID, TargetUserID: targetID, ViewerUserID: viewerID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("game: get player drawing: %w", err)
+	}
+	return doc, nil
 }
 
 func rowsContain(rows []db.ListMatchPlayersRow, userID string) bool {

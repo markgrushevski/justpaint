@@ -40,6 +40,7 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 	mux.Handle("GET /api/matches/{id}", protect(http.HandlerFunc(h.Get)))
 	mux.Handle("POST /api/matches/{id}/submit", protect(http.HandlerFunc(h.Submit)))
 	mux.Handle("GET /api/matches/{id}/result", protect(http.HandlerFunc(h.Result)))
+	mux.Handle("GET /api/matches/{id}/players/{userId}/drawing", protect(http.HandlerFunc(h.PlayerDrawing)))
 }
 
 // --- DTOs ---
@@ -333,6 +334,50 @@ func (h *Handler) Result(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	web.JSON(w, http.StatusOK, resultEnvelope{Result: buildResultDTO(view)})
+}
+
+// --- participant drawing (the result reveal) ---
+
+// playerDrawingEnvelope carries the raw vector document inline (json.RawMessage,
+// not a base64 []byte), so the client renders it with the editor renderer.
+type playerDrawingEnvelope struct {
+	Document json.RawMessage `json:"document"`
+}
+
+// PlayerDrawing: GET /api/matches/{id}/players/{userId}/drawing — a fellow
+// participant's submitted vector document, revealed only once the match is `done`
+// (auth: required; the caller must be a co-player, else a hidden 404). This is how
+// the reveal shows the OPPONENT's canvas: the ownership-scoped GET /api/drawings/{id}
+// 404s a non-owner, so match membership is the authorization instead (docs/API.md
+// §8, docs/IDEAS.md). No object storage — the client renders the returned document
+// (the same renderer as the local canvas). `userId` == self also resolves, so it's
+// a uniform participant-drawing route.
+func (h *Handler) PlayerDrawing(w http.ResponseWriter, r *http.Request) {
+	uid, _ := auth.UserID(r.Context())
+	matchID := r.PathValue("id")
+	targetID := r.PathValue("userId")
+	// A non-UUID id can never name a row; hide it as 404 (uniform with foreign ids)
+	// rather than letting it reach the ::uuid cast as a 500.
+	if _, err := uuid.Parse(matchID); err != nil {
+		web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
+		return
+	}
+	if _, err := uuid.Parse(targetID); err != nil {
+		web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
+		return
+	}
+
+	doc, err := h.svc.PlayerDrawing(r.Context(), uid, matchID, targetID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
+			return
+		}
+		h.logger.Error("player drawing", "err", err)
+		web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
+		return
+	}
+	web.JSON(w, http.StatusOK, playerDrawingEnvelope{Document: doc})
 }
 
 // buildResultDTO renders a ResultView: a compact {status, ready:false} while the
