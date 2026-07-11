@@ -50,3 +50,12 @@ func (s *statusRecorder) WriteHeader(code int) {
 	s.status = code
 	s.ResponseWriter.WriteHeader(code)
 }
+
+// Unwrap exposes the wrapped ResponseWriter so callers that need an optional interface
+// the recorder doesn't itself implement can reach the real writer — via the Go 1.20+
+// Unwrap convention (http.ResponseController, and coder/websocket's hijacker follow it).
+// Critically this restores http.Hijacker for the WS upgrade: without it websocket.Accept
+// cannot hijack the connection and the handshake fails 501 (docs/DESIGN-PHASE3-LIVE.md §3.4).
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}

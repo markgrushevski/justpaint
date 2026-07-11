@@ -22,6 +22,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/platform/postgres"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 	"github.com/markgrushevski/justpaint/server/internal/render"
+	"github.com/markgrushevski/justpaint/server/internal/ws"
 )
 
 func main() {
@@ -75,6 +76,16 @@ func run() error {
 	gameSvc := game.NewService(pool, queries, renderer, judge.NewFakeJudge(), logger)
 	gameHandler := game.NewHandler(gameSvc, logger)
 
+	// Live realtime (Phase 3 back-half): the in-memory WS hub pushes committed match
+	// transitions to both duelists, Postgres stays authoritative, the poll loop is the
+	// fallback. The hub implements game.Publisher and is injected via SetPublisher, so
+	// game never imports ws (no cycle). Run on the shutdown ctx and NOT awaited — ctx
+	// cancel drains it, same as the sweeper (docs/DESIGN-PHASE3-LIVE.md §3).
+	hub := ws.NewHub(gameSvc, logger)
+	go hub.Run(ctx)
+	gameSvc.SetPublisher(hub)
+	wsHandler := ws.NewHandler(hub, gameSvc, cfg.WSAllowedOrigins, logger)
+
 	// Background deadline sweeps (forfeit / abandon / stuck-judging re-fire /
 	// stale-open reaper) on the shutdown-cancellable context, so a round resolves
 	// even if no client is polling (docs/DESIGN-PHASE3-LIVE.md §2.4). Boot-drains the
@@ -90,14 +101,17 @@ func run() error {
 	authHandler.Routes(mux)
 	drawingsHandler.Routes(mux, authHandler.RequireAuth)
 	gameHandler.Routes(mux, authHandler.RequireAuth)
+	wsHandler.Routes(mux, authHandler.RequireAuth)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           web.LogRequests(logger, web.Recover(logger, mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// WriteTimeout bounds slow-reading clients. Revisit when the WS hub lands
-		// (a global WriteTimeout would cut long-lived upgrades — exclude that route).
+		// WriteTimeout bounds slow-reading clients. It does NOT cut the WS upgrades:
+		// websocket.Accept hijacks the connection, and net/http's Hijack clears the
+		// conn deadlines (server.go: rwc.SetDeadline(time.Time{})), so the long-lived
+		// socket runs on the hub's own ctx-based timeouts, not this one.
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}

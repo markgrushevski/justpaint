@@ -111,10 +111,15 @@ type Service struct {
 	renderer render.Renderer
 	judge    judge.Judge
 	logger   *slog.Logger
+	// publisher pushes committed transitions to the realtime layer. It defaults to
+	// NopPublisher (no realtime) and is swapped for the ws hub via SetPublisher, so
+	// NewService keeps its signature and the round-deadline suite runs unchanged
+	// (docs/DESIGN-PHASE3-LIVE.md §3.2).
+	publisher Publisher
 }
 
 func NewService(pool *pgxpool.Pool, q *db.Queries, renderer render.Renderer, jdg judge.Judge, logger *slog.Logger) *Service {
-	return &Service{pool: pool, q: q, renderer: renderer, judge: jdg, logger: logger}
+	return &Service{pool: pool, q: q, renderer: renderer, judge: jdg, logger: logger, publisher: NopPublisher{}}
 }
 
 // CreateOrJoin is the single "play" entry point (docs/API.md §8 POST /api/matches,
@@ -134,6 +139,7 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 
 	qtx := s.q.WithTx(tx)
 
+	joined := false // true only on the join branch, which publishes match_state post-commit
 	m, err := qtx.FindOpenMatchToJoin(ctx, userID)
 	switch {
 	case err == nil:
@@ -147,6 +153,7 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 		if m, err = qtx.SetMatchDrawing(ctx, db.SetMatchDrawingParams{ID: m.ID, RoundSeconds: roundSeconds}); err != nil {
 			return MatchView{}, fmt.Errorf("game: start match: %w", err)
 		}
+		joined = true
 	case errors.Is(err, pgx.ErrNoRows):
 		// Nothing to join.
 		if m, err = qtx.FindMyOpenMatch(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
@@ -168,6 +175,13 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return MatchView{}, fmt.Errorf("game: commit tx: %w", err)
+	}
+	// Post-commit: the waiting player's socket learns the opponent joined and the
+	// round started (open→drawing stamped the deadline). Only the join branch flips
+	// state; the reuse/create branches leave a lone-open match nobody is watching yet
+	// (docs/DESIGN-PHASE3-LIVE.md §2.4 publish sites).
+	if joined {
+		s.publisher.MatchChanged(m.ID)
 	}
 	return view, nil
 }
@@ -315,6 +329,10 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		if outcome == outcomeJudging {
 			go s.judgeMatch(matchID)
 		}
+		// Uniform post-commit tail, identical to the sweeper's: the WINNING opponent
+		// (not on this request) is notified the instant this late submit forfeited the
+		// round (docs/DESIGN-PHASE3-LIVE.md §2.4, §3.2).
+		s.publishOutcome(matchID, outcome)
 		return SubmitResult{}, ErrRoundExpired
 	}
 
@@ -371,7 +389,12 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		return SubmitResult{}, fmt.Errorf("game: commit tx: %w", err)
 	}
 
+	// Post-commit realtime: tell the room this player submitted (the frame carries
+	// {userId}; clients ignore their own), and — if this was the last submission that
+	// flipped the match to judging — that judging began (docs/DESIGN-PHASE3-LIVE.md §3.2).
+	s.publisher.PlayerSubmitted(matchID, userID)
 	if triggerJudging {
+		s.publisher.Judging(matchID)
 		// Out-of-band: the submit response returns immediately (202); the verdict is
 		// produced by the async pass (docs/API.md §8.3). In-process for v1 — a crash
 		// mid-judge leaves the match in judging (no auto-retry; see docs/NOTES.md).
@@ -554,6 +577,11 @@ func (s *Service) persistResult(ctx context.Context, matchID string, res judge.R
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("game: commit tx: %w", err)
 	}
+	// Post-commit: both duelists' sockets get their per-viewer verdict. Reached only
+	// when this pass actually wrote the result (the status != judging early return
+	// above never gets here), so a losing double-judge does not double-publish
+	// (docs/DESIGN-PHASE3-LIVE.md §3.2).
+	s.publisher.Resolved(matchID)
 	return nil
 }
 
