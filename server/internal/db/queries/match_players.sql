@@ -58,6 +58,15 @@ from drawings d
               on tp.drawing_id = d.id
                   and tp.match_id = sqlc.arg('match_id')
                   and tp.user_id = sqlc.arg('target_user_id')
+                  -- Defence-in-depth backstops (belt-and-suspenders, not load-bearing today):
+                  -- the drawing must be the target's OWN and linked to THIS match. The write
+                  -- path already guarantees this (StampSubmission only ever points drawing_id at
+                  -- a fresh CreateDrawing with owner_id = that player, match_id = this match), so
+                  -- these predicates change nothing now — but they make the correctness hold
+                  -- BY CONSTRUCTION, not by invariant, if a future write path ever diverges, and
+                  -- they fail closed if the positional $2/$3 (target/viewer) binds ever swap.
+                  and d.owner_id = sqlc.arg('target_user_id')
+                  and d.match_id = sqlc.arg('match_id')
          join matches m
               on m.id = sqlc.arg('match_id')
                   and m.status = 'done'
