@@ -48,7 +48,11 @@ func TestPlayerDrawing_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	defer pool.Close()
+	// Close the pool via Cleanup, NOT `defer`: a test-body defer runs BEFORE the
+	// t.Cleanup callbacks, so a deferred Close would shut the pool before the
+	// row-cleanup below runs — leaving fixtures behind (errors are ignored). Being
+	// registered first, this runs LAST (Cleanup is LIFO), after the row cleanup.
+	t.Cleanup(func() { pool.Close() })
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("postgres unreachable: %v", err)
 	}
@@ -65,10 +69,17 @@ func TestPlayerDrawing_DB(t *testing.T) {
 	// drawings (→ matches/users), then matches (→ prompts), then users.
 	var userIDs, matchIDs []string
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, "delete from match_players where match_id = any($1::uuid[])", matchIDs)
-		_, _ = pool.Exec(ctx, "delete from drawings where match_id = any($1::uuid[])", matchIDs)
-		_, _ = pool.Exec(ctx, "delete from matches where id = any($1::uuid[])", matchIDs)
-		_, _ = pool.Exec(ctx, "delete from users where id = any($1::uuid[])", userIDs)
+		// Scalar per-id deletes with a uuid-string param bind reliably (the same
+		// `where x = $1` form roundtrip_test uses). Teardown errors are ignored (best
+		// effort), so the delete form must be one that definitely binds.
+		for _, mid := range matchIDs {
+			_, _ = pool.Exec(ctx, "delete from match_players where match_id = $1", mid)
+			_, _ = pool.Exec(ctx, "delete from drawings where match_id = $1", mid)
+			_, _ = pool.Exec(ctx, "delete from matches where id = $1", mid)
+		}
+		for _, uid := range userIDs {
+			_, _ = pool.Exec(ctx, "delete from users where id = $1", uid)
+		}
 	})
 
 	ns := time.Now().UnixNano()
