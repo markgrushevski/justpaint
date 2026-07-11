@@ -104,6 +104,10 @@ const canUndo = ref(false)
 const canRedo = ref(false)
 const zoom = ref(1)
 const zoomPercent = computed(() => Math.round(zoom.value * 100))
+// The active layer's name, surfaced next to the Layers toggle when the panel is
+// closed — new strokes AND the eraser land on this layer (per-layer, like
+// Photoshop), so it must be discoverable without opening the panel.
+const activeLayerName = computed(() => layers.value.find((l) => l.id === activeLayerId.value)?.name ?? '')
 // Widened: DEFAULT_CANVAS is `as const`, so a bare ref() would narrow to the literal.
 const docWidth = ref<number>(DEFAULT_CANVAS.width)
 const docHeight = ref<number>(DEFAULT_CANVAS.height)
@@ -614,6 +618,19 @@ function load() {
                     :active="layersOpen"
                     @click="layersOpen = !layersOpen"
                 />
+                <!-- Which layer new strokes / the eraser land on — shown only when the
+                     panel is closed (open, the panel highlights the active row itself).
+                     Click opens the panel so it doubles as an affordance. -->
+                <button
+                    v-if="!layersOpen"
+                    class="draw__active-layer"
+                    type="button"
+                    :aria-label="`Active layer: ${activeLayerName}. Open layers panel`"
+                    :title="`Active layer: ${activeLayerName} — click to open layers`"
+                    @click="layersOpen = true"
+                >
+                    {{ activeLayerName }}
+                </button>
             </OriSurface>
         </template>
 
@@ -790,6 +807,31 @@ function load() {
     flex-wrap: wrap;
 
     padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
+}
+
+/* The active-layer chip beside the Layers toggle (shown while the panel is
+   closed). A quiet text button — neutral structural hover only (DESIGN-SYSTEM
+   §1), never a brand-role mix; the global focus-visible ring covers keyboard. */
+.draw__active-layer {
+    max-width: 8rem;
+    padding: 0.15rem 0.4rem;
+
+    border: none;
+    border-radius: var(--ori-size-radius_sm, 4px);
+    background: transparent;
+    color: var(--ori-color-on-surface);
+
+    font-family: inherit;
+    font-size: var(--ori-font-size_sm, 0.85rem);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    cursor: pointer;
+}
+
+.draw__active-layer:hover {
+    background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
 /* EditorShell's bottom-center strip is pointer-events:none (its empty flanks
