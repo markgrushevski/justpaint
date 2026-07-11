@@ -24,6 +24,16 @@ type Config struct {
 	RenderCLI string
 	// RenderNodeBin is the node executable (default "node").
 	RenderNodeBin string
+
+	// WSAllowedOrigins are extra Origin hosts authorized for the WebSocket handshake
+	// (coder/websocket path.Match patterns against the Origin header host, e.g.
+	// "app.example.com" or "localhost:*"). The request Host is ALWAYS authorized, so a
+	// true same-origin deployment needs no entry — this exists only for the split-host
+	// case: the dev Vite proxy sets changeOrigin, so the backend sees Host=:8080 while
+	// the browser Origin is :7777, which the default same-origin check would reject.
+	// NEVER contains "*" (that would open the socket to cross-site CSRF via the auto-
+	// attached cookie) — docs/DESIGN-PHASE3-LIVE.md §3.4.
+	WSAllowedOrigins []string
 }
 
 // Render modes.
@@ -51,6 +61,14 @@ func Load() (Config, error) {
 		RenderMode:    strings.ToLower(getenv("RENDER_MODE", RenderModeStub)),
 		RenderCLI:     os.Getenv("RENDER_CLI"),
 		RenderNodeBin: getenv("RENDER_NODE_BIN", "node"),
+	}
+
+	// WS origins: explicit env wins; otherwise dev allows the local Vite proxy origin
+	// (whose changeOrigin splits Host from Origin — see the field doc). Outside dev the
+	// default is empty (same-origin only) — a split-host prod sets WS_ALLOWED_ORIGINS.
+	cfg.WSAllowedOrigins = splitList(os.Getenv("WS_ALLOWED_ORIGINS"))
+	if len(cfg.WSAllowedOrigins) == 0 && env == "dev" {
+		cfg.WSAllowedOrigins = []string{"localhost:*", "127.0.0.1:*"}
 	}
 
 	var missing []string
@@ -97,4 +115,19 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// splitList parses a comma-separated env value into a trimmed, empty-free slice.
+func splitList(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

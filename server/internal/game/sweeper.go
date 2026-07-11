@@ -96,6 +96,9 @@ func (s *Service) sweepExpiredDrawing(ctx context.Context) int {
 		if outcome == outcomeJudging {
 			go s.judgeMatch(id)
 		}
+		// Uniform post-commit tail (same as the Submit late-path): forfeit→result,
+		// abandoned→abandoned, judging→judging frame (docs/DESIGN-PHASE3-LIVE.md §2.4, §3.2).
+		s.publishOutcome(id, outcome)
 	}
 	return handled
 }
@@ -248,5 +251,8 @@ func (s *Service) reapOpenMatch(ctx context.Context, matchID string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("game: commit tx: %w", err)
 	}
+	// Post-commit: a lone creator watching the "searching…" socket learns the match
+	// was reaped (docs/DESIGN-PHASE3-LIVE.md §2.4, §3.2).
+	s.publisher.Abandoned(matchID)
 	return nil
 }
