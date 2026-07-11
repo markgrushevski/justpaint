@@ -101,6 +101,52 @@ func (q *Queries) GetMatchPlayerDrawing(ctx context.Context, arg GetMatchPlayerD
 	return document, err
 }
 
+const getMatchPlayersForResolve = `-- name: GetMatchPlayersForResolve :many
+select mp.user_id,
+       mp.submitted_at,
+       mp.drawing_id,
+       u.rating
+from match_players mp
+join users u on u.id = mp.user_id
+where mp.match_id = $1
+order by mp.submitted_at asc nulls last, mp.user_id asc
+`
+
+type GetMatchPlayersForResolveRow struct {
+	UserID      string
+	SubmittedAt *time.Time
+	DrawingID   *string
+	Rating      int32
+}
+
+// Per-player state the deadline resolver needs in one read: who submitted (and
+// their drawing), plus the live rating for forfeit Elo. Stable (submitted_at,
+// user_id) order — the same A/B seat ordering judging uses (docs/GAME.md §7.1).
+func (q *Queries) GetMatchPlayersForResolve(ctx context.Context, matchID string) ([]GetMatchPlayersForResolveRow, error) {
+	rows, err := q.db.Query(ctx, getMatchPlayersForResolve, matchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMatchPlayersForResolveRow
+	for rows.Next() {
+		var i GetMatchPlayersForResolveRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.SubmittedAt,
+			&i.DrawingID,
+			&i.Rating,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSubmissionsForJudging = `-- name: GetSubmissionsForJudging :many
 select mp.user_id,
        mp.drawing_id,
