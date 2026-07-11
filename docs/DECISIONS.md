@@ -2,6 +2,12 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-11 — Opponent-canvas reveal via a membership-gated endpoint, NOT object storage
+
+The `/play` result reveal must show the opponent's drawing, but `GET /api/drawings/{id}` is ownership-scoped (404s a non-owner), so it can't. The roadmap named an **object-storage seam** as the next step (persist each judged PNG, hand back a URL). The owner reconsidered and chose the **simpler sufficient design**: the opponent's drawing already exists — its vector document in `drawings`, referenced by `match_players.drawing_id` — so the only real blocker was authorization. A dedicated `GET /api/matches/{id}/players/{userId}/drawing`, authorized by **match membership** and gated on the match being **`done`**, returns that document; the client renders it with the editor's own renderer (the same one that shows the local canvas). One SQL query folds all three trust gates (viewer-is-member / match-done / target-is-a-player), so any miss is a uniform hidden 404.
+
+**Why this over object storage:** no new infrastructure, no migration, no new dependency, tiny responses — and it's the *only* option that fits the existing auth model (a foreign row is 404; cross-user reads need a membership-authorized route — `IDEAS.md`). Both reveal sides are now uniform (client-rendered from documents). The shown opponent canvas is a client render of the immutable, server-stored document — **not** the judge's authoritative raster, which was only ever needed for scoring (already done at judging). **Object storage is now deferred / optional** (feed thumbnails, render offload, signed judge URLs); it no longer gates the reveal, and `judgedImageUrl` stays `null`. Ties into the standing "prefer the simplest sufficient design" preference.
+
 ## 2026-07-08 — Excalidraw-inspired shell + navigable `/play` (redesign)
 
 The owner asked to make `/draw` feel like Excalidraw and to reuse that shell for the game. Decided: borrow Excalidraw's *patterns* (a warm empty-state card with quick actions, corner discipline, tool hotkey badges, cleaner menu organization) but render them in **oriui + the brand orange** — NOT a pixel clone. A clone would fight oriui (the owner's own dogfooded library), mean maintaining two visual languages, and edge into brand mimicry. Two Excalidraw placements were **deliberately not adopted** — both owner-confirmed:

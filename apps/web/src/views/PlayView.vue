@@ -18,7 +18,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { OriButton, OriSurface } from '@oriui/vue'
-import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
+import { Editor, TOOLS, DEFAULT_STYLE, newId, renderToPNG } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DOC_VERSION, parseDocument } from '@justpaint/document'
@@ -146,6 +146,9 @@ const needsAuth = ref(false)
 
 // Object URL of the player's captured raster — revoked on reset/unmount.
 let youImageUrl: string | null = null
+// Object URL of the opponent's raster, rendered client-side from their fetched
+// document on the reveal (GAME.md §6) — revoked on reset/unmount, like youImageUrl.
+let opponentImageUrl: string | null = null
 
 // Timers we own and must clear on reset/unmount (the countdown + poll ticks).
 let tick: number | null = null
@@ -283,6 +286,34 @@ function revokeYourRaster(): void {
     }
 }
 
+function revokeOpponentRaster(): void {
+    if (opponentImageUrl) {
+        URL.revokeObjectURL(opponentImageUrl)
+        opponentImageUrl = null
+    }
+}
+
+/**
+ * Reveal the opponent's canvas: fetch their submitted document (authorized by
+ * match membership + `done`, since the ownership-scoped drawings route 404s a
+ * non-owner) and render it to a PNG object URL client-side — the SAME renderer
+ * that captured your own raster, so both sides are uniform (GAME.md §6; no object
+ * storage). Non-fatal: on any failure the reveal keeps its "No preview" fallback.
+ */
+async function renderOpponentRaster(id: string, userId: string): Promise<void> {
+    try {
+        const doc = await matches.playerDrawing(id, userId)
+        if (disposed) return
+        const blob = await renderToPNG(doc, { outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
+        if (disposed) return
+        revokeOpponentRaster()
+        opponentImageUrl = URL.createObjectURL(blob)
+        if (result.value) result.value.opponent.image = opponentImageUrl
+    } catch {
+        // Leave the placeholder; the reveal already shows scores + your canvas.
+    }
+}
+
 /** Create or auto-join a match and start the poll loop. */
 async function startMatch(): Promise<void> {
     phase.value = 'connecting'
@@ -348,8 +379,9 @@ function applyResult(r: MatchResultDone): void {
         opponent: {
             name: opp?.displayName ?? opponent.name,
             score: (opp?.score ?? 0) * 100,
-            // Opponent preview waits on the object-storage + render seam (null in v1).
-            image: opp?.judgedImageUrl ?? null
+            // Rendered client-side from the opponent's fetched document below (no
+            // object storage); null until it resolves → "No preview" placeholder.
+            image: null
         },
         winner: r.winnerUserId === null ? 'tie' : r.winnerUserId === myUserId ? 'you' : 'opponent',
         reason: r.reason ?? '',
@@ -358,12 +390,16 @@ function applyResult(r: MatchResultDone): void {
     }
     phase.value = 'done'
     stopCountdown()
+    // Fetch + render the opponent's canvas off the critical path; it patches into
+    // result.opponent.image when ready (or silently leaves the placeholder).
+    if (matchId !== null && opp) void renderOpponentRaster(matchId, opp.userId)
 }
 
 /** Reset the canvas and create a fresh match. */
 function playAgain(): void {
     clearTimers()
     revokeYourRaster()
+    revokeOpponentRaster()
     result.value = null
     editor?.loadDocument(parseDocument(blankGameDocument()))
     syncEditorState()
@@ -484,6 +520,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeydown)
     clearTimers()
     revokeYourRaster()
+    revokeOpponentRaster()
     unsubscribe?.()
     unsubscribe = null
     editor?.destroy()

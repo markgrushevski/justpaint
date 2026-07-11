@@ -41,6 +41,31 @@ update match_players
 set score = $3, rating_before = $4, rating_after = $5
 where match_id = $1 and user_id = $2;
 
+-- name: GetMatchPlayerDrawing :one
+-- The vector document a match participant (`target_user_id`) submitted, revealed
+-- to a FELLOW participant (`viewer_user_id`) ONLY once the match is `done`. One
+-- row folds three trust gates; any miss yields no row, which the service maps to a
+-- hidden 404 that never says which gate failed:
+--   * viewer_user_id must be a player of this match      (IDOR)
+--   * the match must be `done`                           (no peeking at the opponent mid-duel, GAME.md §4.2)
+--   * target_user_id must be a submitted player of it    (enumeration; the INNER JOIN needs a non-null drawing_id)
+-- The ownership-scoped GetDrawing can't serve this (it 404s a non-owner), so
+-- match membership is the authorization here (docs/IDEAS.md) — no object storage
+-- needed, the caller renders the returned document client-side.
+select d.document
+from drawings d
+         join match_players tp
+              on tp.drawing_id = d.id
+                  and tp.match_id = sqlc.arg('match_id')
+                  and tp.user_id = sqlc.arg('target_user_id')
+         join matches m
+              on m.id = sqlc.arg('match_id')
+                  and m.status = 'done'
+where exists (select 1
+              from match_players vp
+              where vp.match_id = sqlc.arg('match_id')
+                and vp.user_id = sqlc.arg('viewer_user_id'));
+
 -- name: UpdateUserRating :exec
 update users
 set rating = $2, updated_at = now()

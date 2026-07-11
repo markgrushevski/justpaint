@@ -103,6 +103,9 @@ interface SubmitEnvelope {
 interface ResultEnvelope {
     result: MatchResult
 }
+interface PlayerDrawingEnvelope {
+    document: Document
+}
 
 export const matches = {
     /** Create or auto-join an async match; the server pins one shared prompt. */
@@ -122,5 +125,16 @@ export const matches = {
     /** The end-of-round verdict; poll until `ready` (WS push replaces this later). */
     async result(id: string): Promise<MatchResult> {
         return (await request<ResultEnvelope>('/matches/' + id + '/result')).result
+    },
+    /**
+     * A fellow participant's submitted vector document — how the reveal shows the
+     * OPPONENT's canvas. Authorized by match membership + `done` status, since the
+     * ownership-scoped `GET /drawings/:id` 404s a non-owner (docs/API.md §8). No
+     * object storage: the client renders the returned document. `userId` may be the
+     * caller's own too (a uniform participant-drawing read).
+     */
+    async playerDrawing(matchId: string, userId: string): Promise<Document> {
+        return (await request<PlayerDrawingEnvelope>('/matches/' + matchId + '/players/' + userId + '/drawing'))
+            .document
     }
 }

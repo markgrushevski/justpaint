@@ -52,6 +52,46 @@ func (q *Queries) GetMatchPlayer(ctx context.Context, arg GetMatchPlayerParams) 
 	return i, err
 }
 
+const getMatchPlayerDrawing = `-- name: GetMatchPlayerDrawing :one
+select d.document
+from drawings d
+         join match_players tp
+              on tp.drawing_id = d.id
+                  and tp.match_id = $1
+                  and tp.user_id = $2
+         join matches m
+              on m.id = $1
+                  and m.status = 'done'
+where exists (select 1
+              from match_players vp
+              where vp.match_id = $1
+                and vp.user_id = $3)
+`
+
+type GetMatchPlayerDrawingParams struct {
+	MatchID      string
+	TargetUserID string
+	ViewerUserID string
+}
+
+// The vector document a match participant (`target_user_id`) submitted, revealed
+// to a FELLOW participant (`viewer_user_id`) ONLY once the match is `done`. One
+// row folds three trust gates; any miss yields no row, which the service maps to a
+// hidden 404 that never says which gate failed:
+//   - viewer_user_id must be a player of this match      (IDOR)
+//   - the match must be `done`                           (no peeking at the opponent mid-duel, GAME.md §4.2)
+//   - target_user_id must be a submitted player of it    (enumeration; the INNER JOIN needs a non-null drawing_id)
+//
+// The ownership-scoped GetDrawing can't serve this (it 404s a non-owner), so
+// match membership is the authorization here (docs/IDEAS.md) — no object storage
+// needed, the caller renders the returned document client-side.
+func (q *Queries) GetMatchPlayerDrawing(ctx context.Context, arg GetMatchPlayerDrawingParams) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, getMatchPlayerDrawing, arg.MatchID, arg.TargetUserID, arg.ViewerUserID)
+	var document json.RawMessage
+	err := row.Scan(&document)
+	return document, err
+}
+
 const getSubmissionsForJudging = `-- name: GetSubmissionsForJudging :many
 select mp.user_id,
        mp.drawing_id,
