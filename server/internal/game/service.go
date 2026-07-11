@@ -34,11 +34,25 @@ const modeAsync = "async"
 // Match statuses (docs/GAME.md §3). Only the states this slice reasons about are
 // named here; the full enum lives on the DB check constraint.
 const (
-	statusOpen    = "open"
-	statusDrawing = "drawing"
-	statusJudging = "judging"
-	statusDone    = "done"
+	statusOpen      = "open"
+	statusDrawing   = "drawing"
+	statusJudging   = "judging"
+	statusDone      = "done"
+	statusAbandoned = "abandoned"
 )
+
+// Match resolutions (docs/DESIGN-PHASE3-LIVE.md §2.7): how a `done` match was
+// decided. Only `done` rows carry one; `abandoned` (no result) stays null.
+const (
+	resolutionJudged  = "judged"
+	resolutionForfeit = "forfeit"
+)
+
+// roundSeconds is the drawing-round length, stamped as the absolute
+// drawing_deadline (now() + roundSeconds) when the roster fills and the match
+// flips open→drawing. A Go constant, not a column — changing it needs no
+// migration (docs/DESIGN-PHASE3-LIVE.md §2.1).
+const roundSeconds = 90
 
 // Sentinel errors the handler maps onto HTTP responses.
 var (
@@ -57,6 +71,10 @@ var (
 	ErrNotSubmittable = errors.New("game: match not accepting submissions")
 	// ErrAlreadySubmitted: this player already submitted → 409 (no double-submit).
 	ErrAlreadySubmitted = errors.New("game: already submitted")
+	// ErrRoundExpired: the drawing deadline passed before this submit landed. The
+	// late submission is NOT stamped; the match is resolved (forfeit/abandoned)
+	// instead → 409 (docs/DESIGN-PHASE3-LIVE.md §2.4).
+	ErrRoundExpired = errors.New("game: round deadline passed")
 )
 
 // PlayerRow is one roster slot, decoupled from the generated row type so the
@@ -76,8 +94,10 @@ type MatchView struct {
 	PromptID   string
 	PromptText string
 	Players    []PlayerRow
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// DrawingDeadline is the absolute round deadline (DB clock), nil while `open`.
+	DrawingDeadline *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // Service holds the game business logic. It needs the pool (to run the
@@ -121,7 +141,10 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 		if err := qtx.AddMatchPlayer(ctx, db.AddMatchPlayerParams{MatchID: m.ID, UserID: userID}); err != nil {
 			return MatchView{}, fmt.Errorf("game: seat joiner: %w", err)
 		}
-		if m, err = qtx.UpdateMatchStatus(ctx, db.UpdateMatchStatusParams{ID: m.ID, Status: statusDrawing}); err != nil {
+		// Roster full → start the round AND stamp the server-authoritative deadline
+		// (now() + roundSeconds, the DB's own clock). Replaces the generic status
+		// flip only at this open→drawing site (docs/DESIGN-PHASE3-LIVE.md §2.3).
+		if m, err = qtx.SetMatchDrawing(ctx, db.SetMatchDrawingParams{ID: m.ID, RoundSeconds: roundSeconds}); err != nil {
 			return MatchView{}, fmt.Errorf("game: start match: %w", err)
 		}
 	case errors.Is(err, pgx.ErrNoRows):
@@ -207,14 +230,15 @@ func (s *Service) assemble(ctx context.Context, q *db.Queries, m db.Match) (Matc
 		players[i] = PlayerRow{UserID: r.UserID, DisplayName: r.DisplayName, DrawingID: r.DrawingID}
 	}
 	return MatchView{
-		ID:         m.ID,
-		Mode:       m.Mode,
-		Status:     m.Status,
-		PromptID:   prompt.ID,
-		PromptText: prompt.Text,
-		Players:    players,
-		CreatedAt:  m.CreatedAt,
-		UpdatedAt:  m.UpdatedAt,
+		ID:              m.ID,
+		Mode:            m.Mode,
+		Status:          m.Status,
+		PromptID:        prompt.ID,
+		PromptText:      prompt.Text,
+		Players:         players,
+		DrawingDeadline: m.DrawingDeadline,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
 	}, nil
 }
 
@@ -233,6 +257,9 @@ func isPlayer(players []PlayerRow, userID string) bool {
 type SubmitResult struct {
 	Status    string
 	DrawingID string
+	// Deadline is the round's absolute drawing deadline, echoed so the client can
+	// re-anchor its countdown against the server clock after a submit.
+	Deadline *time.Time
 }
 
 // Submit persists the caller's drawing for the match, stamps their roster slot,
@@ -268,6 +295,27 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 			return SubmitResult{}, ErrNotPlayer
 		}
 		return SubmitResult{}, fmt.Errorf("game: get player: %w", err)
+	}
+
+	// Defense-in-depth deadline enforcement on the DB clock (server_now, captured
+	// under this lock). A submit landing after the deadline but before the next
+	// sweep tick still sees status='drawing' and would otherwise be stamped —
+	// silently converting the opponent's forfeit win into a judged match. Resolve
+	// the expiry here instead; the late submission is NOT stamped (we return before
+	// CreateDrawing/StampSubmission). Fire judging only for the defensive
+	// both-submitted case (docs/DESIGN-PHASE3-LIVE.md §2.4).
+	if isExpiredDrawing(m) {
+		outcome, err := s.resolveExpiry(ctx, qtx, m)
+		if err != nil {
+			return SubmitResult{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return SubmitResult{}, fmt.Errorf("game: commit tx: %w", err)
+		}
+		if outcome == outcomeJudging {
+			go s.judgeMatch(matchID)
+		}
+		return SubmitResult{}, ErrRoundExpired
 	}
 
 	if m.Status != statusDrawing {
@@ -309,7 +357,10 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 	status := statusDrawing
 	triggerJudging := false
 	if remaining == 0 {
-		if _, err = qtx.UpdateMatchStatus(ctx, db.UpdateMatchStatusParams{ID: matchID, Status: statusJudging}); err != nil {
+		// SetMatchJudging (not the generic status flip) stamps judging_started_at +
+		// the attempt counter, so the stuck-judging watchdog measures staleness per
+		// attempt (docs/DESIGN-PHASE3-LIVE.md §2.3, §2.6).
+		if _, err = qtx.SetMatchJudging(ctx, matchID); err != nil {
 			return SubmitResult{}, fmt.Errorf("game: to judging: %w", err)
 		}
 		status = statusJudging
@@ -326,7 +377,7 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		// mid-judge leaves the match in judging (no auto-retry; see docs/NOTES.md).
 		go s.judgeMatch(matchID)
 	}
-	return SubmitResult{Status: status, DrawingID: d.ID}, nil
+	return SubmitResult{Status: status, DrawingID: d.ID, Deadline: m.DrawingDeadline}, nil
 }
 
 // judgeMatch runs the judging pass for a match that just entered judging, on its
@@ -400,8 +451,8 @@ func (s *Service) runJudging(ctx context.Context, matchID string) error {
 	afterA, afterB := computeElo(ratingA, ratingB, sa)
 
 	return s.persistResult(ctx, matchID, res, winner,
-		playerResult{userID: subs[0].UserID, score: res.ScoreA, before: ratingA, after: afterA},
-		playerResult{userID: subs[1].UserID, score: res.ScoreB, before: ratingB, after: afterB},
+		playerResult{userID: subs[0].UserID, score: &res.ScoreA, before: ratingA, after: afterA},
+		playerResult{userID: subs[1].UserID, score: &res.ScoreB, before: ratingB, after: afterB},
 	)
 }
 
@@ -415,12 +466,57 @@ func (s *Service) renderSubmission(ctx context.Context, raw []byte) ([]byte, err
 	return s.renderer.Render(ctx, doc)
 }
 
-// playerResult carries one player's scored outcome into persistResult.
+// playerResult carries one player's terminal record into writeFinalResult: the
+// judge similarity score (nil on a forfeit — no judge ran), the Elo snapshot around
+// the match, all keyed by user_id so a seat mix-up can't write to the wrong row.
 type playerResult struct {
 	userID string
-	score  float64
+	score  *float64
 	before int
 	after  int
+}
+
+// finalResult is the seat-independent terminal state both the judged path
+// (persistResult) and the forfeit path (resolveExpiry) hand to writeFinalResult.
+// winner is the winner's user_id, or nil on a tie (judged only). Players are
+// identified by user_id inside `players`, never by seat index, so Elo can never be
+// applied to the wrong seat. resolution is resolutionJudged | resolutionForfeit.
+type finalResult struct {
+	winner     *string
+	players    []playerResult
+	reason     string
+	resolution string
+}
+
+// writeFinalResult writes the terminal → done state for a match already locked in
+// qtx: each player's score + Elo snapshot AND their users.rating (so the Elo reaches
+// the ladder — not only match_players), then winner/reason/resolution on the match.
+// Elo is applied here in exactly ONE place, shared by the judged and forfeit paths
+// and keyed by user_id. It commits nothing — the caller owns the tx
+// (docs/DESIGN-PHASE3-LIVE.md §2.4, §2.7).
+func (s *Service) writeFinalResult(ctx context.Context, qtx *db.Queries, matchID string, fr finalResult) error {
+	for _, p := range fr.players {
+		before := int32(p.before)
+		after := int32(p.after)
+		if err := qtx.SetPlayerScore(ctx, db.SetPlayerScoreParams{
+			MatchID: matchID, UserID: p.userID,
+			Score: p.score, RatingBefore: &before, RatingAfter: &after,
+		}); err != nil {
+			return fmt.Errorf("game: set score: %w", err)
+		}
+		if err := qtx.UpdateUserRating(ctx, db.UpdateUserRatingParams{ID: p.userID, Rating: after}); err != nil {
+			return fmt.Errorf("game: update rating: %w", err)
+		}
+	}
+
+	reason := fr.reason
+	resolution := fr.resolution
+	if _, err := qtx.SetMatchResult(ctx, db.SetMatchResultParams{
+		ID: matchID, WinnerPlayerID: fr.winner, JudgeReason: &reason, Resolution: &resolution,
+	}); err != nil {
+		return fmt.Errorf("game: set result: %w", err)
+	}
+	return nil
 }
 
 // persistResult writes both players' scores + Elo snapshots and the terminal
@@ -445,26 +541,15 @@ func (s *Service) persistResult(ctx context.Context, matchID string, res judge.R
 		return nil
 	}
 
-	for _, p := range []playerResult{a, b} {
-		score := p.score
-		before := int32(p.before)
-		after := int32(p.after)
-		if err := qtx.SetPlayerScore(ctx, db.SetPlayerScoreParams{
-			MatchID: matchID, UserID: p.userID,
-			Score: &score, RatingBefore: &before, RatingAfter: &after,
-		}); err != nil {
-			return fmt.Errorf("game: set score: %w", err)
-		}
-		if err := qtx.UpdateUserRating(ctx, db.UpdateUserRatingParams{ID: p.userID, Rating: after}); err != nil {
-			return fmt.Errorf("game: update rating: %w", err)
-		}
-	}
-
-	reason := res.Reason
-	if _, err := qtx.SetMatchResult(ctx, db.SetMatchResultParams{
-		ID: matchID, WinnerPlayerID: winner, JudgeReason: &reason,
+	// Shared terminal writer (Elo in one place, seat-safe) — the judged path
+	// (docs/DESIGN-PHASE3-LIVE.md §2.7). The forfeit path calls the same helper.
+	if err := s.writeFinalResult(ctx, qtx, matchID, finalResult{
+		winner:     winner,
+		players:    []playerResult{a, b},
+		reason:     res.Reason,
+		resolution: resolutionJudged,
 	}); err != nil {
-		return fmt.Errorf("game: set result: %w", err)
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("game: commit tx: %w", err)
@@ -481,7 +566,10 @@ type ResultView struct {
 	PromptText   string
 	WinnerUserID *string
 	Reason       *string
-	Players      []ResultPlayer
+	// Resolution is how the match was decided ('judged' | 'forfeit'); nil on legacy
+	// rows (buildResultDTO defaults it to 'judged').
+	Resolution *string
+	Players    []ResultPlayer
 }
 
 // ResultPlayer is one player's revealed outcome (both are shown once done).
@@ -531,7 +619,8 @@ func (s *Service) Result(ctx context.Context, userID, matchID string) (ResultVie
 		Status: statusDone, Ready: true,
 		PromptID: prompt.ID, PromptText: prompt.Text,
 		WinnerUserID: m.WinnerPlayerID, Reason: m.JudgeReason,
-		Players: players,
+		Resolution: m.Resolution,
+		Players:    players,
 	}, nil
 }
 
