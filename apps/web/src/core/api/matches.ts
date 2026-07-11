@@ -48,6 +48,14 @@ export interface Match {
     prompt: MatchPrompt
     canvas: MatchCanvas
     players: MatchPlayer[]
+    /** Absolute round deadline (RFC3339Nano, UTC) — null while `open` (not stamped
+     *  until the match enters `drawing`). The client counts down against this,
+     *  reconciled with `serverTime` (docs/DESIGN-PHASE3-LIVE.md §2.8). */
+    drawingDeadline: string | null
+    /** The response-build instant (RFC3339Nano, UTC), always present — lets the
+     *  client correct clock skew before computing the countdown from
+     *  `drawingDeadline`. */
+    serverTime: string
     createdAt: string
     updatedAt: string
 }
@@ -58,6 +66,10 @@ export interface SubmitMatch {
     id: string
     status: MatchStatus
     you: { submitted: boolean; drawingId: string }
+    /** Same deadline/clock pair as `Match`, so the submit ack re-anchors the
+     *  client countdown without a follow-up GET (docs/DESIGN-PHASE3-LIVE.md §2.8). */
+    drawingDeadline: string | null
+    serverTime: string
 }
 
 /** One player's revealed outcome on the result screen (both shown once `done`). */
@@ -88,6 +100,11 @@ export interface MatchResultDone {
     winnerUserId: string | null
     isTie: boolean
     reason: string | null
+    /** How the match was decided: `judged` (the ML judge ran) or `forfeit` (one
+     *  player never submitted before the deadline, default win, no judge run). The
+     *  client branches its copy on this, never on the free-text `reason`
+     *  (docs/DESIGN-PHASE3-LIVE.md §2.8). */
+    resolution: 'judged' | 'forfeit'
     players: ResultPlayer[]
 }
 
