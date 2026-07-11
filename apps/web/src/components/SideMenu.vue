@@ -9,10 +9,11 @@
  * auth (login ⇄ register) / the profile.
  */
 import { computed, nextTick, ref, watch } from 'vue'
-import { OriAvatar, OriButton, OriField, OriIcon, OriInput, OriSelect, OriSwitch, OriTabs } from '@oriui/vue'
-import { icons, toApiError, useSessionStore, useThemeStore } from '@core'
+import { OriAvatar, OriButton, OriIcon, OriInput, OriSelect, OriSwitch } from '@oriui/vue'
+import { icons, useSessionStore, useThemeStore } from '@core'
 import type { ThemeMode } from '@core'
 import SegmentedControl from './ui/SegmentedControl.vue'
+import AuthForm from './auth/AuthForm.vue'
 import type { IconName } from './icons/ToolIcon.vue'
 
 const props = defineProps<{
@@ -131,24 +132,7 @@ function onToggleGrid(on: boolean | undefined) {
     emit('toggleGrid', on === true)
 }
 
-// ------------------------------------------------------------- auth section
-
-const authMode = ref<'login' | 'register'>('login')
-const loginId = ref('')
-const password = ref('')
-const error = ref<string | null>(null)
-const authBusy = ref(false)
-
-const AUTH_TABS = [
-    { value: 'login', label: 'Log in' },
-    { value: 'register', label: 'Register' }
-]
-
-// OriTabs models `string | number | undefined` — bridge the narrowed union.
-const authTab = computed<string | number | undefined>({
-    get: () => authMode.value,
-    set: (v) => (authMode.value = v === 'register' ? 'register' : 'login')
-})
+// ---------------------------------------------------- panel focus management
 
 // Reset transient form state and move focus into the panel whenever the menu
 // opens — without focus inside, Esc (keydown on the panel tree) never fires.
@@ -160,7 +144,6 @@ watch(
     () => props.open,
     async (open) => {
         if (open) {
-            error.value = null
             screenW.value = window.innerWidth
             screenH.value = window.innerHeight
             customW.value = String(props.canvasWidth)
@@ -173,26 +156,6 @@ watch(
         }
     }
 )
-
-async function submit() {
-    if (authBusy.value) return
-    const id = loginId.value.trim()
-    if (!id || !password.value) {
-        error.value = 'Enter a login and password.'
-        return
-    }
-    error.value = null
-    authBusy.value = true
-    try {
-        if (authMode.value === 'register') await session.register(id, password.value)
-        else await session.login(id, password.value)
-        password.value = ''
-    } catch (err) {
-        error.value = toApiError(err)?.message ?? 'Auth failed (is the server running?).'
-    } finally {
-        authBusy.value = false
-    }
-}
 
 async function logout() {
     await session.logout()
@@ -353,39 +316,7 @@ function onKeydown(e: KeyboardEvent) {
 
             <!-- Auth (anonymous) -->
             <section v-else class="menu__section menu__section--bottom" aria-label="Sign in">
-                <OriTabs v-model="authTab" :tabs="AUTH_TABS">
-                    <div class="menu__form">
-                        <OriField label="Login">
-                            <OriInput
-                                v-model="loginId"
-                                placeholder="email or nickname"
-                                autocomplete="username"
-                                @keyup.enter="submit"
-                            />
-                        </OriField>
-                        <OriField
-                            label="Password"
-                            :error="error ?? undefined"
-                            hint="Sign in to save and load your drawings."
-                        >
-                            <OriInput
-                                v-model="password"
-                                type="password"
-                                placeholder="password"
-                                :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'"
-                                @keyup.enter="submit"
-                            />
-                        </OriField>
-                        <OriButton
-                            :text="authMode === 'register' ? 'Create account' : 'Log in'"
-                            variant="fill"
-                            radius="md"
-                            fluid
-                            :loading="authBusy"
-                            @click="submit"
-                        />
-                    </div>
-                </OriTabs>
+                <AuthForm />
             </section>
         </aside>
     </Teleport>
@@ -552,12 +483,5 @@ function onKeydown(e: KeyboardEvent) {
     background-color: var(--ori-color-background);
 
     font-size: var(--ori-font-size_sm, 0.9rem);
-}
-
-.menu__form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--ori-size-gap_md, 0.5rem);
-    padding-top: var(--ori-size-gap_md, 0.5rem);
 }
 </style>
