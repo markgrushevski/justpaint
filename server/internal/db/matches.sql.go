@@ -30,7 +30,7 @@ func (q *Queries) AddMatchPlayer(ctx context.Context, arg AddMatchPlayerParams) 
 const createMatch = `-- name: CreateMatch :one
 insert into matches (prompt_id)
 values ($1)
-returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at
+returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
 `
 
 // A fresh open async match with one prompt pinned; mode/status use their column
@@ -47,12 +47,16 @@ func (q *Queries) CreateMatch(ctx context.Context, promptID string) (Match, erro
 		&i.JudgeReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
 	)
 	return i, err
 }
 
 const findMyOpenMatch = `-- name: FindMyOpenMatch :one
-select m.id, m.prompt_id, m.mode, m.status, m.winner_player_id, m.judge_reason, m.created_at, m.updated_at from matches m
+select m.id, m.prompt_id, m.mode, m.status, m.winner_player_id, m.judge_reason, m.created_at, m.updated_at, m.drawing_deadline, m.resolution, m.judge_attempts, m.judging_started_at from matches m
 join match_players mp on mp.match_id = m.id
 where m.status = 'open'
   and m.mode = 'async'
@@ -75,12 +79,16 @@ func (q *Queries) FindMyOpenMatch(ctx context.Context, userID string) (Match, er
 		&i.JudgeReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
 	)
 	return i, err
 }
 
 const findOpenMatchToJoin = `-- name: FindOpenMatchToJoin :one
-select id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at from matches
+select id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at from matches
 where status = 'open'
   and mode = 'async'
   and not exists (
@@ -108,12 +116,16 @@ func (q *Queries) FindOpenMatchToJoin(ctx context.Context, userID string) (Match
 		&i.JudgeReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
 	)
 	return i, err
 }
 
 const getMatch = `-- name: GetMatch :one
-select id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at from matches
+select id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at from matches
 where id = $1
 `
 
@@ -129,22 +141,46 @@ func (q *Queries) GetMatch(ctx context.Context, id string) (Match, error) {
 		&i.JudgeReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
 	)
 	return i, err
 }
 
 const getMatchForUpdate = `-- name: GetMatchForUpdate :one
-select id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at from matches
+select id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at, now()::timestamptz as server_now from matches
 where id = $1
 for update
 `
 
+type GetMatchForUpdateRow struct {
+	ID               string
+	PromptID         string
+	Mode             string
+	Status           string
+	WinnerPlayerID   *string
+	JudgeReason      *string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DrawingDeadline  *time.Time
+	Resolution       *string
+	JudgeAttempts    int32
+	JudgingStartedAt *time.Time
+	ServerNow        time.Time
+}
+
 // Same as GetMatch but takes a row lock, serializing concurrent submits to one
 // match so the last-submit → judging flip is computed on a stable roster (two
 // players submitting at the same instant can't both miss "I'm last").
-func (q *Queries) GetMatchForUpdate(ctx context.Context, id string) (Match, error) {
+//
+// Also returns the DB clock (`server_now` = the tx-start now()) so the caller
+// compares the round deadline against ONE clock authority — the database's — on
+// the path that rejects a late submit, not the Go host wall clock (§2.4).
+func (q *Queries) GetMatchForUpdate(ctx context.Context, id string) (GetMatchForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, getMatchForUpdate, id)
-	var i Match
+	var i GetMatchForUpdateRow
 	err := row.Scan(
 		&i.ID,
 		&i.PromptID,
@@ -154,8 +190,44 @@ func (q *Queries) GetMatchForUpdate(ctx context.Context, id string) (Match, erro
 		&i.JudgeReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
+		&i.ServerNow,
 	)
 	return i, err
+}
+
+const listExpiredDrawingMatches = `-- name: ListExpiredDrawingMatches :many
+select id from matches
+where status = 'drawing' and drawing_deadline <= now()
+order by drawing_deadline
+limit $1
+for update skip locked
+`
+
+// The sweeper's work list: live rounds whose deadline has passed, oldest first.
+// FOR UPDATE SKIP LOCKED lets a sweep racing a real submit (or a second sweeper)
+// partition the set instead of colliding; each id is then resolved in its own tx.
+func (q *Queries) ListExpiredDrawingMatches(ctx context.Context, limit int32) ([]string, error) {
+	rows, err := q.db.Query(ctx, listExpiredDrawingMatches, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listMatchPlayers = `-- name: ListMatchPlayers :many
@@ -217,23 +289,91 @@ func (q *Queries) ListMatchPlayers(ctx context.Context, matchID string) ([]ListM
 	return items, nil
 }
 
-const setMatchResult = `-- name: SetMatchResult :one
-update matches
-set status = 'done', winner_player_id = $2, judge_reason = $3, updated_at = now()
-where id = $1
-returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at
+const listStaleOpenMatches = `-- name: ListStaleOpenMatches :many
+select id from matches
+where status = 'open' and created_at <= now() - make_interval(secs => $1::int)
+order by created_at
+limit $2::int
+for update skip locked
 `
 
-type SetMatchResultParams struct {
-	ID             string
-	WinnerPlayerID *string
-	JudgeReason    *string
+type ListStaleOpenMatchesParams struct {
+	TtlSecs int32
+	Lim     int32
 }
 
-// Terminal write for the judging → done transition: winner (null = tie), the
-// judge's reason verbatim, status done (docs/GAME.md §4.1, §7.1).
-func (q *Queries) SetMatchResult(ctx context.Context, arg SetMatchResultParams) (Match, error) {
-	row := q.db.QueryRow(ctx, setMatchResult, arg.ID, arg.WinnerPlayerID, arg.JudgeReason)
+// Open matches nobody joined within the TTL — reaped to abandoned so a ghost can't
+// later ambush a fresh joiner (docs/DESIGN-PHASE3-LIVE.md §2.6, §5 Q9).
+func (q *Queries) ListStaleOpenMatches(ctx context.Context, arg ListStaleOpenMatchesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listStaleOpenMatches, arg.TtlSecs, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStuckJudgingMatches = `-- name: ListStuckJudgingMatches :many
+select id from matches
+where status = 'judging'
+  and judging_started_at <= now() - make_interval(secs => $1::int)
+  and judge_attempts < $2::int
+order by judging_started_at
+limit $3::int
+for update skip locked
+`
+
+type ListStuckJudgingMatchesParams struct {
+	StaleSecs   int32
+	MaxAttempts int32
+	Lim         int32
+}
+
+// Judging rows wedged past the stale window with retries left — a crashed/hung
+// judge attempt to re-fire (docs/DESIGN-PHASE3-LIVE.md §2.6). Staleness is measured
+// against judging_started_at (the current attempt), not updated_at.
+func (q *Queries) ListStuckJudgingMatches(ctx context.Context, arg ListStuckJudgingMatchesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listStuckJudgingMatches, arg.StaleSecs, arg.MaxAttempts, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setMatchAbandoned = `-- name: SetMatchAbandoned :one
+update matches
+set status = 'abandoned', updated_at = now()
+where id = $1
+returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
+`
+
+// Terminal, no result: nobody submitted before the deadline (or an open match was
+// reaped). No scores, no rating change (docs/GAME.md §4.1).
+func (q *Queries) SetMatchAbandoned(ctx context.Context, id string) (Match, error) {
+	row := q.db.QueryRow(ctx, setMatchAbandoned, id)
 	var i Match
 	err := row.Scan(
 		&i.ID,
@@ -244,6 +384,122 @@ func (q *Queries) SetMatchResult(ctx context.Context, arg SetMatchResultParams) 
 		&i.JudgeReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
+	)
+	return i, err
+}
+
+const setMatchDrawing = `-- name: SetMatchDrawing :one
+update matches
+set status = 'drawing',
+    drawing_deadline = now() + make_interval(secs => $1::int),
+    updated_at = now()
+where id = $2
+returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
+`
+
+type SetMatchDrawingParams struct {
+	RoundSeconds int32
+	ID           string
+}
+
+// Start the round: the roster just filled, so flip open→drawing AND stamp the
+// server-authoritative deadline as now() + the round length (seconds). One clock
+// authority — the deadline every reader and the sweeper compare against is the
+// DB's own now() (docs/DESIGN-PHASE3-LIVE.md §2).
+func (q *Queries) SetMatchDrawing(ctx context.Context, arg SetMatchDrawingParams) (Match, error) {
+	row := q.db.QueryRow(ctx, setMatchDrawing, arg.RoundSeconds, arg.ID)
+	var i Match
+	err := row.Scan(
+		&i.ID,
+		&i.PromptID,
+		&i.Mode,
+		&i.Status,
+		&i.WinnerPlayerID,
+		&i.JudgeReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
+	)
+	return i, err
+}
+
+const setMatchJudging = `-- name: SetMatchJudging :one
+update matches
+set status = 'judging',
+    judging_started_at = now(),
+    judge_attempts = judge_attempts + 1,
+    updated_at = now()
+where id = $1
+returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
+`
+
+// Enter (or, for the stuck-judging watchdog, RE-enter) judging: stamp the start of
+// THIS attempt so staleness is measured per-attempt, and bump the retry counter.
+func (q *Queries) SetMatchJudging(ctx context.Context, id string) (Match, error) {
+	row := q.db.QueryRow(ctx, setMatchJudging, id)
+	var i Match
+	err := row.Scan(
+		&i.ID,
+		&i.PromptID,
+		&i.Mode,
+		&i.Status,
+		&i.WinnerPlayerID,
+		&i.JudgeReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
+	)
+	return i, err
+}
+
+const setMatchResult = `-- name: SetMatchResult :one
+update matches
+set status = 'done', winner_player_id = $2, judge_reason = $3, resolution = $4, updated_at = now()
+where id = $1
+returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
+`
+
+type SetMatchResultParams struct {
+	ID             string
+	WinnerPlayerID *string
+	JudgeReason    *string
+	Resolution     *string
+}
+
+// Terminal write for the → done transition: winner (null = tie), the judge's
+// reason verbatim, and how the match resolved ('judged' or 'forfeit'), status
+// done (docs/GAME.md §4.1, §7.1, docs/DESIGN-PHASE3-LIVE.md §2.7).
+func (q *Queries) SetMatchResult(ctx context.Context, arg SetMatchResultParams) (Match, error) {
+	row := q.db.QueryRow(ctx, setMatchResult,
+		arg.ID,
+		arg.WinnerPlayerID,
+		arg.JudgeReason,
+		arg.Resolution,
+	)
+	var i Match
+	err := row.Scan(
+		&i.ID,
+		&i.PromptID,
+		&i.Mode,
+		&i.Status,
+		&i.WinnerPlayerID,
+		&i.JudgeReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
 	)
 	return i, err
 }
@@ -252,7 +508,7 @@ const updateMatchStatus = `-- name: UpdateMatchStatus :one
 update matches
 set status = $2, updated_at = now()
 where id = $1
-returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at
+returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
 `
 
 type UpdateMatchStatusParams struct {
@@ -272,6 +528,10 @@ func (q *Queries) UpdateMatchStatus(ctx context.Context, arg UpdateMatchStatusPa
 		&i.JudgeReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
 	)
 	return i, err
 }
