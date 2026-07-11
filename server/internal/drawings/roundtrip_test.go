@@ -33,7 +33,10 @@ func TestNameRoundtrip_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	defer pool.Close()
+	// Close via Cleanup, NOT `defer`: a test-body defer runs BEFORE t.Cleanup, so a
+	// deferred Close would shut the pool before the fixture cleanup below runs,
+	// silently leaving rows behind. Registered first, this runs LAST (Cleanup LIFO).
+	t.Cleanup(func() { pool.Close() })
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("postgres unreachable: %v", err)
 	}
