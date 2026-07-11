@@ -24,14 +24,18 @@ type Drawing struct {
 }
 
 type Match struct {
-	ID             string
-	PromptID       string
-	Mode           string
-	Status         string
-	WinnerPlayerID *string
-	JudgeReason    *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID               string
+	PromptID         string
+	Mode             string
+	Status           string
+	WinnerPlayerID   *string
+	JudgeReason      *string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DrawingDeadline  *time.Time
+	Resolution       *string
+	JudgeAttempts    int32
+	JudgingStartedAt *time.Time
 }
 
 type MatchPlayer struct {

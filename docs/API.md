@@ -253,12 +253,15 @@ Success `201 Created` (the caller opened a new match and is waiting — or was r
     "prompt": { "id": "…", "text": null },
     "canvas": { "width": 1080, "height": 1080 },
     "players": [ { "userId": "…", "displayName": "Ada", "submitted": false } ],
+    "drawingDeadline": null,
+    "serverTime": "2026-07-11T12:00:00.000000000Z",
     "createdAt": "…", "updatedAt": "…"
   }
 }
 ```
 > **Prompt text is `null` while `status` is `open`.** The `text` is redacted until the match enters `drawing`, so a creator waiting alone cannot pre-draw before the opponent joins (reveal timing owned by `GAME.md` §5). When this same `POST` **auto-joins** a waiting match instead of opening one, the response is `status: "drawing"` with `text` populated and both players listed.
 > `canvas` echoes the canonical **1080×1080** game canvas (owned by `GAME.md`) so the client configures the editor without guessing. The submitted document's `width`/`height` MUST match it (enforced at submit, §8.3).
+> `drawingDeadline` is `null` while `status: "open"`; once the roster fills and the match flips to `drawing` it becomes an absolute RFC3339Nano UTC instant (`now() + 90s`, the server's clock — `GAME.md` §4.1). `serverTime` is the response-build instant, always present, in the same format, so the client reconciles clock skew instead of trusting its own clock for the countdown.
 
 Errors: `400 validation_failed` (bad `mode`), `401 unauthorized`, `429 rate_limited`.
 
@@ -276,15 +279,18 @@ Success `200 OK`:
       { "userId": "…(me)…",  "displayName": "Ada", "submitted": true,  "drawingId": "…" },
       { "userId": "…(them)…","displayName": "Bo",  "submitted": false }
     ],
+    "drawingDeadline": "2026-07-11T12:01:30.000000000Z",
+    "serverTime": "2026-07-11T12:01:05.500000000Z",
     "createdAt": "…", "updatedAt": "…"
   }
 }
 ```
 - A player's own `drawingId` is visible once they've submitted; the opponent's `drawingId` (and any rendered raster) appears only on the `done` result (§8.4).
+- `drawingDeadline` is `null` only while `status: "open"`; `serverTime` is always present (same clock-skew-correction pair as the create response above).
 - Errors: `404 not_found` (not a player / no such match), `401 unauthorized`.
 
 ### `POST /api/matches/{id}/submit`
-Submit the caller's drawing for this match. **Auth: required**; caller must be a player in the match ⇒ otherwise `403 forbidden`. The body is a **vector document** — never a scored PNG (trust boundary, `DOCUMENT-FORMAT.md` §10). The same **8 MB body cap + full document validator + DoS caps** as drawings CRUD apply (§6, §7).
+Submit the caller's drawing for this match. **Auth: required**; caller must be a player in the match ⇒ otherwise `403 forbidden`. The body is a **vector document** — never a scored PNG (trust boundary, `DOCUMENT-FORMAT.md` §10). The same **8 MB body cap + full document validator + DoS caps** as drawings CRUD apply (§6, §7). The round has a **server-authoritative deadline** (`drawingDeadline`, stamped when the match entered `drawing` — `GAME.md` §4.1); a submit at or after it is rejected (see Errors).
 
 Request:
 ```json
@@ -301,17 +307,21 @@ State effects this submit **triggers** (the transitions themselves are owned by 
 Success `202 Accepted` (the submission is **recorded**; the verdict is produced out-of-band, so the body reflects the post-submit state, never a completed `done`):
 ```json
 {
-  "match": { "id": "…", "status": "drawing", "you": { "submitted": true, "drawingId": "…" } }
+  "match": {
+    "id": "…", "status": "drawing", "you": { "submitted": true, "drawingId": "…" },
+    "drawingDeadline": "2026-07-11T12:01:30.000000000Z",
+    "serverTime": "2026-07-11T12:00:05.000000000Z"
+  }
 }
 ```
-> After the final submit `status` is `judging`; before it (opponent still drawing) `status` stays `drawing`. The client then polls `GET /api/matches/{id}/result` (§8.4) for the verdict once `ready: true` (WS push replaces polling in §9, not-v1).
+> After the final submit `status` is `judging`; before it (opponent still drawing) `status` stays `drawing`. Same `drawingDeadline`/`serverTime` pair as `GET` (above), so the client re-anchors its countdown off this ack without a follow-up `GET`. The client then polls `GET /api/matches/{id}/result` (§8.4) for the verdict once `ready: true` (WS push replaces polling in §9, not-v1).
 
 Errors:
 - `400 validation_failed` — invalid document or wrong canvas size.
 - `413 document_too_large` — over 8 MB.
 - `403 forbidden` — caller is not a player in this match.
 - `404 not_found` — no such match.
-- `409 conflict` — match not in a submittable state (`judging`/`done`/`abandoned`), or the caller already submitted (no double-submit).
+- `409 conflict` — match not in a submittable state (`judging`/`done`/`abandoned`), the caller already submitted (no double-submit), **or the round's `drawingDeadline` has already passed** (message `"round expired"` — the same generic `conflict` code, not a distinct one; the submission is *not* recorded, and the round resolves to forfeit/abandoned as part of rejecting it). The client treats any submit `409` as "go poll the result," not an error toast.
 - `401 unauthorized`.
 
 ### `GET /api/matches/{id}/result`
@@ -333,6 +343,7 @@ When decided (`status: "done"`), `200 OK`:
     "winnerUserId": "…",          // null on a tie (ties are allowed — DECISIONS / JUDGE.md)
     "isTie": false,
     "reason": "left image matches the prompt more closely",  // matches.judge_reason
+    "resolution": "judged",       // or "forfeit" — see below
     "players": [
       { "userId": "…", "displayName": "Ada",
         "drawingId": "…", "score": 0.81,
@@ -348,6 +359,7 @@ When decided (`status: "done"`), `200 OK`:
 ```
 - `winnerUserId` is the **resolved player id** (`matches.winner_player_id`) — the `game` module mapped the judge's positional `A`/`B`/`tie` onto it at submit time (`JUDGE.md` / `ARCHITECTURE.md` §5). `null` ⇔ `isTie: true`.
 - `score` / `reason` come from the judge (`match_players.score`, `matches.judge_reason`). `judgedImageUrl` **stays `null`**: it *would* point at the server-rendered authoritative raster in object storage, but object storage is **deferred** (not built). The reveal shows the opponent's canvas via `GET …/players/{userId}/drawing` (below) + a client render instead, so no raster URL is needed for it; the field is kept for a future feed-thumbnail / render-offload use.
+- `resolution` is `"judged"` (the normal path — both players submitted, the judge ran) or `"forfeit"` (the round deadline passed with exactly one submitter — that player won by default, full Elo, **no judge ran**, `GAME.md` §4.1/§8). On a forfeit, both players' `score` is `null` (no judge similarity was produced — never `0`); the forfeiting player's `drawingId` is `null` if they never submitted. The client branches its result copy on `resolution`, never on the free-text `reason`. Every completed match has a non-null `resolution` (historical pre-migration rows default to `"judged"`).
 - Errors: `404 not_found`, `401 unauthorized`.
 
 ### `GET /api/matches/{id}/players/{userId}/drawing`

@@ -18,6 +18,11 @@ export interface DuelResult {
     winner: 'you' | 'opponent' | 'tie'
     /** The judge's reason string, shown verbatim. */
     reason: string
+    /** How the match was decided — `forfeit` means one side never submitted before
+     *  the deadline (no judge run, scores are meaningless); the reveal branches its
+     *  copy on this instead of the normal score comparison
+     *  (docs/DESIGN-PHASE3-LIVE.md §2.9). */
+    resolution: 'judged' | 'forfeit'
     /** Elo delta applied to the local player (may be negative). */
     eloDelta: number
     /** The local player's rating before this match. */
@@ -42,7 +47,13 @@ const emit = defineEmits<{ playAgain: [] }>()
 const youWon = computed(() => props.result.winner === 'you')
 const tie = computed(() => props.result.winner === 'tie')
 const winnerIsOpp = computed(() => props.result.winner === 'opponent')
-const headline = computed(() => (tie.value ? 'It’s a tie' : youWon.value ? 'You win!' : 'You lose'))
+const isForfeit = computed(() => props.result.resolution === 'forfeit')
+const headline = computed(() => {
+    // A forfeit never ran the judge, so lead with what actually happened rather
+    // than a normal win/lose framing (docs/DESIGN-PHASE3-LIVE.md §2.9).
+    if (isForfeit.value) return youWon.value ? 'Opponent forfeited — you win' : 'You forfeited — no submission in time'
+    return tie.value ? 'It’s a tie' : youWon.value ? 'You win!' : 'You lose'
+})
 
 const ratingAfter = computed(() => props.result.ratingBefore + props.result.eloDelta)
 const deltaLabel = computed(() =>
@@ -84,9 +95,11 @@ function scoreText(score: number): string {
                 </div>
                 <div class="result__meta">
                     <span class="result__player">You</span>
-                    <span class="result__score">{{ scoreText(result.you.score) }}%</span>
+                    <!-- No judge ran on a forfeit, so the score is null server-side —
+                         a 0% bar would misread as a bad judged score. -->
+                    <span v-if="!isForfeit" class="result__score">{{ scoreText(result.you.score) }}%</span>
                 </div>
-                <div class="result__bar">
+                <div v-if="!isForfeit" class="result__bar">
                     <div class="result__bar-fill result__bar-fill--you" :style="{ width: pct(result.you.score) }"></div>
                 </div>
             </OriCard>
@@ -109,9 +122,9 @@ function scoreText(score: number): string {
                 </div>
                 <div class="result__meta">
                     <span class="result__player">{{ result.opponent.name }}</span>
-                    <span class="result__score">{{ scoreText(result.opponent.score) }}%</span>
+                    <span v-if="!isForfeit" class="result__score">{{ scoreText(result.opponent.score) }}%</span>
                 </div>
-                <div class="result__bar">
+                <div v-if="!isForfeit" class="result__bar">
                     <div
                         class="result__bar-fill result__bar-fill--opp"
                         :style="{ width: pct(result.opponent.score) }"
@@ -121,7 +134,7 @@ function scoreText(score: number): string {
         </div>
 
         <p class="result__reason">
-            <span class="result__reason-label">Judge</span>
+            <span class="result__reason-label">{{ isForfeit ? 'Result' : 'Judge' }}</span>
             {{ result.reason }}
         </p>
 

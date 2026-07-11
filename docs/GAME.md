@@ -35,10 +35,10 @@ Five states on `matches.status` (`ARCHITECTURE.md` §7), exact enum:
 | `open` | Match created, prompt pinned; waiting for the roster to fill (both `match_players` rows present and ready). |
 | `drawing` | Both players are in; each draws the same prompt **independently on their own canvas**. |
 | `judging` | Both submitted; server is rendering authoritative rasters and awaiting the judge. |
-| `done` | Judge returned; result (scores, winner-or-tie, reason) recorded; ratings applied. Terminal. |
+| `done` | Judge returned, **or** the round deadline passed with exactly one submitter (forfeit); result (scores, winner-or-tie, reason, and how it was decided) recorded; ratings applied. Terminal. |
 | `abandoned` | Match ended without a result (timeout / a player never submitted / cancelled). Terminal. |
 
-Only `done` and `abandoned` are terminal. `winner_player_id` is meaningful only in `done` (and may be `null` there — a tie, §8).
+Only `done` and `abandoned` are terminal. `winner_player_id` is meaningful only in `done` (and may be `null` there — a tie, §8). A `done` match also carries `resolution` (`judged` | `forfeit`) — how it was decided (§4.1).
 
 ## 4. The async duel — flow & transitions
 
@@ -60,18 +60,23 @@ create match ──▶ both draw the SAME prompt ──▶ submit ──▶ serv
 
 ### 4.1 Transitions (what triggers each)
 
+Since `feat/round-deadline`, the `drawing` round carries a **server-authoritative deadline**: `matches.drawing_deadline` is stamped `now() + 90s` on Postgres' own clock the instant `open → drawing` fires, enforced both by a background sweeper and defensively on every `submit` — so a round resolves even when nobody is polling.
+
 | From → To | Trigger | Server actions |
 |---|---|---|
 | *(none)* → `open` | A player **creates** a match. | Insert `matches` row; **pin exactly one prompt** (§5) → `matches.prompt_id`; set `mode = 'async'`, `status = 'open'`; insert the creator's `match_players` row. |
-| `open` → `drawing` | The **roster fills** (second player joins a 1v1). | Insert the second `match_players` row; flip `status = 'drawing'`. The prompt is now revealed to both. |
-| `drawing` → `judging` | The **last** outstanding player **submits**. | Persist each submission as a `drawings` row (`match_id` set), stamp `match_players.drawing_id` + `submitted_at`. When all roster slots have a submission, flip `status = 'judging'` and kick off rendering. |
-| `judging` → `done` | The **judge returns**. | Render authoritative PNGs (§6) → call the judge (`docs/JUDGE.md`) → write `match_players.score`, map positional `winner` → `matches.winner_player_id` (null on tie, §7.1), store `matches.judge_reason`; apply ratings (§8); flip `status = 'done'`. |
-| `open`/`drawing` → `abandoned` | **Timeout** or **explicit cancel** before both submit. | Flip `status = 'abandoned'`; no scores, no rating change. A half-drawn `drawings` row may persist (advisory, unjudged). |
+| `open` → `drawing` | The **roster fills** (second player joins a 1v1). | Insert the second `match_players` row; flip `status = 'drawing'` and stamp `drawing_deadline = now() + 90s`. The prompt is now revealed to both. |
+| `drawing` → `judging` | The **last** outstanding player **submits** (before the deadline). | Persist each submission as a `drawings` row (`match_id` set), stamp `match_players.drawing_id` + `submitted_at`. When all roster slots have a submission, flip `status = 'judging'` and kick off rendering. |
+| `judging` → `done` | The **judge returns**. | Render authoritative PNGs (§6) → call the judge (`docs/JUDGE.md`) → write `match_players.score`, map positional `winner` → `matches.winner_player_id` (null on tie, §7.1), store `matches.judge_reason` and `resolution = 'judged'`; apply ratings (§8); flip `status = 'done'`. |
+| `drawing` → `done` (forfeit) | The **round deadline passes** with exactly **one** submitter. | The submitter **wins by default** — the judge does *not* run (there is only one image). Apply Elo via the same `computeElo` with the submitter's score fixed at `1.0` (full `K = 32`, same weight as a decisive judged win, §8); `match_players.score` stays `null` for both (no judge similarity to record); `matches.resolution = 'forfeit'`, `judge_reason` a fixed human-readable string. |
+| `drawing` → `abandoned` | The **round deadline passes** with **zero** submitters. | Flip `status = 'abandoned'`; no scores, no rating change — nobody drew. |
+| `open` → `abandoned` | An **open match sits unjoined past a TTL** (~10 min). | A background reaper sweeps stale `open` matches to `abandoned` so a ghost match can't later pair a fresh joiner against a creator who's long gone. (**Explicit cancel** is still just the optional, unimplemented `API.md` §8 `POST …/abandon` — not a shipped trigger.) |
 
 Notes:
 - A **submit into a non-`drawing` match** (e.g. already `judging`/`done`/`abandoned`) is an **illegal transition** → `409 conflict` (`docs/API.md`). The state machine, not the client, gates this.
 - The `drawing → judging` flip is **all-or-nothing on the roster**: one player submitting does not advance the match; it only stamps their slot. The match advances when the *last* slot is filled.
 - **Idempotent submit:** re-submitting an already-stamped slot is rejected (`409`), so a double-tap can't overwrite a submission or re-trigger judging.
+- **Late submit (deadline passed):** a submit landing at or after `drawing_deadline` is rejected — `409 conflict`, message `"round expired"` — and is **not** stamped, even though the match may still read `status: drawing` at that instant (the check runs on the same Postgres clock that stamped the deadline, so it can't be raced by host-clock skew). The round resolves to forfeit/abandoned as part of rejecting the late submit, if the background sweeper hasn't already gotten to it first.
 
 ### 4.2 Visibility rule
 
@@ -121,8 +126,9 @@ The mapping lives **only** here; the judge never learns who is who, and the stor
   New rating: `rating_after = round(rating_before + K · (S_P − E_P))`.
 - **K-factor:** **K = 32** for v1 (a single flat K — simple, responsive; tiered/provisional K is Phase 4).
 - **Tie:** both players take `S = 0.5`; the deltas are equal-and-opposite only when ratings were equal, otherwise the lower-rated player gains and the higher-rated loses a little, as Elo intends. `matches.winner_player_id = null`.
-- **When applied:** exactly once, atomically, on the `judging → done` transition — *after* the judge result is recorded. `rating_before` is captured before the update; `rating_after` after. An `abandoned` match applies **no** rating change.
-- **Outcome from the judge, not the score gap:** win/loss/tie is taken from the judge's `winner` field (mapped per §7.1), not by comparing `scoreA`/`scoreB` ourselves — the judge owns the verdict, including whether a near-equal pair is a tie.
+- **Forfeit:** if the round deadline passes with exactly one submitter (§4.1), that player's actual score is fixed at `S = 1` fed into the *same* `computeElo` — full `K = 32`, exactly like a decisive judged win, no discount. The judge never runs (only one image exists), so `match_players.score` (the judge similarity) stays `null` for both players; the S-value lives only in the Elo math, not in that column. `matches.resolution = 'forfeit'` distinguishes it from `'judged'`.
+- **When applied:** exactly once, atomically, on the `judging → done` transition (a judged result) **or the `drawing → done` forfeit transition** (§4.1) — after the result is recorded. `rating_before` is captured before the update; `rating_after` after. An `abandoned` match applies **no** rating change.
+- **Outcome from the judge, not the score gap:** win/loss/tie is taken from the judge's `winner` field (mapped per §7.1), not by comparing `scoreA`/`scoreB` ourselves — the judge owns the verdict, including whether a near-equal pair is a tie. (A forfeit has no judge outcome to take — the winner is simply the submitter.)
 
 ## 9. Live mode — same lifecycle, later
 
