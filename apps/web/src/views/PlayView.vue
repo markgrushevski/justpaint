@@ -40,16 +40,17 @@ import type { DuelResult } from '../components/game/ResultReveal.vue'
 /** The canonical square duel canvas (GAME.md §2 — GAME_CANVAS = 1080×1080). */
 const GAME_CANVAS = 1080
 
-/**
- * Soft client round length. v1 has no server-authoritative deadline, so this is a
- * UX pressure timer only (auto-submits on expiry); it is not reconciled against
- * the match. TODO(play-api): drive from a server deadline once the match record
- * carries one.
- */
-const ROUND_SECONDS = 90
-
 /** How often to poll the roster / verdict while a round is in flight. */
 const POLL_MS = 2000
+
+/**
+ * Fire the auto-submit this far BEFORE the server-authoritative deadline, so the
+ * request has a chance to land before the server's own cutoff. Fixed and
+ * deliberately NOT derived from `POLL_MS` (docs/DESIGN-PHASE3-LIVE.md §2.9) — a
+ * submit that arrives after the deadline is rejected (409 `round_expired`) and
+ * self-inflicts a forfeit loss, so auto-submit fires a little early on purpose.
+ */
+const AUTO_SUBMIT_MARGIN_MS = 3000
 
 /* --- editor mount seam (identical to DrawView) ------------------------- */
 
@@ -135,7 +136,25 @@ const opponent = reactive<{ name: string; status: OpponentStatus }>({
     status: 'drawing'
 })
 
-const remaining = ref(ROUND_SECONDS)
+/**
+ * Server-anchored countdown state (docs/DESIGN-PHASE3-LIVE.md §2.9): `deadlineMs`
+ * is the absolute round deadline in epoch ms (null while `open`/waiting — nothing
+ * to count down to yet), and `clockOffsetMs` is the last-computed skew between the
+ * server clock and this client's `Date.now()`. Both are re-anchored from every
+ * roster/create/submit response (`anchorClock`), so the two duelists always count
+ * down from the SAME server instant instead of each starting their own local timer
+ * on first local sight of `drawing` (the old drift bug).
+ */
+const deadlineMs = ref<number | null>(null)
+let clockOffsetMs = 0
+
+/** The round's total length in seconds, captured once per round from the first
+ *  sight of the deadline — drives only the progress-bar fraction; the countdown
+ *  itself always reads the absolute deadline, so this has no bearing on
+ *  correctness. Reset to 0 at the start of each new match. */
+const roundTotalSeconds = ref(0)
+
+const remaining = ref(0)
 const submitting = computed(() => phase.value === 'submitting')
 const canSubmit = computed(() => phase.value === 'drawing')
 
@@ -175,13 +194,44 @@ function clearTimers(): void {
     timeouts.clear()
 }
 
+/** Recompute `remaining` (seconds, clamped >= 0) from the last-anchored deadline +
+ *  clock offset. Called on every tick and immediately after every re-anchor so the
+ *  display never waits a full second to reflect a fresh server response. */
+function tickRemaining(): void {
+    if (deadlineMs.value === null) {
+        remaining.value = 0
+        return
+    }
+    remaining.value = Math.max(0, (deadlineMs.value - (Date.now() + clockOffsetMs)) / 1000)
+}
+
+/**
+ * Re-anchor the server-authoritative countdown from a fresh (deadline, serverTime)
+ * pair — called from every roster/create/submit response. Both duelists compute
+ * their countdown from the SAME server instant, re-anchored on every poll, which
+ * structurally closes the old drift bug (docs/DESIGN-PHASE3-LIVE.md §2.9).
+ */
+function anchorClock(drawingDeadline: string | null, serverTime: string): void {
+    clockOffsetMs = Date.parse(serverTime) - Date.now()
+    const nextDeadlineMs = drawingDeadline !== null ? Date.parse(drawingDeadline) : null
+    if (nextDeadlineMs !== null && roundTotalSeconds.value === 0) {
+        // First sight of the deadline this round — capture the total for the
+        // progress-bar fraction only (see roundTotalSeconds's doc comment).
+        roundTotalSeconds.value = Math.max(0, (nextDeadlineMs - (Date.now() + clockOffsetMs)) / 1000)
+    }
+    deadlineMs.value = nextDeadlineMs
+    tickRemaining()
+}
+
 function startCountdown(): void {
     stopCountdown()
     tick = window.setInterval(() => {
-        remaining.value = Math.max(0, remaining.value - 1)
-        if (remaining.value <= 0) {
+        tickRemaining()
+        if (phase.value !== 'drawing' || deadlineMs.value === null) return
+        const remainingMsNow = deadlineMs.value - (Date.now() + clockOffsetMs)
+        if (remainingMsNow <= AUTO_SUBMIT_MARGIN_MS) {
             stopCountdown()
-            void submit() // out of time — auto-submit whatever is on the canvas
+            void submit() // near the server cutoff — auto-submit whatever is on the canvas
         }
     }, 1000)
 }
@@ -203,8 +253,22 @@ function handleError(err: unknown): void {
     toError(toApiError(err)?.message ?? 'Something went wrong. Try again.')
 }
 
-/** Reflect the roster into the opponent chip + the revealed prompt. */
+/** True once a terminal phase (`done`, or abandoned/error) has been reached for
+ *  the current match. Makes `applyRoster`/`applyResult` monotonic: a later,
+ *  slower in-flight response must never regress a terminal UI, and a re-delivered
+ *  verdict is a no-op (docs/DESIGN-PHASE3-LIVE.md §2.9). Implicitly reset by
+ *  `startMatch`, which always moves `phase` to `connecting` before a new round's
+ *  first response can arrive. */
+function isTerminalPhase(): boolean {
+    return phase.value === 'done' || phase.value === 'error'
+}
+
+/** Reflect the roster into the opponent chip + the revealed prompt, and re-anchor
+ *  the server countdown from this response. A no-op once a terminal phase has
+ *  been reached (monotonic — see `isTerminalPhase`). */
 function applyRoster(m: Match): void {
+    if (isTerminalPhase()) return
+    anchorClock(m.drawingDeadline, m.serverTime)
     if (m.prompt.text) prompt.value = m.prompt.text
     const opp = m.players.find((p) => p.userId !== myUserId)
     if (opp) {
@@ -213,10 +277,11 @@ function applyRoster(m: Match): void {
     }
 }
 
-/** Enter the drawing phase: reveal the prompt, reset + start the soft clock. */
+/** Enter the drawing phase: reveal the prompt and start the server-anchored clock
+ *  (the deadline itself was already captured by the `applyRoster` call that
+ *  triggered this transition). */
 function beginDrawing(): void {
     phase.value = 'drawing'
-    remaining.value = ROUND_SECONDS
     startCountdown()
 }
 
@@ -322,7 +387,12 @@ async function startMatch(): Promise<void> {
     prompt.value = ''
     opponent.name = 'Player 2'
     opponent.status = 'drawing'
-    remaining.value = ROUND_SECONDS
+    // Fresh round: clear the previous round's server-anchored clock so it doesn't
+    // leak into this one (roundTotalSeconds's "first sight" capture in particular).
+    deadlineMs.value = null
+    clockOffsetMs = 0
+    roundTotalSeconds.value = 0
+    remaining.value = 0
     try {
         const m = await createMatch.mutateAsync()
         if (disposed) return
@@ -349,16 +419,18 @@ async function submit(): Promise<void> {
     youImageUrl = await captureYourRaster()
     if (disposed) return
     try {
-        await submitMatch.mutateAsync({ id: matchId, document: editor.getDocument() })
+        const res = await submitMatch.mutateAsync({ id: matchId, document: editor.getDocument() })
         if (disposed) return
+        anchorClock(res.drawingDeadline, res.serverTime)
         // Recorded (202). The live poll loop picks up the `judging` branch and
         // polls the verdict; the opponent status resolves from there.
         opponent.status = 'judging'
         phase.value = 'judging'
     } catch (err) {
         if (disposed) return
-        // A 409 means the submission is already recorded / the match moved on —
-        // proceed to poll the verdict rather than erroring the player out.
+        // A 409 (e.g. round_expired) means the submission is already recorded / the
+        // match moved on — proceed to poll the verdict rather than erroring the
+        // player out (docs/DESIGN-PHASE3-LIVE.md §2.4/§2.9).
         if (toApiError(err)?.status === 409) {
             phase.value = 'judging'
             return
@@ -367,14 +439,20 @@ async function submit(): Promise<void> {
     }
 }
 
-/** Map the decided server verdict into the reveal shape (GAME.md §7.1). */
+/** Map the decided server verdict into the reveal shape (GAME.md §7.1). Idempotent
+ *  and monotonic: a no-op once a terminal phase is already reached, so a
+ *  re-delivered verdict can't clobber the async-patched opponent image
+ *  (docs/DESIGN-PHASE3-LIVE.md §2.9). */
 function applyResult(r: MatchResultDone): void {
+    if (isTerminalPhase()) return
     const me = r.players.find((p) => p.userId === myUserId)
     const opp = r.players.find((p) => p.userId !== myUserId)
     const before = me?.ratingBefore ?? session.user?.rating ?? 1200
     const after = me?.ratingAfter ?? before
     result.value = {
-        // Judge scores are 0..1; the reveal bar is 0..100.
+        // Judge scores are 0..1; the reveal bar is 0..100. Both are null server-side
+        // on a forfeit (no judge ran); the reveal hides the score row/bar itself via
+        // `resolution` rather than showing a misleading 0%.
         you: { score: (me?.score ?? 0) * 100, image: youImageUrl },
         opponent: {
             name: opp?.displayName ?? opponent.name,
@@ -385,14 +463,17 @@ function applyResult(r: MatchResultDone): void {
         },
         winner: r.winnerUserId === null ? 'tie' : r.winnerUserId === myUserId ? 'you' : 'opponent',
         reason: r.reason ?? '',
+        resolution: r.resolution,
         eloDelta: after - before,
         ratingBefore: before
     }
     phase.value = 'done'
     stopCountdown()
     // Fetch + render the opponent's canvas off the critical path; it patches into
-    // result.opponent.image when ready (or silently leaves the placeholder).
-    if (matchId !== null && opp) void renderOpponentRaster(matchId, opp.userId)
+    // result.opponent.image when ready (or silently leaves the placeholder). Skipped
+    // when the opponent has no drawing at all (the forfeiter on a forfeit loss) —
+    // there is nothing to fetch, so don't fire a request that can only fail.
+    if (matchId !== null && opp?.drawingId) void renderOpponentRaster(matchId, opp.userId)
 }
 
 /** Reset the canvas and create a fresh match. */
@@ -540,7 +621,9 @@ onBeforeUnmount(() => {
         <!-- Top-center: the round timer pinned to the very top edge, above the
              prompt reveal. The wrapper clears the fixed timer clock chip. -->
         <template #top-center>
-            <RoundTimerBar :remaining="remaining" :total="ROUND_SECONDS" />
+            <!-- Hidden until the deadline is stamped (open/waiting has none yet) —
+                 shows the waiting state instead of a misleading 0:00 countdown. -->
+            <RoundTimerBar v-if="deadlineMs !== null" :remaining="remaining" :total="roundTotalSeconds" />
             <div class="play__prompt">
                 <GamePromptBanner :prompt="prompt" :revealed="promptRevealed" />
             </div>
