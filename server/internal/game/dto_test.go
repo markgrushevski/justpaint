@@ -1,8 +1,14 @@
 package game
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func strptr(s string) *string { return &s }
+
+// fixedNow is a stable response-build instant for the pure buildMatchDTO tests.
+var fixedNow = time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
 
 // TestBuildMatchDTO_Redaction pins the two visibility rules (docs/GAME.md §4.2,
 // §5) that buildMatchDTO enforces, from each viewer's perspective.
@@ -45,7 +51,7 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 
 	t.Run("open hides the prompt text (no pre-drawing)", func(t *testing.T) {
 		// A lone creator waiting in `open` must not see the prompt yet.
-		m := buildMatchDTO(roster(statusOpen, nil, nil), me)
+		m := buildMatchDTO(roster(statusOpen, nil, nil), me, fixedNow)
 		if m.Prompt.ID != promptID {
 			t.Errorf("prompt id = %q, want %q", m.Prompt.ID, promptID)
 		}
@@ -55,7 +61,7 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 	})
 
 	t.Run("drawing reveals the prompt text to both", func(t *testing.T) {
-		m := buildMatchDTO(roster(statusDrawing, nil, nil), me)
+		m := buildMatchDTO(roster(statusDrawing, nil, nil), me, fixedNow)
 		if m.Prompt.Text == nil || *m.Prompt.Text != promptTx {
 			t.Errorf("prompt text = %v, want %q once drawing", m.Prompt.Text, promptTx)
 		}
@@ -64,7 +70,7 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 	t.Run("opponent drawingId hidden until done; own is visible", func(t *testing.T) {
 		// Both have submitted; match still `drawing` (waiting on judge is `judging`,
 		// but the redaction rule is identical for any non-`done` state).
-		m := buildMatchDTO(roster(statusDrawing, strptr(myDraw), strptr(oppDraw)), me)
+		m := buildMatchDTO(roster(statusDrawing, strptr(myDraw), strptr(oppDraw)), me, fixedNow)
 
 		mine := playerByID(m, me)
 		if !mine.Submitted {
@@ -84,7 +90,7 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 	})
 
 	t.Run("done reveals the opponent drawingId", func(t *testing.T) {
-		m := buildMatchDTO(roster(statusDone, strptr(myDraw), strptr(oppDraw)), me)
+		m := buildMatchDTO(roster(statusDone, strptr(myDraw), strptr(oppDraw)), me, fixedNow)
 		theirs := playerByID(m, opp)
 		if theirs.DrawingID == nil || *theirs.DrawingID != oppDraw {
 			t.Errorf("opponent drawingId = %v, want %q once done", theirs.DrawingID, oppDraw)
@@ -93,7 +99,7 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 
 	t.Run("redaction is symmetric — opponent viewer hides my drawing", func(t *testing.T) {
 		// Same match, rendered for the opponent: now MY drawing is the secret one.
-		m := buildMatchDTO(roster(statusDrawing, strptr(myDraw), strptr(oppDraw)), opp)
+		m := buildMatchDTO(roster(statusDrawing, strptr(myDraw), strptr(oppDraw)), opp, fixedNow)
 		mineToThem := playerByID(m, me)
 		if mineToThem.DrawingID != nil {
 			t.Errorf("my drawingId leaked to opponent = %q, want nil", *mineToThem.DrawingID)
@@ -104,9 +110,31 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 	})
 
 	t.Run("canvas echoes the canonical game size", func(t *testing.T) {
-		m := buildMatchDTO(roster(statusOpen, nil, nil), me)
+		m := buildMatchDTO(roster(statusOpen, nil, nil), me, fixedNow)
 		if m.Canvas.Width != GameCanvasSize || m.Canvas.Height != GameCanvasSize {
 			t.Errorf("canvas = %dx%d, want %dx%d", m.Canvas.Width, m.Canvas.Height, GameCanvasSize, GameCanvasSize)
+		}
+	})
+
+	t.Run("serverTime always present; deadline nil while open, RFC3339Nano once set", func(t *testing.T) {
+		wantNow := fixedNow.UTC().Format(time.RFC3339Nano)
+
+		// open → no deadline yet.
+		open := buildMatchDTO(roster(statusOpen, nil, nil), me, fixedNow)
+		if open.ServerTime != wantNow {
+			t.Errorf("serverTime = %q, want %q", open.ServerTime, wantNow)
+		}
+		if open.DrawingDeadline != nil {
+			t.Errorf("drawingDeadline = %q, want nil while open", *open.DrawingDeadline)
+		}
+
+		// drawing → deadline formatted as RFC3339Nano UTC.
+		deadline := time.Date(2026, 7, 11, 12, 1, 30, 0, time.UTC)
+		v := roster(statusDrawing, nil, nil)
+		v.DrawingDeadline = &deadline
+		drawing := buildMatchDTO(v, me, fixedNow)
+		if drawing.DrawingDeadline == nil || *drawing.DrawingDeadline != deadline.Format(time.RFC3339Nano) {
+			t.Errorf("drawingDeadline = %v, want %q", drawing.DrawingDeadline, deadline.Format(time.RFC3339Nano))
 		}
 	})
 }
@@ -155,6 +183,25 @@ func TestBuildResultDTO(t *testing.T) {
 		}
 		if len(d.Players) != 1 || d.Players[0].JudgedImageURL != nil {
 			t.Errorf("judgedImageUrl must be nil until storage+render land, got %+v", d.Players)
+		}
+		// Nil resolution (legacy pre-migration done row) defaults to 'judged'.
+		if d.Resolution != resolutionJudged {
+			t.Errorf("resolution = %q, want %q when the view's is nil", d.Resolution, resolutionJudged)
+		}
+	})
+
+	t.Run("forfeit resolution passes through", func(t *testing.T) {
+		forfeit := resolutionForfeit
+		dto := buildResultDTO(ResultView{
+			Status: statusDone, Ready: true,
+			WinnerUserID: &won, Resolution: &forfeit,
+		})
+		d := dto.(resultDone)
+		if d.Resolution != resolutionForfeit {
+			t.Errorf("resolution = %q, want %q", d.Resolution, resolutionForfeit)
+		}
+		if d.IsTie {
+			t.Error("forfeit has a winner, isTie must be false")
 		}
 	})
 

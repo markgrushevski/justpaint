@@ -71,25 +71,42 @@ type playerDTO struct {
 }
 
 type matchDTO struct {
-	ID        string      `json:"id"`
-	Mode      string      `json:"mode"`
-	Status    string      `json:"status"`
-	Prompt    promptDTO   `json:"prompt"`
-	Canvas    canvasDTO   `json:"canvas"`
-	Players   []playerDTO `json:"players"`
-	CreatedAt time.Time   `json:"createdAt"`
-	UpdatedAt time.Time   `json:"updatedAt"`
+	ID      string      `json:"id"`
+	Mode    string      `json:"mode"`
+	Status  string      `json:"status"`
+	Prompt  promptDTO   `json:"prompt"`
+	Canvas  canvasDTO   `json:"canvas"`
+	Players []playerDTO `json:"players"`
+	// DrawingDeadline is the absolute round deadline (RFC3339Nano, UTC); null while
+	// `open`. ServerTime is the response-build instant (always present) so the
+	// client corrects clock skew before counting down (docs/DESIGN-PHASE3-LIVE.md §2.8).
+	DrawingDeadline *string   `json:"drawingDeadline"`
+	ServerTime      string    `json:"serverTime"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 type matchEnvelope struct {
 	Match matchDTO `json:"match"`
 }
 
+// formatDeadline renders an optional deadline as RFC3339Nano (UTC), or nil while
+// the match is `open` (no deadline stamped yet). Same format as serverTime so the
+// client parses one shape (docs/DESIGN-PHASE3-LIVE.md §2.8).
+func formatDeadline(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.UTC().Format(time.RFC3339Nano)
+	return &s
+}
+
 // buildMatchDTO renders a MatchView for one viewer, applying the two visibility
 // rules (docs/GAME.md §4.2, §5): the prompt text is hidden until the match leaves
 // `open`, and a player sees only their own drawingId until the match is `done`.
-// Pure — no DB, no HTTP — so the redaction is table-tested directly.
-func buildMatchDTO(v MatchView, viewerID string) matchDTO {
+// `now` is the response-build instant, echoed as serverTime for client clock-skew
+// correction. Pure — no DB, no HTTP — so the redaction is table-tested directly.
+func buildMatchDTO(v MatchView, viewerID string, now time.Time) matchDTO {
 	prompt := promptDTO{ID: v.PromptID}
 	if v.Status != statusOpen {
 		text := v.PromptText
@@ -110,14 +127,16 @@ func buildMatchDTO(v MatchView, viewerID string) matchDTO {
 	}
 
 	return matchDTO{
-		ID:        v.ID,
-		Mode:      v.Mode,
-		Status:    v.Status,
-		Prompt:    prompt,
-		Canvas:    canvasDTO{Width: GameCanvasSize, Height: GameCanvasSize},
-		Players:   players,
-		CreatedAt: v.CreatedAt,
-		UpdatedAt: v.UpdatedAt,
+		ID:              v.ID,
+		Mode:            v.Mode,
+		Status:          v.Status,
+		Prompt:          prompt,
+		Canvas:          canvasDTO{Width: GameCanvasSize, Height: GameCanvasSize},
+		Players:         players,
+		DrawingDeadline: formatDeadline(v.DrawingDeadline),
+		ServerTime:      now.UTC().Format(time.RFC3339Nano),
+		CreatedAt:       v.CreatedAt,
+		UpdatedAt:       v.UpdatedAt,
 	}
 }
 
@@ -156,7 +175,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
 		return
 	}
-	web.JSON(w, http.StatusCreated, matchEnvelope{Match: buildMatchDTO(view, uid)})
+	web.JSON(w, http.StatusCreated, matchEnvelope{Match: buildMatchDTO(view, uid, time.Now())})
 }
 
 // Get: GET /api/matches/{id} — redacted match state (auth: required; must be a
@@ -182,7 +201,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
 		return
 	}
-	web.JSON(w, http.StatusOK, matchEnvelope{Match: buildMatchDTO(view, uid)})
+	web.JSON(w, http.StatusOK, matchEnvelope{Match: buildMatchDTO(view, uid, time.Now())})
 }
 
 // --- submit ---
@@ -196,6 +215,10 @@ type submitMatch struct {
 	ID     string    `json:"id"`
 	Status string    `json:"status"`
 	You    submitYou `json:"you"`
+	// Same deadline/clock pair as matchDTO, so the submit ack re-anchors the
+	// client countdown without a follow-up GET (docs/DESIGN-PHASE3-LIVE.md §2.8).
+	DrawingDeadline *string `json:"drawingDeadline"`
+	ServerTime      string  `json:"serverTime"`
 }
 
 type submitEnvelope struct {
@@ -229,6 +252,10 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 			web.Error(w, http.StatusConflict, web.CodeConflict, "match is not accepting submissions")
 		case errors.Is(err, ErrAlreadySubmitted):
 			web.Error(w, http.StatusConflict, web.CodeConflict, "already submitted")
+		case errors.Is(err, ErrRoundExpired):
+			// The match moved on (forfeit/abandon); the client treats a 409 here as
+			// "go poll the result", not an error toast (docs/DESIGN-PHASE3-LIVE.md §2.4).
+			web.Error(w, http.StatusConflict, web.CodeConflict, "round expired")
 		default:
 			h.logger.Error("submit", "err", err)
 			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
@@ -238,6 +265,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 
 	web.JSON(w, http.StatusAccepted, submitEnvelope{Match: submitMatch{
 		ID: id, Status: res.Status, You: submitYou{Submitted: true, DrawingID: res.DrawingID},
+		DrawingDeadline: formatDeadline(res.Deadline), ServerTime: time.Now().UTC().Format(time.RFC3339Nano),
 	}})
 }
 
@@ -304,13 +332,16 @@ type resultPlayerDTO struct {
 }
 
 type resultDone struct {
-	Status       string            `json:"status"`
-	Ready        bool              `json:"ready"`
-	Prompt       promptDTO         `json:"prompt"`
-	WinnerUserID *string           `json:"winnerUserId"`
-	IsTie        bool              `json:"isTie"`
-	Reason       *string           `json:"reason"`
-	Players      []resultPlayerDTO `json:"players"`
+	Status       string    `json:"status"`
+	Ready        bool      `json:"ready"`
+	Prompt       promptDTO `json:"prompt"`
+	WinnerUserID *string   `json:"winnerUserId"`
+	IsTie        bool      `json:"isTie"`
+	Reason       *string   `json:"reason"`
+	// Resolution is how the match was decided: 'judged' | 'forfeit'. The client
+	// branches its copy on this, never on the free-text Reason (docs/DESIGN-PHASE3-LIVE.md §2.8).
+	Resolution string            `json:"resolution"`
+	Players    []resultPlayerDTO `json:"players"`
 }
 
 // Result: GET /api/matches/{id}/result — the end-of-round result (auth: required;
@@ -395,12 +426,19 @@ func buildResultDTO(v ResultView) any {
 		}
 	}
 	text := v.PromptText
+	// Default nil (legacy pre-migration `done` rows) to 'judged' so the field is
+	// never empty on a completed match (docs/DESIGN-PHASE3-LIVE.md §2.8).
+	resolution := resolutionJudged
+	if v.Resolution != nil {
+		resolution = *v.Resolution
+	}
 	return resultDone{
 		Status: v.Status, Ready: true,
 		Prompt:       promptDTO{ID: v.PromptID, Text: &text},
 		WinnerUserID: v.WinnerUserID,
 		IsTie:        v.WinnerUserID == nil,
 		Reason:       v.Reason,
+		Resolution:   resolution,
 		Players:      players,
 	}
 }

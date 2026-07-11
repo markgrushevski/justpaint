@@ -72,10 +72,14 @@ func run() error {
 		renderer = render.NewStubRenderer()
 		logger.Info("render: stub (set RENDER_MODE=node for the authoritative render)")
 	}
-	gameHandler := game.NewHandler(
-		game.NewService(pool, queries, renderer, judge.NewFakeJudge(), logger),
-		logger,
-	)
+	gameSvc := game.NewService(pool, queries, renderer, judge.NewFakeJudge(), logger)
+	gameHandler := game.NewHandler(gameSvc, logger)
+
+	// Background deadline sweeps (forfeit / abandon / stuck-judging re-fire /
+	// stale-open reaper) on the shutdown-cancellable context, so a round resolves
+	// even if no client is polling (docs/DESIGN-PHASE3-LIVE.md §2.4). Boot-drains the
+	// backlog, then ticks every 3s; returns when ctx is cancelled.
+	go gameSvc.RunSweeper(ctx, 3*time.Second)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

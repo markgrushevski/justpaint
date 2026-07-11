@@ -179,6 +179,39 @@ small practical gotchas go here.
   field-named struct call. Still owed: a DB-integration regression test (skip-without-`DATABASE_URL`,
   like `roundtrip_test.go`) asserting a **non-member viewer gets 404 even when the named target has
   submitted** — that's the one assertion that would catch a role flip.
+- **`users.rating` is written as an ABSOLUTE value (`UpdateUserRating`: `set rating = $2`), with no row
+  lock and no CAS** — correct only because a single match resolves exactly once (the
+  `GetMatchForUpdate` lock + status recheck that guards it, `service.go`/`deadline.go`). It is **NOT**
+  safe against the same user's rating being updated by two *different* matches resolving concurrently
+  (a lost update: both read the same pre-match rating, both write their own `after`, one clobbers the
+  other) — and nothing stops a user from being seated in more than one active match today. Don't lean
+  on `users.rating` as a precise ladder number under concurrent resolution without fixing this: either
+  `rating = rating + delta` (atomic, no read-then-write) or serialize per user
+  (`pg_advisory_xact_lock(hashtext(userID))`, the same idiom already deferred for the open-match dedupe
+  gap above). Flagged, not fixed, by `feat/round-deadline` — forfeit/sweeper resolution is what first
+  makes two-matches-at-once a realistic way to hit it (`IDEAS.md`).
+- **Deadline enforcement leans on Postgres `now()` being the TRANSACTION-START instant, not the
+  statement instant.** `GetMatchForUpdate`'s `server_now`, `StampSubmission`'s `now()`, and
+  `SetMatchDrawing`'s deadline stamp are all plain `now()` — the SAME instant throughout one
+  transaction, by Postgres semantics. This is exactly what makes the intended fair behavior work: a
+  submit whose tx **began** before the deadline but whose row lock was only granted after it (queued
+  behind the sweeper or another submit) still reads a `server_now` from *tx start*, sees itself as
+  on-time, and stamps. **Do not "fix" these to `clock_timestamp()`** (the true wall clock, re-evaluated
+  per call) — that would re-introduce exactly the race this design avoids, rejecting a submit that
+  queued in time but was merely served late.
+- **The sweeper's `List…` queries (`ListExpiredDrawingMatches` etc.) run on the pool in autocommit —
+  their `FOR UPDATE SKIP LOCKED` lock only lasts for the SELECT itself**, released the instant it
+  returns rows. The real exactly-once guard is the **per-row re-lock + status recheck** in
+  `resolveExpiredMatch`/`refireJudging`/`reapOpenMatch` (each opens its own tx, re-`GetMatchForUpdate`s,
+  and bails if the status already moved on) — the list is just a candidate scan, never trusted alone.
+  Corollary: `RunSweeper`'s boot `drain()` loops each phase until it handles **fewer than a full batch**
+  (rows HANDLED without error, not rows listed), so a batch that persistently fails returns a short
+  count and drain exits rather than hot-looping a retry storm against an unhealthy DB — the 3s ticker
+  still retries the tail on its normal cadence.
+- **There is no `round_expired` error code.** A late submit (`ErrRoundExpired` in `internal/game`) maps
+  to the existing generic `409 conflict` with `message: "round expired"` — the frozen v1 error-code set
+  (`API.md` §3) was deliberately NOT extended for this. The client keys off "any submit `409` → go poll
+  the result," not a distinct machine code, so there was nothing for a new code to buy.
 
 ## Konva / editor / render determinism
 

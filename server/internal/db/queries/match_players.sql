@@ -79,3 +79,16 @@ where exists (select 1
 update users
 set rating = $2, updated_at = now()
 where id = $1;
+
+-- name: GetMatchPlayersForResolve :many
+-- Per-player state the deadline resolver needs in one read: who submitted (and
+-- their drawing), plus the live rating for forfeit Elo. Stable (submitted_at,
+-- user_id) order — the same A/B seat ordering judging uses (docs/GAME.md §7.1).
+select mp.user_id,
+       mp.submitted_at,
+       mp.drawing_id,
+       u.rating
+from match_players mp
+join users u on u.id = mp.user_id
+where mp.match_id = $1
+order by mp.submitted_at asc nulls last, mp.user_id asc;
