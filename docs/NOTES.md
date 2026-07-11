@@ -169,6 +169,16 @@ small practical gotchas go here.
   that needs `DATABASE_URL` pointing at a **migrated** database — it `t.Skip`s otherwise. Plain
   `go test ./internal/drawings/...` silently skips the COALESCE default/keep-name SQL semantics unless
   the DB env is exported (docker compose up + goose up first).
+- **`GetMatchPlayerDrawing` (the opponent-canvas reveal) binds its ids POSITIONALLY, and the roles are
+  security-load-bearing.** `$1 = match_id`, `$2 = target_user_id` (whose drawing is returned), `$3 =
+  viewer_user_id` (the authenticated caller, the membership gate). The `service.go` call site is
+  field-named so it's safe, but if anyone reorders the generated `GetMatchPlayerDrawingParams` fields or
+  swaps `$2`/`$3` in the SQL, viewer/target flip silently — the membership `exists` gate would key on the
+  path-supplied target, not the JWT caller: an IDOR with **no compile error and no test failure**. Two
+  guards exist: the `d.owner_id = $2 and d.match_id = $1` backstops (a flip fails them closed), and the
+  field-named struct call. Still owed: a DB-integration regression test (skip-without-`DATABASE_URL`,
+  like `roundtrip_test.go`) asserting a **non-member viewer gets 404 even when the named target has
+  submitted** — that's the one assertion that would catch a role flip.
 
 ## Konva / editor / render determinism
 
