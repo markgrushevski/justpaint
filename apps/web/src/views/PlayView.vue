@@ -28,6 +28,7 @@ import type { Match, MatchResultDone } from '@core'
 import EditorShell from '../components/shell/EditorShell.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import IconButton from '../components/ui/IconButton.vue'
+import AuthForm from '../components/auth/AuthForm.vue'
 import RoundTimerBar from '../components/game/RoundTimerBar.vue'
 import GamePromptBanner from '../components/game/GamePromptBanner.vue'
 import OpponentStatusChip from '../components/game/OpponentStatusChip.vue'
@@ -487,6 +488,14 @@ function playAgain(): void {
     void startMatch()
 }
 
+/** Inline sign-in from the error overlay succeeded — re-enter the duel with no navigation. */
+function onAuthenticated(): void {
+    if (session.user) {
+        myUserId = session.user.id
+        void startMatch()
+    }
+}
+
 /* --- toolbar handlers (mirror DrawView) -------------------------------- */
 
 function pickTool(id: ToolId) {
@@ -674,9 +683,7 @@ onBeforeUnmount(() => {
             <OriSurface v-if="phase === 'error'" class="play__notice" role="alert">
                 <h2 class="play__notice-title">{{ needsAuth ? 'Sign in to duel' : 'Can’t start the duel' }}</h2>
                 <p class="play__notice-msg">{{ errorMsg }}</p>
-                <RouterLink v-if="needsAuth" class="play__notice-link" to="/draw">
-                    Go to the draw page to sign in →
-                </RouterLink>
+                <AuthForm v-if="needsAuth" hint="Sign in to play a ranked duel." @authenticated="onAuthenticated" />
                 <OriButton v-else text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
             </OriSurface>
             <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
@@ -752,17 +759,5 @@ onBeforeUnmount(() => {
 
     font-size: var(--ori-font-size_sm, 0.9rem);
     opacity: 0.8;
-}
-
-.play__notice-link {
-    color: var(--ori-color-primary);
-
-    font-size: var(--ori-font-size_sm, 0.9rem);
-    font-weight: 700;
-    text-decoration: none;
-}
-
-.play__notice-link:hover {
-    text-decoration: underline;
 }
 </style>
