@@ -110,10 +110,13 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	// Immediate per-viewer snapshot — the same MatchStateJSON REST would return to this
 	// viewer, so reconnect is correct with no replay buffer. A benign race (the match
 	// vanished between the gate and here) just skips it; the client still has REST.
-	if payload, err := h.svc.MatchStateJSON(connCtx, uid, id); err == nil {
+	snapCtx, snapCancel := context.WithTimeout(connCtx, wsBuildTimeout)
+	payload, snapErr := h.svc.MatchStateJSON(snapCtx, uid, id)
+	snapCancel()
+	if snapErr == nil {
 		c.trySend(h.hub.matchStateFrameBytes(payload))
-	} else if !errors.Is(err, game.ErrNotFound) {
-		h.logger.Error("ws: initial snapshot", "matchID", id, "err", err)
+	} else if !errors.Is(snapErr, game.ErrNotFound) {
+		h.logger.Error("ws: initial snapshot", "matchID", id, "err", snapErr)
 	}
 
 	var wg sync.WaitGroup
