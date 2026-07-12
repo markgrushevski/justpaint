@@ -43,7 +43,7 @@ docs/                # specs & agreements (source of truth)
 
 Why not split into multiple repos now:
 - **One source of truth, atomic changes.** A change to the keystone document format touches the schema, the editor's renderer, and the Go validator in *one commit* — no cross-repo version dance, no "which repo is canonical" drift. The format is the contract; it must move as a unit.
-- **The reusability signal is already there.** The `editor` package boundary *is* the portfolio evidence of reuse (DECISIONS: "the reusability signal already comes from the `editor` package boundary"). A second repo would add ops/release overhead without adding architectural signal.
+- **The reusability signal is already there.** The `editor` package boundary *is* the evidence of reuse (DECISIONS: "the reusability signal already comes from the `editor` package boundary"). A second repo would add ops/release overhead without adding architectural signal.
 - **Solo-project economics.** Multi-repo = multi-CI, multi-version, multi-publish for one maintainer. A monorepo with clean internal seams gets the boundary discipline without the tax.
 
 The discipline is enforced by **dependency direction** (§3), not by repo walls. If a package can't import "up", the boundary is real even in one repo.
@@ -68,7 +68,7 @@ This is what makes `editor` genuinely reusable: because it can't reach into `web
 
 ## 4. The Go modular monolith (one binary, internal modules)
 
-One Go service, one Postgres (DECISIONS: "one Go service … one Postgres"). Microservices would be a portfolio anti-pattern at this scale and would not advance the learn-Go goal. Internal structure is **modules under `internal/`**, wired together in `main`:
+One Go service, one Postgres (DECISIONS: "one Go service … one Postgres"). Microservices would be over-engineering at this scale. Internal structure is **modules under `internal/`**, wired together in `main`:
 
 ```
 server/
@@ -96,7 +96,7 @@ The old NestJS `server/` has already been **removed and replaced** by this Go se
 
 ## 5. The Judge seam (interface + fake + external service)
 
-The ML judge is **external**, built by a collaborator as his own portfolio piece (DECISIONS). We never build the ML; we own only the **contract** and a fake. **`docs/JUDGE.md` is the single owner of the contract's exact shape** — the `winner` representation, tie semantics, raster size, and background. The Go interface below mirrors it; if they ever diverge, JUDGE.md wins.
+The ML judge is **external**, built by a collaborator as his own project (DECISIONS). We never build the ML; we own only the **contract** and a fake. **`docs/JUDGE.md` is the single owner of the contract's exact shape** — the `winner` representation, tie semantics, raster size, and background. The Go interface below mirrors it; if they ever diverge, JUDGE.md wins.
 
 ```go
 // internal/judge — mirrors docs/JUDGE.md; that doc owns the canonical types.
@@ -205,7 +205,7 @@ Notes:
 - **Render worker** — `packages/render`, a **Node** worker reusing the editor's `renderToStage` to rasterize submissions authoritatively (one renderer shared with the editor). **Built** (`RENDER_MODE=node`), currently **spawn-per-render** (inline/synchronous, per `DECISIONS.md`); a resident process or queue only if it becomes a bottleneck.
 - **External judge** — the collaborator's HTTP service; we point `HTTPJudge` at it via config, fall back to `FakeJudge` otherwise.
 
-**Split only when a trigger actually fires** (resist premature distribution — microservices are a portfolio anti-pattern here):
+**Split only when a trigger actually fires** (resist premature distribution — microservices are over-engineering here):
 
 | Trigger (must be observed, not anticipated) | Split to consider |
 |---|---|

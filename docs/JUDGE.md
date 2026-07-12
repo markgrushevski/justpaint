@@ -1,6 +1,6 @@
 # Judge contract
 
-> **The agreement with the external ML collaborator.** The judge is built by a collaborator as his own portfolio piece — **we never build the ML.** We own only this contract and a fake implementation. This document is the single source of truth for the judge's exact shape: the request/response, the **positional `winner` semantics**, tie rule, the judged-raster spec (size + background), and the transport. If code or another doc disagrees with this file, **this file wins** for everything judge-related.
+> **The agreement with the external ML collaborator.** The judge is built by a collaborator as his own project — **we never build the ML.** We own only this contract and a fake implementation. This document is the single source of truth for the judge's exact shape: the request/response, the **positional `winner` semantics**, tie rule, the judged-raster spec (size + background), and the transport. If code or another doc disagrees with this file, **this file wins** for everything judge-related.
 >
 > **Ownership note.** `docs/ARCHITECTURE.md` §5, `docs/DOCUMENT-FORMAT.md` §10, and `docs/GAME.md` all *defer* to this doc for the `winner` representation, tie semantics, raster size, and background. This doc, in turn, defers the trust boundary / render pipeline to `DOCUMENT-FORMAT.md` §10 and the match lifecycle / A·B→player resolution to `GAME.md`.
 >

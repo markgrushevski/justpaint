@@ -1,6 +1,6 @@
 # justpaint
 
-A web drawing app rebuilt as a **portfolio + learn-Go** project. The north star is a **game**: an
+A web drawing app. The north star is a **game**: an
 AI-judged drawing duel — two players draw the same prompt, an ML "judge" scores each drawing's
 similarity to the prompt and picks a winner. A free-draw editor is a supporting mode.
 
