@@ -27,8 +27,14 @@ func issueToken(secret, userID string, now time.Time) (string, time.Time, error)
 	return signed, exp, nil
 }
 
-// parseToken verifies an HS256 JWT and returns its subject (the user id).
-func parseToken(secret, raw string) (string, error) {
+// parseToken verifies an HS256 JWT and returns its subject (the user id) plus its
+// expiry. The expiry is surfaced so the WS layer can arm a close at session end (a
+// long-lived socket outlives the request that authenticated it — nothing else
+// re-validates the cookie mid-connection; docs/DESIGN-PHASE3-LIVE.md §3.4). The parse
+// REQUIRES an exp claim (jwt.WithExpirationRequired), so a valid token always carries
+// one and a no-exp token is rejected — keeping the WS close-at-expiry invariant
+// airtight regardless of future token shapes (jp-security).
+func parseToken(secret, raw string) (string, time.Time, error) {
 	claims := &jwt.RegisteredClaims{}
 	token, err := jwt.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
 		// Pin the algorithm to HMAC: without this check an attacker could swap
@@ -37,12 +43,16 @@ func parseToken(secret, raw string) (string, error) {
 			return nil, fmt.Errorf("unexpected signing method %q", t.Method.Alg())
 		}
 		return []byte(secret), nil
-	})
+	}, jwt.WithExpirationRequired())
 	if err != nil {
-		return "", fmt.Errorf("auth: parse token: %w", err)
+		return "", time.Time{}, fmt.Errorf("auth: parse token: %w", err)
 	}
 	if !token.Valid {
-		return "", fmt.Errorf("auth: invalid token")
+		return "", time.Time{}, fmt.Errorf("auth: invalid token")
 	}
-	return claims.Subject, nil
+	var exp time.Time
+	if claims.ExpiresAt != nil {
+		exp = claims.ExpiresAt.Time
+	}
+	return claims.Subject, exp, nil
 }

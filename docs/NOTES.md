@@ -426,6 +426,40 @@ small practical gotchas go here.
   failure) routes to the sign-in card, which links to `/draw` (where the SideMenu auth lives). A `409`
   on submit is treated as already-recorded and proceeds to the verdict poll, not an error.
 
+## WS realtime (`internal/ws`, `feat/ws-realtime`)
+
+- **No server-side read-idle timeout/heartbeat.** The app-level `{"type":"ping"}` is **client→server
+  only** — `readPump` answers it with a `pong` but nothing on the server side pings the client or
+  arms a read deadline. A black-hole TCP drop (no FIN/RST, e.g. a yanked cable or a dead NAT mapping)
+  is therefore only reclaimed by the next outbound write hitting `wsWriteTimeout` (10s, `conn.go`) or
+  by the session-expiry close (≤7-day `sessionTTL`, `auth/token.go`) — whichever comes first — bounded
+  in the meantime by the per-user-per-match connection cap (`wsMaxConnsPerUser = 5`, `hub.go`). Fine at
+  this scale; a real idle-eviction deadline is an `IDEAS.md` item.
+- **`MatchStateJSON`/`ResultJSON` → `Get`/`Result` read without a snapshot** — the same torn-read
+  caveat already on record above (`Get` runs its match→prompt→roster reads on the pool with no
+  snapshot). WS calls this path far more often than the 2s REST poll (on every roster/deadline change
+  and again per reconnect), so it widens the same window rather than introducing a new one. Covered
+  today by the client's monotonic/idempotent apply (`applyRoster`/`applyResult` in `PlayView.vue`,
+  `docs/DESIGN-PHASE3-LIVE.md` §2.9) — a stale/torn read is just superseded by the next frame or poll.
+- **Per-viewer `match_state`/`result` frames fan out on independent goroutines** (`fanoutPerViewer` is
+  spawned per event, `hub.go`), so **completion order across the two duelists — or across two frames
+  to the same duelist — is not guaranteed on the wire.** Correctness relies entirely on the client
+  applying frames monotonically (a terminal phase can't regress), never on send order.
+- **`websocket.Accept` reaches `http.Hijacker` by walking the `Unwrap() http.ResponseWriter` chain.**
+  Any future `http.ResponseWriter` wrapper added to the middleware chain (logging, metrics, etc.) MUST
+  implement `Unwrap() http.ResponseWriter` or the WS handshake fails with a `501` the moment that
+  wrapper sits in front of the WS route — this is exactly why `statusRecorder.Unwrap`
+  (`internal/platform/web/middleware.go`) exists. Don't drop it when touching `LogRequests`/`Recover`.
+- **The `firstForUser` presence broadcast includes the connecting client itself** — when a user's
+  client set goes empty→non-empty, `handleRegister` broadcasts `opponent_connected` to the **whole
+  room**, including the socket that just triggered it. Harmless by design: clients filter presence
+  frames by `userId !== self` (`PlayView.vue`'s `handleWsFrame`), so a client silently receives (and
+  ignores) its own connect event rather than the hub special-casing the sender.
+- **`parseToken` now requires an `exp` claim** (`jwt.WithExpirationRequired`, `auth/token.go`) — a
+  valid token always carries an expiry, which is what makes the WS session-expiry close (arm
+  `time.AfterFunc(exp)` → close `4001`) safe to rely on unconditionally. Any future token-issuing path
+  must keep stamping `exp` or `RequireAuth` rejects it outright.
+
 ## Preview MCP / verification
 
 - **`preview_screenshot` times out (~30 s) on the Konva canvas page** — Konva's rAF loop likely

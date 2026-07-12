@@ -155,3 +155,108 @@ export const matches = {
             .document
     }
 }
+
+/* --- WS realtime (docs/DESIGN-PHASE3-LIVE.md §3.5 wire protocol, §3.7 frontend) --- */
+
+/**
+ * The 8 server→client frames the WS hub (`server/internal/ws/events.go`) emits,
+ * mirrored here EXACTLY, discriminated on `type`. `match` / `result` carry the
+ * SAME DTOs as the equivalent REST responses (`Match` / `MatchResultDone`) — the
+ * hub builds them through the identical viewer-scoped read the REST handlers use,
+ * so there is one shape, two transports.
+ */
+export type WsFrame =
+    | { type: 'match_state'; match: Match }
+    | { type: 'opponent_submitted'; userId: string }
+    | { type: 'judging' }
+    | { type: 'result'; result: MatchResultDone }
+    | { type: 'abandoned' }
+    | { type: 'opponent_connected'; userId: string }
+    | { type: 'opponent_disconnected'; userId: string }
+    | { type: 'pong' }
+
+const WS_FRAME_TYPES = new Set<WsFrame['type']>([
+    'match_state',
+    'opponent_submitted',
+    'judging',
+    'result',
+    'abandoned',
+    'opponent_connected',
+    'opponent_disconnected',
+    'pong'
+])
+
+/** Parse one WS text message into a {@link WsFrame}, or null for anything
+ *  unparseable / not one of the known `type`s (silently dropped by the caller —
+ *  never thrown, since a stray frame must not take down the socket). */
+function parseWsFrame(raw: string): WsFrame | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(raw)
+    } catch {
+        return null
+    }
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const type = (parsed as { type?: unknown }).type
+    if (typeof type !== 'string' || !WS_FRAME_TYPES.has(type as WsFrame['type'])) return null
+    return parsed as WsFrame
+}
+
+export interface MatchSocketHandlers {
+    /** Called for every frame that parses to a known {@link WsFrame}. */
+    onFrame(frame: WsFrame): void
+    onOpen?(): void
+    onClose?(code: number, reason: string): void
+    onError?(ev: Event): void
+}
+
+/** A thin transport handle — reconnect/backoff policy and frame dispatch live in
+ *  the caller (PlayView), not here (docs/DESIGN-PHASE3-LIVE.md §3.7 "thin adapters"). */
+export interface MatchSocketHandle {
+    /** Close the socket. Safe to call more than once. */
+    close(): void
+    /** Send the ONE client→server frame the wire protocol allows (heartbeat).
+     *  A no-op if the socket isn't currently open. */
+    ping(): void
+    readonly readyState: number
+}
+
+/**
+ * Open the live match socket: same-origin `GET /api/matches/:id/ws` (the
+ * `jp_session` cookie rides the handshake automatically — a WS handshake can't
+ * carry a custom header, so cookie auth is the only mechanism, same as REST).
+ * Built from `location.*` rather than the `/api` request base, but equivalent —
+ * `VITE_URL_API` is always the relative `/api` in every environment
+ * (docs/NOTES.md), so this is same-origin in dev (through the proxy) and prod
+ * (through the reverse proxy) alike.
+ *
+ * A thin wrapper over native `WebSocket`: JSON-parses each message into a
+ * {@link WsFrame} (dropping anything unparseable or of an unknown `type`) and
+ * forwards open/close/error. No reconnect/backoff/dispatch policy here — the
+ * caller owns all of that.
+ */
+export function openMatchSocket(matchId: string, handlers: MatchSocketHandlers): MatchSocketHandle {
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const socket = new WebSocket(`${scheme}//${location.host}/api/matches/${matchId}/ws`)
+
+    socket.addEventListener('open', () => handlers.onOpen?.())
+    socket.addEventListener('close', (ev) => handlers.onClose?.(ev.code, ev.reason))
+    socket.addEventListener('error', (ev) => handlers.onError?.(ev))
+    socket.addEventListener('message', (ev) => {
+        if (typeof ev.data !== 'string') return
+        const frame = parseWsFrame(ev.data)
+        if (frame) handlers.onFrame(frame)
+    })
+
+    return {
+        close(): void {
+            socket.close(1000, 'client disposed')
+        },
+        ping(): void {
+            if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'ping' }))
+        },
+        get readyState(): number {
+            return socket.readyState
+        }
+    }
+}

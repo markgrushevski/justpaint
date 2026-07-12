@@ -1,6 +1,6 @@
 # API contract
 
-> **The HTTP surface.** Every route the Go modular monolith exposes for v1: auth, drawings CRUD, and the async duel. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. A forward-looking WS sketch closes the doc, clearly marked **not-v1**.
+> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, and the live WS realtime layer. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12).
 >
 > **Status:** Phase 0 (draft). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
 
@@ -229,7 +229,7 @@ Errors: `404 not_found`, `401 unauthorized`, `409 conflict` (a drawing already s
 
 ## 8. Game — the async duel
 
-All under `/api/matches`. **Auth: required.** v1 is the **async duel, HTTP only** (`mode: "async"`; live WS is §9, not-v1). The full lifecycle, state machine, canvas size (1080×1080), visibility rules, and ratings live in **`GAME.md`**; the judge result shape lives in **`JUDGE.md`**. API.md carries only the HTTP edges.
+All under `/api/matches`. **Auth: required.** the async duel is **HTTP-complete** (`mode: "async"`); a live WS push layer (§9) rides on top as a latency upgrade, not a replacement. The full lifecycle, state machine, canvas size (1080×1080), visibility rules, and ratings live in **`GAME.md`**; the judge result shape lives in **`JUDGE.md`**. API.md carries only the HTTP edges.
 
 **Lifecycle recap** (owned by `GAME.md`): **create match (pins ONE prompt for both players) → both players draw the SAME prompt independently → submit (server renders the AUTHORITATIVE judged raster from the vector document, off the player's machine — never a client PNG) → judge → result.** Match states (`matches.status`, `ARCHITECTURE.md` §7): **`open | drawing | judging | done | abandoned`**. Ties are allowed (`matches.winner_player_id` nullable).
 
@@ -314,7 +314,7 @@ Success `202 Accepted` (the submission is **recorded**; the verdict is produced 
   }
 }
 ```
-> After the final submit `status` is `judging`; before it (opponent still drawing) `status` stays `drawing`. Same `drawingDeadline`/`serverTime` pair as `GET` (above), so the client re-anchors its countdown off this ack without a follow-up `GET`. The client then polls `GET /api/matches/{id}/result` (§8.4) for the verdict once `ready: true` (WS push replaces polling in §9, not-v1).
+> After the final submit `status` is `judging`; before it (opponent still drawing) `status` stays `drawing`. Same `drawingDeadline`/`serverTime` pair as `GET` (above), so the client re-anchors its countdown off this ack without a follow-up `GET`. The client then polls `GET /api/matches/{id}/result` (§8.4) for the verdict once `ready: true` (the WS push in §9 delivers the verdict instantly; polling stays the fallback).
 
 Errors:
 - `400 validation_failed` — invalid document or wrong canvas size.
@@ -379,20 +379,41 @@ Concede / abandon an unfinished match. **Auth: required**; caller must be a play
 Success `200 OK` — `{ "match": { "id": "…", "status": "abandoned" } }`.
 Errors: `404 not_found`, `403 forbidden`, `409 conflict` (already `done`), `401 unauthorized`.
 
-## 9. Live match-room WS — **NOT v1 (forward-looking sketch)**
+## 9. Live match-room WS — **SHIPPED** (`feat/ws-realtime`)
 
-> **Explicitly not implemented in v1.** The async duel (§8) needs only HTTP. This sketches the live-mode protocol so §8 doesn't paint us into a corner. Async and live **share one match lifecycle** (`ARCHITECTURE.md` §8) — live is a *delivery upgrade* (push instead of poll), not a second backend. Built only when a §9-of-ARCHITECTURE trigger fires.
+> The async duel (§8) still runs correctly on HTTP alone. This section owns the **real, shipped** WS wire protocol — a *delivery upgrade* over §8, not a second backend: same match lifecycle, same DTOs, same visibility rule (`GAME.md` §4.2). **Postgres stays the source of truth**; the client's REST poll loop is never removed, only demoted to a slow fallback while a socket is live (§9.5).
 
-- **Transport.** `coder/websocket`, an **in-process hub of match rooms** inside `server/` (`internal/ws`) — same binary, same auth, same Postgres. **Postgres stays the source of truth**; the hub pushes transitions, it does not own them.
-- **Endpoint (sketch).** `GET /api/matches/{id}/ws` — upgrades to WS. **Auth: the same `jp_session` cookie** (the upgrade request carries it); the caller must be a player in the match or the upgrade is refused (`403`/close). `mode` becomes `"live"` for these matches.
-- **Server → client events** (JSON frames, `{ "type": …, … }`), forward-looking:
-  - `match_state` — full snapshot on join (mirrors `GET /api/matches/{id}`, with the same opponent-redaction rule until `done`).
-  - `opponent_joined` — the second player connected.
-  - `opponent_submitted` — opponent finished drawing (no canvas leaked — just the flag).
-  - `judging` — both submitted; server is rendering + scoring.
-  - `result` — verdict payload (mirrors `GET /api/matches/{id}/result`; both canvases revealed).
-  - `opponent_left` / `abandoned` — disconnect / terminal abandon.
-- **Client → server events** (sketch): `ping` (keepalive). The **actual drawing submit still goes over HTTP `POST /…/submit`** even in live mode — the document-validation + authoritative-render + trust boundary path is identical; WS only carries presence + state push. (Live *stroke streaming* between players, if ever wanted, is a separate, later seam — not part of this sketch.)
-- **Reconnect.** A reconnecting client re-fetches `match_state`; no event replay buffer in the sketch (Postgres is authoritative — just re-snapshot).
+### 9.1 Endpoint & gates — `GET /api/matches/{id}/ws`
 
-These names/shapes are **indicative**, pinned only when live mode is actually built. v1 ships §1–§8.
+- **Transport.** `coder/websocket`, an **in-process hub of match rooms** inside `server/` (`internal/ws`) — same binary, same auth, same Postgres. A single goroutine owns all room state (no mutex); the hub never mediates a mutation, it only fans out snapshots of transitions `internal/game` already committed.
+- **Auth: the same `jp_session` cookie as REST**, behind the same `RequireAuth` middleware (a WS handshake can't carry a custom header, so cookie auth is the only mechanism) — no/expired/invalid session ⇒ plain `401` **before** the upgrade.
+- **Membership-gated, hidden as 404** — identical to every other match route (§1): a non-player, or a non-existent/non-UUID id, gets a plain `404` before `Accept`, never `403` — the socket never confirms the match exists to a non-member.
+- **Strict same-origin.** The handshake's `Origin` is checked against an explicit allow-list (`websocket.AcceptOptions.OriginPatterns`) — **never** `*`, **never** `InsecureSkipVerify`. A WS handshake bypasses CORS preflight, so without this a cross-site page could open a socket riding the victim's auto-attached cookie (the WS analogue of CSRF). The request's own `Host` is always authorized; `WS_ALLOWED_ORIGINS` adds extra hosts only for a split-host deployment (dev's Vite proxy seeds `localhost:*`/`127.0.0.1:*`; prod defaults to empty = same-origin only).
+- **Session-expiry close.** Nothing re-validates the cookie mid-connection, so at `Accept` the server reads the JWT `exp` and arms a timer to close the socket with private close code **`4001`** the instant the session would have expired. The client treats `4001` as "re-authenticate," never as a transient drop to reconnect through.
+
+### 9.2 Server → client frames
+
+Eight frame types, JSON `{ "type": …, … }`. `match_state` / `result` carry the **same DTOs** the REST responses do (`Match` §8.1/§8.2, `MatchResultDone` §8.4) — the hub rebuilds each **per recipient** through the identical viewer-scoped read the REST handlers use, so `GAME.md` §4.2 visibility holds on the wire exactly as over HTTP: a mid-round `match_state` sent to player A carries A's own `drawingId` and never B's. This is a runtime, per-recipient redaction — not a "the frame type has no such field" guarantee.
+
+| `type` | payload | built | fires when |
+|---|---|---|---|
+| `match_state` | `{ match: <Match> }` | **per viewer** | on connect/reconnect, and on every roster/deadline change |
+| `opponent_submitted` | `{ userId }` | shared | any player's submit commits (room-broadcast — including back to the submitter's own other tabs; clients ignore a `userId` that is their own) |
+| `judging` | `{}` | shared | the last submit flips the match to `judging` |
+| `result` | `{ result: <MatchResultDone> }` | **per viewer** | the verdict is recorded — `resolution: "judged"` **or** `"forfeit"` |
+| `abandoned` | `{}` | shared | the sweep resolves the match to `abandoned` |
+| `opponent_connected` | `{ userId }` | shared | that `userId`'s live-client set goes empty → non-empty (presence) |
+| `opponent_disconnected` | `{ userId }` | shared | that `userId`'s live-client set goes non-empty → empty |
+| `pong` | `{}` | shared | reply to a client `ping` |
+
+### 9.3 Client → server
+
+Exactly one frame, `{"type":"ping"}` — a heartbeat only. There is no other client→server payload: **the drawing submit still goes over HTTP `POST /matches/{id}/submit`** (§8.3) in every case; the socket never carries document data or any mutation.
+
+### 9.4 Reconnect
+
+On every connect (including a reconnect), the server immediately sends a per-viewer `match_state` snapshot — the same read REST would return to that viewer at that instant. There is **no replay buffer**; a reconnecting client just gets a fresh snapshot, exactly like a fresh poll.
+
+### 9.5 Relationship to the REST poll loop
+
+The socket is additive, never a replacement for §8's poll loop (`GET /matches/{id}` / `GET /matches/{id}/result`). Postgres remains the sole source of truth. The client demotes its poll cadence to a slow (~15s) reconciliation fallback while a socket is open, and snaps back to the fast cadence immediately on any disconnect — so a client that never opens a socket, or whose socket keeps dropping, still completes a correct round over REST alone, just more slowly.

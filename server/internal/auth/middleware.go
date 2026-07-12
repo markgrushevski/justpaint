@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 )
@@ -11,11 +12,22 @@ import (
 // other packages (a context.WithValue best practice).
 type ctxKey int
 
-const userIDKey ctxKey = iota
+const (
+	userIDKey ctxKey = iota
+	expiryKey
+)
 
 // UserID returns the authenticated user id that RequireAuth placed in ctx.
 func UserID(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(userIDKey).(string)
+	return v, ok
+}
+
+// SessionExpiry returns the authenticated session's expiry that RequireAuth placed in
+// ctx (the JWT exp). The WS upgrade handler reads it to close a long-lived socket at
+// session end (docs/DESIGN-PHASE3-LIVE.md §3.4). Absent/zero on an unauthenticated ctx.
+func SessionExpiry(ctx context.Context) (time.Time, bool) {
+	v, ok := ctx.Value(expiryKey).(time.Time)
 	return v, ok
 }
 
@@ -28,12 +40,13 @@ func (h *Handler) RequireAuth(next http.Handler) http.Handler {
 			web.Error(w, http.StatusUnauthorized, web.CodeUnauthorized, "unauthorized")
 			return
 		}
-		uid, err := parseToken(h.svc.jwtSecret, c.Value)
+		uid, exp, err := parseToken(h.svc.jwtSecret, c.Value)
 		if err != nil {
 			web.Error(w, http.StatusUnauthorized, web.CodeUnauthorized, "unauthorized")
 			return
 		}
 		ctx := context.WithValue(r.Context(), userIDKey, uid)
+		ctx = context.WithValue(ctx, expiryKey, exp)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

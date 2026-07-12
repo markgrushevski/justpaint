@@ -24,6 +24,15 @@ const props = defineProps<{
     name: string
     /** Where the opponent is in the round (drives the status dot + text). */
     status: OpponentStatus
+    /**
+     * Best-effort live-socket presence (`opponent_connected`/`opponent_disconnected`,
+     * docs/DESIGN-PHASE3-LIVE.md §3.5/§3.7) — `false` dims the chip and stills its
+     * pulse as a subtle "gone quiet" hint. Deliberately NOT load-bearing: `status`
+     * (REST/poll-derived) stays the authoritative round state regardless, so a
+     * dropped socket never hides that the opponent already submitted. `undefined`
+     * (no socket yet, or presence not seen) renders exactly as before.
+     */
+    online?: boolean
 }>()
 
 const STATUS_LABEL: Record<OpponentStatus, string> = {
@@ -37,7 +46,7 @@ const inProgress = computed(() => props.status !== 'submitted')
 </script>
 
 <template>
-    <OriSurface class="opp">
+    <OriSurface class="opp" :class="{ 'opp--offline': online === false }">
         <OriAvatar class="opp__avatar" :text="name" color="secondary" size="sm" />
         <div class="opp__who">
             <span class="opp__name">{{ name }}</span>
@@ -61,6 +70,14 @@ const inProgress = computed(() => props.status !== 'submitted')
 
 .opp__avatar {
     flex: none;
+}
+
+/* Subtle, non-load-bearing "gone quiet" hint (see the `online` prop doc). Dims
+   the whole chip; the pulse-stilling override sits alongside `.opp__dot--live`
+   below (descending-specificity order). The status dot's color/label are
+   untouched, since `status` is still authoritative regardless of presence. */
+.opp--offline {
+    opacity: 0.55;
 }
 
 .opp__who {
@@ -117,6 +134,10 @@ const inProgress = computed(() => props.status !== 'submitted')
 
 .opp__dot--live {
     animation: opp-pulse 1.1s ease-in-out infinite;
+}
+
+.opp--offline .opp__dot--live {
+    animation: none;
 }
 
 @keyframes opp-pulse {

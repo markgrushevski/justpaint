@@ -8,8 +8,10 @@ export default defineConfig({
     server: {
         port: 7777,
         // Dev: forward same-origin /api to the Go server so the jp_session cookie
-        // is first-party (no CORS). Production uses a real reverse proxy.
-        proxy: { '/api': { target: 'http://localhost:8080', changeOrigin: true } }
+        // is first-party (no CORS). Production uses a real reverse proxy. `ws: true`
+        // also forwards the WS upgrade for GET /api/matches/:id/ws (Phase 3 realtime,
+        // docs/DESIGN-PHASE3-LIVE.md §3.7) — without it the dev proxy drops the upgrade.
+        proxy: { '/api': { target: 'http://localhost:8080', changeOrigin: true, ws: true } }
     },
     preview: { port: 7777 },
     build: { sourcemap: true },

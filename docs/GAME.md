@@ -2,7 +2,7 @@
 
 > **The north star spec.** The AI-judged drawing duel (`/play`): two players draw the *same* prompt, the server renders authoritative rasters, the judge scores them, a winner (or tie) is recorded. This doc owns the **match lifecycle/state machine, the canonical game canvas size, prompt pinning, the ratings sketch, and tie handling**. It defers the judge contract wholesale to `docs/JUDGE.md` and the document/storage schema to `docs/DOCUMENT-FORMAT.md`.
 >
-> **Status:** Phase 0 (draft). The async duel is **v1**; live realtime layers on later (§9) without forking the lifecycle. Companion: `docs/DECISIONS.md` (the "why"), `docs/ARCHITECTURE.md` (§7 data model, §8 async-first), `docs/JUDGE.md` (scoring contract), `docs/API.md` (routes, error shape, DoS caps). When this disagrees with those for what it owns, this doc wins; for what it defers, they win.
+> **Status:** Phase 0 (draft). The async duel is **v1**; live realtime (§9) has now shipped as a delivery upgrade, without forking the lifecycle. Companion: `docs/DECISIONS.md` (the "why"), `docs/ARCHITECTURE.md` (§7 data model, §8 async-first), `docs/JUDGE.md` (scoring contract), `docs/API.md` (routes, error shape, DoS caps). When this disagrees with those for what it owns, this doc wins; for what it defers, they win.
 
 ## 1. Scope & ownership
 
@@ -130,12 +130,12 @@ The mapping lives **only** here; the judge never learns who is who, and the stor
 - **When applied:** exactly once, atomically, on the `judging → done` transition (a judged result) **or the `drawing → done` forfeit transition** (§4.1) — after the result is recorded. `rating_before` is captured before the update; `rating_after` after. An `abandoned` match applies **no** rating change.
 - **Outcome from the judge, not the score gap:** win/loss/tie is taken from the judge's `winner` field (mapped per §7.1), not by comparing `scoreA`/`scoreB` ourselves — the judge owns the verdict, including whether a near-equal pair is a tie. (A forfeit has no judge outcome to take — the winner is simply the submitter.)
 
-## 9. Live mode — same lifecycle, later
+## 9. Live realtime — same lifecycle, now shipped
 
-Live realtime is **not v1** (`ARCHITECTURE.md` §8; `ROADMAP.md` Phase 3 back-half). It is a **delivery upgrade, not a second backend** — async and live share the **one** lifecycle in §3/§4.
+Live realtime **shipped** (`feat/ws-realtime`, 2026-07-12, `ROADMAP.md` Phase 3 back-half) as a **delivery upgrade, not a second backend** — it pushes over WS exactly the transitions §3/§4 already define; it does not change the lifecycle, and it applies to every async match (there is no separate `matches.mode = 'live'` — the WS route is available on any match id the caller is a player in).
 
-- **What changes:** `matches.mode = 'live'`; a WS hub (`internal/ws`, coder/websocket — `docs/API.md` sketches the protocol, marked not-v1) pushes match-room events (**opponent joined, opponent submitted, judging, result**) so both players experience the transitions in real time instead of polling.
-- **What does NOT change:** the states, the transitions, the prompt-pinning, the trust boundary (authoritative server render), the A/B→player mapping, and ratings are **identical**. **Postgres remains the source of truth**; the hub only *pushes* transitions the lifecycle already defines — it never owns them.
-- **The visibility rule (§4.2) still holds in live:** players see only their own canvas during the round; the hub may broadcast *that* the opponent submitted, never *what* they drew, until `done`.
+- **What changes:** an in-process WS hub (`internal/ws`, `coder/websocket`) pushes match-room state — `match_state` (roster/deadline), `opponent_submitted`, `judging`, `result` (judged **or** forfeit), `abandoned`, and coarse presence (`opponent_connected`/`opponent_disconnected`) — the instant `internal/game` commits each transition, so both players experience them in real time instead of only on their next poll. The full wire protocol is owned by `docs/API.md` §9.
+- **What does NOT change:** the states, the transitions, the prompt-pinning, the trust boundary (authoritative server render), the A/B→player mapping, and ratings are **identical**. **Postgres remains the source of truth**; the hub only *pushes* committed transitions — it never mediates a mutation, and the REST poll loop remains both the fallback transport and the source of truth if the socket is absent or drops.
+- **The visibility rule (§4.2) still holds over the wire:** `match_state`/`result` frames are rebuilt **per recipient** through the same viewer-scoped read the REST handlers use (never a marshal-once broadcast), so a mid-round frame sent to player A carries A's own `drawingId` and never B's — the hub broadcasts *that* the opponent submitted, never *what* they drew, until `done`.
 
-Because the lifecycle is delivery-agnostic, shipping live is wiring a transport over an already-proven loop — not rebuilding the game.
+Because the lifecycle was delivery-agnostic, shipping live was wiring a transport over the already-proven loop — not rebuilding the game.
