@@ -12,19 +12,31 @@
  * opponent joins, reveals the pinned prompt, and — on submit — POSTs the vector
  * document and polls the verdict (`GET /api/matches/:id/result`) until the judge
  * decides. Reads that drive the flow are polled directly (an ephemeral per-round
- * flow); create/submit go through TanStack mutations. WS push replaces the polling
- * later (docs/API.md §9, not-v1). The authoritative judged raster is rendered
- * server-side — the client PNG here is an advisory preview only (GAME.md §6).
+ * flow); create/submit go through TanStack mutations. A live WS socket
+ * (`GET /api/matches/:id/ws`, docs/DESIGN-PHASE3-LIVE.md §3) pushes the same
+ * transitions instantly and demotes the poll loop to a slow reconciliation
+ * fallback — the poll loop itself is never removed, so the round still runs
+ * correctly with the socket absent or repeatedly dropped. The authoritative
+ * judged raster is rendered server-side — the client PNG here is an advisory
+ * preview only (GAME.md §6).
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { OriButton, OriSurface } from '@oriui/vue'
+import { OriBadge, OriButton, OriSurface } from '@oriui/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId, renderToPNG } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DOC_VERSION, parseDocument } from '@justpaint/document'
 import { useThemeColor } from '@oriui/headless/vue'
-import { useSessionStore, useCreateMatch, useSubmitMatch, matches, isAuthError, toApiError } from '@core'
-import type { Match, MatchResultDone } from '@core'
+import {
+    useSessionStore,
+    useCreateMatch,
+    useSubmitMatch,
+    matches,
+    isAuthError,
+    toApiError,
+    openMatchSocket
+} from '@core'
+import type { Match, MatchResultDone, WsFrame, MatchSocketHandle } from '@core'
 import EditorShell from '../components/shell/EditorShell.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import IconButton from '../components/ui/IconButton.vue'
@@ -41,15 +53,32 @@ import type { DuelResult } from '../components/game/ResultReveal.vue'
 /** The canonical square duel canvas (GAME.md §2 — GAME_CANVAS = 1080×1080). */
 const GAME_CANVAS = 1080
 
-/** How often to poll the roster / verdict while a round is in flight. */
+/** How often to poll the roster / verdict while a round is in flight. This is the
+ *  FAST FALLBACK cadence and stays fixed forever — `pollCadence` below is the
+ *  value `scheduleNextPoll` actually reads, demoted while the socket is live and
+ *  snapped back to this on any disconnect (docs/DESIGN-PHASE3-LIVE.md §3.7). */
 const POLL_MS = 2000
+
+/** Slow reconciliation cadence while the WS socket is live — the socket carries
+ *  liveness, so polling this rarely is just a belt-and-suspenders double-check
+ *  in case a frame was ever missed. */
+const WS_POLL_MS = 15000
+
+/** Client→server heartbeat interval — lets a dead/half-open socket be noticed
+ *  without waiting on a TCP-level timeout. */
+const WS_PING_MS = 25000
+
+/** Reconnect backoff schedule (ms), capped at the last entry — resets to the
+ *  first step whenever the socket opens cleanly. */
+const WS_RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 10000]
 
 /**
  * Fire the auto-submit this far BEFORE the server-authoritative deadline, so the
  * request has a chance to land before the server's own cutoff. Fixed and
- * deliberately NOT derived from `POLL_MS` (docs/DESIGN-PHASE3-LIVE.md §2.9) — a
- * submit that arrives after the deadline is rejected (409 `round_expired`) and
- * self-inflicts a forfeit loss, so auto-submit fires a little early on purpose.
+ * deliberately NOT derived from `POLL_MS`/`pollCadence` (docs/DESIGN-PHASE3-LIVE.md
+ * §2.9) — a submit that arrives after the deadline is rejected (409
+ * `round_expired`) and self-inflicts a forfeit loss, so auto-submit fires a
+ * little early on purpose, independent of however slow the poll has been demoted.
  */
 const AUTO_SUBMIT_MARGIN_MS = 3000
 
@@ -137,6 +166,22 @@ const opponent = reactive<{ name: string; status: OpponentStatus }>({
     status: 'drawing'
 })
 
+/** The cadence `scheduleNextPoll` actually reads — starts at the fast `POLL_MS`
+ *  fallback, demoted to `WS_POLL_MS` while the socket is live, snapped back
+ *  immediately on disconnect. `POLL_MS` itself is never mutated (docs/DESIGN-
+ *  PHASE3-LIVE.md §3.7). */
+const pollCadence = ref(POLL_MS)
+
+/** True while the socket is down and a reconnect is pending. Surfaced as a small
+ *  honest "reconnecting…" affordance — the poll fallback keeps the round moving
+ *  in the meantime, so this is degraded, not broken. */
+const wsReconnecting = ref(false)
+
+/** Best-effort opponent socket presence from `opponent_connected` /
+ *  `opponent_disconnected`. `undefined` until the first presence frame arrives
+ *  (or if the socket never connects) — never load-bearing for correctness. */
+const opponentOnline = ref<boolean | undefined>(undefined)
+
 /**
  * Server-anchored countdown state (docs/DESIGN-PHASE3-LIVE.md §2.9): `deadlineMs`
  * is the absolute round deadline in epoch ms (null while `open`/waiting — nothing
@@ -173,6 +218,16 @@ let opponentImageUrl: string | null = null
 // Timers we own and must clear on reset/unmount (the countdown + poll ticks).
 let tick: number | null = null
 const timeouts = new Set<number>()
+
+// The live match socket (opened once matchId is known) + the bookkeeping its
+// heartbeat/reconnect policy owns. `wsGeneration` invalidates callbacks from a
+// socket instance we've already intentionally replaced/torn down, so a close
+// event that arrives late from a superseded socket is recognized as stale and
+// never mistaken for an unexpected drop (docs/DESIGN-PHASE3-LIVE.md §3.7).
+let socket: MatchSocketHandle | null = null
+let wsGeneration = 0
+let wsReconnectAttempt = 0
+let wsHeartbeat: number | null = null
 
 function later(fn: () => void, ms: number): void {
     const id = window.setTimeout(() => {
@@ -328,7 +383,129 @@ async function pollTick(): Promise<void> {
 
 function scheduleNextPoll(): void {
     if (disposed) return
-    later(() => void pollTick(), POLL_MS)
+    later(() => void pollTick(), pollCadence.value)
+}
+
+/* --- WS realtime: thin adapter over the poll loop (docs/DESIGN-PHASE3-LIVE.md
+   §3.7) — frames dispatch into the SAME handlers the poll loop already calls;
+   the poll loop itself is only ever demoted to a slow reconciliation cadence on
+   a clean socket open, never removed. -------------------------------------- */
+
+function stopHeartbeat(): void {
+    if (wsHeartbeat !== null) {
+        clearInterval(wsHeartbeat)
+        wsHeartbeat = null
+    }
+}
+
+/** Tear down the live socket, if any. Bumps `wsGeneration` FIRST so any callback
+ *  still in flight from this exact socket instance is recognized as stale by
+ *  `openSocket`'s handlers and ignored, rather than mistaken for an unexpected
+ *  drop that should trigger a reconnect. Safe to call when there is no socket. */
+function closeSocket(): void {
+    stopHeartbeat()
+    wsGeneration++
+    socket?.close()
+    socket = null
+}
+
+/**
+ * Dispatch one WS frame into the EXISTING poll-loop handlers — a thin adapter,
+ * no new state machine. `match_state` mirrors `pollTick`'s waiting/drawing
+ * branch exactly (roster + abandoned-check + the waiting→drawing transition) so
+ * the waiting player reacts the instant the opponent joins, which is the whole
+ * point of opening the socket this early (docs/DESIGN-PHASE3-LIVE.md §3.7).
+ * Bails outright once a terminal phase is reached — same guard `pollTick` opens
+ * with — so a WS frame can never regress `done`/`error` (monotonic, §2.9).
+ */
+function handleWsFrame(frame: WsFrame): void {
+    if (disposed || isTerminalPhase()) return
+    switch (frame.type) {
+        case 'match_state':
+            applyRoster(frame.match)
+            if (frame.match.status === 'abandoned') {
+                toError('This match was abandoned.')
+            } else if (frame.match.status === 'drawing' && phase.value === 'waiting') {
+                beginDrawing()
+            }
+            break
+        case 'opponent_submitted':
+            if (frame.userId !== myUserId) opponent.status = 'submitted'
+            break
+        case 'judging':
+            opponent.status = 'judging'
+            break
+        case 'result':
+            applyResult(frame.result)
+            break
+        case 'abandoned':
+            toError('This match was abandoned.')
+            break
+        case 'opponent_connected':
+            if (frame.userId !== myUserId) opponentOnline.value = true
+            break
+        case 'opponent_disconnected':
+            if (frame.userId !== myUserId) opponentOnline.value = false
+            break
+        case 'pong':
+            break
+    }
+}
+
+/** Reconnect with capped backoff — only while the round is still live (a
+ *  terminal phase means there's nothing left to reconcile, so don't bother).
+ *  Scheduled via the shared `later()`/`timeouts` bookkeeping, so `clearTimers()`
+ *  (already called by `playAgain`/unmount) cancels a pending attempt for free. */
+function scheduleReconnect(): void {
+    if (disposed || isTerminalPhase() || matchId === null) return
+    wsReconnecting.value = true
+    pollCadence.value = POLL_MS
+    const id = matchId
+    const step = Math.min(wsReconnectAttempt, WS_RECONNECT_BACKOFF_MS.length - 1)
+    wsReconnectAttempt += 1
+    later(() => {
+        if (disposed || isTerminalPhase() || matchId !== id) return
+        openSocket(id)
+    }, WS_RECONNECT_BACKOFF_MS[step])
+}
+
+/** Open the live match socket (or replace an existing one). Frames dispatch
+ *  into `handleWsFrame`; the poll loop is only ever demoted, never stopped. */
+function openSocket(id: string): void {
+    closeSocket()
+    const gen = ++wsGeneration
+    socket = openMatchSocket(id, {
+        onOpen: () => {
+            if (disposed || gen !== wsGeneration) return
+            wsReconnecting.value = false
+            wsReconnectAttempt = 0
+            pollCadence.value = WS_POLL_MS
+            stopHeartbeat()
+            wsHeartbeat = window.setInterval(() => socket?.ping(), WS_PING_MS)
+        },
+        onClose: (code) => {
+            if (disposed || gen !== wsGeneration) return
+            stopHeartbeat()
+            pollCadence.value = POLL_MS
+            if (code === 4001) {
+                // The backend arms this close at the JWT `exp` (docs/DESIGN-PHASE3-
+                // LIVE.md §3.4) — the session itself is gone, not just the socket, so
+                // don't reconnect; send the player down the same sign-in path the
+                // initial mount check uses.
+                toError('Sign in to play a duel.', true)
+                return
+            }
+            scheduleReconnect()
+        },
+        onError: () => {
+            if (disposed || gen !== wsGeneration) return
+            // The DOM error event carries no detail; the close event that always
+            // follows has the real code, so just fall back to the fast poll cadence
+            // here and let onClose decide whether to reconnect.
+            pollCadence.value = POLL_MS
+        },
+        onFrame: handleWsFrame
+    })
 }
 
 /** Capture the player's drawing as a PNG object URL (advisory preview only). */
@@ -388,6 +565,14 @@ async function startMatch(): Promise<void> {
     prompt.value = ''
     opponent.name = 'Player 2'
     opponent.status = 'drawing'
+    opponentOnline.value = undefined
+    // Fresh round: reset the WS reconnect/cadence bookkeeping and tear down any
+    // socket from a previous round/attempt — `startMatch` can be re-entered
+    // directly (the error overlay's "Try again"), not only via `playAgain`.
+    wsReconnecting.value = false
+    pollCadence.value = POLL_MS
+    wsReconnectAttempt = 0
+    closeSocket()
     // Fresh round: clear the previous round's server-anchored clock so it doesn't
     // leak into this one (roundTotalSeconds's "first sight" capture in particular).
     deadlineMs.value = null
@@ -399,6 +584,9 @@ async function startMatch(): Promise<void> {
         if (disposed) return
         matchId = m.id
         applyRoster(m)
+        // Open the live socket now, so a still-waiting player gets the match_state
+        // push the instant the opponent joins (docs/DESIGN-PHASE3-LIVE.md §3.7).
+        openSocket(matchId)
         // Auto-joined an existing open match ⇒ the round is already live; otherwise
         // we opened one and wait for an opponent (prompt stays redacted).
         if (m.status === 'drawing') beginDrawing()
@@ -480,6 +668,7 @@ function applyResult(r: MatchResultDone): void {
 /** Reset the canvas and create a fresh match. */
 function playAgain(): void {
     clearTimers()
+    closeSocket()
     revokeYourRaster()
     revokeOpponentRaster()
     result.value = null
@@ -609,6 +798,7 @@ onBeforeUnmount(() => {
     disposed = true
     window.removeEventListener('keydown', onKeydown)
     clearTimers()
+    closeSocket()
     revokeYourRaster()
     revokeOpponentRaster()
     unsubscribe?.()
@@ -624,7 +814,18 @@ onBeforeUnmount(() => {
     <EditorShell ref="shell" mode="play">
         <!-- Top-left: who you're dueling (display name / "Player 2", never a login). -->
         <template #top-left>
-            <OpponentStatusChip :name="opponent.name" :status="opponent.status" />
+            <OpponentStatusChip :name="opponent.name" :status="opponent.status" :online="opponentOnline" />
+            <!-- Small honest degraded-not-broken affordance: the poll fallback keeps
+                 the round moving while the socket reconnects, but presence/instant
+                 pushes quietly stop, so this should be visible (docs/DESIGN-PHASE3-
+                 LIVE.md §3.7). -->
+            <OriBadge
+                v-if="wsReconnecting"
+                content="reconnecting…"
+                color="warn"
+                variant="tonal"
+                label="Reconnecting to the match"
+            />
         </template>
 
         <!-- Top-center: the round timer pinned to the very top edge, above the
