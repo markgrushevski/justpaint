@@ -42,7 +42,7 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 
 ## Phase 1 — Go backend + minimal editor 🟢 (done)
 
-**Goal:** a secure Go service that authenticates users and does drawings CRUD storing the **vector document as jsonb**, plus the thinnest Konva editor that can produce and load a valid document. First real learn-Go surface.
+**Goal:** a secure Go service that authenticates users and does drawings CRUD storing the **vector document as jsonb**, plus the thinnest Konva editor that can produce and load a valid document. First real Go backend surface.
 
 **Deliverables**
 - [x] **Monorepo skeleton** — npm-workspace root (`package.json` workspaces `packages/*`+`apps/*`, shared strict `tsconfig.base.json`); members: `packages/document`, `apps/web` (migrated from `client/` via `git mv`, history preserved, renamed `@justpaint/web`); `server/` already at target. oriui was `file:`-linked from a temporary local `vendor/oriui/` copy (alpha.1), later swapped to the published npm packages in Phase 2 (`@oriui/* 1.0.0-alpha.2`; see `IDEAS.md`). `npm install` + `vite build` + `vue-tsc` green; internals refactor is Phase 2.
@@ -111,7 +111,7 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 
 ## Phase 4 — Stretch ⚪
 
-**Goal:** depth once the core loop is proven. Each item is independent; pull forward whatever the portfolio needs.
+**Goal:** depth once the core loop is proven. Each item is independent; pull forward whatever the product needs.
 
 **Deliverables (unordered)**
 - [ ] **Realtime hardening** — WS hub robustness (reconnect, presence, match rooms), spectating.

@@ -4,7 +4,7 @@
 > `docs/ROADMAP.md` (the durable status tracker) or the code, the code wins — fix this file.
 
 ## What this is
-justpaint is a web drawing app rebuilt as a **portfolio + learn-Go** project. The **north star is a game**: an AI-judged drawing duel — two players draw the same prompt, an ML "judge" scores similarity to the prompt and picks a winner (ratings, later teams/tournaments). A free-draw editor is a supporting mode.
+justpaint is a web drawing app. The **north star is a game**: an AI-judged drawing duel — two players draw the same prompt, an ML "judge" scores similarity to the prompt and picks a winner (ratings, later teams/tournaments). A free-draw editor is a supporting mode.
 
 Greenfield — no production data to preserve; schema/format may be redesigned freely.
 
@@ -12,7 +12,7 @@ Greenfield — no production data to preserve; schema/format may be redesigned f
 - **Primary:** the game (`/play`) — async duel first (create → both draw → submit → judge → result); live realtime later (Go WS hub). **In progress — Phase 3:** the async-duel loop runs end-to-end — the backend **and** the navigable `/play` page (live against `/api/matches`: create/auto-join → poll roster → submit → poll verdict → result + Elo), behind swappable render/judge seams; the authoritative Node render worker is wired (`RENDER_MODE=node`). Remaining: object storage for the opponent-canvas reveal, then live WS realtime.
 - **Supporting:** free-draw editor (`/draw`) — editor + save/load only, kept deliberately minimal. The same editor powers both modes. **Live today.**
 - **External:** the ML judge is built by a collaborator (his own ML). We define the contract + a fake impl; we do NOT build it.
-- **Planned:** AI **inside the product** (text drawing commands, AI inpainting, canvas co-author) — the portfolio differentiator; see `docs/IDEAS.md` "AI inside the product" + `DECISIONS.md` 2026-07-04.
+- **Planned:** AI **inside the product** (text drawing commands, AI inpainting, canvas co-author) — the product differentiator; see `docs/IDEAS.md` "AI inside the product" + `DECISIONS.md` 2026-07-04.
 
 ## Stack
 - **Frontend:** Vue 3 + Vite + Pinia + TanStack Query. Rendering on **Konva** (+ `perfect-freehand` for brush quality). We do NOT hand-write a render engine. Component lib: **oriui** — the owner's own library, installed from npm (`@oriui/{vue,css,headless}` `1.0.0-alpha.10`, the three in lockstep); in use on `/draw` (replaced `vueinjar`).

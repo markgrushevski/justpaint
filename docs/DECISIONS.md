@@ -187,22 +187,22 @@ The binding limit is **total input points**. Computed acceptable v1 values (tuna
 ## 2026-06-19 — Foundational decisions
 
 ### Game is the north star; editor is supporting
-The centerpiece is an AI-judged drawing duel, not the paint editor. The standalone editor (`/draw`) is a supporting mode, kept minimal. Rationale: a generic paint app is a commodity portfolio project; the AI-judged game is the memorable differentiator. Don't build two products.
+The centerpiece is an AI-judged drawing duel, not the paint editor. The standalone editor (`/draw`) is a supporting mode, kept minimal. Rationale: a generic paint app is a commodity; the AI-judged game is the memorable differentiator. Don't build two products.
 
 ### Two modes in one site (not only-game, not separate sites)
 `apps/web` serves `/draw` (free) + `/play` (game). The editor exists for the game anyway, so `/draw` is near-free and useful (dev surface, home for save/load, fallback demo). Separate sites = premature ops/focus split for a solo project; the reusability signal already comes from the `editor` package boundary. Reversible later if the game earns its own brand.
 
 ### Use libraries for canvas; don't hand-write an engine
-Rendering on **Konva** + **perfect-freehand**; we own only the document model/serialization and a thin editor wrapper. Rationale: a custom render engine reinvents Konva/Fabric, doesn't advance the learn-Go goal, and isn't the differentiator. Own the boundaries, rent the rendering. **Konva over Fabric** — explicit layers, speed, JSON serialization, `vue-konva`, clean PNG export for the judge.
+Rendering on **Konva** + **perfect-freehand**; we own only the document model/serialization and a thin editor wrapper. Rationale: a custom render engine reinvents Konva/Fabric and isn't the differentiator. Own the boundaries, rent the rendering. **Konva over Fabric** — explicit layers, speed, JSON serialization, `vue-konva`, clean PNG export for the judge.
 
 ### Backend rewritten in Go as a modular monolith
-Replace NestJS with one Go service (auth + drawings + game + WS hub), one Postgres. Stack: net/http + pgx + sqlc + goose + golang-jwt + bcrypt + slog + coder/websocket. Rationale: learn-Go is an explicit goal; a monolith is right-sized for solo; microservices would be a portfolio anti-pattern. Don't refactor the old NestJS — replace it.
+Replace NestJS with one Go service (auth + drawings + game + WS hub), one Postgres. Stack: net/http + pgx + sqlc + goose + golang-jwt + bcrypt + slog + coder/websocket. Rationale: a monolith is right-sized for a solo developer; microservices would be over-engineering. Don't refactor the old NestJS — replace it.
 
 ### Vector document persisted as jsonb
 Drawings stored as a structured vector document (`Document/Layer/Stroke`), not bytea PNG. Enables small storage, clean export, real layers, replay, and a clean contract for the judge. The schema is independent of Konva's internal JSON to avoid vendor lock.
 
 ### The ML judge is external (built by a collaborator)
-A friend builds the ML judge (his own portfolio piece). We define the `Judge` interface (prompt + 2 images → `{scoreA, scoreB, winner, reason}`) and ship a fake impl; he integrates over HTTP against the live contract. Never block on the ML.
+A friend builds the ML judge (his own project). We define the `Judge` interface (prompt + 2 images → `{scoreA, scoreB, winner, reason}`) and ship a fake impl; he integrates over HTTP against the live contract. Never block on the ML.
 
 ### Greenfield
 No production data to preserve; free to redesign schema/format. (If this ever changes, revisit migration strategy.)

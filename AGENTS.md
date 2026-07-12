@@ -6,7 +6,7 @@ this file is a short map; read it (and the docs it links) before non-trivial wor
 
 ## What this is
 
-justpaint — a **portfolio + learn-Go** project whose north star is an **AI-judged drawing duel**
+justpaint — a web drawing app whose north star is an **AI-judged drawing duel**
 (two players draw the same prompt; an external ML judge scores similarity and picks a winner). A
 free-draw editor (`/draw`) is a supporting mode. Greenfield; Phases 1–2 (Go backend, vector editor)
 are done and **Phase 3 (the game) is in progress** — the async-duel loop runs end-to-end in the
