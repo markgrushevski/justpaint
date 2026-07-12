@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/markgrushevski/justpaint/server/internal/game"
 )
@@ -32,6 +33,10 @@ const wsMaxConnsPerUser = 5
 // event is dropped + logged rather than blocking the committed path
 // (docs/DESIGN-PHASE3-LIVE.md §3.2).
 const wsPublishBuffer = 64
+
+// wsBuildTimeout bounds each per-viewer DB read (MatchStateJSON/ResultJSON — ~3 pool
+// reads) so a slow/hung DB can't let fan-out goroutines pile up unbounded (jp-go review).
+const wsBuildTimeout = 5 * time.Second
 
 // stateSource is the game read seam the hub needs to rebuild per-viewer frames. Kept an
 // interface (not a bare *game.Service) so the hub/room logic is unit-testable with a
@@ -204,6 +209,17 @@ func (h *Hub) handleRegister(r registration) {
 		// carries {userId}; a client ignores its own.
 		rm.broadcast(h.userFrameBytes(frameOpponentConnected, r.client.id))
 	}
+
+	// Seed presence FOR the newcomer: opponent_connected otherwise fires only on a
+	// user's empty→non-empty transition, so a client joining an already-populated room
+	// would never learn the opponent is already present (jp-go review). Send the new
+	// client an opponent_connected for each OTHER user already in the room. Best-effort
+	// (a fresh client's buffer won't be full); presence is non-load-bearing (§3.7).
+	for uid := range rm.conns {
+		if uid != r.client.id {
+			r.client.trySend(h.userFrameBytes(frameOpponentConnected, uid))
+		}
+	}
 }
 
 func (h *Hub) handleUnregister(r registration) {
@@ -258,7 +274,9 @@ func (h *Hub) fanoutPerViewer(
 	wrap func(json.RawMessage) []byte,
 ) {
 	for _, uc := range users {
-		payload, err := build(ctx, uc.userID, matchID)
+		bctx, cancel := context.WithTimeout(ctx, wsBuildTimeout)
+		payload, err := build(bctx, uc.userID, matchID)
+		cancel()
 		if err != nil {
 			if !errors.Is(err, game.ErrNotFound) {
 				h.logger.Error("ws: build per-viewer frame", "matchID", matchID, "userID", uc.userID, "err", err)
