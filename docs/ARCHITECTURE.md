@@ -82,7 +82,7 @@ server/
     game/        # match lifecycle: create → both draw → submit → judge → result       [done: full loop]
     render/      # Renderer seam: StubRenderer + NodeRenderer (spawns packages/render)  [done]
     judge/       # Judge interface + FakeJudge (HTTPJudge = Phase 4)                    [done: fake]
-    ws/          # coder/websocket hub for the game (realtime later; async-first)       [Phase 3]
+    ws/          # coder/websocket hub for the game (coder/websocket hub — shipped; async-first)       [Phase 3]
   migrations/    # goose (00001_initial_schema.sql, 00002_seed_prompts.sql)
 ```
 
@@ -189,10 +189,10 @@ Notes:
 - **`matches.winner_player_id`** is the resolved player id (§5 maps the judge's positional `A`/`B`/`tie` onto it). Tie semantics (whether it can be null) are a `docs/JUDGE.md` / `docs/GAME.md` decision.
 - **Rendered PNGs** (`drawings.thumbnail_url`, plus the judged raster) live in **object storage**, referenced by URL — not in Postgres (DOCUMENT-FORMAT rejects bytea/base64-PNG storage; the old `bytea`-per-layer red flag dies here).
 
-## 8. Realtime (async-first, WS hub later)
+## 8. Realtime (async-first + a live WS hub — shipped)
 
 - **v1 is the async duel:** create match → both players draw independently → submit → server renders rasters → judge → result. This needs only HTTP; **no realtime required** to ship the core loop.
-- **The WS hub lives *inside* `server/`** (`internal/ws`, coder/websocket) when live mode arrives — a hub of match rooms broadcasting state (opponent joined, submitted, judging, result). It is **not** a separate service; it shares the same process, auth, and Postgres (DECISIONS: WS hub is part of the one Go service).
+- **The WS hub lives *inside* `server/`** (`internal/ws`, coder/websocket)  — an in-process actor hub of match rooms pushing committed state (opponent connected/submitted, judging, result, abandoned) per-recipient. It is **not** a separate service; it shares the same process, auth, and Postgres (DECISIONS: WS hub is part of the one Go service).
 - **Postgres is the source of truth**; the hub pushes state transitions, it does not own them. Async and live therefore share one match lifecycle — live is a delivery upgrade, not a second backend.
 
 ## 9. Deployment & when-to-split triggers
