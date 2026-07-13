@@ -25,6 +25,17 @@ type Config struct {
 	// RenderNodeBin is the node executable (default "node").
 	RenderNodeBin string
 
+	// AssistMode selects the AI-assist impl (docs/ASSIST.md): "fake" (default;
+	// deterministic canned ops, zero API dependency) or "anthropic" (the real LLM
+	// impl, scaffolded in Phase A). Mirrors the RenderMode mode-switch.
+	AssistMode string
+	// AnthropicAPIKey is the server-side key for AssistMode == "anthropic" — never
+	// reaches the client (docs/ASSIST.md §1). Required when the anthropic mode is
+	// selected.
+	AnthropicAPIKey string
+	// AssistModel is the model id for the real impl (default "claude-opus-4-8").
+	AssistModel string
+
 	// WSAllowedOrigins are extra Origin hosts authorized for the WebSocket handshake
 	// (coder/websocket path.Match patterns against the Origin header host, e.g.
 	// "app.example.com" or "localhost:*"). The request Host is ALWAYS authorized, so a
@@ -42,6 +53,16 @@ const (
 	RenderModeNode = "node"
 )
 
+// Assist modes.
+const (
+	AssistModeFake      = "fake"
+	AssistModeAnthropic = "anthropic"
+)
+
+// DefaultAssistModel is the model id used by the real assist impl unless
+// ASSIST_MODEL overrides it (docs/ASSIST.md §3.2).
+const DefaultAssistModel = "claude-opus-4-8"
+
 // Load reads configuration from the environment and fails fast on any missing
 // required value.
 //
@@ -57,10 +78,13 @@ func Load() (Config, error) {
 		Env:         env,
 		// Secure cookies are dropped by browsers over plain http://localhost,
 		// so relax the flag in dev; require it everywhere else.
-		CookieSecure:  env != "dev",
-		RenderMode:    strings.ToLower(getenv("RENDER_MODE", RenderModeStub)),
-		RenderCLI:     os.Getenv("RENDER_CLI"),
-		RenderNodeBin: getenv("RENDER_NODE_BIN", "node"),
+		CookieSecure:    env != "dev",
+		RenderMode:      strings.ToLower(getenv("RENDER_MODE", RenderModeStub)),
+		RenderCLI:       os.Getenv("RENDER_CLI"),
+		RenderNodeBin:   getenv("RENDER_NODE_BIN", "node"),
+		AssistMode:      strings.ToLower(getenv("ASSIST_MODE", AssistModeFake)),
+		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
+		AssistModel:     getenv("ASSIST_MODEL", DefaultAssistModel),
 	}
 
 	// WS origins: explicit env wins; otherwise dev allows the local Vite proxy origin
@@ -105,6 +129,19 @@ func Load() (Config, error) {
 		}
 	default:
 		return Config{}, fmt.Errorf("config: RENDER_MODE must be %q or %q", RenderModeStub, RenderModeNode)
+	}
+
+	switch cfg.AssistMode {
+	case AssistModeFake:
+	case AssistModeAnthropic:
+		// The real impl needs a server-side key; guessing/defaulting it is worse than
+		// failing fast (a keyless anthropic mode would 500 on every request, out of
+		// band — a boot error is the honest signal). Mirrors the RENDER_CLI fail-fast.
+		if cfg.AnthropicAPIKey == "" {
+			return Config{}, fmt.Errorf("config: ANTHROPIC_API_KEY is required when ASSIST_MODE=anthropic")
+		}
+	default:
+		return Config{}, fmt.Errorf("config: ASSIST_MODE must be %q or %q", AssistModeFake, AssistModeAnthropic)
 	}
 
 	return cfg, nil
