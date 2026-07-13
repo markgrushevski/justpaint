@@ -1,6 +1,6 @@
 # API contract
 
-> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, and the live WS realtime layer. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12).
+> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, the live WS realtime layer, and AI assist. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12); §10 owns the AI-assist HTTP edge (contract owned by `docs/ASSIST.md`).
 >
 > **Status:** Phase 0 (draft). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
 
@@ -417,3 +417,34 @@ On every connect (including a reconnect), the server immediately sends a per-vie
 ### 9.5 Relationship to the REST poll loop
 
 The socket is additive, never a replacement for §8's poll loop (`GET /matches/{id}` / `GET /matches/{id}/result`). Postgres remains the sole source of truth. The client demotes its poll cadence to a slow (~15s) reconciliation fallback while a socket is open, and snaps back to the fast cadence immediately on any disconnect — so a client that never opens a socket, or whose socket keeps dropping, still completes a correct round over REST alone, just more slowly.
+
+## 10. AI assist — `POST /api/assist/ops`
+
+Turns a natural-language prompt into a validated batch of document operations (**Ops**) the client applies as one composite editor command. **`docs/ASSIST.md` is the contract owner** — the Op schema (§2), the `internal/assist` seam (§3), the doc-summary shape (§4), and the ghost-preview/accept UX (§5) are defined there; this entry carries only the HTTP edge.
+
+### `POST /api/assist/ops`
+**Auth: required** (session cookie, like every write route). Rate-limited per user — each call can cost real API money (`docs/ASSIST.md` §3.4).
+
+Request:
+```json
+{
+  "prompt": "draw a house with a red roof",
+  "docSummary": { "canvas": { "width": 1920, "height": 1080 }, "layers": [ { "id": "…", "name": "Layer 1", "strokeCount": 3 } ] },
+  "targetLayerId": "…"        // optional: bias generation onto this layer
+}
+```
+- The full document is **never** sent — only the compact `docSummary` (`docs/ASSIST.md` §4). Request body cap: **~64 KiB** (a prompt plus the minimal summary sits well under it; no document ever rides this route, so it does not share the 8 MB cap in §6).
+
+Success `200 OK`:
+```json
+{
+  "ops": [ /* Op[] — docs/ASSIST.md §2 */ ],
+  "note": "Drew the house as a rect body, polygon roof, and two rect windows."  // optional, surfaced in the UI
+}
+```
+- The batch is capped at **`maxOpsPerBatch` = 64** ops and is re-validated server-side (the Go document validator) before the response is sent — the client never receives an unvalidated batch (trust boundary).
+
+Errors:
+- `400 validation_failed` — malformed/oversized request body, **or** the model's output still fails validation after the server's retry budget (`docs/ASSIST.md` §3.3). Both fold into the same code/status — never `422` (§3 reserves it unused in v1).
+- `401 unauthorized` — no/expired/invalid `jp_session`.
+- `429 rate_limited` — the per-user token bucket is exceeded; the response carries a **`Retry-After`** header (seconds) alongside the standard error envelope.
