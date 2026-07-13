@@ -6,7 +6,7 @@
 >
 > **Status:** v1 design, accepted 2026-07-07 (`DECISIONS.md`). Phase A build in progress on `feat/assist-phase-a`.
 >
-> **Amended 2026-07-13 (Phase A build):** the three resolutions in `DESIGN-ASSIST-PHASE-A.md` §1 are folded in — `add_layer` gains an `id`, all DTOs are **camelCase**, the `DocSummary` is **minimal** (§4), and retry-exhaustion returns **`400 validation_failed`** not `422` (§3.3). §2 and §4 below reflect the **shipped** contract (`packages/document` + `server/internal/document`); §3 (endpoint) and §5 (client) are reconciled as those phases land.
+> **Amended 2026-07-13 (Phase A build):** the three resolutions in `DESIGN-ASSIST-PHASE-A.md` §1 are folded in — `add_layer` gains an `id`, all DTOs are **camelCase**, the `DocSummary` is **minimal** (§4), and retry-exhaustion returns **`400 validation_failed`** not `422` (§3.3). §2 and §4 reflect the **shipped** Op contract; §3.1 (endpoint), §3.4 (rate limit), and §5 (client) reflect the **shipped** Phase A code. Only §3.2 (the live SDK call) and §3.3 (the validate→retry loop) describe the still-scaffolded `AnthropicAssist` path — Phase A ships `FakeAssist` (always succeeds) plus the handler's own defense-in-depth re-validation; no impl exercises §3.2/§3.3 yet.
 
 ## 1. Overview
 
@@ -87,6 +87,8 @@ All DTOs are **camelCase**, matching the rest of the live API.
 
 ### 3.3 Validate → retry → `400`
 
+**Phase A status:** this retry loop is the intended behavior of `AnthropicAssist`, which is still scaffolded (§3.2) — its `GenerateOps` isn't wired to a live SDK call yet. In Phase A only `FakeAssist` (always succeeds; canned ops) runs, plus the handler's own defense-in-depth re-validation (step 3 below); no impl exercises the retry step today.
+
 The server **validates every op** against the Go document validator before returning anything to the client:
 
 1. Validate the returned batch (schema parity + document invariants + intra-batch layer refs).
@@ -133,7 +135,7 @@ Same playbook as the judge seam:
 
 ## 7. Phasing
 
-- **Phase A (MVP):** v1 ops (`add_layer`, `add_stroke`), ghost preview + accept/reject, fake + real `Assist` impls, the prompt panel in `/draw`.
+- **Phase A (MVP):** v1 ops (`add_layer`, `add_stroke`), ghost preview + accept/reject, fake `Assist` impl (live) + `AnthropicAssist` (config-gated scaffold only, no live SDK call), the prompt panel in `/draw`.
 - **Phase B:** edit ops (`update_stroke`, `delete_stroke`); iterative chat that references existing stroke ids from the doc summary.
 - **Phase C:** freehand generation; **AI inpainting** via the render worker (`renderToPNG`) + an image API — requires an image/raster stroke type in the document contract (a separate decision, format §9 additive-field rules); a **real judge implementation** for `/play` reusing the same internal Anthropic client plumbing.
 

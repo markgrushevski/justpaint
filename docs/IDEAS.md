@@ -11,6 +11,10 @@ User directive 2026-07-04: make justpaint an **AI-product** — AI features in t
 
 *Why:* closes the main product gap — a project where AI is **inside** the product, not just a development tool; canvas + LLM integration is a striking demo. *When:* after the `/draw` UX pass; sequencing vs `/play` under discussion.
 
+## AI assist (`internal/assist`, shipped `feat/assist-phase-a`)
+- **Rate-limit buckets are never evicted** — `RateLimiter` (`server/internal/assist/ratelimit.go`) keys per-user token buckets in an unbounded map with no TTL sweep; fine for Phase A's bounded demo-user set (already flagged in a code comment there). Add TTL eviction, or fold assist into a shared/general rate limiter, when assist scales past a demo. *When:* with the general 429 work (see "Drawings / API" below) or when assist traffic actually grows.
+- **Surface the AI-assist panel in `/play` too** — Phase A only mounts the prompt panel in `DrawView.vue`; the capability (prompt → validated ops → ghost preview → accept) is reachable only from the free editor, not the duel, though `packages/editor`'s shared `previewOps`/`acceptOps`/`rejectOps` API needs no change to serve `/play`. Wiring it into `/play` serves the AI-in-product north star directly (the game, not just the supporting mode). *When:* after the core `/play` loop stabilizes; needs a `/play`-appropriate UI treatment (the round timer/turn structure differs from free `/draw`).
+
 ## Auth / identity
 - **Login charset/format validation** — `login` is currently validated by **length only** (3–254 chars). Add format rules: if it contains `@`, validate as an email; otherwise restrict a nickname to `[a-zA-Z0-9_.-]` (no spaces, no emoji). This is the real gap (vs. the email/nickname *split*, which isn't needed). *When:* cheap — fold into the next auth touch.
 - **Optional separate `email` column** — split the sign-in handle (`login`) from a verified contact `email`, unlocking password reset, email verification, notifications. *When:* only when an email flow is actually built (YAGNI until then). Until then the single `login` (email-or-nickname, citext, case-insensitive) stands as decided.

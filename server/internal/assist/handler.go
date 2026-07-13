@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/document"
@@ -15,6 +16,11 @@ import (
 // summary (canvas + layer inventory, never the full document), so 64 KiB is
 // generous (docs/DESIGN-ASSIST-PHASE-A.md §2.3).
 const maxAssistBodyBytes = 64 << 10 // 64 KiB
+
+// maxPromptBytes caps the natural-language prompt. Well under the body cap (which
+// also carries the doc summary), it rejects a runaway prompt before it reaches the
+// LLM impl — every assist call can cost real API money (docs/ASSIST.md §3.4).
+const maxPromptBytes = 8 << 10 // 8 KiB
 
 // Handler is the HTTP layer for AI assist (docs/ASSIST.md §3, docs/API.md).
 type Handler struct {
@@ -58,6 +64,18 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 		// Malformed JSON, unknown fields, or an over-cap body all fold into the one
 		// client error path (docs/API.md §1 strict decode; no 422 anywhere).
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "invalid request body")
+		return
+	}
+
+	// Guard the prompt BEFORE spending an LLM call: an empty/whitespace-only prompt
+	// is nothing to draw, and an over-long one is rejected up front (defense against
+	// a runaway prompt sneaking under the 64 KiB body cap).
+	if strings.TrimSpace(req.Prompt) == "" {
+		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "prompt must not be empty")
+		return
+	}
+	if len(req.Prompt) > maxPromptBytes {
+		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "prompt is too long")
 		return
 	}
 
