@@ -4,7 +4,9 @@
 >
 > **Ownership note.** The document schema and its invariants stay owned by `DOCUMENT-FORMAT.md` and the two validators; the HTTP envelope/status conventions by `API.md`; the command/undo model by `packages/editor`. This doc only defines what the LLM is allowed to say and how it gets applied.
 >
-> **Status:** v1 design, accepted 2026-07-07 (`DECISIONS.md`). Not yet implemented — Phase A below is the MVP slice.
+> **Status:** v1 design, accepted 2026-07-07 (`DECISIONS.md`). Phase A build in progress on `feat/assist-phase-a`.
+>
+> **Amended 2026-07-13 (Phase A build):** the three resolutions in `DESIGN-ASSIST-PHASE-A.md` §1 are folded in — `add_layer` gains an `id`, all DTOs are **camelCase**, the `DocSummary` is **minimal** (§4), and retry-exhaustion returns **`400 validation_failed`** not `422` (§3.3). §2 and §4 below reflect the **shipped** contract (`packages/document` + `server/internal/document`); §3 (endpoint) and §5 (client) are reconciled as those phases land.
 
 ## 1. Overview
 
@@ -26,8 +28,8 @@ Ops are a discriminated union, deliberately small in v1:
 
 ```ts
 type Op =
-  | { kind: "add_layer"; name: string }
-  | { kind: "add_stroke"; layer_id: string; stroke: Stroke };
+  | { kind: "add_layer"; id: string; name: string }
+  | { kind: "add_stroke"; layerId: string; stroke: Stroke };
 
 // v2 (design placeholder — NOT in the v1 schema):
 //  | { kind: "update_stroke"; id: string; patch: StrokePatch }
@@ -39,8 +41,8 @@ type Op =
 | Rule | Why |
 |---|---|
 | `stroke` is restricted to `line \| rect \| ellipse \| polygon` | **Freehand is excluded in v1**: LLM point-path generation is low quality (jittery, self-intersecting paths); `polygon` already covers arbitrary shapes. Freehand generation is Phase C. |
-| Ops may reference layer ids created earlier in the **same batch** | Lets one prompt produce "add a layer, then draw on it" without a round-trip. Resolution is positional within the batch; a reference to a nonexistent id is a validation failure. |
-| Every produced stroke/layer must pass the document validators | The Op schema adds no new invariants — it composes the existing `Stroke`/`Layer` contract. DoS caps (`API.md`) apply to the resulting document as usual. |
+| `add_layer` carries an LLM-assigned **`id`**; `add_stroke.layerId` resolves against (existing summary layer ids) ∪ (`add_layer` ids **earlier in the same batch**), in array order | Lets one prompt "add a layer, then draw on it" without a round-trip. The `id` lives in the single id-namespace (deduped like any layer/stroke id); a **dangling or forward** reference is a validation failure. |
+| Every produced stroke passes the existing per-stroke validators; the batch is capped at `maxOpsPerBatch` (**64**) | The Op schema adds no new stroke invariants — it composes the existing `Stroke`/`Layer` contract. The endpoint sees only the doc summary, so **whole-document** caps (maxLayers/maxStrokes/maxTotalPoints) fire at the drawings save write-edge, not here — the op validator enforces per-stroke + per-batch caps. |
 | The Op schema lives in **both** validators, 1:1 | Same dual-contract discipline as the Stroke contract: `packages/document/src/validate.ts` (TS, client) and `server/internal/document` (Go, server) must mirror every invariant, with mirrored test tables. A schema change lands in this doc AND both validators AND both test tables together. |
 
 `update_stroke` / `delete_stroke` are **v2**: they require the LLM to reference existing stroke ids from the doc summary (§4), which only pays off with iterative chat (Phase B). The union is designed so adding them is additive — new `kind` values, no change to v1 ops.
@@ -99,13 +101,14 @@ The full document jsonb is **never** sent to the LLM (a max doc is ~2.5–3 MB �
 ```ts
 interface DocSummary {
   canvas: { width: number; height: number };
-  layers: Array<{ id: string; name: string; stroke_count: number; bbox: BBox }>;
-  /** The last N strokes (recency = relevance), freehand points elided. */
-  recent_strokes: Array<{ id: string; type: StrokeType; bbox: BBox; style: StrokeStyle }>;
+  layers: Array<{ id: string; name: string; strokeCount: number }>;
 }
+// Phase A ships this MINIMAL shape (the fake Assist ignores the summary). Per-stroke
+// `bbox` / `recent_strokes` / a `style` projection are deferred until a real
+// prompt-composition need justifies the token cost (DESIGN-ASSIST-PHASE-A.md §1, res. 3).
 ```
 
-This is enough for the LLM to place new shapes sensibly (canvas size, what's where via bboxes, current styling) without ever parsing point paths. Stroke ids in the summary are what v2 edit ops will reference.
+This gives the LLM the canvas size and the layer inventory without ever sending point paths. (Phase A stops here; per-stroke bboxes / recent strokes / styling — the richer signals for *placing* shapes — are a deferred enrichment the deterministic fake Assist doesn't need. Stroke ids, once summarized, are what v2 edit ops will reference.)
 
 ## 5. Client (`apps/web`)
 
