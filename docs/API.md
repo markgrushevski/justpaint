@@ -445,6 +445,6 @@ Success `200 OK`:
 - The batch is capped at **`maxOpsPerBatch` = 64** ops and is re-validated server-side (the Go document validator) before the response is sent — the client never receives an unvalidated batch (trust boundary).
 
 Errors:
-- `400 validation_failed` — malformed/oversized request body, **or** the model's output still fails validation after the server's retry budget (`docs/ASSIST.md` §3.3). Both fold into the same code/status — never `422` (§3 reserves it unused in v1).
+- `400 validation_failed` — malformed/oversized request body, the handler's defense-in-depth re-validation of the impl's output, **or** (once `AnthropicAssist` is wired to a live SDK call — still a config-gated scaffold in Phase A, `docs/ASSIST.md` §3.2/§3.3) the model's output still failing validation after the retry budget. All fold into the same code/status — never `422` (§3 reserves it unused in v1).
 - `401 unauthorized` — no/expired/invalid `jp_session`.
 - `429 rate_limited` — the per-user token bucket is exceeded; the response carries a **`Retry-After`** header (seconds) alongside the standard error envelope.

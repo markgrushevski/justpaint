@@ -107,6 +107,11 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 func TestGenerateOps(t *testing.T) {
+	// A prompt one byte over the cap, wrapped in an otherwise-valid body (stays well
+	// under the 64 KiB body cap, so it reaches the prompt guard, not the decoder).
+	longPromptBody := `{"prompt":"` + strings.Repeat("a", maxPromptBytes+1) +
+		`","docSummary":{"canvas":{"width":1080,"height":1080},"layers":[]},"targetLayerId":null}`
+
 	tests := []struct {
 		name       string
 		impl       Assist
@@ -143,6 +148,22 @@ func TestGenerateOps(t *testing.T) {
 			impl:       NewFakeAssist(),
 			withCookie: true,
 			body:       `{not json`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "validation_failed",
+		},
+		{
+			name:       "400 on a whitespace-only prompt",
+			impl:       NewFakeAssist(),
+			withCookie: true,
+			body:       `{"prompt":"   ","docSummary":{"canvas":{"width":1080,"height":1080},"layers":[]},"targetLayerId":null}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "validation_failed",
+		},
+		{
+			name:       "400 on an over-long prompt",
+			impl:       NewFakeAssist(),
+			withCookie: true,
+			body:       longPromptBody,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "validation_failed",
 		},

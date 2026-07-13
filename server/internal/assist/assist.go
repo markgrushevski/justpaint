@@ -33,7 +33,7 @@ type Request struct {
 // applies ops as commands and must never receive an unvalidated batch).
 type Result struct {
 	Ops  []document.Op `json:"ops"`
-	Note string        `json:"note"`
+	Note string        `json:"note,omitempty"`
 }
 
 // ErrInvalidBatch marks retry-exhaustion: the impl could not produce a batch that

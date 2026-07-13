@@ -235,4 +235,17 @@ describe("Editor previewOps / acceptOps / rejectOps", () => {
     expect(e.getDocument()).toEqual(before);
     expect(e.canUndo()).toBe(false);
   });
+
+  it("an empty batch is a true no-op: no phantom undo entry", () => {
+    const e = editor(doc());
+    const before = clone(e.getDocument());
+
+    e.previewOps([]);
+    e.acceptOps();
+
+    expect(e.getDocument()).toEqual(before);
+    // Committing an empty composite would otherwise push a no-op onto the undo
+    // stack (canUndo() flips true, next Ctrl+Z does nothing) — assert it doesn't.
+    expect(e.canUndo()).toBe(false);
+  });
 });

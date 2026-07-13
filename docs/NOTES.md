@@ -478,6 +478,26 @@ small practical gotchas go here.
 - **`Retry-After` must be set BEFORE calling `web.Error`.** `web.Error` → `JSON` → `w.WriteHeader`,
   and headers set after `WriteHeader` are silently dropped by `net/http` — the assist handler sets it
   first on the 429 path (`server/internal/assist/handler.go`).
+- **Before enabling `ASSIST_MODE=anthropic` in any real deployment, add a global/per-IP spend ceiling
+  in FRONT of the per-user bucket** (`ratelimit.go`) — account creation trivially bypasses per-user
+  rate limiting on a paid endpoint; the per-user bucket alone doesn't cap total spend.
+- **The real `AnthropicAssist` impl must route the model's raw JSON through
+  `document.ParseAndValidateOpBatch`, not a bare struct-decode** — only `ParseAndValidateOpBatch` runs
+  the `requiredOpKeys` presence guard; decoding straight into `Result` would let Go silently zero-fill
+  an absent field the TS validator would reject (the same class of gap already flagged above for
+  `add_stroke`'s inner fields).
+- **Derive a `context.WithTimeout` for the LLM call itself**, rather than inheriting only the
+  request's 30s `WriteTimeout` (`main.go`) — an LLM call has its own latency budget, distinct from the
+  HTTP write deadline.
+- **Wrap the final validator error into `ErrInvalidBatch`** (`fmt.Errorf("%w: %v", ErrInvalidBatch,
+  err)`) so the handler's `errors.Is` check (`handler.go`) actually maps retry-exhaustion to `400`
+  instead of falling through to the generic `500` — `AnthropicAssist.GenerateOps` today returns a
+  plain, unwrapped error (it isn't implemented yet), exactly the case this would need to fix.
+- **Treat the model-generated `note` as untrusted text** — escape it before rendering; never treat it
+  as HTML.
+- **The two op validators intentionally have swapped param order** — TS `validateOpBatch(summary,
+  ops)` (`validate.ts`) vs Go `ValidateOpBatch(ops, summary)` (`ops.go`) — recorded here so a future
+  edit doesn't mistake it for drift and "fix" one side to match the other.
 
 ## Preview MCP / verification
 

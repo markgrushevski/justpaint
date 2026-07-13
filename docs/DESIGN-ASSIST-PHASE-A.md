@@ -1,3 +1,5 @@
+<!-- IMPLEMENTATION BRIEF — drafted 2026-07-12. STATUS: SHIPPED 2026-07-13 — all of Phase A (the Op contract in packages/document / server/internal/document, server/internal/assist, the ghost-preview editor API, the /draw prompt panel) is live on `feat/assist-phase-a`; decisions are folded into ASSIST.md / API.md / ARCHITECTURE.md / NOTES.md, which cite this doc's section numbers (§1/§2.x) throughout. This document is RETAINED, not deleted, as the design rationale. The body below is the historical design record as drafted; it is not re-verified against the shipped code line-by-line going forward — read ASSIST.md + the code itself for current behavior. -->
+
 # AI Assist — Phase A implementation brief
 
 > Grounded implementation brief for AI Assist Phase A — refines the accepted design in

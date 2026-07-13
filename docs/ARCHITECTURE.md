@@ -15,7 +15,7 @@
                                           │ HTTP/JSON (+ WS later)
                                           ▼
 ┌───────────────────────── server/ (Go modular monolith, one binary) ────────────┐
-│   auth · drawings · game · ws-hub · judge-client          [internal/ modules]   │
+│   auth · drawings · game · ws-hub · judge-client · assist [internal/ modules]   │
 │            └──────────────── platform (db · http · config · log) ───────────────│
 └──────────┬──────────────────────────────┬──────────────────────┬───────────────┘
            │ pgx/sqlc                      │ object storage        │ HTTP (Judge contract)
@@ -82,6 +82,7 @@ server/
     game/        # match lifecycle: create → both draw → submit → judge → result       [done: full loop]
     render/      # Renderer seam: StubRenderer + NodeRenderer (spawns packages/render)  [done]
     judge/       # Judge interface + FakeJudge (HTTPJudge = Phase 4)                    [done: fake]
+    assist/      # Assist interface + FakeAssist + AnthropicAssist scaffold; docs/ASSIST.md            [done: fake]
     ws/          # coder/websocket hub for the game (coder/websocket hub — shipped; async-first)       [Phase 3]
   migrations/    # goose (00001_initial_schema.sql, 00002_seed_prompts.sql)
 ```

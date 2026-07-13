@@ -656,8 +656,9 @@ function submitAssist() {
             onSuccess: (r) => {
                 editor?.previewOps(r.ops)
                 pendingOps.value = r.ops
+                // The note is shown inline in the panel (.draw__assist-note); no
+                // toast — a top-center toast would land over the panel itself.
                 assistNote.value = r.note ?? null
-                if (r.note) toaster.info({ text: r.note, duration: TOAST_INFO })
             },
             onError: (err) => reportError(err, 'assist')
         }
@@ -733,6 +734,13 @@ function rejectAssist() {
              phase while a proposal is pending. -->
         <template #top-center>
             <OriSurface v-if="assistOpen" class="draw__assist" role="group" aria-label="AI assist">
+                <!-- Header + explicit close: the toggle in the actions island can be
+                     off-screen on narrow widths, so the panel is always dismissible
+                     from within (calls the same toggleAssist). -->
+                <div class="draw__assist-head">
+                    <span class="draw__assist-title">AI assist</span>
+                    <IconButton icon="close" label="Close AI assist" placement="bottom" @click="toggleAssist" />
+                </div>
                 <template v-if="pendingOps">
                     <p v-if="assistNote" class="draw__assist-note">{{ assistNote }}</p>
                     <div class="draw__assist-actions">
@@ -1000,21 +1008,38 @@ function rejectAssist() {
     gap: var(--ori-size-gap_sm, 0.25rem);
 }
 
+.draw__assist-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+}
+
+.draw__assist-title {
+    color: var(--ori-color-on-surface);
+
+    font-size: var(--ori-font-size_sm, 0.85rem);
+    font-weight: 600;
+}
+
 .draw__assist-note {
     margin: 0;
-    padding: 0.15rem 0.35rem;
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
 
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_sm, 0.85rem);
 }
 
+/* Full role ink (guaranteed AA by check-contrast's on-surface vs surface pair),
+   not a dimmed opacity — DESIGN-SYSTEM steers state off opacity. */
 .draw__assist-hint {
     margin: 0;
-    padding: 0 0.35rem;
+    padding: 0 var(--ori-size-gap_sm, 0.25rem);
+
+    color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_xs, 0.75rem);
-    opacity: 0.7;
 }
 
 /* First-run empty state — the centered welcome card. EditorShell's overlay layer
@@ -1150,7 +1175,37 @@ function rejectAssist() {
 
 /* --- small screens ----------------------------------------------------- */
 
+/* Tablet/phone: the assist panel leaves the shared top row so its opaque surface
+   can never cover the top-left actions island (which holds the assist toggle —
+   its only external close affordance) or the top-right menu toggle. It drops to
+   its OWN row and goes full-width, mirroring how .draw__history avoids the same
+   collision. Positioned within the (pointer-events:none) top-center region, so
+   the wider box never eats canvas events; z stays region-level (below the
+   z-100 drawer / z-110 toggler).
+
+   Breakpoint = 1050px, not 768px: the panel is a CENTERED ~30rem box, so its left
+   edge reaches the (chip-widened) actions island until the viewport is wide enough
+   — measured overlap persists to ~1050px (verified at 800px). */
+@media (width <= 1050px) {
+    .draw__assist {
+        position: absolute;
+        /* Region top is already offset by gap_md, so +gap_md lands the panel on
+           the same visual row as .draw__history (2*gap_md + island height). */
+        top: calc(var(--ori-size-gap_md, 0.5rem) + 3.125rem);
+        left: var(--ori-size-gap_md, 0.5rem);
+        right: var(--ori-size-gap_md, 0.5rem);
+
+        width: auto;
+    }
+}
+
 @media (width <= 600px) {
+    /* The mobile history island claims that second row (top-left), so the assist
+       panel drops one row further to clear it. */
+    .draw__assist {
+        top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3.125rem * 2);
+    }
+
     .draw__layers-scrim {
         display: block;
     }

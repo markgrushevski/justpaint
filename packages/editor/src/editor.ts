@@ -434,6 +434,13 @@ export class Editor {
   acceptOps(): void {
     const ops = this.ghostOps;
     if (ops == null) return;
+    // An empty batch is a VALID proposal (nothing to add) but committing an empty
+    // composite would still push a no-op entry onto the undo stack — a phantom
+    // Ctrl+Z that does nothing. Tear down the ghost and bail before committing.
+    if (ops.length === 0) {
+      this.clearGhost();
+      return;
+    }
     const commands: Command[] = [];
     /** Batch-local `add_layer.id` → the fresh real id assigned here. */
     const idMap = new Map<string, string>();
@@ -848,7 +855,10 @@ export class Editor {
    * identically to how it will commit.
    */
   private mountGhostOverlay(): void {
-    if (this.ghostOps == null) return;
+    // An empty batch (a valid proposal — nothing to add) has nothing to preview;
+    // skip mounting so we don't float a bare dashed frame over the whole canvas.
+    // This guard covers both call sites: previewOps() and the rerender() remount.
+    if (this.ghostOps == null || this.ghostOps.length === 0) return;
     const { width, height } = this.doc;
     const layer = new Konva.Layer({
       listening: false,
