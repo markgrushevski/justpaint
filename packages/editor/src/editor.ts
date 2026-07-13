@@ -32,11 +32,12 @@ import {
   DEFAULT_CANVAS,
   LIMITS,
 } from "@justpaint/document";
-import type { Document, Layer } from "@justpaint/document";
+import type { Document, Layer, Op, Stroke } from "@justpaint/document";
 import { newId } from "./ids";
 import {
   addLayerCommand,
   addStrokeCommand,
+  compositeCommand,
   History,
   moveLayerCommand,
   removeLayerCommand,
@@ -70,6 +71,19 @@ const BACKDROP_SHADOW = {
 
 /** The document's hairline edge (1 screen px via `strokeScaleEnabled: false`). */
 const BACKDROP_BORDER = { color: "rgb(0 0 0 / 25%)", width: 1 } as const;
+
+/**
+ * The AI-assist ghost overlay (ASSIST.md §5): a proposed batch renders on a
+ * non-listening top layer at reduced opacity with a dashed accent frame — a
+ * proposal, NOT yet in the document or history. The frame reuses the host-bridged
+ * cursor color (its brand accent) when present, else this neutral fallback; it is
+ * view chrome only and can never leak into an export (the layer lives solely on
+ * the interactive stage — {@link Editor.toPNG} builds a fresh stage from the doc).
+ */
+const GHOST_OPACITY = 0.55;
+const GHOST_ACCENT = "#4f7cff";
+/** Dashed frame around the proposal region, in screen px (hairline at any zoom). */
+const GHOST_FRAME_DASH = [6, 4] as const;
 
 /**
  * A VIEW-ONLY backdrop painted BEHIND the document (the host uses it for
@@ -146,6 +160,15 @@ export class Editor {
   /** Non-listening BOTTOM-MOST layer holding the backdrop rect; rebuilt with the stage. */
   private backdropLayer: Konva.Layer | null = null;
   private backdropRect: Konva.Rect | null = null;
+
+  /**
+   * A pending AI-assist proposal (see {@link previewOps}). `ghostOps` is the
+   * batch data — kept so the overlay can be REMOUNTED after a `rerender` rebuilds
+   * the stage (mirroring the cursor overlay); `ghostLayer` is its non-listening
+   * top Konva layer. Neither is in the document or history until {@link acceptOps}.
+   */
+  private ghostOps: Op[] | null = null;
+  private ghostLayer: Konva.Layer | null = null;
 
   /** Viewport (container) size in screen px; {0,0} until the first measure. */
   private viewport = { width: 0, height: 0 };
@@ -244,6 +267,9 @@ export class Editor {
     const first = doc.layers[0];
     this.activeLayerId = first ? first.id : newId();
     this.history.clear();
+    // Drop any pending AI-assist proposal — it referenced the OLD document; nulling
+    // ghostOps before rerender stops it from remounting against the new doc.
+    this.clearGhost();
     this.autoFit = true;
     this.rerender();
     this.fitToViewport();
@@ -351,6 +377,8 @@ export class Editor {
     this.cursorRing = null;
     this.backdropLayer = null;
     this.backdropRect = null;
+    this.ghostLayer = null;
+    this.ghostOps = null;
     this.gesture = null;
     this.pan = null;
   }
@@ -375,6 +403,73 @@ export class Editor {
     if (!this.history.redo(this.doc)) return;
     this.reconcileActiveLayer();
     this.afterMutation();
+  }
+
+  // --- ai assist (ghost preview; see ASSIST.md §5) --------------------------
+
+  /**
+   * Render an AI-assist proposal as a GHOST overlay — a top, non-listening Konva
+   * layer at reduced opacity with a dashed accent frame, clipped to the doc rect,
+   * projecting the batch's strokes. The proposal is NOT in the document and NOT in
+   * history until {@link acceptOps}. Re-previewing replaces the prior proposal.
+   *
+   * The op → command mapping and this overlay live entirely inside the editor: the
+   * app passes validated {@link Op}s and never touches Konva or a command.
+   */
+  previewOps(ops: Op[]): void {
+    this.clearGhost();
+    this.ghostOps = ops;
+    this.mountGhostOverlay();
+  }
+
+  /**
+   * Commit the previewed proposal as ONE composite command — a single undo entry,
+   * so one Ctrl+Z removes the whole batch — through the normal commit path, then
+   * tear down the ghost. No-op when nothing is previewed. Ops apply in array order
+   * with a batch-local id map: an `add_layer` mints a fresh layer id and an
+   * `add_stroke` resolves its `layerId` against that map (an earlier batch layer)
+   * or an existing document layer. Strokes arrive pre-built + server-validated —
+   * they map straight onto commands, never re-run through a tool.
+   */
+  acceptOps(): void {
+    const ops = this.ghostOps;
+    if (ops == null) return;
+    const commands: Command[] = [];
+    /** Batch-local `add_layer.id` → the fresh real id assigned here. */
+    const idMap = new Map<string, string>();
+    // addLayerCommand clamps its index at APPLY time against doc.layers.length, so
+    // several add_layer ops need a RUNNING top index — a stale length would clamp
+    // every new layer to the same slot and collide their z-order.
+    let topIndex = this.doc.layers.length;
+    for (const op of ops) {
+      if (op.kind === "add_layer") {
+        const realId = newId();
+        idMap.set(op.id, realId);
+        const layer: Layer = {
+          id: realId,
+          name: op.name,
+          visible: true,
+          opacity: 1,
+          strokes: [],
+        };
+        commands.push(addLayerCommand(layer, topIndex));
+        topIndex += 1;
+      } else {
+        const resolvedId = idMap.get(op.layerId) ?? op.layerId;
+        commands.push(addStrokeCommand(resolvedId, op.stroke));
+      }
+    }
+    // Tear the ghost down BEFORE committing: commit → rerender, whose ghost-remount
+    // guard reads ghostOps — leaving it set would re-draw the now-committed batch.
+    this.clearGhost();
+    this.commit(compositeCommand(commands, "AI assist"));
+  }
+
+  /** Discard the previewed proposal — nothing enters the document or history. */
+  rejectOps(): void {
+    if (this.ghostOps == null) return;
+    this.clearGhost();
+    this.stage.batchDraw();
   }
 
   // --- layers ---------------------------------------------------------------
@@ -535,6 +630,9 @@ export class Editor {
     this.cursorRing = null;
     this.backdropLayer = null;
     this.backdropRect = null;
+    // The ghost layer died with the stage; keep ghostOps (the proposal data) so it
+    // can remount below, but clear the stale layer handle.
+    this.ghostLayer = null;
     // Any in-flight gesture/pan belongs to the destroyed stage — its pointer id
     // can never match the new stage, so drop it or it becomes stuck dead state.
     this.gesture = null;
@@ -550,6 +648,9 @@ export class Editor {
       this.mountCursorOverlay();
       this.syncCursorRing();
     }
+    // A pending AI-assist proposal (previewOps) also died with the stage; remount
+    // it the same way or it silently vanishes on the next commit/undo/redo.
+    if (this.ghostOps != null) this.mountGhostOverlay();
     this.applyView();
     // The pan was force-dropped above — don't leave a stale "grabbing" cursor.
     this.syncContainerCursor();
@@ -732,6 +833,69 @@ export class Editor {
     if (this.backdrop?.type === "pattern") {
       this.backdropRect.fillPatternScale({ x: s, y: s });
     }
+  }
+
+  // --- ai assist ghost overlay (see previewOps) ------------------------------
+
+  /**
+   * Build the ghost layer on the CURRENT stage from `this.ghostOps` and float it
+   * on top. Reads `this.ghostOps` + the CURRENT doc, so {@link rerender} simply
+   * remounts after the stage is rebuilt (mirroring the cursor overlay). Only
+   * `add_stroke` ops paint — `add_layer` ops make empty layers (nothing to draw).
+   * The strokes project through a throwaway one-layer doc, the same idiom as
+   * {@link renderPreview}; the layer is clipped to the doc rect exactly like a
+   * committed layer ({@link toLayer}), so a ghost stroke past the edge previews
+   * identically to how it will commit.
+   */
+  private mountGhostOverlay(): void {
+    if (this.ghostOps == null) return;
+    const { width, height } = this.doc;
+    const layer = new Konva.Layer({
+      listening: false,
+      opacity: GHOST_OPACITY,
+      clip: { x: 0, y: 0, width, height },
+    });
+    const strokes: Stroke[] = [];
+    for (const op of this.ghostOps) {
+      if (op.kind === "add_stroke") strokes.push(op.stroke);
+    }
+    if (strokes.length > 0) {
+      const projected = toKonva({
+        ...this.doc,
+        background: null,
+        layers: [{ id: "ghost", name: "ghost", visible: true, opacity: 1, strokes }],
+      });
+      for (const projectedLayer of projected.getLayers()) {
+        for (const node of projectedLayer.getChildren()) node.moveTo(layer);
+      }
+      projected.destroy();
+    }
+    // A dashed accent frame marks the region as a PROPOSAL (ASSIST.md §5). Hairline
+    // at any zoom via strokeScaleEnabled; color reuses the host-bridged accent.
+    layer.add(
+      new Konva.Rect({
+        x: 0,
+        y: 0,
+        width,
+        height,
+        listening: false,
+        stroke: this.cursorColor ?? GHOST_ACCENT,
+        strokeWidth: 1,
+        strokeScaleEnabled: false,
+        dash: [...GHOST_FRAME_DASH],
+      }),
+    );
+    this.ghostLayer = layer;
+    this.stage.add(layer);
+    layer.moveToTop();
+    layer.batchDraw();
+  }
+
+  /** Tear down the ghost overlay + drop the pending proposal (no doc/history touch). */
+  private clearGhost(): void {
+    this.ghostLayer?.destroy();
+    this.ghostLayer = null;
+    this.ghostOps = null;
   }
 
   // --- cursor ring (see setCursorColor) --------------------------------------

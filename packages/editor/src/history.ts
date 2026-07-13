@@ -151,6 +151,26 @@ export function setLayerOpacityCommand(doc: Document, layerId: string, opacity: 
 }
 
 /**
+ * Bundle several commands into ONE reversible unit (an accepted AI-assist batch,
+ * ASSIST.md §5). `apply` runs `children` left-to-right; `invert` runs them
+ * RIGHT-to-left — an `add_layer` then an `add_stroke` on that layer must invert
+ * stroke-before-layer, so the stroke's invert never runs against a document that
+ * no longer holds its target layer. Because it is a single {@link Command},
+ * {@link History.execute} treats the whole batch as one undo entry (one Ctrl+Z).
+ */
+export function compositeCommand(children: Command[], label: string): Command {
+  return {
+    label,
+    apply(doc) {
+      for (const cmd of children) cmd.apply(doc);
+    },
+    invert(doc) {
+      for (const cmd of [...children].reverse()) cmd.invert(doc);
+    },
+  };
+}
+
+/**
  * A bounded undo/redo stack. Operates on a {@link Document} passed to each call —
  * it never holds the document itself, so replacing the editor's document (a fresh
  * `loadDocument`) is handled by the caller clearing the stack.
