@@ -4,6 +4,8 @@ import { drawings } from './drawings'
 import type { DrawingFull, DrawingMeta } from './drawings'
 import { matches } from './matches'
 import type { Match, SubmitMatch } from './matches'
+import { assist } from './assist'
+import type { AssistOpsRequest, AssistOpsResponse } from './assist'
 
 /**
  * TanStack Query bindings for the drawings API (ROADMAP Phase 2 "state" pass:
@@ -72,5 +74,18 @@ export function useSubmitMatch() {
     return useMutation({
         mutationFn: ({ id, document }: { id: string; document: Document }): Promise<SubmitMatch> =>
             matches.submit(id, document)
+    })
+}
+
+/**
+ * Generate an AI-assist Op batch from a prompt (docs/ASSIST.md §5). Imperative
+ * (a button action) with no cache to own — the returned ops are previewed as a
+ * ghost and only enter the document on Accept — so it mirrors the store-free
+ * `useLoadLatestDrawing` shape: a thin mutation over the fetch client, no
+ * invalidation.
+ */
+export function useAssist() {
+    return useMutation({
+        mutationFn: (req: AssistOpsRequest): Promise<AssistOpsResponse> => assist.ops(req)
     })
 }
