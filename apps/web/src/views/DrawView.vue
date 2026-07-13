@@ -32,17 +32,18 @@ function gridTile(dark: boolean): HTMLImageElement {
 
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { OriSurface, OriToaster, useToast } from '@oriui/vue'
+import { OriButton, OriInput, OriSurface, OriToaster, useToast } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
 import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
 import type { ToolId, LayerView } from '@justpaint/editor'
-import type { Document } from '@justpaint/document'
+import type { Document, DocSummary, Op } from '@justpaint/document'
 import { DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
 import {
     copyImage,
     copyText,
     isAuthError,
     toApiError,
+    useAssist,
     useLoadLatestDrawing,
     useSaveDrawing,
     useSessionStore,
@@ -86,6 +87,19 @@ const TOAST_ERROR = 8000
 const saveMutation = useSaveDrawing()
 const loadMutation = useLoadLatestDrawing()
 const busy = computed(() => saveMutation.isPending.value || loadMutation.isPending.value)
+
+/* --- AI assist (text drawing commands, docs/ASSIST.md) --------------- */
+
+// The prompt panel (mounted in the shell's #top-center region) and its state.
+// A returned batch is previewed as a GHOST inside the editor (previewOps) and is
+// NOT in the document or history until Accept — so `pendingOps` is only a UI flag
+// (input phase ⇄ accept/reject phase); the ghost lifecycle lives in the editor.
+const assistMutation = useAssist()
+const assistPending = computed(() => assistMutation.isPending.value)
+const assistOpen = ref(false)
+const assistPrompt = ref('')
+const pendingOps = ref<Op[] | null>(null)
+const assistNote = ref<string | null>(null)
 
 const ui = reactive({
     activeTool: 'pen' as ToolId,
@@ -332,6 +346,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeydown)
+    // Tear down any pending AI ghost before the stage is destroyed below.
+    clearAssistProposal()
     // Drop the coords readout listeners + any pending frame.
     if (coordsRaf) cancelAnimationFrame(coordsRaf)
     canvasHost?.removeEventListener('pointermove', onCanvasPointerMove)
@@ -461,6 +477,9 @@ function fitView() {
 
 function clearCanvas(w?: number, h?: number) {
     if (!editor) return
+    // A pending AI proposal references the outgoing document — drop the ghost
+    // before the fresh blank doc replaces it.
+    clearAssistProposal()
     // Validate the freshly built blank doc before loading (loadDocument does
     // not validate). parseDocument throws DocumentValidationError on bad input.
     editor.loadDocument(parseDocument(blankDocument(w, h)))
@@ -586,12 +605,78 @@ function load() {
             }
             // full.document is already validated by drawings.get (parseDocument).
             editor?.loadDocument(full.document)
+            // A pending AI proposal references the OLD document's layers — drop the
+            // ghost before the incoming doc replaces it.
+            clearAssistProposal()
             currentId.value = full.id
             drawingName.value = full.name
             toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST_SUCCESS })
         },
         onError: (err) => reportError(err, 'load')
     })
+}
+
+/* --- AI assist handlers ---------------------------------------------- */
+
+/**
+ * The minimal doc summary the endpoint receives (docs/ASSIST.md §4): canvas size
+ * + the layer inventory (id/name/strokeCount), never point paths. Phase A stops
+ * here — no per-stroke bbox/style.
+ */
+function buildDocSummary(): DocSummary {
+    const doc = editor!.getDocument()
+    return {
+        canvas: { width: doc.width, height: doc.height },
+        layers: doc.layers.map((l) => ({ id: l.id, name: l.name, strokeCount: l.strokes.length }))
+    }
+}
+
+/** Discard any pending proposal + its ghost so a stale batch never survives a doc swap. */
+function clearAssistProposal() {
+    if (pendingOps.value) editor?.rejectOps()
+    pendingOps.value = null
+    assistNote.value = null
+}
+
+/** Toggle the prompt panel; closing while previewing discards the ghost. */
+function toggleAssist() {
+    assistOpen.value = !assistOpen.value
+    if (!assistOpen.value) clearAssistProposal()
+}
+
+function submitAssist() {
+    if (!editor) return
+    const prompt = assistPrompt.value.trim()
+    // Mirror the submit button's own disabled guard (Enter can reach here too).
+    if (!prompt || !session.isLoggedIn || assistPending.value || pendingOps.value) return
+    const targetLayerId = editor.getActiveLayerId() || undefined
+    assistMutation.mutate(
+        { prompt, docSummary: buildDocSummary(), targetLayerId },
+        {
+            onSuccess: (r) => {
+                editor?.previewOps(r.ops)
+                pendingOps.value = r.ops
+                assistNote.value = r.note ?? null
+                if (r.note) toaster.info({ text: r.note, duration: TOAST_INFO })
+            },
+            onError: (err) => reportError(err, 'assist')
+        }
+    )
+}
+
+/** Commit the previewed batch as one composite command (one Ctrl+Z undoes it all). */
+function acceptAssist() {
+    editor?.acceptOps()
+    pendingOps.value = null
+    assistNote.value = null
+    assistPrompt.value = '' // reset the panel to the input phase for the next prompt
+}
+
+/** Discard the preview — nothing enters the document or history. */
+function rejectAssist() {
+    editor?.rejectOps()
+    pendingOps.value = null
+    assistNote.value = null
 }
 </script>
 
@@ -618,6 +703,13 @@ function load() {
                     :active="layersOpen"
                     @click="layersOpen = !layersOpen"
                 />
+                <IconButton
+                    icon="assist"
+                    label="AI assist — describe what to draw"
+                    placement="bottom"
+                    :active="assistOpen"
+                    @click="toggleAssist"
+                />
                 <!-- Which layer new strokes / the eraser land on — shown only when the
                      panel is closed (open, the panel highlights the active row itself).
                      Click opens the panel so it doubles as an affordance. -->
@@ -631,6 +723,44 @@ function load() {
                 >
                     {{ activeLayerName }}
                 </button>
+            </OriSurface>
+        </template>
+
+        <!-- Top-center: the AI-assist prompt panel (toggled from the actions
+             island). The shell's centering strip is pointer-events:none; the panel
+             opts back in. Returned ops render as a ghost inside the editor and only
+             land on Accept — the panel flips from the input to the accept/reject
+             phase while a proposal is pending. -->
+        <template #top-center>
+            <OriSurface v-if="assistOpen" class="draw__assist" role="group" aria-label="AI assist">
+                <template v-if="pendingOps">
+                    <p v-if="assistNote" class="draw__assist-note">{{ assistNote }}</p>
+                    <div class="draw__assist-actions">
+                        <OriButton variant="fill" radius="md" text="Accept" fluid @click="acceptAssist" />
+                        <OriButton variant="outline" radius="md" text="Reject" fluid @click="rejectAssist" />
+                    </div>
+                </template>
+                <template v-else>
+                    <div class="draw__assist-row">
+                        <OriInput
+                            v-model="assistPrompt"
+                            class="draw__assist-input"
+                            aria-label="Describe what to draw"
+                            placeholder="Describe what to draw…"
+                            :disabled="assistPending"
+                            @keydown.enter="submitAssist"
+                        />
+                        <OriButton
+                            variant="fill"
+                            radius="md"
+                            text="Draw"
+                            :loading="assistPending"
+                            :disabled="!session.isLoggedIn || !assistPrompt.trim() || assistPending"
+                            @click="submitAssist"
+                        />
+                    </div>
+                    <p v-if="!session.isLoggedIn" class="draw__assist-hint">Sign in from the menu to use assist.</p>
+                </template>
             </OriSurface>
         </template>
 
@@ -838,6 +968,53 @@ function load() {
    never eat canvas events) — the toolbar opts back in so it stays interactive. */
 .draw__toolbar-item {
     pointer-events: auto;
+}
+
+/* The AI-assist prompt panel in the top-center strip. Like the toolbar, the
+   strip is pointer-events:none, so the panel opts back in. Clamped so it never
+   spills past the viewport on a phone. */
+.draw__assist {
+    pointer-events: auto;
+
+    display: flex;
+    flex-direction: column;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+
+    width: min(30rem, calc(100vw - 1.5rem));
+    padding: var(--ori-size-gap_sm, 0.25rem);
+}
+
+.draw__assist-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+}
+
+.draw__assist-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.draw__assist-actions {
+    display: flex;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+}
+
+.draw__assist-note {
+    margin: 0;
+    padding: 0.15rem 0.35rem;
+
+    color: var(--ori-color-on-surface);
+
+    font-size: var(--ori-font-size_sm, 0.85rem);
+}
+
+.draw__assist-hint {
+    margin: 0;
+    padding: 0 0.35rem;
+
+    font-size: var(--ori-font-size_xs, 0.75rem);
+    opacity: 0.7;
 }
 
 /* First-run empty state — the centered welcome card. EditorShell's overlay layer
