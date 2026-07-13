@@ -10,6 +10,7 @@ export type {
   BrushOptions,
   Color,
   Composite,
+  DocSummary,
   DocVersion,
   Document,
   DocumentMeta,
@@ -21,6 +22,9 @@ export type {
   LineCap,
   LineJoin,
   LineStroke,
+  Op,
+  OpStroke,
+  OpStrokeType,
   Point,
   PolygonStroke,
   RectStroke,
@@ -43,9 +47,11 @@ export {
 export {
   DocumentValidationError,
   safeValidateDocument,
+  safeValidateOpBatch,
   validateDocument,
+  validateOpBatch,
 } from "./validate";
-export type { ValidationResult } from "./validate";
+export type { OpValidationResult, ValidationResult } from "./validate";
 
 export { parseDocument, roundDocument, serializeDocument } from "./parse";
 

@@ -37,6 +37,7 @@ Phase 0 (specs), **Phase 1 (Go backend + minimal editor), and Phase 2 (real vect
 - The **async duel loop runs end-to-end** (`/api/matches`, `internal/game`): create/auto-join → both draw → submit (validate + 1080² check, persist, `drawing → judging` on the last submit) → out-of-band judging → result with winner + reason + Elo (K=32). The **render is real**: `RENDER_MODE=node` renders the authoritative judged raster off the client via `packages/render` (the Node Konva worker reusing the editor's `renderToStage`); `RENDER_MODE=stub` (default) is a zero-dep in-process stand-in. The **judge is still a seam** (`internal/judge` FakeJudge; HTTP judge later). See `docs/GAME.md` / `docs/API.md §8`.
 - The old red-flag patterns (plaintext passwords, JWT empty-secret fallback, token in localStorage, Triangle-draws-a-rect, PNG-snapshot history) are **structurally gone** — the throwaway raster app that carried them (`/legacy`) was **deleted 2026-07-02** (`chore/remove-legacy`; salvaged UX ideas live in `docs/IDEAS.md`, code recoverable from git history). Don't reintroduce them.
 - **The API client is native `fetch`** (`src/core/api/drawings.ts` + `useSessionStore`, cookie `jp_session`) — the old axios/localStorage-Bearer client went with the legacy app. Use the fetch client + `useSessionStore`.
+- **AI Assist Phase A is shipped** (`feat/assist-phase-a`, 2026-07-13) — the first AI-in-product slice: a prompt → validated `Op` batch (`add_layer`/`add_stroke`) → ghost preview → one composite editor command, via a judge-style `internal/assist` seam (`FakeAssist` live; `AnthropicAssist` a config-gated scaffold only, no live SDK call). See `docs/ASSIST.md`. **Phase 4** (stretch: realtime hub, ratings, teams/tournaments, replay) is now in progress — see `docs/ROADMAP.md`.
 
 ## Hard rules / gotchas
 - Stand on Konva; don't reinvent rendering. Own the document model, rent the renderer.
@@ -69,6 +70,7 @@ Source of truth lives in `docs/` (each doc owns one thing and cross-references t
 - `docs/API.md` — HTTP contract (owns the `jp_session` cookie, error envelope, status map, DoS caps, pagination).
 - `docs/JUDGE.md` — judge contract (the agreement with the ML collaborator).
 - `docs/GAME.md` — match lifecycle, canvas, ratings.
+- `docs/ASSIST.md` — AI-assist Op contract, the `internal/assist` seam, doc-summary shape, ghost-preview UX.
 - `docs/REVIEW.md` — the per-change review bar (contract parity, security, scope).
 - `docs/DESIGN-SYSTEM.md` — how the UI consumes oriui (colors at root only, drive state with props, `JpFloat`/`IconButton`, `OriCard` for content) — the frontend chrome contract.
 - `docs/NOTES.md` — non-obvious implementation gotchas (read first; append what you learn).

@@ -2,6 +2,16 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-07-13 — AI Assist Phase A: three corrections to the 2026-07-07 accepted design
+
+Building Phase A (`feat/assist-phase-a`) against the actual contract/API surface surfaced three places the 2026-07-07 accepted design (`docs/ASSIST.md`) didn't hold up. Resolved in `docs/DESIGN-ASSIST-PHASE-A.md` §1 and now folded into the shipped code + docs:
+
+- **`422` → `400 validation_failed` on retry-exhaustion.** `docs/API.md` reserves `422` unused in v1 ("we prefer `400` over `422` for doc-invalid, for one consistent client path") — the original design missed that. Retry-exhaustion now returns `400 validation_failed`, carrying the last validator error; the rate-limit path reuses the already-reserved `CodeRateLimited` for `429` (no new error code needed).
+- **`add_layer` gains an LLM-assigned `id`.** The original design's Op-reference rule — `add_stroke.layerId` resolving a batch-created layer — was unresolvable without something to reference; `add_layer` needed an id all along. It lives in the same single id-namespace as document layers/strokes; `add_stroke.layerId` resolves against (doc-summary layer ids) ∪ (earlier-in-batch `add_layer` ids), strictly in array order — a forward or dangling reference fails validation.
+- **`DocSummary` ships minimal.** The designed `bbox`/`recent_strokes`/`style` projection had no computed foundation — the document format's `bbox` is optional/advisory and never populated by the editor, and no `StrokeStyle` type existed. Phase A's summary is `{ canvas: { width, height }, layers: [{ id, name, strokeCount }] }`; the richer signals are deferred until a real prompt-composition need justifies the token cost. `FakeAssist` ignores the summary entirely.
+
+Full build plan and gotchas: `docs/DESIGN-ASSIST-PHASE-A.md`. Shipped contract (now reconciled to match): `docs/ASSIST.md` §2–§5, `docs/API.md` §10.
+
 ## 2026-07-12 — Live WS realtime shipped: in-process actor hub behind a `Publisher` seam
 
 Closing the Phase-3 back half (`feat/ws-realtime`, on `feat/round-deadline`'s server-authoritative deadlines): a live WS layer pushes match-room state so both duelists see transitions instantly instead of on their next poll. The design (`docs/DESIGN-PHASE3-LIVE.md` §3) was built exactly as accepted; this records the decisions that now bind.
