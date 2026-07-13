@@ -1,8 +1,10 @@
 import type {
   Composite,
+  DocSummary,
   Document,
   LineCap,
   LineJoin,
+  Op,
   StrokeType,
 } from "./types";
 import { LIMITS } from "./constants";
@@ -285,6 +287,104 @@ export type ValidationResult =
 export function safeValidateDocument(value: unknown): ValidationResult {
   try {
     return { ok: true, document: validateDocument(value) };
+  } catch (e) {
+    if (e instanceof DocumentValidationError) return { ok: false, error: e };
+    throw e;
+  }
+}
+
+// --- AI Assist op-batch validation (docs/ASSIST.md §2) ---
+// Mirrors the Go ValidateOpBatch 1:1. Reuses the per-stroke validator verbatim,
+// then narrows to the non-freehand subset explicitly (the base validator accepts
+// freehand, so this op-level check is required — it is not implied by reuse).
+
+/**
+ * Validate the `stroke` field of an `add_stroke` op: reuse {@link validateStroke}
+ * unchanged, but reject `freehand` (excluded from AI ops — ASSIST.md §2).
+ */
+function validateOpStroke(value: unknown, path: string, ids: Set<string>): void {
+  if (!isObject(value)) fail(path, "stroke must be an object");
+  if (value.type === "freehand") {
+    fail(`${path}.type`, "freehand strokes are not allowed in ops");
+  }
+  validateStroke(value, path, ids);
+}
+
+/**
+ * Validate an untrusted AI-assist op batch against a doc summary. Returns it typed
+ * as {@link Op}[] on success, throws {@link DocumentValidationError} otherwise.
+ * Mirrors the Go `ValidateOpBatch`; the server re-validates authoritatively.
+ *
+ * The single shared id namespace is **seeded from the summary's layer ids**, then
+ * each op is validated in array order:
+ * - `add_layer`: {@link checkId} against the shared namespace (collision with a
+ *   summary id or an intra-batch duplicate → fail) + the `validateLayer` name
+ *   rule; then the id becomes a resolvable layer ref.
+ * - `add_stroke`: `layerId` must resolve to a summary layer id or an `add_layer`
+ *   id appearing **earlier** in this batch (a dangling or forward reference fails);
+ *   then the stroke is validated by the reused per-stroke validator (freehand
+ *   rejected).
+ *
+ * Only per-op and per-batch caps are enforced here (batch size; per-stroke point
+ * count comes free from the reused stroke validator). Whole-document caps
+ * (maxLayers/maxStrokes/maxTotalPoints) stay at the save write-edge — this
+ * validator has only the summary, never the full document.
+ */
+export function validateOpBatch(summary: DocSummary, ops: unknown): Op[] {
+  if (!Array.isArray(ops)) fail("ops", "must be an array");
+  if (ops.length > LIMITS.maxOpsPerBatch) {
+    fail("ops", `too many ops (max ${LIMITS.maxOpsPerBatch})`);
+  }
+
+  const ids = new Set<string>(); // single id namespace across layers + strokes
+  const layerRefs = new Set<string>(); // resolvable layer ids (summary + earlier add_layer)
+  for (const layer of summary.layers ?? []) {
+    ids.add(layer.id);
+    layerRefs.add(layer.id);
+  }
+
+  ops.forEach((op, i) => {
+    const path = `ops[${i}]`;
+    if (!isObject(op)) fail(path, "op must be an object");
+    switch (op.kind) {
+      case "add_layer": {
+        checkId(op.id, `${path}.id`, ids);
+        if (
+          typeof op.name !== "string" ||
+          runeLen(op.name) < 1 ||
+          runeLen(op.name) > LIMITS.maxNameLen
+        ) {
+          fail(`${path}.name`, `must be 1-${LIMITS.maxNameLen} chars`);
+        }
+        layerRefs.add(op.id as string);
+        break;
+      }
+      case "add_stroke": {
+        if (typeof op.layerId !== "string" || !layerRefs.has(op.layerId)) {
+          fail(`${path}.layerId`, `unknown layer id ${JSON.stringify(op.layerId)}`);
+        }
+        validateOpStroke(op.stroke, `${path}.stroke`, ids);
+        break;
+      }
+      default:
+        fail(`${path}.kind`, `unknown op kind ${JSON.stringify(op.kind)}`);
+    }
+  });
+
+  return ops as unknown as Op[];
+}
+
+export type OpValidationResult =
+  | { ok: true; ops: Op[] }
+  | { ok: false; error: DocumentValidationError };
+
+/** Non-throwing wrapper around {@link validateOpBatch}. */
+export function safeValidateOpBatch(
+  summary: DocSummary,
+  ops: unknown,
+): OpValidationResult {
+  try {
+    return { ok: true, ops: validateOpBatch(summary, ops) };
   } catch (e) {
     if (e instanceof DocumentValidationError) return { ok: false, error: e };
     throw e;

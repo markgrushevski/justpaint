@@ -171,3 +171,36 @@ export type Stroke =
   | RectStroke
   | EllipseStroke
   | PolygonStroke;
+
+// --- AI Assist ops (docs/ASSIST.md §2) ---
+// A derived, additive contract over Stroke/Layer: what the LLM is allowed to say.
+// The Op schema adds no new stroke invariants — it composes the existing ones —
+// but narrows the stroke subset (freehand excluded) and lives in both validators
+// 1:1, exactly like the Stroke contract.
+
+/** Op-eligible stroke-type subset. Freehand is excluded from AI ops (§2). */
+export type OpStrokeType = "line" | "rect" | "ellipse" | "polygon";
+
+/** Op-eligible stroke subset — the non-freehand shapes. */
+export type OpStroke = LineStroke | RectStroke | EllipseStroke | PolygonStroke;
+
+/**
+ * One AI-assist operation over the document. Discriminated on `kind`; closed for
+ * Phase A (`update_stroke`/`delete_stroke` are v2, ASSIST.md §2). camelCase on the
+ * wire. `add_layer.id` is LLM-assigned and validated in the same single id
+ * namespace as document layers/strokes; `add_stroke.layerId` must resolve to a
+ * summary layer or an earlier `add_layer` in the same batch.
+ */
+export type Op =
+  | { kind: "add_layer"; id: Id; name: string }
+  | { kind: "add_stroke"; layerId: Id; stroke: OpStroke };
+
+/**
+ * Minimal document summary the assist endpoint receives (Phase A). Just enough to
+ * seed the id namespace and resolve layer references — NOT the full document.
+ * See docs/DESIGN-ASSIST-PHASE-A.md §1 resolution 3.
+ */
+export interface DocSummary {
+  canvas: { width: number; height: number };
+  layers: Array<{ id: Id; name: string; strokeCount: number }>;
+}

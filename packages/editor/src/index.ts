@@ -4,6 +4,10 @@
  * pointer drags into strokes via pure tools, and exports deterministic PNGs.
  */
 export type * from "./types";
+// Re-export the AI-assist Op contract as a convenience for callers who want the
+// editor's previewOps/acceptOps op type without a second package dependency.
+// apps/web imports Op/DocSummary from @justpaint/document directly.
+export type { Op } from "@justpaint/document";
 export { newId } from "./ids";
 export { DEFAULT_STYLE } from "./style";
 export { toKonva, stageConfig } from "./konva";

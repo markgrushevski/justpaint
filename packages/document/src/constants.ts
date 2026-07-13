@@ -22,6 +22,8 @@ export const LIMITS = {
   maxTotalPoints: 100_000,
   maxIdLen: 64,
   maxNameLen: 64,
+  /** Max ops in one AI-assist batch (docs/ASSIST.md §2). Per-batch, not per-doc. */
+  maxOpsPerBatch: 64,
 } as const;
 
 /**

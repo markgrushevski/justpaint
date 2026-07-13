@@ -342,6 +342,8 @@ The canonical schema is the TS in `packages/document`; the Go validator mirrors 
 - Shared `transform?: { x, y, rotation, scaleX, scaleY }` on shapes, mirroring `Konva.Transform`, once a move/rotate tool exists. Deliberately **off freehand** to keep `points` authoritative.
 - Text / image / gradient nodes.
 
+The AI-assist **Op** schema (`add_layer` / `add_stroke`) is a derived, additive schema composed over `Stroke`/`Layer` — it adds no new stroke invariants and is not itself a document-format change; owned by `docs/ASSIST.md`.
+
 ## 10. Serialize / deserialize / render → PNG
 
 **Canonical = this schema.** `packages/document` owns serialize/deserialize plus **one renderer** used in three places (editor preview, authoritative server raster, and thus the judge image) so they are byte-aligned by construction. Indicative API:

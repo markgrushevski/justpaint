@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/markgrushevski/justpaint/server/internal/assist"
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/drawings"
@@ -76,6 +77,21 @@ func run() error {
 	gameSvc := game.NewService(pool, queries, renderer, judge.NewFakeJudge(), logger)
 	gameHandler := game.NewHandler(gameSvc, logger)
 
+	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic
+	// FakeAssist runs the whole client flow with zero API dependency, and the real
+	// AnthropicAssist swaps in by ASSIST_MODE with no handler change. The endpoint is
+	// stateless (no DB) and rate-limited per user (each call can cost API money).
+	assistLimiter := assist.NewRateLimiter(assist.DefaultBurst, assist.DefaultRefillInterval)
+	var assistImpl assist.Assist
+	if cfg.AssistMode == config.AssistModeAnthropic {
+		assistImpl = assist.NewAnthropicAssist(cfg.AnthropicAPIKey, cfg.AssistModel)
+		logger.Info("assist: anthropic (real LLM)", "model", cfg.AssistModel)
+	} else {
+		assistImpl = assist.NewFakeAssist()
+		logger.Info("assist: fake (deterministic canned ops; set ASSIST_MODE=anthropic for the real LLM)")
+	}
+	assistHandler := assist.NewHandler(assistImpl, assistLimiter, logger)
+
 	// Live realtime (Phase 3 back-half): the in-memory WS hub pushes committed match
 	// transitions to both duelists, Postgres stays authoritative, the poll loop is the
 	// fallback. The hub implements game.Publisher and is injected via SetPublisher, so
@@ -101,6 +117,7 @@ func run() error {
 	authHandler.Routes(mux)
 	drawingsHandler.Routes(mux, authHandler.RequireAuth)
 	gameHandler.Routes(mux, authHandler.RequireAuth)
+	assistHandler.Routes(mux, authHandler.RequireAuth)
 	wsHandler.Routes(mux, authHandler.RequireAuth)
 
 	srv := &http.Server{
