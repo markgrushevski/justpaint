@@ -460,6 +460,25 @@ small practical gotchas go here.
   `time.AfterFunc(exp)` → close `4001`) safe to rely on unconditionally. Any future token-issuing path
   must keep stamping `exp` or `RequireAuth` rejects it outright.
 
+## AI assist (`internal/assist`, `packages/editor` ghost preview, feat/assist-phase-a)
+
+- **The op validator does NOT presence-guard the inner stroke fields of `add_stroke`** — safe today
+  ONLY because `freehand` (the one stroke type whose all-zero `brush` still passes the existing
+  stroke validator) is excluded from the Op schema (`docs/ASSIST.md` §2). If Phase B/C ever admits
+  freehand ops, or any future stroke type where a zero-valued field is legitimately valid, extend the
+  `requiredOpKeys`-style presence guard (mirroring `parse.go`'s `requiredKeys`) in lockstep on both
+  sides — otherwise Go silently zero-fills an absent field the TS side would reject.
+- **The assist ghost overlay must remount inside `Editor.rerender()`**, following the same discipline
+  the cursor overlay already uses — `rerender()` destroys and rebuilds the whole Konva stage — or the
+  ghost silently vanishes on the next commit/undo/redo/`loadDocument`.
+- **`addLayerCommand`'s index clamps at *apply* time, not construction.** `acceptOps()` threads a
+  running top-of-stack index through a multi-`add_layer` batch (incremented per `add_layer` processed
+  in array order), or every new layer in the batch would clamp to the same insertion point and
+  collide in z-order.
+- **`Retry-After` must be set BEFORE calling `web.Error`.** `web.Error` → `JSON` → `w.WriteHeader`,
+  and headers set after `WriteHeader` are silently dropped by `net/http` — the assist handler sets it
+  first on the 429 path (`server/internal/assist/handler.go`).
+
 ## Preview MCP / verification
 
 - **`preview_screenshot` times out (~30 s) on the Konva canvas page** — Konva's rAF loop likely

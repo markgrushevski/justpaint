@@ -12,7 +12,7 @@
 | **1** | Go backend (auth + drawings CRUD) + minimal Konva editor | 🟢 **done** |
 | **2** | Frontend refactor — vector editor, real layers; oriui swap | 🟢 **done** |
 | **3** | Game — async duel first, then live WS | 🟢 **done** |
-| **4** | Stretch — realtime hub, ratings, teams/tournaments, replay | ⚪ not started |
+| **4** | Stretch — realtime hub, ratings, teams/tournaments, replay, AI assist | 🟡 in progress |
 
 Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check off deliverables as they land.
 
@@ -109,11 +109,12 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 
 ---
 
-## Phase 4 — Stretch ⚪
+## Phase 4 — Stretch 🟡 (in progress)
 
 **Goal:** depth once the core loop is proven. Each item is independent; pull forward whatever the product needs.
 
 **Deliverables (unordered)**
+- [x] **AI Assist Phase A** (2026-07-13, `feat/assist-phase-a`) — the first AI-in-product slice (text drawing commands, `docs/IDEAS.md` "AI inside the product"): a small `Op` union (`add_layer`/`add_stroke`) applied through the existing command seam, a judge-style `internal/assist` Go module (`Assist` interface + `FakeAssist`, the default), ghost-preview accept/reject in `packages/editor` (`previewOps`/`acceptOps`/`rejectOps`), and the prompt panel in `/draw`. **Fake-first:** `ASSIST_MODE=fake` (default) ships live; the real Anthropic impl is scaffolded behind `ASSIST_MODE=anthropic` (config plumbing + fail-fast, no live SDK call) and deferred until an API key/model exists. Full design: `docs/ASSIST.md` / `docs/DESIGN-ASSIST-PHASE-A.md`; HTTP contract: `docs/API.md` §10.
 - [ ] **Realtime hardening** — WS hub robustness (reconnect, presence, match rooms), spectating.
 - [ ] **Ratings** — per-player rating updated on match result (Elo-style; `users.rating`, `match_players.rating_before/after`); leaderboards.
 - [ ] **Teams / tournaments** — multi-player brackets on top of the `match_players` primitive (generalizes from 1v1 without reshaping `matches`).

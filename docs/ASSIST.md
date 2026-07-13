@@ -15,7 +15,7 @@ prompt ──> POST /api/assist/ops ──> LLM (structured output) ──> ops[
                 │                                                 │
                 └── validated server-side (Go document validator) ┘
                                                                   │
-client: ops ──> ghost preview ──> Accept ──> one composite Command ──> Editor.commit()
+client: ops ──> ghost preview ──> Accept ──> one composite Command ──> Editor.acceptOps()
 ```
 
 - **The LLM speaks document language, never Konva.** It emits operations over the vector document (`Document/Layer/Stroke`), which the existing validators can check and the existing command history can apply/invert. Rendering stays Konva's job, exactly as for human input.
@@ -57,14 +57,14 @@ A new Go module `server/internal/assist/` mirroring the `internal/judge` seam pa
 
 ### 3.1 Endpoint
 
-`POST /api/assist/ops` — **auth required** (session cookie, like every write route).
+`POST /api/assist/ops` — **auth required** (session cookie, like every write route). Full HTTP contract (status map, byte cap): `docs/API.md` §10.
 
 ```jsonc
 // request
 {
   "prompt": "draw a house with a red roof",
-  "doc_summary": { /* §4 */ },
-  "target_layer_id": "l1"        // optional: bias generation onto this layer
+  "docSummary": { /* §4 */ },
+  "targetLayerId": "l1"        // optional: bias generation onto this layer
 }
 
 // response
@@ -74,25 +74,28 @@ A new Go module `server/internal/assist/` mirroring the `internal/judge` seam pa
 }
 ```
 
+All DTOs are **camelCase**, matching the rest of the live API.
+
 ### 3.2 The LLM call (pinned choices)
 
+- **Mode switch, mirroring `RENDER_MODE`.** `ASSIST_MODE` selects the impl at composition time: **`fake`** (default — deterministic canned ops, zero API dependency; dev/CI default) or **`anthropic`** (the real LLM impl). `ANTHROPIC_API_KEY` is the server-side key, required (fail-fast at `config.Load()`) when `ASSIST_MODE=anthropic`; it never reaches the client.
 - **`client.Messages.New`, non-streaming.** Op batches are small; streaming buys nothing in v1 (a non-goal, §8).
 - **Structured outputs** via `output_config.format` json_schema — in Go: `OutputConfig: anthropic.OutputConfigParam{Format: anthropic.JSONOutputFormatParam{Schema: ...}}`. The schema is the Op-batch schema with `additionalProperties: false` everywhere and **no recursion** — this guarantees parseable JSON matching the Op schema, so the retry path (§3.3) only ever deals with *semantic* validation failures, never JSON syntax.
 - **`MaxTokens: 8000`.**
-- **Model: `anthropic.ModelClaudeOpus4_8`** (`claude-opus-4-8`, $5/$25 per MTok) by default — best shape-composition quality — configurable via **`ASSIST_MODEL`**; `claude-haiku-4-5` ($1/$5 per MTok) is the documented budget option. Optionally `output_config.effort: "low"` for simple command generation.
-- **`ANTHROPIC_API_KEY` is server-side only** and required for the real impl (fail-fast at boot when the real mode is selected, matching the `JWT_SECRET`/`RENDER_CLI` posture).
+- **Model: `claude-opus-4-8`** by default — best shape-composition quality — configurable via **`ASSIST_MODEL`**; `claude-haiku-4-5` ($1/$5 per MTok) is the documented budget option. Optionally `output_config.effort: "low"` for simple command generation.
+- **Phase A ships `fake`-first.** `ASSIST_MODE=anthropic` is scaffolded (config plumbing + a stub that fails fast with "not implemented") but not wired to a live SDK call — no API key exists yet. `docs/DESIGN-ASSIST-PHASE-A.md` §1 owns this scoping.
 
-### 3.3 Validate → retry → 422
+### 3.3 Validate → retry → `400`
 
 The server **validates every op** against the Go document validator before returning anything to the client:
 
 1. Validate the returned batch (schema parity + document invariants + intra-batch layer refs).
 2. On failure: **one retry**, with the validator errors appended to the prompt ("your previous output failed validation: …").
-3. Still invalid → **`422`** with the reasons in the error envelope. The client never receives unvalidated ops.
+3. Still invalid → **`400 validation_failed`** with the reason in the error envelope — **not `422`**, which `docs/API.md` reserves unused in v1 (one consistent client path for doc-invalid). The client never receives unvalidated ops; the handler re-validates the returned batch defense-in-depth before responding even on the impl's reported success.
 
 ### 3.4 Rate limiting
 
-A **per-user token bucket** on `/api/assist/ops` ships *with* this feature (not deferred like the general 429 work in `DECISIONS.md` 2026-06-20) — the app will be a public demo and each request costs real API money. Simple in-process bucket; the general per-IP/per-login limiter can absorb it later.
+A **per-user token bucket** on `/api/assist/ops` ships *with* this feature (not deferred like the general 429 work in `DECISIONS.md` 2026-06-20) — the app will be a public demo and each request costs real API money. Simple in-process bucket, keyed by user id; the general per-IP/per-login limiter can absorb it later. Exceeding it returns `429 rate_limited` with a `Retry-After` header (seconds).
 
 ## 4. The doc summary (token thrift)
 
@@ -112,11 +115,11 @@ This gives the LLM the canvas size and the layer inventory without ever sending 
 
 ## 5. Client (`apps/web`)
 
-- **Transport:** a TanStack Query mutation composable (`useAssist`) over the fetch API client, same pattern as save/load.
-- **UI:** a prompt input panel in `DrawView.vue`, placed near `FloatingToolbar` (same floating shell language; exact placement is a design-pass detail).
-- **Ghost preview:** returned ops render as a **ghost layer** — distinct styling (e.g. reduced opacity + accent outline), drawn on the stage but **not in the document and not in history**. The user then:
-  - **Accept** — the whole batch is mapped into a **single composite `Command {apply, invert}`** and committed via `Editor.commit()`. The entire AI action is one history entry: **one Ctrl+Z undoes all of it**.
-  - **Reject** — the preview is discarded; nothing enters the document or history.
+- **Transport:** `useAssist()` (`core/api/queries.ts`) — a TanStack Query mutation wrapping the typed `assist.ops` client (`core/api/assist.ts`), same pattern as save/load.
+- **UI:** a prompt input panel in `DrawView.vue`, mounted in the shared `EditorShell`'s `#top-center` region (a free region slot the shell already reserves) and toggled open/closed from an `assist` icon in the top-left actions island, alongside the layers/help toggles.
+- **Ghost preview:** returned ops are handed to `Editor.previewOps(ops)`, which renders them on a ghost overlay — its own top, non-listening Konva layer at reduced opacity with a dashed accent frame, clipped to the doc rect — drawn on the stage but **not in the document and not in history**. The user then:
+  - **Accept** — `Editor.acceptOps()` maps the whole batch into a **single composite `Command {apply, invert}`** and commits it through the editor's normal commit path. The entire AI action is one history entry: **one Ctrl+Z undoes all of it**.
+  - **Reject** — `Editor.rejectOps()` discards the preview; nothing enters the document or history.
 - This keeps the trust and UX boundary crisp: AI output is a *proposal* until the user accepts, and an accepted proposal is indistinguishable from any other command in the history model.
 
 ## 6. Testing
@@ -124,7 +127,7 @@ This gives the LLM the canvas size and the layer inventory without ever sending 
 Same playbook as the judge seam:
 
 - **Fake `Assist`** with canned op batches — dev/CI default; the whole client flow is demonstrable with zero API dependency.
-- **Go table tests:** op validation (schema parity, intra-batch layer refs, document invariants), the retry path (invalid → retry with errors → valid, and invalid → invalid → 422), auth + rate-limit behavior.
+- **Go table tests:** op validation (schema parity, intra-batch layer refs, document invariants), the retry path (invalid → retry with errors → valid, and invalid → invalid → 400), auth + rate-limit behavior.
 - **Vitest:** ops → composite `Command` mapping (apply/invert round-trip), ghost preview accept/reject.
 - **Contract-parity test** for the Op schema (TS vs Go) — mirrored test tables, exactly like the Stroke contract.
 
