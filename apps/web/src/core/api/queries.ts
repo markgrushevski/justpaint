@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { Document } from '@justpaint/document'
+import { isAuthError } from './http'
 import { drawings } from './drawings'
 import type { DrawingFull, DrawingMeta } from './drawings'
 import { matches } from './matches'
@@ -81,7 +82,11 @@ export function useLeaderboard(limit = 20) {
     return useQuery({
         queryKey: leaderboardKeys.list(limit),
         queryFn: (): Promise<LeaderboardPage> => leaderboard.list({ limit }),
-        staleTime: 30_000
+        staleTime: 30_000,
+        // A 401 can't succeed while unauthenticated — surface it immediately for
+        // the sign-in branch instead of burning the default 3 retries on a
+        // request that will keep failing.
+        retry: (count, err) => !isAuthError(err) && count < 3
     })
 }
 

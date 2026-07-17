@@ -58,9 +58,11 @@ const emit = defineEmits<{
                     icon-position="left"
                 />
             </li>
-            <li>
+            <li v-if="props.signedIn">
                 <!-- Also a RouterLink (renders an <a>) — the ranked ladder. Neutral
-                     surface glyph like the other secondary entries. -->
+                     surface glyph like the other secondary entries. Signed-in only:
+                     /leaderboard is auth-required, so an anonymous visitor would
+                     land on a 401 (mirrors the "Sign in" row / SideMenu). -->
                 <OriButton
                     class="empty__action"
                     :as="RouterLink"
@@ -70,7 +72,7 @@ const emit = defineEmits<{
                     color="surface"
                     radius="md"
                     fluid
-                    :icon="icons.mdiPodium"
+                    :icon="icons.podium"
                     icon-position="left"
                 />
             </li>

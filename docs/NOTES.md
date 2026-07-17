@@ -198,7 +198,14 @@ small practical gotchas go here.
   Elo ladders work (a rating period), not a bug; the ladder still nets both deltas exactly. Proven by
   `internal/game/rating_db_test.go` (concurrent-resolve regression + chain + zero-sum + judged path;
   case (a) fails against the old absolute `SET`). Fixed on `feat/ratings-leaderboard`; was flagged by
-  `feat/round-deadline` (`DECISIONS.md` 2026-07-13, `IDEAS.md`).
+  `feat/round-deadline` (`DECISIONS.md` 2026-07-17, `IDEAS.md`).
+- **`ratings.ListTopRatings` recomputes the FULL aggregate on every request — no covering index, no
+  cache.** The leaderboard query joins `users` ⨝ `match_players` ⨝ `matches`, groups, and sorts the
+  *entire* ladder before top-N is applied by `limit` — there is no materialized/cached rank and no
+  index covering the `group by`/`order by`. Fine at Phase-4 scale; mitigated in the meantime by the
+  clamped `?limit` (`API.md` §11) and the frontend's 30s `staleTime` on the leaderboard query. Revisit
+  with a covering index, a materialized rank, or a cached leaderboard table before a large real user
+  base — sits alongside the deferred global rate-limit (`IDEAS.md` "Drawings / API").
 - **Deadline enforcement leans on Postgres `now()` being the TRANSACTION-START instant, not the
   statement instant.** `GetMatchForUpdate`'s `server_now`, `StampSubmission`'s `now()`, and
   `SetMatchDrawing`'s deadline stamp are all plain `now()` — the SAME instant throughout one
@@ -434,6 +441,12 @@ small practical gotchas go here.
 - **A duel is auth-required**; `/play` has no sign-in form. An anonymous visitor (or a `fetchMe`
   failure) routes to the sign-in card, which links to `/draw` (where the SideMenu auth lives). A `409`
   on submit is treated as already-recorded and proceeds to the verdict poll, not an error.
+- **`PlayView.applyResult` mutates `session.user.rating` DIRECTLY**, bypassing the session store's
+  `fetchMe`/`login`/`register` actions (the only places that normally set `user.rating`). Without this
+  patch the SideMenu and the leaderboard would keep showing the page-load rating after a duel resolves
+  — the result card's `eloDelta` would be right but every other rating display stale until the next
+  full session refetch. A future session-store refactor must preserve this post-duel sync (or replace
+  it with an explicit store action) or the drawer/leaderboard rating goes stale again.
 
 ## WS realtime (`internal/ws`, `feat/ws-realtime`)
 

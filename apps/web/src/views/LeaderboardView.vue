@@ -10,19 +10,28 @@
  * fallback label is used for anonymous players.
  */
 import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { OriAvatar, OriBadge, OriButton, OriSkeleton, OriSurface } from '@oriui/vue'
-import { icons, toApiError, useLeaderboard, useSessionStore } from '@core'
+import { icons, isAuthError, toApiError, useLeaderboard, useSessionStore } from '@core'
 import type { LeaderboardEntry } from '@core'
+import AuthForm from '../components/auth/AuthForm.vue'
 
 /** Top-N shown. Fixed for the page's lifetime (a plain query key is enough). */
 const LIMIT = 20
 
+const router = useRouter()
 const session = useSessionStore()
-const { data, isPending, isError, error } = useLeaderboard(LIMIT)
+// Restore an existing cookie session on a cold/direct load (mirrors DrawView) —
+// this makes the signed-in player's own row highlight on a fresh load, and turns
+// a lapsed session into the sign-in branch rather than a generic error.
+void session.fetchMe()
+const { data, isPending, isError, error, refetch } = useLeaderboard(LIMIT)
 
 const entries = computed<LeaderboardEntry[]>(() => data.value?.leaderboard ?? [])
 const currentUserId = computed(() => session.user?.id ?? null)
+/** A 401 (lapsed session / direct anon visit) gets a sign-in path, not the
+ *  generic "could not load" fallback (mirrors PlayView's auth branch). */
+const needsAuth = computed(() => isAuthError(error.value))
 const errorMessage = computed(
     () => toApiError(error.value)?.message ?? 'Could not load the leaderboard. Try again later.'
 )
@@ -30,6 +39,13 @@ const errorMessage = computed(
 /** Safe display label — `displayName` is nullable server-side; never a login. */
 function nameFor(entry: LeaderboardEntry): string {
     return entry.displayName ?? 'Anonymous player'
+}
+
+/** Back to wherever the visitor came from (e.g. /play after a duel), or /draw when
+ *  this was a direct/first navigation with no history to pop. */
+function goBack(): void {
+    if (window.history.length > 1) router.back()
+    else router.push('/draw')
 }
 </script>
 
@@ -41,16 +57,17 @@ function nameFor(entry: LeaderboardEntry): string {
                     <h1 id="lb-title" class="lb__title">Leaderboard</h1>
                     <p class="lb__subtitle">Top players by rating</p>
                 </div>
+                <!-- Back to wherever the visitor came from (e.g. /play post-duel);
+                     falls back to /draw on a direct load with no history. -->
                 <OriButton
                     class="lb__back"
-                    :as="RouterLink"
-                    to="/draw"
-                    text="Back to drawing"
+                    text="Back"
                     variant="outline"
                     color="surface"
                     radius="md"
-                    :icon="icons.mdiPencil"
+                    :icon="icons.mdiArrowLeft"
                     icon-position="left"
+                    @click="goBack"
                 />
             </header>
 
@@ -113,6 +130,13 @@ function nameFor(entry: LeaderboardEntry): string {
                 </tbody>
             </table>
 
+            <!-- Auth: a 401 (lapsed session / direct anon visit) offers inline
+                 sign-in (the same AuthForm as /draw & /play) and refetches on
+                 success — instead of a dead-end generic error. -->
+            <div v-else-if="needsAuth" class="lb__auth">
+                <p class="lb__state">Sign in to view the leaderboard.</p>
+                <AuthForm hint="Sign in to see the ranked ladder." @authenticated="() => refetch()" />
+            </div>
             <!-- Error: surface the ApiError message (role=alert for AT). -->
             <p v-else-if="isError" class="lb__state lb__state--error" role="alert">{{ errorMessage }}</p>
             <!-- Empty. -->
@@ -193,7 +217,7 @@ function nameFor(entry: LeaderboardEntry): string {
     width: 100%;
     border-collapse: collapse;
 
-    font-size: var(--ori-font-size_sm, 0.9rem);
+    font-size: var(--ori-font-size_sm, 0.875rem);
 }
 
 /* Visually-hidden caption — the sighted heading is the <h1>; this names the
@@ -256,12 +280,13 @@ function nameFor(entry: LeaderboardEntry): string {
 
 .lb__row--me {
     /* Neutral tint (on-surface, not a brand role) marking the signed-in player's
-       own row — pairs with aria-current="true" for assistive tech. */
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+       own row — pairs with aria-current="true" for assistive tech. Shared
+       `--jp-neutral-hover-bg` token (main.css), same tint as the menu hover. */
+    background-color: var(--jp-neutral-hover-bg);
 }
 
 .lb__td {
-    padding: var(--ori-size-gap_sm, 0.35rem) var(--ori-size-gap_md, 0.5rem);
+    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
     vertical-align: middle;
 
     color: var(--ori-color-on-surface);
@@ -286,7 +311,7 @@ function nameFor(entry: LeaderboardEntry): string {
 .lb__player {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.4rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
     min-width: 0;
 }
 
@@ -305,13 +330,20 @@ function nameFor(entry: LeaderboardEntry): string {
 
 /* --- states ------------------------------------------------------------ */
 
+/* Sign-in branch: constrain the inline AuthForm to a readable column, centred
+   under the "Sign in to view…" line (the 760px panel is far too wide for it). */
+.lb__auth {
+    width: min(22rem, 100%);
+    margin: 0 auto;
+}
+
 .lb__state {
     margin: 0;
     padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_md, 0.5rem);
 
     color: var(--ori-color-on-surface);
 
-    font-size: var(--ori-font-size_sm, 0.9rem);
+    font-size: var(--ori-font-size_sm, 0.875rem);
     text-align: center;
     opacity: 0.75;
 }
@@ -340,8 +372,10 @@ function nameFor(entry: LeaderboardEntry): string {
 
 .lb__skel--avatar {
     flex: none;
-    width: 1.75rem;
-    height: 1.75rem;
+    /* Match the loaded OriAvatar size="sm" (--ori-size-action_sm = 1.5rem) so the
+       row doesn't shift when the shimmer swaps for the real avatar. */
+    width: 1.5rem;
+    height: 1.5rem;
 }
 
 .lb__skel--name {

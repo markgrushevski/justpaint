@@ -320,7 +320,7 @@ function onKeydown(e: KeyboardEvent) {
                     text="Leaderboard"
                     variant="outline"
                     radius="md"
-                    :icon="icons.mdiPodium"
+                    :icon="icons.podium"
                     icon-position="left"
                 />
                 <OriButton text="Log out" variant="outline" radius="md" :icon="icons.mdiLogout" @click="logout" />

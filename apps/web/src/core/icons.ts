@@ -28,8 +28,11 @@ export const icons = {
         'M11 7L9.6 8.4L12.2 11H2V13H12.2L9.6 15.6L11 17L16 12L11 7M20 19H12V21H20C21.1 21 22 20.1 22 19V5C22 3.9 21.1 3 20 3H12V5H20V19Z',
     mdiKeyboard:
         'M19,10H17V8H19M19,13H17V11H19M16,10H14V8H16M16,13H14V11H16M16,17H8V15H16M7,10H5V8H7M7,13H5V11H7M8,11H10V13H8M8,8H10V10H8M11,11H13V13H11M11,8H13V10H11M20,5H4C2.89,5 2,5.89 2,7V17A2,2 0 0,0 4,19H20A2,2 0 0,0 22,17V7C22,5.89 21.1,5 20,5Z',
+    mdiArrowLeft: 'M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z',
     // Self-authored podium/ranking glyph (a 2nd-1st-3rd block trio) for the
-    // leaderboard nav — the rest of this set is ported @mdi/js, but @mdi/js isn't
-    // installed and this metaphor is simple enough to draw cleanly by hand.
-    mdiPodium: 'M3,13H9V21H3V13M9.5,8H14.5V21H9.5V8M15,16H21V21H15V16Z'
+    // leaderboard nav. NOT prefixed `mdi`: the rest of this set is ported @mdi/js
+    // paths, but @mdi/js isn't installed, this metaphor is simple enough to draw
+    // by hand, and the real upstream mdiPodium is a differently-shaped glyph — so
+    // this hand-authored one must not borrow that name.
+    podium: 'M3,13H9V21H3V13M9.5,8H14.5V21H9.5V8M15,16H21V21H15V16Z'
 } as const
