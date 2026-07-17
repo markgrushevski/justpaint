@@ -11,7 +11,7 @@ This doc **owns**:
 - the **canonical game canvas** = square **1080×1080** (§2);
 - how a **prompt** is pinned per match (§5);
 - the **trust boundary** for game submissions (§6);
-- the **ratings sketch** (Elo-style) and **tie** handling (§8).
+- the **ratings sketch** (Elo-style), **tie** handling, and the leaderboard (§8).
 
 This doc **defers**:
 - the **judge contract** — `Result` shape, positional `winner` type, tie rule, raster size (1024×1024), background — entirely to **`docs/JUDGE.md`**. We only consume it.
@@ -117,7 +117,7 @@ The mapping lives **only** here; the judge never learns who is who, and the stor
 
 ## 8. Ratings (Elo-style sketch)
 
-> **Scope:** a deliberately small Elo sketch so a result *moves the needle*. **Full ratings are Phase 4** (`ROADMAP.md`) — leaderboards, decay, provisional/placement handling, anti-abuse are out of scope here. This pins just enough to apply a rating delta on every `done` match.
+> **Scope:** a deliberately small Elo sketch so a result *moves the needle*. **Full ratings are Phase 4** (`ROADMAP.md`) — decay, provisional/placement handling, anti-abuse are out of scope here. This pins just enough to apply a rating delta on every `done` match.
 
 - **Storage:** `users.rating int not null default 1200` (the live rating); `match_players.rating_before` / `rating_after` snapshot each player's rating around the match (audit + display). All three owned by `ARCHITECTURE.md` §7.
 - **Model (standard Elo):** expected score for player P against opponent O
@@ -128,7 +128,9 @@ The mapping lives **only** here; the judge never learns who is who, and the stor
 - **Tie:** both players take `S = 0.5`; the deltas are equal-and-opposite only when ratings were equal, otherwise the lower-rated player gains and the higher-rated loses a little, as Elo intends. `matches.winner_player_id = null`.
 - **Forfeit:** if the round deadline passes with exactly one submitter (§4.1), that player's actual score is fixed at `S = 1` fed into the *same* `computeElo` — full `K = 32`, exactly like a decisive judged win, no discount. The judge never runs (only one image exists), so `match_players.score` (the judge similarity) stays `null` for both players; the S-value lives only in the Elo math, not in that column. `matches.resolution = 'forfeit'` distinguishes it from `'judged'`.
 - **When applied:** exactly once, atomically, on the `judging → done` transition (a judged result) **or the `drawing → done` forfeit transition** (§4.1) — after the result is recorded. `rating_before` is captured before the update; `rating_after` after. An `abandoned` match applies **no** rating change.
+- **Atomic ladder write:** the delta reaches `users.rating` via `rating = rating + delta` (`ApplyRatingDelta`, `RETURNING` the true post-value), **never** an absolute `SET`, so two matches seating the same player and resolving concurrently both land — the match row lock serializes per *match*, not per *user* (`docs/NOTES.md`, `DECISIONS.md` 2026-07-17). The delta *magnitude* is sized from a pre-match rating snapshot (a rating period — standard Elo), while `rating_before`/`rating_after` are derived from that atomic write's `RETURNING` so the snapshot always agrees with the ladder.
 - **Outcome from the judge, not the score gap:** win/loss/tie is taken from the judge's `winner` field (mapped per §7.1), not by comparing `scoreA`/`scoreB` ourselves — the judge owns the verdict, including whether a near-equal pair is a tie. (A forfeit has no judge outcome to take — the winner is simply the submitter.)
+- **Leaderboard (Phase 4, shipped — `ListTopRatings`, HTTP edge `API.md` §11):** the read-only top-N ladder. **Eligibility:** a player appears only with **≥1 `done` match** — the query INNER-JOINs `match_players`/`matches`, so anyone with zero finished games (or only `open`/`drawing`/`judging`/`abandoned` rows) falls out naturally; no 0-games filter, no migration, no index. **Order:** `rating desc`, then **`users.id asc`** as the stable tie-break (every account starts at 1200, so a fresh ladder would otherwise be nondeterministic). **`rank` = 1-based row number** over that ordering (an absolute position — see why `API.md` §11 can't keyset-paginate it). **Counts:** `gamesPlayed` = every `done` match (forfeits included, full-K; `abandoned` excluded — no Elo, no result); `wins`/`losses` derive from `winner_player_id` (`null` = tie, counted as neither, so `ties = gamesPlayed − wins − losses`). **Privacy:** `login` is **never** selected (it may be an email) — only the nullable, user-chosen `display_name`, the same rule as the §4.2 / §7 roster.
 
 ## 9. Live realtime — same lifecycle, now shipped
 

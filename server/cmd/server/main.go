@@ -22,6 +22,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/platform/logging"
 	"github.com/markgrushevski/justpaint/server/internal/platform/postgres"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
+	"github.com/markgrushevski/justpaint/server/internal/ratings"
 	"github.com/markgrushevski/justpaint/server/internal/render"
 	"github.com/markgrushevski/justpaint/server/internal/ws"
 )
@@ -92,6 +93,11 @@ func run() error {
 	}
 	assistHandler := assist.NewHandler(assistImpl, assistLimiter, logger)
 
+	// The leaderboard is a read-only Phase 4 slice (docs/API.md §11): a small
+	// single-route module over the shared queries, like assist — a global top-N
+	// read, sharing nothing with the match lifecycle, so it does NOT live on game.
+	ratingsHandler := ratings.NewHandler(ratings.NewService(queries), logger)
+
 	// Live realtime (Phase 3 back-half): the in-memory WS hub pushes committed match
 	// transitions to both duelists, Postgres stays authoritative, the poll loop is the
 	// fallback. The hub implements game.Publisher and is injected via SetPublisher, so
@@ -118,6 +124,7 @@ func run() error {
 	drawingsHandler.Routes(mux, authHandler.RequireAuth)
 	gameHandler.Routes(mux, authHandler.RequireAuth)
 	assistHandler.Routes(mux, authHandler.RequireAuth)
+	ratingsHandler.Routes(mux, authHandler.RequireAuth)
 	wsHandler.Routes(mux, authHandler.RequireAuth)
 
 	srv := &http.Server{

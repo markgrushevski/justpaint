@@ -21,7 +21,9 @@
  * preview only (GAME.md §6).
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { OriBadge, OriButton, OriSurface } from '@oriui/vue'
+import { useQueryClient } from '@tanstack/vue-query'
 import { Editor, TOOLS, DEFAULT_STYLE, newId, renderToPNG } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
@@ -34,7 +36,8 @@ import {
     matches,
     isAuthError,
     toApiError,
-    openMatchSocket
+    openMatchSocket,
+    leaderboardKeys
 } from '@core'
 import type { Match, MatchResultDone, WsFrame, MatchSocketHandle } from '@core'
 import EditorShell from '../components/shell/EditorShell.vue'
@@ -98,6 +101,8 @@ const cursorRingColor = useThemeColor('primary')
 const session = useSessionStore()
 const createMatch = useCreateMatch()
 const submitMatch = useSubmitMatch()
+const router = useRouter()
+const queryClient = useQueryClient()
 
 /** A blank single-layer document at the square GAME canvas size. */
 function blankGameDocument(): Document {
@@ -656,6 +661,13 @@ function applyResult(r: MatchResultDone): void {
         eloDelta: after - before,
         ratingBefore: before
     }
+    // The session store only sets `user.rating` on fetchMe/login/register, so
+    // without this the SideMenu (and the leaderboard) would keep showing the
+    // page-load rating after a duel. If the signed-in user is one of the duelists,
+    // patch their rating to the post-match value; then invalidate the ladder so the
+    // cached leaderboard re-fetches and agrees with this result card.
+    if (session.user && me) session.user.rating = after
+    void queryClient.invalidateQueries({ queryKey: leaderboardKeys.all })
     phase.value = 'done'
     stopCountdown()
     // Fetch + render the opponent's canvas off the critical path; it patches into
@@ -675,6 +687,12 @@ function playAgain(): void {
     editor?.loadDocument(parseDocument(blankGameDocument()))
     syncEditorState()
     void startMatch()
+}
+
+/** Post-duel jump to the ranked ladder (ResultReveal is presentational — the view
+ *  owns the navigation). The only path a /play user reaches the leaderboard. */
+function viewLeaderboard(): void {
+    void router.push('/leaderboard')
 }
 
 /** Inline sign-in from the error overlay succeeded — re-enter the duel with no navigation. */
@@ -888,7 +906,12 @@ onBeforeUnmount(() => {
                 <OriButton v-else text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
             </OriSurface>
             <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
-            <ResultReveal v-else-if="phase === 'done' && result" :result="result" @play-again="playAgain" />
+            <ResultReveal
+                v-else-if="phase === 'done' && result"
+                :result="result"
+                @play-again="playAgain"
+                @view-leaderboard="viewLeaderboard"
+            />
         </template>
     </EditorShell>
 </template>
