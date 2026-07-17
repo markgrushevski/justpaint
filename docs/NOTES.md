@@ -179,17 +179,26 @@ small practical gotchas go here.
   field-named struct call. Still owed: a DB-integration regression test (skip-without-`DATABASE_URL`,
   like `roundtrip_test.go`) asserting a **non-member viewer gets 404 even when the named target has
   submitted** — that's the one assertion that would catch a role flip.
-- **`users.rating` is written as an ABSOLUTE value (`UpdateUserRating`: `set rating = $2`), with no row
-  lock and no CAS** — correct only because a single match resolves exactly once (the
-  `GetMatchForUpdate` lock + status recheck that guards it, `service.go`/`deadline.go`). It is **NOT**
-  safe against the same user's rating being updated by two *different* matches resolving concurrently
-  (a lost update: both read the same pre-match rating, both write their own `after`, one clobbers the
-  other) — and nothing stops a user from being seated in more than one active match today. Don't lean
-  on `users.rating` as a precise ladder number under concurrent resolution without fixing this: either
-  `rating = rating + delta` (atomic, no read-then-write) or serialize per user
-  (`pg_advisory_xact_lock(hashtext(userID))`, the same idiom already deferred for the open-match dedupe
-  gap above). Flagged, not fixed, by `feat/round-deadline` — forfeit/sweeper resolution is what first
-  makes two-matches-at-once a realistic way to hit it (`IDEAS.md`).
+- **`users.rating` is moved by an ATOMIC delta (`ApplyRatingDelta`: `set rating = rating + $delta
+  returning rating`), never an absolute `SET`** — so two *different* matches that seat the SAME user
+  and resolve concurrently BOTH land (no lost update). This is load-bearing because the match `FOR
+  UPDATE` lock (`GetMatchForUpdate`, `service.go`/`deadline.go`) serializes per **MATCH, not per
+  USER** — it cannot guard a cross-match write to a shared `users` row, and nothing stops a user being
+  seated in more than one active match. The `+= delta` is safe under Read-Committed precisely because
+  Postgres re-evaluates the row after granting the write lock (EvalPlanQual), so the second writer adds
+  to the FIRST's committed value instead of clobbering it. `writeFinalResult` (the single Elo write
+  site, shared by the judged and forfeit paths) writes the rating FIRST and derives the
+  `rating_before`/`rating_after` snapshot from that `RETURNING` (`after` = returned, `before` = after −
+  delta), so the chain invariant `rating_after(M_n) == rating_before(M_n+1)` and `after − before ==
+  delta` hold even under concurrency; it also **sorts players by `user_id`** before writing so a
+  rematch (the same PAIR in two concurrent matches) takes the two user row locks in one global order
+  and cannot deadlock (`40P01`). **ACCEPTED caveat:** the delta *magnitude* is still sized from a
+  pre-match rating snapshot the caller read (outside the tx on the judged path, in-tx on forfeit), so
+  two concurrent matches can each size their delta against the same starting rating — that is how real
+  Elo ladders work (a rating period), not a bug; the ladder still nets both deltas exactly. Proven by
+  `internal/game/rating_db_test.go` (concurrent-resolve regression + chain + zero-sum + judged path;
+  case (a) fails against the old absolute `SET`). Fixed on `feat/ratings-leaderboard`; was flagged by
+  `feat/round-deadline` (`DECISIONS.md` 2026-07-13, `IDEAS.md`).
 - **Deadline enforcement leans on Postgres `now()` being the TRANSACTION-START instant, not the
   statement instant.** `GetMatchForUpdate`'s `server_now`, `StampSubmission`'s `now()`, and
   `SetMatchDrawing`'s deadline stamp are all plain `now()` — the SAME instant throughout one
