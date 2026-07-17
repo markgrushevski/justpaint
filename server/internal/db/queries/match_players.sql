@@ -75,11 +75,6 @@ where exists (select 1
               where vp.match_id = sqlc.arg('match_id')
                 and vp.user_id = sqlc.arg('viewer_user_id'));
 
--- name: UpdateUserRating :exec
-update users
-set rating = $2, updated_at = now()
-where id = $1;
-
 -- name: GetMatchPlayersForResolve :many
 -- Per-player state the deadline resolver needs in one read: who submitted (and
 -- their drawing), plus the live rating for forfeit Elo. Stable (submitted_at,

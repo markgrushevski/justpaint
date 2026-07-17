@@ -9,6 +9,26 @@ import (
 	"context"
 )
 
+const applyRatingDelta = `-- name: ApplyRatingDelta :one
+update users set rating = rating + $1::int, updated_at = now() where id = $2 returning rating
+`
+
+type ApplyRatingDeltaParams struct {
+	Delta int32
+	ID    string
+}
+
+// Atomically move a player's ladder rating by the match's Elo delta and return the
+// TRUE post-update rating. rating = rating + delta (never an absolute SET) so two
+// matches sharing a player resolving concurrently both land — the match-row lock
+// serializes per MATCH, not per USER (docs/NOTES.md).
+func (q *Queries) ApplyRatingDelta(ctx context.Context, arg ApplyRatingDeltaParams) (int32, error) {
+	row := q.db.QueryRow(ctx, applyRatingDelta, arg.Delta, arg.ID)
+	var rating int32
+	err := row.Scan(&rating)
+	return rating, err
+}
+
 const createUser = `-- name: CreateUser :one
 insert into users (login, password_hash, display_name)
 values ($1, $2, $3)
@@ -74,4 +94,65 @@ func (q *Queries) GetUserByLogin(ctx context.Context, login string) (User, error
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listTopRatings = `-- name: ListTopRatings :many
+select u.id,
+       u.display_name,
+       u.rating,
+       count(*)::int as games_played,
+       count(*) filter (where m.winner_player_id = u.id)::int as wins,
+       count(*) filter (where m.winner_player_id is not null and m.winner_player_id <> u.id)::int as losses
+from users u
+join match_players mp on mp.user_id = u.id
+join matches m on m.id = mp.match_id and m.status = 'done'
+group by u.id, u.display_name, u.rating
+order by u.rating desc, u.id asc
+limit $1::int
+`
+
+type ListTopRatingsRow struct {
+	ID          string
+	DisplayName *string
+	Rating      int32
+	GamesPlayed int32
+	Wins        int32
+	Losses      int32
+}
+
+// The leaderboard: the top-rated players with their win/loss record (docs/GAME.md §8,
+// docs/API.md §11). `login` is deliberately NOT selected — it may be an email, and the
+// leaderboard is world-readable to every authed user (privacy, same rule as
+// ListMatchPlayers). The INNER JOINs to match_players/matches mean only users with >=1
+// 'done' match appear, so players who have never finished a game fall out naturally —
+// no HAVING, no 0-games filter. status='done' counts forfeits (full-K Elo) and excludes
+// 'abandoned' (no Elo, no result). wins/losses derive from winner_player_id (null =
+// tie); ties are games_played-wins-losses, not a stored column. Tie-break on id asc
+// because every account starts at rating 1200, so a fresh ladder would otherwise order
+// nondeterministically.
+func (q *Queries) ListTopRatings(ctx context.Context, lim int32) ([]ListTopRatingsRow, error) {
+	rows, err := q.db.Query(ctx, listTopRatings, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTopRatingsRow
+	for rows.Next() {
+		var i ListTopRatingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DisplayName,
+			&i.Rating,
+			&i.GamesPlayed,
+			&i.Wins,
+			&i.Losses,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

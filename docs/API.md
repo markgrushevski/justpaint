@@ -1,6 +1,6 @@
 # API contract
 
-> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, the live WS realtime layer, and AI assist. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12); §10 owns the AI-assist HTTP edge (contract owned by `docs/ASSIST.md`).
+> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, the live WS realtime layer, AI assist, and the ratings leaderboard. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12); §10 owns the AI-assist HTTP edge (contract owned by `docs/ASSIST.md`); §11 owns the leaderboard read.
 >
 > **Status:** Phase 0 (draft). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
 
@@ -448,3 +448,29 @@ Errors:
 - `400 validation_failed` — malformed/oversized request body, the handler's defense-in-depth re-validation of the impl's output, **or** (once `AnthropicAssist` is wired to a live SDK call — still a config-gated scaffold in Phase A, `docs/ASSIST.md` §3.2/§3.3) the model's output still failing validation after the retry budget. All fold into the same code/status — never `422` (§3 reserves it unused in v1).
 - `401 unauthorized` — no/expired/invalid `jp_session`.
 - `429 rate_limited` — the per-user token bucket is exceeded; the response carries a **`Retry-After`** header (seconds) alongside the standard error envelope.
+
+## 11. Ratings — the leaderboard
+
+The global rating ladder: the top-rated players with their win/loss records. **`docs/GAME.md` §8 owns the eligibility, tie-break, and ranking rules** (this entry carries the HTTP edge). Read-only — no write route mutates the leaderboard; ratings move only through match resolution (§8).
+
+### `GET /api/leaderboard`
+**Auth: required** (session cookie, like every route). A world-readable ladder to every authed user — but `login` is **never** exposed (it may be an email; only `displayName`, which is user-chosen and nullable, is returned — the same privacy rule as the §8 roster).
+
+Query params:
+- `limit` — page size, default **20**, max **100**. Out-of-range / non-numeric / absent ⇒ **clamped** (never a 400).
+
+Success `200 OK`:
+```json
+{
+  "leaderboard": [
+    { "rank": 1, "userId": "…", "displayName": "Ada", "rating": 1432, "gamesPlayed": 13, "wins": 10, "losses": 3 },
+    { "rank": 2, "userId": "…", "displayName": null,  "rating": 1300, "gamesPlayed": 4,  "wins": 1,  "losses": 3 }
+  ],
+  "limit": 20
+}
+```
+- `rank` is the **1-based row number** over the rating-ordered result (rating desc, then `userId` asc as a stable tie-break — see `docs/GAME.md` §8). `displayName` is nullable. `wins`/`losses` derive from the match winner; a tie is neither, so `ties = gamesPlayed − wins − losses` (not a returned field). Players with **zero finished matches are hidden** (`docs/GAME.md` §8).
+- **Pagination deviates from §7 deliberately:** this is **top-N by `limit` only** — no keyset `cursor`, no `nextCursor`. `rank` is an *absolute position* in the global ordering, which a keyset (a relative seek from an opaque row) cannot carry; a cursor page would return rows whose rank the server can no longer state. Deep paging past the top N is out of scope for v1.
+
+Errors:
+- `401 unauthorized` — no/expired/invalid `jp_session`. This is the **only** client error: `limit` is clamped rather than rejected, so there is no `400` path.

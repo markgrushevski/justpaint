@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -517,18 +519,41 @@ type finalResult struct {
 // Elo is applied here in exactly ONE place, shared by the judged and forfeit paths
 // and keyed by user_id. It commits nothing — the caller owns the tx
 // (docs/DESIGN-PHASE3-LIVE.md §2.4, §2.7).
+//
+// The ladder move is ATOMIC: ApplyRatingDelta does `rating = rating + delta` and RETURNs
+// the true post-update rating, so two DIFFERENT matches sharing a player and resolving
+// concurrently BOTH land (no lost update) — the match-row FOR UPDATE lock serializes per
+// MATCH, not per USER, and so cannot guard a cross-match rating write (docs/NOTES.md).
+// before/after are DERIVED from that RETURNING (after = returned value, before = after −
+// delta), never from the pre-match read: this keeps the snapshot consistent with the
+// ladder even under concurrency, so per user rating_after(M_n) == rating_before(M_n+1)
+// and after − before == delta always hold. The delta magnitude itself is still computed
+// from the pre-match rating snapshot the caller read — that is how real ladders work.
 func (s *Service) writeFinalResult(ctx context.Context, qtx *db.Queries, matchID string, fr finalResult) error {
+	// Lock the user rows in a global (user_id) order. ApplyRatingDelta holds each user
+	// row lock until this tx commits, so two matches over the SAME pair of players
+	// (a rematch) resolving concurrently would deadlock (40P01) if they took the two
+	// locks in opposite orders — sorting makes both take them in the same order.
+	// Lock-ordering, not cosmetics.
+	slices.SortFunc(fr.players, func(a, b playerResult) int {
+		return strings.Compare(a.userID, b.userID)
+	})
+
 	for _, p := range fr.players {
-		before := int32(p.before)
-		after := int32(p.after)
+		// Rating write FIRST so its RETURNING feeds the snapshot. Keep before/after as
+		// distinct per-iteration locals: SetPlayerScore takes their addresses, so a
+		// variable hoisted out of the loop would alias across players.
+		delta := int32(p.after - p.before)
+		after, err := qtx.ApplyRatingDelta(ctx, db.ApplyRatingDeltaParams{ID: p.userID, Delta: delta})
+		if err != nil {
+			return fmt.Errorf("game: apply rating delta: %w", err)
+		}
+		before := after - delta
 		if err := qtx.SetPlayerScore(ctx, db.SetPlayerScoreParams{
 			MatchID: matchID, UserID: p.userID,
 			Score: p.score, RatingBefore: &before, RatingAfter: &after,
 		}); err != nil {
 			return fmt.Errorf("game: set score: %w", err)
-		}
-		if err := qtx.UpdateUserRating(ctx, db.UpdateUserRatingParams{ID: p.userID, Rating: after}); err != nil {
-			return fmt.Errorf("game: update rating: %w", err)
 		}
 	}
 
