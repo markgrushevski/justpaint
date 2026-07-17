@@ -2,7 +2,7 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
-## 2026-07-13 — Cross-match ladder write: atomic `rating += delta`, not an absolute `SET`
+## 2026-07-17 — Cross-match ladder write: atomic `rating += delta`, not an absolute `SET`
 
 The Phase-4 ratings slice (`feat/ratings-leaderboard`) makes `users.rating` a number a leaderboard will read, so the pre-existing cross-match lost-update (flagged by `feat/round-deadline`; `NOTES.md`/`IDEAS.md`) had to be fixed first. The old `UpdateUserRating` wrote `set rating = $2` — an absolute `SET` of a value read *earlier* — so two **different** matches seating the **same** user and resolving concurrently both read the same pre-match rating and one `SET` clobbered the other: a delta silently vanished and Elo's zero-sum broke (fabricated standings). The match `FOR UPDATE` lock does not help — it serializes per **match**, not per **user**, and the judged path even reads the ratings on the pool *outside* the resolving tx.
 

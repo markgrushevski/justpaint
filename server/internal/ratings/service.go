@@ -13,6 +13,7 @@ package ratings
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/markgrushevski/justpaint/server/internal/db"
 )
@@ -32,5 +33,9 @@ func NewService(q *db.Queries) *Service {
 // Callers clamp `limit` before calling; the query orders by (rating desc, id asc)
 // and hides players with zero finished matches (docs/GAME.md §8).
 func (s *Service) Top(ctx context.Context, limit int32) ([]db.ListTopRatingsRow, error) {
-	return s.q.ListTopRatings(ctx, limit)
+	rows, err := s.q.ListTopRatings(ctx, limit)
+	if err != nil {
+		return nil, fmt.Errorf("ratings: list top: %w", err)
+	}
+	return rows, nil
 }
