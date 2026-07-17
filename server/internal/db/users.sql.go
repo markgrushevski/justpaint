@@ -9,6 +9,26 @@ import (
 	"context"
 )
 
+const applyRatingDelta = `-- name: ApplyRatingDelta :one
+update users set rating = rating + $1::int, updated_at = now() where id = $2 returning rating
+`
+
+type ApplyRatingDeltaParams struct {
+	Delta int32
+	ID    string
+}
+
+// Atomically move a player's ladder rating by the match's Elo delta and return the
+// TRUE post-update rating. rating = rating + delta (never an absolute SET) so two
+// matches sharing a player resolving concurrently both land — the match-row lock
+// serializes per MATCH, not per USER (docs/NOTES.md).
+func (q *Queries) ApplyRatingDelta(ctx context.Context, arg ApplyRatingDeltaParams) (int32, error) {
+	row := q.db.QueryRow(ctx, applyRatingDelta, arg.Delta, arg.ID)
+	var rating int32
+	err := row.Scan(&rating)
+	return rating, err
+}
+
 const createUser = `-- name: CreateUser :one
 insert into users (login, password_hash, display_name)
 values ($1, $2, $3)

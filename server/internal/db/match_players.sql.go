@@ -247,19 +247,3 @@ func (q *Queries) StampSubmission(ctx context.Context, arg StampSubmissionParams
 	}
 	return result.RowsAffected(), nil
 }
-
-const updateUserRating = `-- name: UpdateUserRating :exec
-update users
-set rating = $2, updated_at = now()
-where id = $1
-`
-
-type UpdateUserRatingParams struct {
-	ID     string
-	Rating int32
-}
-
-func (q *Queries) UpdateUserRating(ctx context.Context, arg UpdateUserRatingParams) error {
-	_, err := q.db.Exec(ctx, updateUserRating, arg.ID, arg.Rating)
-	return err
-}
