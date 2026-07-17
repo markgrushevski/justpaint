@@ -42,7 +42,7 @@ import { computed } from 'vue'
 import { OriButton, OriCard, OriSurface } from '@oriui/vue'
 
 const props = defineProps<{ result: DuelResult }>()
-const emit = defineEmits<{ playAgain: [] }>()
+const emit = defineEmits<{ playAgain: []; viewLeaderboard: [] }>()
 
 const youWon = computed(() => props.result.winner === 'you')
 const tie = computed(() => props.result.winner === 'tie')
@@ -147,15 +147,29 @@ function scoreText(score: number): string {
             </span>
         </div>
 
-        <OriButton
-            class="result__again"
-            text="Play again"
-            variant="fill"
-            color="primary"
-            radius="md"
-            fluid
-            @click="emit('playAgain')"
-        />
+        <!-- Post-duel is peak intent to check standings — the ONLY path a /play
+             user reaches the ladder (PlayView has no drawer). Presentational: emit
+             and let PlayView route. -->
+        <div class="result__actions">
+            <OriButton
+                class="result__again"
+                text="Play again"
+                variant="fill"
+                color="primary"
+                radius="md"
+                fluid
+                @click="emit('playAgain')"
+            />
+            <OriButton
+                class="result__leaderboard"
+                text="View leaderboard"
+                variant="outline"
+                color="surface"
+                radius="md"
+                fluid
+                @click="emit('viewLeaderboard')"
+            />
+        </div>
     </OriSurface>
 </template>
 
@@ -377,8 +391,18 @@ function scoreText(score: number): string {
     color: var(--ori-color-danger-text, var(--ori-color-danger));
 }
 
-.result__again {
+.result__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+
     margin-top: var(--ori-size-gap_xs, 0.125rem);
+}
+
+.result__again,
+.result__leaderboard {
+    /* Share the row evenly; wrap to full width on a very narrow card. */
+    flex: 1 1 10rem;
 }
 
 @keyframes result-pop {

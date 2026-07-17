@@ -9,6 +9,7 @@
  * auth (login ⇄ register) / the profile.
  */
 import { computed, nextTick, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { OriAvatar, OriButton, OriIcon, OriInput, OriSelect, OriSwitch } from '@oriui/vue'
 import { icons, useSessionStore, useThemeStore } from '@core'
 import type { ThemeMode } from '@core'
@@ -311,6 +312,17 @@ function onKeydown(e: KeyboardEvent) {
                 <div class="menu__rating">
                     Rating <b>{{ session.user?.rating }}</b>
                 </div>
+                <!-- The ranked ladder — a RouterLink (renders an <a>); the drawer
+                     unmounts with /draw on navigation, so no explicit close. -->
+                <OriButton
+                    :as="RouterLink"
+                    to="/leaderboard"
+                    text="Leaderboard"
+                    variant="outline"
+                    radius="md"
+                    :icon="icons.mdiPodium"
+                    icon-position="left"
+                />
                 <OriButton text="Log out" variant="outline" radius="md" :icon="icons.mdiLogout" @click="logout" />
             </section>
 

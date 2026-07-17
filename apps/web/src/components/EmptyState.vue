@@ -58,6 +58,22 @@ const emit = defineEmits<{
                     icon-position="left"
                 />
             </li>
+            <li>
+                <!-- Also a RouterLink (renders an <a>) — the ranked ladder. Neutral
+                     surface glyph like the other secondary entries. -->
+                <OriButton
+                    class="empty__action"
+                    :as="RouterLink"
+                    to="/leaderboard"
+                    text="Leaderboard"
+                    variant="text"
+                    color="surface"
+                    radius="md"
+                    fluid
+                    :icon="icons.mdiPodium"
+                    icon-position="left"
+                />
+            </li>
             <li v-if="!props.signedIn">
                 <OriButton
                     class="empty__action"
