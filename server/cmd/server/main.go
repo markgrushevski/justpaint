@@ -76,7 +76,7 @@ func run() error {
 		renderer = render.NewStubRenderer()
 		logger.Info("render: stub (set RENDER_MODE=node for the authoritative render)")
 	}
-	gameSvc := game.NewService(pool, queries, renderer, judge.NewFakeJudge(), logger)
+	gameSvc := game.NewServiceWithConcurrency(pool, queries, renderer, judge.NewFakeJudge(), logger, cfg.JudgeConcurrency)
 	gameHandler := game.NewHandler(gameSvc, logger)
 
 	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic

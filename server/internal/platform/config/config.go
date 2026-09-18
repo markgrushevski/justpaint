@@ -32,6 +32,11 @@ type Config struct {
 	RenderCLI string
 	// RenderNodeBin is the node executable (default "node").
 	RenderNodeBin string
+	// JudgeConcurrency bounds how many judging passes (authoritative render +
+	// judge call) run at once. Under RenderMode "node" each pass spawns two OS
+	// child processes rasterizing a 1024² canvas, so an unbounded backlog drain
+	// is a fork bomb on a small instance.
+	JudgeConcurrency int
 
 	// AssistMode selects the AI-assist impl (docs/ASSIST.md): "fake" (default;
 	// deterministic canned ops, zero API dependency) or "anthropic" (the real LLM
@@ -65,6 +70,11 @@ const (
 // for a small managed Postgres (free-tier instances cap connections low), not
 // for the app host's CPU count.
 const DefaultDBMaxConns = 10
+
+// DefaultJudgeConcurrency is the ceiling on simultaneous judging passes unless
+// JUDGE_CONCURRENCY overrides it. Two, because each pass under RENDER_MODE=node
+// forks two node-canvas processes and the target instance is memory-poor.
+const DefaultJudgeConcurrency = 2
 
 // Render modes.
 const (
@@ -129,6 +139,15 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: DB_MAX_CONNS must be >= 1, got %d", maxConns)
 	}
 	cfg.DBMaxConns = int32(maxConns)
+
+	judgeConcurrency, err := getenvInt("JUDGE_CONCURRENCY", DefaultJudgeConcurrency)
+	if err != nil {
+		return Config{}, err
+	}
+	if judgeConcurrency < 1 {
+		return Config{}, fmt.Errorf("config: JUDGE_CONCURRENCY must be >= 1, got %d (0 would stop judging entirely)", judgeConcurrency)
+	}
+	cfg.JudgeConcurrency = judgeConcurrency
 
 	var missing []string
 	if cfg.Env == "" {
