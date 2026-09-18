@@ -43,12 +43,28 @@ const (
 	statusAbandoned = "abandoned"
 )
 
-// Match resolutions (docs/DESIGN-PHASE3-LIVE.md §2.7): how a `done` match was
-// decided. Only `done` rows carry one; `abandoned` (no result) stays null.
+// Match resolutions (docs/DESIGN-PHASE3-LIVE.md §2.7, docs/GAME.md §4.1): how a
+// `done` match was decided. Only `done` rows carry one; `abandoned` (no result)
+// stays null. The DB check constraint (migration 00005) pins the same three.
 const (
 	resolutionJudged  = "judged"
 	resolutionForfeit = "forfeit"
+	// resolutionAborted: the judging pass never returned within maxJudgeAttempts, so
+	// the round is closed unscored — no winner, NO Elo (docs/DECISIONS.md 2026-09-18).
+	resolutionAborted = "aborted"
 )
+
+// abortedReason is the player-facing judge_reason stamped on an aborted round. Like
+// forfeitReason it is human prose — the client branches on resolution == 'aborted',
+// never on this text — but it must read as an explanation, because this is the only
+// thing a player ever sees about why their duel produced no verdict.
+const abortedReason = "this round could not be scored — the judge did not answer after several attempts, so no winner and no rating change were recorded"
+
+// defaultJudgeConcurrency is the fallback bound on concurrent judging passes when a
+// caller does not configure one (see judgeLimiter). Two: enough to keep a second
+// duel moving while one is rendering, low enough that a 512 MB instance running
+// RENDER_MODE=node (two node-canvas child processes per pass) does not thrash.
+const defaultJudgeConcurrency = 2
 
 // roundSeconds is the drawing-round length, stamped as the absolute
 // drawing_deadline (now() + roundSeconds) when the roster fills and the match
@@ -118,10 +134,30 @@ type Service struct {
 	// NewService keeps its signature and the round-deadline suite runs unchanged
 	// (docs/DESIGN-PHASE3-LIVE.md §3.2).
 	publisher Publisher
+	// judging bounds concurrent judging passes across BOTH dispatch paths (the last
+	// submit and the sweeper). Never nil — both constructors build it.
+	judging *judgeLimiter
 }
 
+// NewService builds the service with defaultJudgeConcurrency judging passes in
+// flight at once. Prefer NewServiceWithConcurrency at the composition root so the
+// bound is an explicit, configurable deployment knob; this shorthand exists for
+// tests and for callers with no opinion.
 func NewService(pool *pgxpool.Pool, q *db.Queries, renderer render.Renderer, jdg judge.Judge, logger *slog.Logger) *Service {
-	return &Service{pool: pool, q: q, renderer: renderer, judge: jdg, logger: logger, publisher: NopPublisher{}}
+	return NewServiceWithConcurrency(pool, q, renderer, jdg, logger, defaultJudgeConcurrency)
+}
+
+// NewServiceWithConcurrency is NewService with the judging-concurrency bound passed
+// in explicitly: at most judgeConcurrency judging passes (authoritative render +
+// judge call) run at once, whichever path dispatched them. A non-positive value is
+// clamped to 1. This is the cap that keeps RENDER_MODE=node from fork-bombing a
+// small instance when a boot drain or a burst of final submits queues up work.
+func NewServiceWithConcurrency(pool *pgxpool.Pool, q *db.Queries, renderer render.Renderer, jdg judge.Judge, logger *slog.Logger, judgeConcurrency int) *Service {
+	return &Service{
+		pool: pool, q: q, renderer: renderer, judge: jdg, logger: logger,
+		publisher: NopPublisher{},
+		judging:   newJudgeLimiter(judgeConcurrency),
+	}
 }
 
 // CreateOrJoin is the single "play" entry point (docs/API.md §8 POST /api/matches,
@@ -329,7 +365,7 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 			return SubmitResult{}, fmt.Errorf("game: commit tx: %w", err)
 		}
 		if outcome == outcomeJudging {
-			go s.judgeMatch(matchID)
+			s.dispatchJudging(matchID)
 		}
 		// Uniform post-commit tail, identical to the sweeper's: the WINNING opponent
 		// (not on this request) is notified the instant this late submit forfeited the
@@ -398,21 +434,43 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 	if triggerJudging {
 		s.publisher.Judging(matchID)
 		// Out-of-band: the submit response returns immediately (202); the verdict is
-		// produced by the async pass (docs/API.md §8.3). In-process for v1 — a crash
-		// mid-judge leaves the match in judging (no auto-retry; see docs/NOTES.md).
-		go s.judgeMatch(matchID)
+		// produced by the async pass (docs/API.md §8.3). In-process, under the
+		// judging concurrency bound — a crash mid-judge, or a dispatch the bound
+		// refuses, is recovered by the stuck-judging sweep (sweeper.go).
+		s.dispatchJudging(matchID)
 	}
 	return SubmitResult{Status: status, DrawingID: d.ID, Deadline: m.DrawingDeadline}, nil
 }
 
+// dispatchJudging starts a judging pass for a match that just entered judging, if
+// the concurrency bound allows one right now. It NEVER blocks the caller (a request
+// goroutine or the sweep loop) and never queues.
+//
+// A refusal is not a lost match: the row stays in `judging` with its attempt
+// stamped, so sweepStuckJudging re-claims it once the attempt goes stale — the same
+// recovery path that covers a crashed judge. Returns whether the pass started, so a
+// caller that already paid for a retry (the sweeper) can tell the difference.
+func (s *Service) dispatchJudging(matchID string) bool {
+	if s.judging.tryGo(func() { s.judgeMatch(matchID) }) {
+		return true
+	}
+	s.logger.Warn("judging deferred: concurrency limit reached — the stuck-judging sweep will re-fire it",
+		"matchID", matchID, "limit", s.judging.limit())
+	return false
+}
+
 // judgeMatch runs the judging pass for a match that just entered judging, on its
-// own background context (the request that triggered it has already returned).
+// own background context (the request that triggered it has already returned). It
+// runs holding a judgeLimiter slot — always start it via dispatchJudging (or, for a
+// caller that pre-acquired, judging.goHeld), never a bare `go`.
 func (s *Service) judgeMatch(matchID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := s.runJudging(ctx, matchID); err != nil {
-		// v1: log and leave the match in judging (no auto-retry). A restart-time
-		// sweeper lands with the real render worker (docs/NOTES.md, docs/IDEAS.md).
+		// Log and leave the match in judging: the stuck-judging sweep re-fires the
+		// attempt once it goes stale, up to maxJudgeAttempts, and the exhausted sweep
+		// then closes it out as done/'aborted' rather than letting it wedge forever
+		// (sweeper.go, docs/GAME.md §4.1).
 		s.logger.Error("judge match", "matchID", matchID, "err", err)
 	}
 }
@@ -619,8 +677,8 @@ type ResultView struct {
 	PromptText   string
 	WinnerUserID *string
 	Reason       *string
-	// Resolution is how the match was decided ('judged' | 'forfeit'); nil on legacy
-	// rows (buildResultDTO defaults it to 'judged').
+	// Resolution is how the match was decided ('judged' | 'forfeit' | 'aborted'); nil
+	// on legacy rows (buildResultDTO defaults it to 'judged').
 	Resolution *string
 	Players    []ResultPlayer
 }

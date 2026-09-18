@@ -212,6 +212,40 @@ func TestBuildResultDTO(t *testing.T) {
 			t.Errorf("tie: winner=%v isTie=%v, want nil/true", d.WinnerUserID, d.IsTie)
 		}
 	})
+
+	t.Run("aborted → ready with no winner, and NOT a tie", func(t *testing.T) {
+		aborted := resolutionAborted
+		reason := abortedReason
+		dto := buildResultDTO(ResultView{
+			Status: statusDone, Ready: true,
+			WinnerUserID: nil, Reason: &reason, Resolution: &aborted,
+			Players: []ResultPlayer{{UserID: "user-me"}, {UserID: "user-them"}},
+		})
+		d, ok := dto.(resultDone)
+		if !ok {
+			t.Fatalf("want resultDone, got %T", dto)
+		}
+		// Terminal and readable: the client leaves the spinner instead of polling a
+		// match that will never resolve (docs/GAME.md §4.1).
+		if !d.Ready || d.Status != statusDone {
+			t.Errorf("ready=%v status=%q, want true/done", d.Ready, d.Status)
+		}
+		if d.Resolution != resolutionAborted {
+			t.Errorf("resolution = %q, want %q", d.Resolution, resolutionAborted)
+		}
+		// No verdict was produced, so a null winner must NOT read as a drawn duel.
+		if d.WinnerUserID != nil {
+			t.Errorf("winner = %v, want nil on abort", *d.WinnerUserID)
+		}
+		if d.IsTie {
+			t.Error("isTie = true on an aborted round, want false (no verdict ≠ a tie)")
+		}
+		for _, p := range d.Players {
+			if p.Score != nil || p.RatingBefore != nil || p.RatingAfter != nil {
+				t.Errorf("player %s carries score/Elo on an abort: %+v", p.UserID, p)
+			}
+		}
+	})
 }
 
 // TestIsPlayer covers the ownership gate Get uses to hide foreign matches.
