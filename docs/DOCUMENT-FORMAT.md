@@ -2,7 +2,7 @@
 
 > **The keystone contract.** One schema, shared by three consumers: the **editor** (render + edit, Konva), the **Go backend** (store as `jsonb`, validate), and the **judge** (render → PNG to score). Canonical, versioned, renderer-agnostic. This doc is the source of truth — if code and this disagree, the doc wins until amended here.
 >
-> **Status:** v1 spec, Phase 0 (draft). Greenfield — no legacy to carry. Companion: `docs/DECISIONS.md` ("Vector document persisted as jsonb", "schema independent of Konva's internal JSON"). This file specifies the format that realizes those decisions; it does not relitigate them.
+> **Status:** v1 spec, frozen — implemented 1:1 by both validators (`packages/document` + `server/internal/document`). Greenfield — no legacy to carry. Companion: `docs/DECISIONS.md` ("Vector document persisted as jsonb", "schema independent of Konva's internal JSON"). This file specifies the format that realizes those decisions; it does not relitigate them.
 
 ## 1. Design goals & priorities
 
