@@ -14,6 +14,7 @@
 | **3** | Game — async duel first, then live WS | 🟢 **done** |
 | **4** | Stretch — realtime hub, ratings, teams/tournaments, replay, AI assist | 🟡 in progress |
 | **5** | Public release — CI, prod-config fail-fast, per-IP rate limiting, judging durability, one deployable image | 🟢 **done** |
+| **6** | Post-launch UI — the owner's own list after using the launched product | 🟡 in progress |
 
 Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check off deliverables as they land.
 
@@ -123,6 +124,19 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 - [ ] **Real judge integration** — wire the collaborator's ML judge over HTTP against the live contract; keep the fake for tests/dev.
 
 **Exit criteria:** none fixed — these are stretch. Track individually.
+
+---
+
+## Phase 6 — Post-launch UI 🟡 (in progress)
+
+**Goal:** the owner's own list after using the launched product ([IDEAS.md](IDEAS.md), "Post-launch UI"), in his order. Not polish — each item is a piece of product that the launch exposed as missing.
+
+**Deliverables**
+- [x] **An auth module with a modal** (2026-09-18, `feat/auth-gate`) — one `useAuthGate` store plus an `AuthDialog` mounted at the app root. Any action that needs a session awaits `ensure(reason)`: signed in resolves at once, otherwise ONE modal opens and the action resumes the moment the visitor signs in. Replaces three improvised answers (a toast pointing at the side menu, a terminal error phase, an inline panel) and the bulky sign-in block inside the drawer. Forgetting a dead session moved into the fetch client, where every 401 is already seen, which also closed the stale-profile defect the owner reported. Rationale + the rejected alternatives: [DECISIONS.md](DECISIONS.md) 2026-09-18.
+- [ ] **Object selection, tldraw-style** — a select tool, per-stroke hit testing, marquee, move/scale, multi-select, all through the existing command stack. Lands mostly in `packages/editor`. A phase, not a slice.
+- [ ] **Recomposing the editor chrome** — the owner moves things himself; then make his layout hold across breakpoints.
+
+**Also open, and NOT in this phase:** the oriui `1.0.0-rc` bump ([ISSUES-INNER.md](ISSUES-INNER.md) JP-I-03), which the owner put BEFORE the next release.
 
 ---
 
