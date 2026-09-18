@@ -19,6 +19,28 @@ workaround exists (named, so nobody deletes it as dead code) · `accepted` — a
 
 ---
 
+## Upstream status — 2026-09-18
+
+**All eight entries are fixed on oriui's `main`, and NONE of it is published yet.** The next publish is
+`1.0.0-rc`; until then this app stays on `1.0.0-alpha.13` and every workaround below stays in place.
+Verified against the oriui working copy, not taken on report: `fix/toast-inbound-queue` and
+`fix/register-sweep-1` are on `main`, and the new `align` / `pressed` / `deselectable` props exist in
+the source.
+
+**What changes for us the day we bump** (this is the bump checklist, JP-I-03):
+
+| Entry | What lands | What we remove or gain |
+|---|---|---|
+| JP-O-07 | the toast queue stops stamping `closable` | our nine `closable: false` flags in `DrawView.vue` come out; **the inverse now holds** — a × requires `closable: true`. A `duration: 0` toast opts itself in, since nothing else could dismiss it |
+| JP-O-08 | `align` on `OriToast`/`OriToaster` | `<OriToaster position="top-center" align="center" />` — the centring the owner asked for. It needed more than `text-align`: a centred flex child centres on the room the × leaves behind, so the fix takes the button out of flow and reserves equal space both sides |
+| JP-O-01 | `OriButton` gains `pressed` (real `aria-pressed` + a pressed affordance without a toolbar ancestor) | the tool picker announces its selection to assistive tech; and it was NOT done via the ungating trap we warned about |
+| JP-O-02 | `deselectable: false` on the toolbar toggle group | our hand-rolled re-selection guard comes out |
+| JP-O-03 | `OriPopover` splits the panel role from the trigger hint | the cast at the call site comes out |
+| JP-O-04 | recorded `accepted` — the docs were right, our entry was wrong | nothing |
+| JP-O-05 | the à-la-carte import line is documented per component page | `scripts/check-styles.mjs` stays: docs are not a gate |
+| JP-O-06 | structural hairlines derive from `currentcolor`; still no public neutral token | keep our `--jp-color-outline` |
+
+
 ## JP-O-01 — A toggle button has no accessible pressed state, and looks identical to hover
 
 `mitigated` · upstream: oriui `ORI-I-41` (and `ORI-I-10`) · confirmed 2026-09-18
