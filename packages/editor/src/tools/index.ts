@@ -1,11 +1,11 @@
-import type { Tool, ToolId } from "../types";
-import { penTool } from "./pen";
-import { eraserTool } from "./eraser";
-import { lineTool } from "./line";
-import { rectTool } from "./rect";
-import { ellipseTool } from "./ellipse";
-import { triangleTool } from "./triangle";
-import { handTool } from "./hand";
+import type { Tool, ToolId } from '../types'
+import { penTool } from './pen'
+import { eraserTool } from './eraser'
+import { lineTool } from './line'
+import { rectTool } from './rect'
+import { ellipseTool } from './ellipse'
+import { triangleTool } from './triangle'
+import { handTool } from './hand'
 
 /**
  * The tool registry, keyed by {@link ToolId}.
@@ -17,11 +17,11 @@ import { handTool } from "./hand";
  * the drawing tools.
  */
 export const TOOLS: Record<ToolId, Tool> = {
-  pen: penTool,
-  eraser: eraserTool,
-  line: lineTool,
-  rect: rectTool,
-  ellipse: ellipseTool,
-  triangle: triangleTool,
-  hand: handTool,
-};
+    pen: penTool,
+    eraser: eraserTool,
+    line: lineTool,
+    rect: rectTool,
+    ellipse: ellipseTool,
+    triangle: triangleTool,
+    hand: handTool
+}

@@ -1,0 +1,18 @@
+# Build output & deps
+node_modules
+dist
+coverage
+package-lock.json
+
+# Hand-authored: docs/ owns its own markdown style (see docs/NOTES.md)
+docs
+*.md
+*.MD
+
+# Go service — gofmt owns it
+server
+
+# Tooling / editor
+.idea
+.claude
+apps/web/test-results
