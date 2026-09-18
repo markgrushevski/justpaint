@@ -2,6 +2,14 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-09-18 — oriui pinned at `1.0.0-rc.18`, exactly; and we keep our own outline token
+
+The owner put this bump before the next release. It turned eight local workarounds back into plain API use (`docs/ISSUES-OUTER.md`), including the two toast complaints he raised himself.
+
+- **Exact pins, not a range, on all three packages.** `^1.0.0-rc.18` looks harmless and is not: a caret range stops matching prereleases but starts matching a future stable `1.0.0`, so the day oriui cuts 1.0 we would ship it without deciding to. The `rc` dist-tag has the same problem from the other end — it moves. The three packages are released in lockstep and must stay on one version.
+- **We do NOT adopt `--ori-color-outline`, though oriui now ships it.** It closes the request we filed (JP-O-06), but not for our use: it is `color-mix(in srgb, currentcolor 12%, transparent)`, a hairline tint that follows the element's text colour. Our `--jp-color-outline` is a fixed per-theme colour chosen so `scripts/check-contrast.mjs` can hold it to the 3:1 non-text bar, where it measures 3.07:1 to 4.08:1 across themes and surfaces. A 12%-of-currentcolor mix cannot meet that gate and is not meant to — oriui says as much itself: background tints are a different axis. Same name, different job.
+- **A dependency bump is verified in a browser, not in a diff.** `pressed` arrived in the DOM as a literal `pressed="true"` attribute with no `aria-pressed` — indistinguishable from "the prop does not exist" — because Vite's pre-bundle was still serving the old build to a dev server that had outlived the install (`docs/NOTES.md`). Every item on the bump checklist was then re-checked against the rendered page, which is also how we learned that the one thing the bump does NOT fix is the dialog contrast (JP-O-09): identical readings on rc.18, 4.00:1 and 3.95:1.
+
 ## 2026-09-18 — One auth gate: any action can raise the sign-in modal and then resume
 
 Three views had each improvised their own answer to "this needs a session". `/draw` opened the side drawer and toasted *"Sign in from the menu"* — at a menu that was still rendering the stale profile, because nothing dropped the dead session. `/play` parked in a terminal error phase with an inline form. `/leaderboard` showed a panel. The owner asked for one modal (2026-09-18); the shape that came out of it is a small store, not a component tree.

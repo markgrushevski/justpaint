@@ -18,10 +18,16 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const srcRoot = join(webRoot, 'src')
-const cssComponents = join(webRoot, '..', '..', 'node_modules', '@oriui', 'css', 'dist', 'components')
+// Ask Node where `@oriui/css` actually is rather than guessing a path into the
+// workspace root: npm hoists to the root or to `apps/web/node_modules`
+// depending on what else is installed, and the day it chose the latter this
+// guard died with ENOENT on a package that was present and correct.
+const require = createRequire(import.meta.url)
+const cssComponents = join(dirname(require.resolve('@oriui/css/package.json')), 'dist', 'components')
 
 /** Every file under src/, recursively. */
 function walk(dir) {
