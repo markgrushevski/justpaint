@@ -12,17 +12,27 @@ export const useSessionStore = defineStore('session', () => {
     const isLoggedIn = computed(() => user.value !== null)
 
     /**
-     * Restore a session from the cookie on load. A 401 is the expected anonymous
-     * case; any other failure (500 / network) is logged — we still fall back to
-     * anonymous, but must not silently hide a real error.
+     * Restore a session from the cookie, ONCE, when the store is constructed.
+     * A 401 is the expected anonymous case; any other failure (500 / network) is
+     * logged — we still fall back to anonymous, but must not silently hide a
+     * real error.
      */
-    async function fetchMe(): Promise<void> {
+    const restored = (async () => {
         try {
             user.value = await auth.me()
         } catch (err) {
             if (!isAuthError(err)) console.warn('session check failed:', err)
             user.value = null
         }
+    })()
+
+    /**
+     * Await that restore before concluding someone is anonymous. Nothing in the
+     * app wants a RE-restore: `login`/`register`/`clear` already write the
+     * authoritative answer, so this resolves once and stays resolved.
+     */
+    function ready(): Promise<void> {
+        return restored
     }
 
     async function login(loginId: string, password: string): Promise<void> {
@@ -37,9 +47,19 @@ export const useSessionStore = defineStore('session', () => {
         try {
             await auth.logout()
         } finally {
-            user.value = null
+            clear()
         }
     }
 
-    return { user, isLoggedIn, fetchMe, login, register, logout }
+    /**
+     * Forget the session WITHOUT calling the server — for when the server has
+     * already told us it is gone (a 401 on a request we thought was authorized:
+     * the cookie expired while the tab stayed open). Leaving `user` set there is
+     * what used to leave the side menu showing a profile nobody was signed into.
+     */
+    function clear(): void {
+        user.value = null
+    }
+
+    return { user, isLoggedIn, ready, login, register, logout, clear }
 })

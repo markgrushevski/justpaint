@@ -24,7 +24,6 @@ const session = useSessionStore()
 // Restore an existing cookie session on a cold/direct load (mirrors DrawView) —
 // this makes the signed-in player's own row highlight on a fresh load, and turns
 // a lapsed session into the sign-in branch rather than a generic error.
-void session.fetchMe()
 const { data, isPending, isError, error, refetch } = useLeaderboard(LIMIT)
 
 const entries = computed<LeaderboardEntry[]>(() => data.value?.leaderboard ?? [])

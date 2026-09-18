@@ -44,6 +44,7 @@ import {
     isAuthError,
     toApiError,
     useAssist,
+    useAuthGate,
     useLoadLatestDrawing,
     useSaveDrawing,
     useSessionStore,
@@ -128,6 +129,19 @@ const docHeight = ref<number>(DEFAULT_CANVAS.height)
 const MAX_LAYERS = LIMITS.maxLayers
 
 const session = useSessionStore()
+const gate = useAuthGate()
+
+// A DIFFERENT account signed in (a session lapsed mid-visit and someone else
+// took over the tab): the open drawing belongs to the previous one, so forget
+// its id. Saving would otherwise PUT a row this user does not own, and an
+// ownership-scoped query answers 404 — surfacing as "Could not save: not
+// found", which is a lie about what happened.
+watch(
+    () => session.user?.id,
+    (now, before) => {
+        if (before && now && now !== before) currentId.value = null
+    }
+)
 const theme = useThemeStore()
 
 // Konva canvas cannot read CSS custom properties, so the brush-size cursor ring
@@ -315,7 +329,6 @@ function onCanvasPointerLeave() {
 }
 
 onMounted(() => {
-    void session.fetchMe() // restore an existing cookie session, if any
     try {
         hintDismissed.value = localStorage.getItem(HINT_KEY) === '1'
         backdropGrid.value = localStorage.getItem(BACKDROP_KEY) === '1'
@@ -374,6 +387,11 @@ const KEY_TO_TOOL = new Map<string, ToolId>(
  * it — so it does NOT suppress single keys; only the modal overlays do.
  */
 function onKeydown(e: KeyboardEvent) {
+    // The sign-in modal owns the keyboard while it is up. Without this the
+    // Ctrl-branch below still fired underneath it: Ctrl+Z mutated the canvas
+    // behind an opaque backdrop, and Ctrl+S queued a SECOND save on the same
+    // modal, which on a first save meant two `POST /api/drawings` and two rows.
+    if (gate.open) return
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return
@@ -513,6 +531,9 @@ function renameLayer(id: string, name: string) {
 
 /* --- menu handlers ---------------------------------------------------- */
 
+// Deliberately UNgated: the name is a local ref until someone saves, and
+// `save()` is where the session is actually needed. Interrupting a text edit
+// with a sign-in modal would ask for a session to change a string in memory.
 function onRename(name: string) {
     drawingName.value = name.trim() || DEFAULT_NAME
 }
@@ -563,13 +584,40 @@ async function copyPngToClipboard() {
     }
 }
 
+/**
+ * Ask the gate, but only ever ONCE at a time.
+ *
+ * A gated action waits on a HUMAN, and `busy` — the mutation's own pending flag
+ * — does not go true until the mutation actually starts, which is after that
+ * wait. So a second trigger landing in the window before the modal is up (the
+ * gate first awaits the store's cookie restore) queues a SECOND waiter, and one
+ * sign-in then resolves both: the same canvas saved twice, as two rows. Once the
+ * dialog is up the rest of the page is inert and this cannot happen — it is
+ * exactly the gap before that which needs closing.
+ */
+let awaitingGate = false
+
+async function gated(reason: string): Promise<boolean> {
+    if (awaitingGate) return false
+    awaitingGate = true
+    try {
+        return await gate.ensure(reason)
+    } finally {
+        awaitingGate = false
+    }
+}
+
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        // Open the drawer so the sign-in form is one glance away. Close the
-        // cheat-sheet first: its focus trap would fight the incoming drawer.
+        // The transport has already forgotten the dead session, so just ask for
+        // a new one. Deliberately NOT re-firing the action afterwards: minutes
+        // may have passed, the canvas may have moved on, and the visitor may
+        // sign in as someone else entirely — replaying their old click then
+        // saves something they never asked to save. Their canvas is intact and
+        // the button is right there. Close the cheat-sheet first: its focus trap
+        // would fight the incoming dialog.
         shortcutsOpen.value = false
-        menuOpen.value = true
-        toaster.error({ text: `Sign in from the menu to ${action}.`, duration: TOAST_ERROR, closable: false })
+        void gated(`Your session expired — sign in to ${action}.`)
         return
     }
     const api = toApiError(err)
@@ -580,8 +628,13 @@ function reportError(err: unknown, action: string) {
     })
 }
 
-function save() {
+async function save() {
     if (!editor || busy.value) return
+    if (!(await gated('Sign in to save your drawing.'))) return
+    // Re-check: the modal can stay up for minutes, and browser Back unmounts
+    // this view and nulls `editor` underneath us. TypeScript keeps the
+    // narrowing above across the await, so only this can catch it.
+    if (!editor) return
     const existing = currentId.value
     saveMutation.mutate(
         { id: existing ?? undefined, document: editor.getDocument(), name: drawingName.value },
@@ -599,8 +652,10 @@ function save() {
     )
 }
 
-function load() {
+async function load() {
     if (!editor || busy.value) return
+    if (!(await gated('Sign in to load your drawing.'))) return
+    if (!editor) return
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
             if (!full) {
@@ -648,11 +703,13 @@ function toggleAssist() {
     if (!assistOpen.value) clearAssistProposal()
 }
 
-function submitAssist() {
+async function submitAssist() {
     if (!editor) return
     const prompt = assistPrompt.value.trim()
     // Mirror the submit button's own disabled guard (Enter can reach here too).
-    if (!prompt || !session.isLoggedIn || assistPending.value || pendingOps.value) return
+    if (!prompt || assistPending.value || pendingOps.value) return
+    if (!(await gated('Sign in to use assist.'))) return
+    if (!editor) return
     const targetLayerId = editor.getActiveLayerId() || undefined
     assistMutation.mutate(
         { prompt, docSummary: buildDocSummary(), targetLayerId },
@@ -664,7 +721,7 @@ function submitAssist() {
                 // toast — a top-center toast would land over the panel itself.
                 assistNote.value = r.note ?? null
             },
-            onError: (err) => reportError(err, 'assist')
+            onError: (err) => reportError(err, 'use assist')
         }
     )
 }
@@ -767,11 +824,10 @@ function rejectAssist() {
                             radius="md"
                             text="Draw"
                             :loading="assistPending"
-                            :disabled="!session.isLoggedIn || !assistPrompt.trim() || assistPending"
+                            :disabled="!assistPrompt.trim() || assistPending"
                             @click="submitAssist"
                         />
                     </div>
-                    <p v-if="!session.isLoggedIn" class="draw__assist-hint">Sign in from the menu to use assist.</p>
                 </template>
             </OriSurface>
         </template>
@@ -837,7 +893,7 @@ function rejectAssist() {
                     class="draw__empty"
                     :signed-in="session.isLoggedIn"
                     @dismiss="dismissHint"
-                    @sign-in="menuOpen = true"
+                    @sign-in="void gated('Sign in to save and load your drawings.')"
                     @shortcuts="shortcutsOpen = true"
                 />
             </Transition>
@@ -861,7 +917,6 @@ function rejectAssist() {
             <SideMenu
                 :open="menuOpen"
                 :busy="busy"
-                :can-rename="session.isLoggedIn"
                 :title="drawingName"
                 :backdrop-grid="backdropGrid"
                 :canvas-width="docWidth"
@@ -1033,17 +1088,6 @@ function rejectAssist() {
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_sm, 0.85rem);
-}
-
-/* Full role ink (guaranteed AA by check-contrast's on-surface vs surface pair),
-   not a dimmed opacity — DESIGN-SYSTEM steers state off opacity. */
-.draw__assist-hint {
-    margin: 0;
-    padding: 0 var(--ori-size-gap_sm, 0.25rem);
-
-    color: var(--ori-color-on-surface);
-
-    font-size: var(--ori-font-size_xs, 0.75rem);
 }
 
 /* First-run empty state — the centered welcome card. EditorShell's overlay layer
