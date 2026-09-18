@@ -144,6 +144,45 @@ CI runs these same gates on every push to `main` and every pull request
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)); see [`docs/REVIEW.md`](docs/REVIEW.md)
 for the judgment layer on top of them.
 
+## Deploy
+
+justpaint ships as **one image on one origin**. That is a constraint, not a
+preference: the session cookie is httpOnly + SameSite and the WebSocket
+handshake enforces same-origin, and the service sends no CORS headers at all —
+so a frontend served from a second host cannot authenticate. The Go binary
+therefore serves `/api`, the WebSocket **and** the built SPA (`STATIC_DIR`),
+with history fallback for client-side routes.
+
+The image also carries a Node runtime, because the authoritative judged raster
+is produced by the editor's own Konva path in a Node worker
+([`packages/render`](packages/render)) that the server spawns as a local child
+process. Both runtimes live in the same container by necessity.
+
+```sh
+docker build -t justpaint .
+docker run --rm -p 8080:8080 \
+    -e ENV=prod \
+    -e JWT_SECRET="$(openssl rand -base64 48)" \
+    -e DATABASE_URL="postgres://user:pass@host:5432/justpaint" \
+    justpaint
+```
+
+Migrations are **not** run by the container — apply them before rolling a new
+binary: `goose -dir server/migrations postgres "$DATABASE_URL" up`.
+
+| Probe | Answers |
+|---|---|
+| `GET /healthz` | liveness — dependency-free, always 200 while the process is up |
+| `GET /readyz` | readiness — pings Postgres, 503 when it is unreachable |
+
+[`render.yaml`](render.yaml) is a thin adapter for [Render](https://render.com);
+the image is host-agnostic and runs the same on Fly, a VPS or plain Docker. Two
+free-tier traps worth knowing before you pick a host: a free Render Postgres
+**expires 30 days after creation** (point `DATABASE_URL` at an external free
+Postgres instead), and a free web service sleeps after ~15 minutes idle while
+Render's own cron jobs are a paid feature — keep it warm with an external
+pinger against `/readyz`.
+
 ## Docs map
 
 | Doc | Owns |
