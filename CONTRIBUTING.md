@@ -6,7 +6,7 @@ choices lives in [`docs/DECISIONS.md`](docs/DECISIONS.md); the coding convention
 
 ## Prerequisites
 
-- **Node ≥ 22** and npm (the repo is an npm-workspace monorepo — one root `npm install` wires
+- **Node ≥ 24** and npm (the repo is an npm-workspace monorepo — one root `npm install` wires
   `packages/*` + `apps/*`).
 - **Go ≥ 1.26** (`server/go.mod` declares `go 1.26`).
 - **Docker** for local Postgres (`docker compose up -d` at the repo root → postgres:17-alpine).
