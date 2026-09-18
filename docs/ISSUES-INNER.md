@@ -17,31 +17,6 @@ this file at once. Reviewers read it first: a defect already recorded here is no
 
 ---
 
-## JP-I-03 — Pinned four oriui releases behind
-
-`confirmed` · severity `should-fix` · source: oriUI consumer review, 2026-09-18
-
-- **Where:** `apps/web/package.json` — `@oriui/css`, `@oriui/headless` and `@oriui/vue` all pinned exactly
-  at `1.0.0-alpha.13`, while `1.0.0-alpha.17` is published and a 1.0 line is being cut.
-- **What:** the exact pin is deliberate (oriui's prerelease dist-tags drift, so a range is unsafe), but the
-  gap has grown to four releases and now spans a React adapter, `useTabs`/`useToast` moving into the headless
-  package, `useDismissable`, and the Tier-0 accessibility fixes.
-- **Priority (owner, 2026-09-18): this bump happens BEFORE the next release**, not after it. All eight
-  `ISSUES-OUTER` entries are already fixed on oriui `main` (see that file's bump checklist), so the rc is
-  what turns a pile of local workarounds back into plain API use — including the toast centring the
-  owner noticed on screen.
-- **Timing (verified 2026-09-18 against the oriui repo):** do NOT land on `alpha.17` — it was published
-  2026-07-18 and predates the pre-1.0 work now on oriui `main` (`fix/pre-1.0-tier-0`: AA tone for form
-  error text, a caller's `aria-describedby` no longer dropped by text controls, toasts actually announced,
-  plus packaging/dist-tag fixes), with a `1.0.0-rc` as the next publish. Several of those change the exact
-  chrome a visual pass covers, so bumping now means doing that pass twice. **Wait for the rc.**
-- **Fix:** upgrade to the current release as one change, with a visual pass over the toolbar, dialogs and
-  the leaderboard; the upgrade is also the moment to re-check every entry in
-  [ISSUES-OUTER.md](ISSUES-OUTER.md) and close the ones that shipped. Re-pin exactly, not with a range,
-  until oriui reaches a stable 1.0.
-
----
-
 ## JP-I-04 — The sign-in form is rendered twice, into both tab panels
 
 `confirmed` · severity `nice-to-fix` · source: live DOM inspection while building the auth modal, 2026-09-18
@@ -57,6 +32,9 @@ this file at once. Reviewers read it first: a defect already recorded here is no
   is out of the accessibility tree and out of the tab order, and the shared refs keep the two copies in
   sync. It is wasted DOM and a misused component API, not a user-facing defect — which is why it is
   recorded rather than fixed mid-slice.
+- **Naming changed on `1.0.0-rc.18`:** oriui renamed `OriTabs`'s panel slots from bare `#<value>` (e.g.
+  `#login`) to `#panel-<value>` (e.g. `#panel-login`, `#panel-register`) in this release. Fix candidate
+  one below is written against the rc.18 names.
 - **Fix (two candidates, both visual decisions):** move the fields into real `#panel-*` slots, or drop
   `OriTabs` here for the repo's own `SegmentedControl` (`components/ui/SegmentedControl.vue`) and render
   ONE form beneath it. The second is the honest shape — the two modes share every field and differ only

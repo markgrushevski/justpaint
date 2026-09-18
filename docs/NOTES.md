@@ -678,3 +678,27 @@ looked broken: `DrawView`'s window handler lists the cheat-sheet and did not yet
 Escape by hand in a real browser, or assert on the handler, and verify dismissal in automation through the
 close button and the backdrop, which are pointer events and arrive normally.
 
+## After bumping a dependency, clear Vite's pre-bundle before you judge the result
+
+Bumping oriui to `1.0.0-rc.18` and reloading the running dev server, the new `pressed` prop landed in the
+DOM as a literal `pressed="true"` ATTRIBUTE and no `aria-pressed` — exactly what you would see if the prop
+did not exist. It did exist; the dist on disk declared it. What was stale was `apps/web/node_modules/.vite`,
+Vite's dependency pre-bundle, still serving the previous version's `OriButton` to a server that had been
+running since before the install.
+
+The tell is precise and worth recognising: a prop that FALLS THROUGH to the DOM as a raw attribute means the
+component you are actually rendering does not declare it. Reading the package's `dist` to check the API is
+not enough, because that is not what the browser got.
+
+`preview_stop`, `rm -rf apps/web/node_modules/.vite`, `preview_start`. Then judge.
+
+## A tool script must ASK where a package is, not assume the workspace root
+
+`apps/web/scripts/check-styles.mjs` built its path to `@oriui/css` by walking up to the workspace root's
+`node_modules`. That held until an install hoisted the package into `apps/web/node_modules` instead, and the
+guard died with `ENOENT` on a package that was present, installed and correct — a failure that looks
+like a broken dependency and is a broken assumption.
+
+npm decides hoisting from the whole tree, so it is neither stable across installs nor ours to predict.
+`createRequire(import.meta.url).resolve('<pkg>/package.json')` asks Node the same question the bundler asks,
+and gets the same answer.
