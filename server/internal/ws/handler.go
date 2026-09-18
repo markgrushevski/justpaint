@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -16,10 +17,41 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 )
 
-// wsStatusSessionExpired is the private (4000–4999) close code sent when a socket
-// outlives its session's JWT exp. The client treats it as "re-authenticate", not a
-// transient drop (docs/DESIGN-PHASE3-LIVE.md §3.4).
-const wsStatusSessionExpired = websocket.StatusCode(4001)
+const (
+	// wsStatusSessionExpired is the private (4000–4999) close code sent when a socket
+	// outlives its session's JWT exp. The client treats it as "re-authenticate", not a
+	// transient drop (docs/DESIGN-PHASE3-LIVE.md §3.4).
+	wsStatusSessionExpired = websocket.StatusCode(4001)
+	// wsStatusIdleTimeout is the private close code sent when heartbeatLoop evicts a
+	// connection that has gone read-idle for Limits.ReadIdleTimeout (docs/API.md §9.1).
+	// Unlike 4001, this is a transient condition — the client may simply reconnect.
+	wsStatusIdleTimeout = websocket.StatusCode(4002)
+)
+
+// Limits bundles the pre-launch WS hardening knobs (docs/IDEAS.md "Realtime (WS
+// hub)"): the per-connection read-idle timeout + heartbeat cadence (conn.go
+// heartbeatLoop) and the process-wide / per-IP connection caps (limiter.go). Grouped
+// into one struct, rather than four positional constructor params, so a call site
+// names each value instead of relying on positional order between two same-typed
+// durations and two same-typed ints. All four are required explicit values — nothing
+// here is a magic number buried in code; config.Load owns picking/validating them.
+type Limits struct {
+	// ReadIdleTimeout is how long a connection may go without ANY proof of life (an
+	// inbound frame, or a successful heartbeat pong) before the server evicts it.
+	// Must clear the client's own ping cadence (apps/web PlayView.vue WS_PING_MS,
+	// currently 25s) with real margin for jitter/background-tab delay.
+	ReadIdleTimeout time.Duration
+	// HeartbeatInterval is how often the server proactively pings a connection,
+	// independent of client behavior. Must be well under ReadIdleTimeout.
+	HeartbeatInterval time.Duration
+	// MaxConns is the process-wide concurrent WS connection cap. <= 0 means
+	// unlimited — config.Load should refuse to load an unlimited value in
+	// production; this struct only carries whatever it is given.
+	MaxConns int
+	// MaxConnsPerIP is the per-remote-IP concurrent WS connection cap (same <= 0 =
+	// unlimited caveat as MaxConns).
+	MaxConnsPerIP int
+}
 
 // Handler upgrades GET /api/matches/{id}/ws to a WebSocket after the SAME auth +
 // membership gates the REST match routes use, then hands the socket to the hub.
@@ -30,10 +62,19 @@ type Handler struct {
 	// proxy). The request Host is always authorized; never "*" (docs/DESIGN-PHASE3-LIVE.md §3.4).
 	originPatterns []string
 	logger         *slog.Logger
+	limits         Limits
+	limiter        *connLimiter
 }
 
-func NewHandler(hub *Hub, svc *game.Service, originPatterns []string, logger *slog.Logger) *Handler {
-	return &Handler{hub: hub, svc: svc, originPatterns: originPatterns, logger: logger}
+func NewHandler(hub *Hub, svc *game.Service, originPatterns []string, logger *slog.Logger, limits Limits) *Handler {
+	return &Handler{
+		hub:            hub,
+		svc:            svc,
+		originPatterns: originPatterns,
+		logger:         logger,
+		limits:         limits,
+		limiter:        newConnLimiter(limits.MaxConns, limits.MaxConnsPerIP),
+	}
 }
 
 // Routes mounts the WS route behind protect (the same RequireAuth the match routes use),
@@ -42,7 +83,8 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 	mux.Handle("GET /api/matches/{id}/ws", protect(http.HandlerFunc(h.Connect)))
 }
 
-// Connect performs, in order and ALL before websocket.Accept: parse {id} (non-UUID →
+// Connect performs, in order and ALL before websocket.Accept: a connection-cap check
+// (global + per-IP, refused cleanly — docs/API.md §9.1), then parse {id} (non-UUID →
 // hidden 404), then a MEMBERSHIP check via the viewer-scoped Get (a non-member → hidden
 // 404, never 403 — docs/API.md §8). Only then does it upgrade with strict same-origin
 // verification (never InsecureSkipVerify — a WS handshake bypasses CORS, so without this
@@ -51,6 +93,19 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 // per-viewer snapshot, and runs the pumps until the socket closes.
 func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context()) // RequireAuth guarantees presence
+
+	// Admission control FIRST — cheapest possible check, shedding load before the
+	// membership check's DB round-trip when the process (or this IP) is already at
+	// capacity (docs/IDEAS.md "A global connection semaphore / per-IP cap"). release
+	// is deferred immediately so EVERY subsequent exit path — the 404s below, a
+	// failed Accept, a hub-shutdown refusal, or normal pump completion (panic
+	// included, via the pumps' own recover) — decrements it exactly once.
+	release, ok := h.limiter.tryAcquire(clientIP(r))
+	if !ok {
+		web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited, "too many connections")
+		return
+	}
+	defer release()
 
 	id := r.PathValue("id")
 	if _, err := uuid.Parse(id); err != nil {
@@ -87,7 +142,7 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	// The pumps run on a background-derived context (the socket outlives the request),
 	// cancelled by forceClose to abort a blocked Read/Write on teardown.
 	connCtx, cancel := context.WithCancel(context.Background())
-	c := newClient(uid, conn, cancel, h.logger)
+	c := newClient(uid, conn, cancel, h.logger, h.limits.ReadIdleTimeout, h.limits.HeartbeatInterval)
 
 	// Nothing re-validates the cookie mid-connection, so close the socket at the JWT exp
 	// with a 4001 the client reads as "re-authenticate". RequireAuth already rejected an
@@ -120,8 +175,24 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() { defer wg.Done(); c.readPump(connCtx); c.forceClose() }()
 	go func() { defer wg.Done(); c.writePump(connCtx); c.forceClose() }()
+	go func() { defer wg.Done(); c.heartbeatLoop(connCtx); c.forceClose() }()
 	wg.Wait()
+}
+
+// clientIP extracts the remote peer's address (no port) for the per-IP connection cap.
+// Deliberately r.RemoteAddr — the actual TCP peer — and NOT a client-supplied header
+// like X-Forwarded-For: this cap exists to bound a single abusive host, and trusting a
+// header the client controls would let it defeat the cap by rotating a fake value per
+// connection. If the deploy sits behind a reverse proxy (docs/IDEAS.md "SPA needs an
+// /api reverse proxy in prod"), RemoteAddr is the proxy's address for every connection
+// — see the report to the orchestrator on this branch for the operational implication.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
