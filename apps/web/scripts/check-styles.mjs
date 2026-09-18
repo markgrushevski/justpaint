@@ -31,6 +31,22 @@ function walk(dir) {
     })
 }
 
+/**
+ * Components whose block name does NOT follow from their component name, so the
+ * derivation below cannot reach them. Verified against oriui's own templates
+ * (packages/vue/src/components/toolbar), not guessed from the CSS: the two
+ * toolbar controls render no eponymous block at all — they compose OriButton, so
+ * the DOM carries `.ori-button` — and the separator renders a BEM element of the
+ * toolbar block. Without these three the guard would ABSTAIN on them (it skips
+ * anything oriui defines nowhere), which is silent non-coverage rather than a
+ * false alarm — the dangerous half.
+ */
+const BLOCK_ALIASES = {
+    OriToolbarButton: 'ori-button',
+    OriToolbarToggleItem: 'ori-button',
+    OriToolbarSeparator: 'ori-toolbar__separator'
+}
+
 /** `OriToolbarButton` -> `ori-toolbar-button` */
 function toClass(component) {
     return component
@@ -73,12 +89,11 @@ function hasClass(css, cls) {
 
 const missing = []
 for (const component of [...used].sort()) {
-    const cls = toClass(component)
+    const cls = BLOCK_ALIASES[component] ?? toClass(component)
     // A class oriui defines nowhere means the component has no block styles of its
-    // own, so there is nothing to import. Note this abstains rather than
-    // false-positives, and it is the one blind spot: a component whose block name
-    // does not follow from its component name would be skipped silently. None of
-    // the components this app renders are in that position today.
+    // own, so there is nothing to import. This abstains rather than false-positives,
+    // which is the blind spot BLOCK_ALIASES exists to close: add an entry whenever a
+    // component turns out to render a block its name does not predict.
     if (!hasClass(allCss, cls)) continue
     if (!hasClass(loadedCss, cls)) missing.push({ component, cls })
 }
