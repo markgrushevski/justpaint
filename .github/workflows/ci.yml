@@ -85,19 +85,13 @@ jobs:
         steps:
             - uses: actions/checkout@v5
 
-            - uses: actions/setup-go@v6
-              with:
-                  go-version: '1.26'
-                  cache-dependency-path: server/go.sum
-
             - name: Build the image
               run: docker build -t justpaint:ci .
 
-            - name: Apply migrations (goose)
-              run: |
-                  go install github.com/pressly/goose/v3/cmd/goose@latest
-                  goose -dir server/migrations postgres "$DATABASE_URL" up
-
+            # No goose step on purpose: the container migrates itself at boot
+            # (AUTO_MIGRATE), so this database starts EMPTY and the smoke test
+            # below only passes if that actually worked — /readyz is 503 until
+            # the schema exists.
             - name: Boot the image
               run: |
                   docker run -d --name justpaint --network host \
@@ -123,6 +117,10 @@ jobs:
                   # A client-side route must fall back to the shell, not 404.
                   curl -sS --fail-with-body http://localhost:8080/leaderboard | grep -qi "<!doctype html" \
                       || { echo "a client route did not fall back to the shell"; exit 1; }
+                  # Readiness is schema-aware, so a 200 here proves the container
+                  # applied the migrations to an empty database by itself.
+                  test "$(curl -sS http://localhost:8080/readyz)" = '{"status":"ok"}' \
+                      || { echo "readiness did not report a migrated schema"; exit 1; }
 
             - name: Container logs
               if: always()
