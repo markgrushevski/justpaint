@@ -44,6 +44,7 @@ import {
     isAuthError,
     toApiError,
     useAssist,
+    useAuthGate,
     useLoadLatestDrawing,
     useSaveDrawing,
     useSessionStore,
@@ -128,6 +129,7 @@ const docHeight = ref<number>(DEFAULT_CANVAS.height)
 const MAX_LAYERS = LIMITS.maxLayers
 
 const session = useSessionStore()
+const gate = useAuthGate()
 const theme = useThemeStore()
 
 // Konva canvas cannot read CSS custom properties, so the brush-size cursor ring
@@ -405,6 +407,9 @@ function onKeydown(e: KeyboardEvent) {
     // Esc: the menu first — it's non-modal, so focus may still sit on the
     // canvas where its own panel-scoped Esc never fires — then the cheat-sheet.
     if (e.key === 'Escape') {
+        // The sign-in modal sits in the top layer and cancels itself; never
+        // reach past it to close the drawer underneath.
+        if (gate.open) return
         if (menuOpen.value) menuOpen.value = false
         else if (shortcutsOpen.value) shortcutsOpen.value = false
         return
@@ -420,7 +425,7 @@ function onKeydown(e: KeyboardEvent) {
     // Every MODAL overlay must be listed here, or its single-key tool hotkeys
     // (B/E/L/R/O/T) leak to this window listener and fire underneath it. The
     // non-modal side menu deliberately is not — drawing under it is a feature.
-    if (shortcutsOpen.value || confirmNewOpen.value) return
+    if (shortcutsOpen.value || confirmNewOpen.value || gate.open) return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
         e.preventDefault()
@@ -513,6 +518,9 @@ function renameLayer(id: string, name: string) {
 
 /* --- menu handlers ---------------------------------------------------- */
 
+// Deliberately UNgated: the name is a local ref until someone saves, and
+// `save()` is where the session is actually needed. Interrupting a text edit
+// with a sign-in modal would ask for a session to change a string in memory.
 function onRename(name: string) {
     drawingName.value = name.trim() || DEFAULT_NAME
 }
@@ -565,11 +573,11 @@ async function copyPngToClipboard() {
 
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        // Open the drawer so the sign-in form is one glance away. Close the
-        // cheat-sheet first: its focus trap would fight the incoming drawer.
+        // Close the cheat-sheet first: its focus trap would fight the incoming
+        // sign-in dialog. recover(), not ensure() — a 401 means the cookie is
+        // already gone, so the stale session must drop before we ask again.
         shortcutsOpen.value = false
-        menuOpen.value = true
-        toaster.error({ text: `Sign in from the menu to ${action}.`, duration: TOAST_ERROR, closable: false })
+        void gate.recover(`Sign in to ${action}.`)
         return
     }
     const api = toApiError(err)
@@ -580,8 +588,9 @@ function reportError(err: unknown, action: string) {
     })
 }
 
-function save() {
+async function save() {
     if (!editor || busy.value) return
+    if (!(await gate.ensure('Sign in to save your drawing.'))) return
     const existing = currentId.value
     saveMutation.mutate(
         { id: existing ?? undefined, document: editor.getDocument(), name: drawingName.value },
@@ -599,8 +608,9 @@ function save() {
     )
 }
 
-function load() {
+async function load() {
     if (!editor || busy.value) return
+    if (!(await gate.ensure('Sign in to load your drawing.'))) return
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
             if (!full) {
@@ -648,11 +658,12 @@ function toggleAssist() {
     if (!assistOpen.value) clearAssistProposal()
 }
 
-function submitAssist() {
+async function submitAssist() {
     if (!editor) return
     const prompt = assistPrompt.value.trim()
     // Mirror the submit button's own disabled guard (Enter can reach here too).
-    if (!prompt || !session.isLoggedIn || assistPending.value || pendingOps.value) return
+    if (!prompt || assistPending.value || pendingOps.value) return
+    if (!(await gate.ensure('Sign in to use assist.'))) return
     const targetLayerId = editor.getActiveLayerId() || undefined
     assistMutation.mutate(
         { prompt, docSummary: buildDocSummary(), targetLayerId },
@@ -664,7 +675,7 @@ function submitAssist() {
                 // toast — a top-center toast would land over the panel itself.
                 assistNote.value = r.note ?? null
             },
-            onError: (err) => reportError(err, 'assist')
+            onError: (err) => reportError(err, 'use assist')
         }
     )
 }
@@ -767,11 +778,10 @@ function rejectAssist() {
                             radius="md"
                             text="Draw"
                             :loading="assistPending"
-                            :disabled="!session.isLoggedIn || !assistPrompt.trim() || assistPending"
+                            :disabled="!assistPrompt.trim() || assistPending"
                             @click="submitAssist"
                         />
                     </div>
-                    <p v-if="!session.isLoggedIn" class="draw__assist-hint">Sign in from the menu to use assist.</p>
                 </template>
             </OriSurface>
         </template>
@@ -837,7 +847,7 @@ function rejectAssist() {
                     class="draw__empty"
                     :signed-in="session.isLoggedIn"
                     @dismiss="dismissHint"
-                    @sign-in="menuOpen = true"
+                    @sign-in="void gate.ensure('Sign in to save and load your drawings.')"
                     @shortcuts="shortcutsOpen = true"
                 />
             </Transition>
@@ -861,7 +871,6 @@ function rejectAssist() {
             <SideMenu
                 :open="menuOpen"
                 :busy="busy"
-                :can-rename="session.isLoggedIn"
                 :title="drawingName"
                 :backdrop-grid="backdropGrid"
                 :canvas-width="docWidth"
@@ -1033,17 +1042,6 @@ function rejectAssist() {
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_sm, 0.85rem);
-}
-
-/* Full role ink (guaranteed AA by check-contrast's on-surface vs surface pair),
-   not a dimmed opacity — DESIGN-SYSTEM steers state off opacity. */
-.draw__assist-hint {
-    margin: 0;
-    padding: 0 var(--ori-size-gap_sm, 0.25rem);
-
-    color: var(--ori-color-on-surface);
-
-    font-size: var(--ori-font-size_xs, 0.75rem);
 }
 
 /* First-run empty state — the centered welcome card. EditorShell's overlay layer

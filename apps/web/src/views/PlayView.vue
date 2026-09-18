@@ -31,6 +31,7 @@ import { DOC_VERSION, parseDocument } from '@justpaint/document'
 import { useThemeColor } from '@oriui/headless/vue'
 import {
     useSessionStore,
+    useAuthGate,
     useCreateMatch,
     useSubmitMatch,
     matches,
@@ -43,7 +44,6 @@ import type { Match, MatchResultDone, WsFrame, MatchSocketHandle } from '@core'
 import EditorShell from '../components/shell/EditorShell.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
 import IconButton from '../components/ui/IconButton.vue'
-import AuthForm from '../components/auth/AuthForm.vue'
 import RoundTimerBar from '../components/game/RoundTimerBar.vue'
 import GamePromptBanner from '../components/game/GamePromptBanner.vue'
 import OpponentStatusChip from '../components/game/OpponentStatusChip.vue'
@@ -99,6 +99,7 @@ let unsubscribe: (() => void) | null = null
 const cursorRingColor = useThemeColor('primary')
 
 const session = useSessionStore()
+const gate = useAuthGate()
 const createMatch = useCreateMatch()
 const submitMatch = useSubmitMatch()
 const router = useRouter()
@@ -212,7 +213,6 @@ const canSubmit = computed(() => phase.value === 'drawing')
 const result = ref<DuelResult | null>(null)
 // Error surface for the `error` phase.
 const errorMsg = ref('')
-const needsAuth = ref(false)
 
 // Object URL of the player's captured raster — revoked on reset/unmount.
 let youImageUrl: string | null = null
@@ -297,18 +297,52 @@ function startCountdown(): void {
     }, 1000)
 }
 
-/** Move to the terminal error phase (auth = show a sign-in path instead of retry). */
-function toError(msg: string, auth = false): void {
+/** Move to the terminal error phase. */
+function toError(msg: string): void {
     errorMsg.value = msg
-    needsAuth.value = auth
     phase.value = 'error'
     stopCountdown()
 }
 
-/** Map any thrown API error onto the error phase (auth → sign-in prompt). */
+// A poll tick and the WS's own 4001 close can both notice the same dead
+// session within moments of each other (they share the one expiring cookie).
+// This sentinel makes them join a SINGLE recovery instead of each reopening/
+// resolving the gate and racing two independent `startMatch()` calls after.
+let recovering = false
+
+/** A session died mid-round — a stale cookie behind a poll/submit, or the WS's
+ *  own 4001 close (see `openSocket`). Recover through the ONE shared gate
+ *  instead of the old dead-end inline form. Every caller here is mid a
+ *  different thing (a poll tick, a submit) with no single safe action to
+ *  resume, so signing back in just restarts with a fresh match; declining
+ *  falls back to the plain retry card, whose "Try again" re-attempts the match
+ *  and so re-raises this same gate on the inevitable 401 — a way forward
+ *  either way, never a dead end. */
+async function recoverFromAuthError(): Promise<void> {
+    if (recovering) return
+    recovering = true
+    try {
+        const signedIn = await gate.recover('Sign in to play a ranked duel.')
+        if (disposed) return
+        if (signedIn && session.user) {
+            // Re-read the identity: the visitor may well have signed back in as
+            // a DIFFERENT account, and `myUserId` decides who is "me" in the
+            // roster, in every WS frame and in the winner comparison.
+            myUserId = session.user.id
+            void startMatch()
+        } else {
+            toError('Sign in to play a ranked duel.')
+        }
+    } finally {
+        recovering = false
+    }
+}
+
+/** Map any thrown API error onto the error phase; an auth failure recovers the
+ *  session instead (see `recoverFromAuthError`). */
 function handleError(err: unknown): void {
     if (isAuthError(err)) {
-        toError('Sign in to play a duel.', true)
+        void recoverFromAuthError()
         return
     }
     toError(toApiError(err)?.message ?? 'Something went wrong. Try again.')
@@ -495,9 +529,9 @@ function openSocket(id: string): void {
             if (code === 4001) {
                 // The backend arms this close at the JWT `exp` (docs/DESIGN-PHASE3-
                 // LIVE.md §3.4) — the session itself is gone, not just the socket, so
-                // don't reconnect; send the player down the same sign-in path the
-                // initial mount check uses.
-                toError('Sign in to play a duel.', true)
+                // don't reconnect; recover through the same gate as any other auth
+                // failure (see `recoverFromAuthError`) instead of stranding the player.
+                void recoverFromAuthError()
                 return
             }
             scheduleReconnect()
@@ -566,7 +600,6 @@ async function renderOpponentRaster(id: string, userId: string): Promise<void> {
 async function startMatch(): Promise<void> {
     phase.value = 'connecting'
     errorMsg.value = ''
-    needsAuth.value = false
     prompt.value = ''
     opponent.name = 'Player 2'
     opponent.status = 'drawing'
@@ -707,14 +740,6 @@ function viewLeaderboard(): void {
     void router.push('/leaderboard')
 }
 
-/** Inline sign-in from the error overlay succeeded — re-enter the duel with no navigation. */
-function onAuthenticated(): void {
-    if (session.user) {
-        myUserId = session.user.id
-        void startMatch()
-    }
-}
-
 /* --- toolbar handlers (mirror DrawView) -------------------------------- */
 
 function pickTool(id: ToolId) {
@@ -788,8 +813,10 @@ function onKeydown(e: KeyboardEvent) {
         return
     }
     if (e.altKey) return
-    // Only bind tool keys while actually drawing (not during judging/result).
-    if (phase.value !== 'drawing') return
+    // Only bind tool keys while actually drawing (not during judging/result),
+    // and never underneath the sign-in modal — a session can die mid-round, and
+    // a modal overlay must swallow the single-key tool hotkeys above it.
+    if (phase.value !== 'drawing' || gate.open) return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
         e.preventDefault()
@@ -812,14 +839,23 @@ onMounted(async () => {
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
 
-    // A duel is auth-required. Restore an existing cookie session, then create or
-    // auto-join a match; an anonymous visitor gets the sign-in path.
+    // A duel is auth-required. Restore an existing cookie session, then raise
+    // the ONE shared sign-in modal for an anonymous visitor — signing in
+    // resumes straight into the duel instead of the old dead-end error screen
+    // (see useAuthGate.ts).
     await session.fetchMe()
     if (disposed) return
-    if (!session.isLoggedIn || !session.user) {
-        toError('Sign in to play a duel.', true)
+    const signedIn = await gate.ensure('Sign in to play a ranked duel.')
+    if (disposed) return
+    if (!signedIn) {
+        // Declined the modal: land on the plain retry card, not the old
+        // needsAuth dead end — "Try again" re-attempts the match, which
+        // re-raises this same gate on the inevitable 401, so there is always a
+        // way back in from here.
+        toError('Sign in to play a ranked duel.')
         return
     }
+    if (!session.user) return // gate only resolves true once a session exists
     myUserId = session.user.id
     void startMatch()
 })
@@ -912,10 +948,9 @@ onBeforeUnmount(() => {
         <!-- Overlay: one card per terminal/pending phase — error, judging, result. -->
         <template #overlay>
             <OriSurface v-if="phase === 'error'" class="play__notice" role="alert">
-                <h2 class="play__notice-title">{{ needsAuth ? 'Sign in to duel' : 'Can’t start the duel' }}</h2>
+                <h2 class="play__notice-title">Can’t start the duel</h2>
                 <p class="play__notice-msg">{{ errorMsg }}</p>
-                <AuthForm v-if="needsAuth" hint="Sign in to play a ranked duel." @authenticated="onAuthenticated" />
-                <OriButton v-else text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
+                <OriButton text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
             </OriSurface>
             <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
             <ResultReveal
