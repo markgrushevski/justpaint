@@ -199,6 +199,48 @@ func (q *Queries) GetMatchForUpdate(ctx context.Context, id string) (GetMatchFor
 	return i, err
 }
 
+const listExhaustedJudgingMatches = `-- name: ListExhaustedJudgingMatches :many
+select id from matches
+where status = 'judging'
+  and judging_started_at <= now() - make_interval(secs => $1::int)
+  and judge_attempts >= $2::int
+order by judging_started_at
+limit $3::int
+for update skip locked
+`
+
+type ListExhaustedJudgingMatchesParams struct {
+	StaleSecs   int32
+	MaxAttempts int32
+	Lim         int32
+}
+
+// The complement of ListStuckJudgingMatches: judging rows whose retries are USED UP
+// and whose last attempt is stale. Without this they would sit in `judging` forever
+// (the re-fire filter stops at the cap and nothing else moves them), losing the duel
+// with no recourse. They are swept to `done` + resolution 'aborted' — no winner, no
+// Elo (docs/GAME.md §4.1, docs/DECISIONS.md 2026-09-18). Same partial index
+// (matches_judging_stuck_idx), same stale window, so a row is in exactly one list.
+func (q *Queries) ListExhaustedJudgingMatches(ctx context.Context, arg ListExhaustedJudgingMatchesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listExhaustedJudgingMatches, arg.StaleSecs, arg.MaxAttempts, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExpiredDrawingMatches = `-- name: ListExpiredDrawingMatches :many
 select id from matches
 where status = 'drawing' and drawing_deadline <= now()
@@ -342,7 +384,10 @@ type ListStuckJudgingMatchesParams struct {
 
 // Judging rows wedged past the stale window with retries left — a crashed/hung
 // judge attempt to re-fire (docs/DESIGN-PHASE3-LIVE.md §2.6). Staleness is measured
-// against judging_started_at (the current attempt), not updated_at.
+// against judging_started_at (the current attempt), not updated_at. The rows this
+// filter excludes on judge_attempts are NOT dropped: ListExhaustedJudgingMatches
+// below is its exact complement (>= the same cap, same stale window) and sweeps
+// them to the terminal 'aborted' resolution instead (docs/GAME.md §4.1).
 func (q *Queries) ListStuckJudgingMatches(ctx context.Context, arg ListStuckJudgingMatchesParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, listStuckJudgingMatches, arg.StaleSecs, arg.MaxAttempts, arg.Lim)
 	if err != nil {

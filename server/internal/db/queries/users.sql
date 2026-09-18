@@ -18,10 +18,12 @@ where id = $1;
 -- ListMatchPlayers). The INNER JOINs to match_players/matches mean only users with >=1
 -- 'done' match appear, so players who have never finished a game fall out naturally —
 -- no HAVING, no 0-games filter. status='done' counts forfeits (full-K Elo) and excludes
--- 'abandoned' (no Elo, no result). wins/losses derive from winner_player_id (null =
--- tie); ties are games_played-wins-losses, not a stored column. Tie-break on id asc
--- because every account starts at rating 1200, so a fresh ladder would otherwise order
--- nondeterministically.
+-- 'abandoned' (no Elo, no result) and resolution='aborted' (a round the judge never
+-- scored: no winner, no Elo — counting it would inflate games_played and register as a
+-- tie for both players). `is distinct from` so a null resolution still counts.
+-- wins/losses derive from winner_player_id (null = tie); ties are games_played-wins-
+-- losses, not a stored column. Tie-break on id asc because every account starts at
+-- rating 1200, so a fresh ladder would otherwise order nondeterministically.
 select u.id,
        u.display_name,
        u.rating,
@@ -30,7 +32,7 @@ select u.id,
        count(*) filter (where m.winner_player_id is not null and m.winner_player_id <> u.id)::int as losses
 from users u
 join match_players mp on mp.user_id = u.id
-join matches m on m.id = mp.match_id and m.status = 'done'
+join matches m on m.id = mp.match_id and m.status = 'done' and m.resolution is distinct from 'aborted'
 group by u.id, u.display_name, u.rating
 order by u.rating desc, u.id asc
 limit sqlc.arg('lim')::int;
