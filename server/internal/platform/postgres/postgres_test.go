@@ -1,7 +1,9 @@
 package postgres
 
 import (
+	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
@@ -54,4 +56,38 @@ func TestConnectHint(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestReady_DB pins the readiness contract against a real database: reachable
+// and migrated is ready, reachable but missing the table is NOT — the state a
+// plain Ping calls healthy, which is how a deploy with unapplied migrations gets
+// announced as live. Skips without DATABASE_URL, like the other DB-backed tests.
+func TestReady_DB(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set — skipping the DB-backed readiness test")
+	}
+
+	ctx := context.Background()
+	pool, err := New(ctx, dsn, 2)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer pool.Close()
+
+	t.Run("migrated schema is ready", func(t *testing.T) {
+		if err := Ready(ctx, pool, "matches"); err != nil {
+			t.Fatalf("Ready: %v (are the goose migrations applied?)", err)
+		}
+	})
+
+	t.Run("absent table reports ErrSchemaMissing", func(t *testing.T) {
+		err := Ready(ctx, pool, "a_table_that_does_not_exist")
+		if !errors.Is(err, ErrSchemaMissing) {
+			t.Fatalf("Ready = %v, want ErrSchemaMissing", err)
+		}
+		if !strings.Contains(err.Error(), "goose") {
+			t.Errorf("error does not say how to fix it: %q", err)
+		}
+	})
 }
