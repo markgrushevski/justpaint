@@ -34,24 +34,27 @@ jobs:
             - name: Prettier (format:check)
               run: npm run format:check
 
+            # Build first, on purpose: apps/web resolves @justpaint/document
+            # and @justpaint/editor through their built dist/, so a fresh clone
+            # cannot typecheck until the packages are built (docs/NOTES.md).
+            - name: Build (packages + SPA)
+              run: npm run build
+
             - name: Typecheck (tsc + vue-tsc)
               run: npm run types
 
             - name: Unit tests (Vitest)
               run: npm run test
 
-            - name: Build (packages + SPA)
-              run: npm run build
-
             # lint:all rewrites files (--fix / --write); lint:ci is the same
             # linters in check mode (prettier is covered by format:check above).
             - name: Lint (stylelint + eslint + contrast, check mode)
               run: npm run lint:ci -w @justpaint/web
 
+            # The worker is bundled by the build step above; this proves the
+            # bundle actually renders a PNG under node-canvas.
             - name: Render worker selftest
-              run: |
-                  npm run build -w @justpaint/render
-                  npm run selftest -w @justpaint/render
+              run: npm run selftest -w @justpaint/render
 
     go:
         name: Go service
