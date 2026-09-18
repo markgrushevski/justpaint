@@ -56,6 +56,78 @@ jobs:
             - name: Render worker selftest
               run: npm run selftest -w @justpaint/render
 
+    # The deployable artifact, built and actually run. A Dockerfile that only
+    # builds proves nothing: this boots the image against a real Postgres and
+    # checks that it serves both halves of the same origin — the API's readiness
+    # probe and the SPA shell.
+    image:
+        name: Docker image (build + smoke)
+        runs-on: ubuntu-latest
+
+        services:
+            postgres:
+                image: postgres:17-alpine
+                env:
+                    POSTGRES_USER: justpaint
+                    POSTGRES_PASSWORD: justpaint
+                    POSTGRES_DB: justpaint
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U justpaint -d justpaint"
+                    --health-interval 5s
+                    --health-timeout 3s
+                    --health-retries 10
+
+        env:
+            DATABASE_URL: postgres://justpaint:justpaint@localhost:5432/justpaint?sslmode=disable
+
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: actions/setup-go@v6
+              with:
+                  go-version: '1.26'
+                  cache-dependency-path: server/go.sum
+
+            - name: Build the image
+              run: docker build -t justpaint:ci .
+
+            - name: Apply migrations (goose)
+              run: |
+                  go install github.com/pressly/goose/v3/cmd/goose@latest
+                  goose -dir server/migrations postgres "$DATABASE_URL" up
+
+            - name: Boot the image
+              run: |
+                  docker run -d --name justpaint --network host \
+                      -e ENV=prod \
+                      -e JWT_SECRET=ci-only-secret-not-used-anywhere-else-0123456789 \
+                      -e DATABASE_URL="$DATABASE_URL" \
+                      justpaint:ci
+
+            - name: Smoke test (readiness + the SPA shell)
+              run: |
+                  for i in $(seq 1 30); do
+                      if curl -sf http://localhost:8080/readyz > /dev/null; then break; fi
+                      sleep 2
+                  done
+                  echo "--- /readyz ---"
+                  curl -sS --fail-with-body http://localhost:8080/readyz
+                  echo
+                  echo "--- / (SPA shell) ---"
+                  curl -sS --fail-with-body http://localhost:8080/ | head -c 200
+                  echo
+                  curl -sS http://localhost:8080/ | grep -qi "<!doctype html" \
+                      || { echo "the root did not serve the SPA shell"; exit 1; }
+                  # A client-side route must fall back to the shell, not 404.
+                  curl -sS --fail-with-body http://localhost:8080/leaderboard | grep -qi "<!doctype html" \
+                      || { echo "a client route did not fall back to the shell"; exit 1; }
+
+            - name: Container logs
+              if: always()
+              run: docker logs justpaint
+
     go:
         name: Go service
         runs-on: ubuntu-latest

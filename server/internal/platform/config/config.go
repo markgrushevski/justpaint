@@ -18,6 +18,12 @@ type Config struct {
 	Env          string // "dev" | "prod" — required, never defaulted
 	CookieSecure bool   // Secure flag on the session cookie
 
+	// StaticDir is the built SPA (apps/web/dist) the server also serves, making
+	// the API and the frontend one origin — required, since the session cookie
+	// and the WS upgrade are same-origin and no CORS headers are sent. Empty
+	// (the dev default) disables it: Vite serves the SPA and proxies /api here.
+	StaticDir string
+
 	// DBMaxConns bounds the pgx pool. pgx would default to max(4, NumCPU), which
 	// is sized to the app host and knows nothing about the database's own
 	// max_connections budget — on a small managed Postgres a few app instances
@@ -115,6 +121,7 @@ func Load() (Config, error) {
 		// Secure cookies are dropped by browsers over plain http://localhost,
 		// so relax the flag in dev; require it everywhere else.
 		CookieSecure:    env != EnvDev,
+		StaticDir:       strings.TrimSpace(os.Getenv("STATIC_DIR")),
 		RenderMode:      strings.ToLower(getenv("RENDER_MODE", RenderModeStub)),
 		RenderCLI:       os.Getenv("RENDER_CLI"),
 		RenderNodeBin:   getenv("RENDER_NODE_BIN", "node"),
