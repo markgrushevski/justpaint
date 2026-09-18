@@ -490,7 +490,7 @@ function onKeydown(e: KeyboardEvent) {
 .menu__rating {
     padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
 
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
+    border: 1px solid var(--jp-color-outline, rgb(0 0 0 / 12%));
     border-radius: var(--ori-size-radius_md, 8px);
     background-color: var(--ori-color-background);
 
