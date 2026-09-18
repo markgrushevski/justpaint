@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,8 +41,33 @@ func New(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error)
 	defer cancel()
 	if err := pool.Ping(pingCtx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("postgres: ping: %w", err)
+		return nil, fmt.Errorf("postgres: ping: %w%s", err, connectHint(err))
 	}
 
 	return pool, nil
+}
+
+// connectHint turns a dial failure that is really a deployment mismatch into
+// something actionable, or returns "" when it has nothing to add.
+//
+// The case worth naming: managed providers increasingly publish their direct
+// database host as IPv6-only (an IPv4 address is a paid add-on) while plenty of
+// hosting platforms still egress IPv4-only. The result is `connect: network is
+// unreachable` against a raw IPv6 literal — technically precise and useless
+// unless you already know the shape of the problem. The fix is nearly always to
+// use the provider's pooler endpoint, which is IPv4.
+//
+// Matching on the error text is crude, but this only ever decorates an error
+// that has already failed; a miss costs nothing but the hint.
+func connectHint(err error) string {
+	msg := err.Error()
+	if !strings.Contains(msg, "network is unreachable") && !strings.Contains(msg, "no route to host") {
+		return ""
+	}
+	if !strings.Contains(msg, "[") { // no bracketed IPv6 literal in the dial error
+		return ""
+	}
+	return "\n\thint: the database host resolved to IPv6 and this machine has no IPv6 route." +
+		" Managed providers usually offer an IPv4 pooler endpoint — use that connection string instead" +
+		" (on Supabase: Connect -> Session pooler, host *.pooler.supabase.com, user postgres.<project-ref>)."
 }
