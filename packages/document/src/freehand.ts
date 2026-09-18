@@ -1,4 +1,4 @@
-import type { BrushOptions } from "./types";
+import type { BrushOptions } from './types'
 
 /**
  * Minimal shape of perfect-freehand's `getStroke()` options. Declared locally so
@@ -6,18 +6,18 @@ import type { BrushOptions } from "./types";
  * the pinned perfect-freehand.
  */
 export interface FreehandStrokeOptions {
-  size: number;
-  thinning: number;
-  smoothing: number;
-  streamline: number;
-  simulatePressure: boolean;
-  easing: (t: number) => number;
-  last: boolean;
-  start: { cap: boolean; taper: number; easing: (t: number) => number };
-  end: { cap: boolean; taper: number; easing: (t: number) => number };
+    size: number
+    thinning: number
+    smoothing: number
+    streamline: number
+    simulatePressure: boolean
+    easing: (t: number) => number
+    last: boolean
+    start: { cap: boolean; taper: number; easing: (t: number) => number }
+    end: { cap: boolean; taper: number; easing: (t: number) => number }
 }
 
-const linear = (t: number): number => t;
+const linear = (t: number): number => t
 
 /**
  * Build the FULL `getStroke()` options from the curated {@link BrushOptions},
@@ -30,15 +30,15 @@ const linear = (t: number): number => t;
  * diverge silently.
  */
 export function toFreehandOptions(brush: BrushOptions): FreehandStrokeOptions {
-  return {
-    size: brush.size,
-    thinning: brush.thinning,
-    smoothing: brush.smoothing,
-    streamline: brush.streamline,
-    simulatePressure: brush.simulatePressure,
-    easing: linear,
-    last: true,
-    start: { cap: true, taper: brush.taperStart, easing: linear },
-    end: { cap: true, taper: brush.taperEnd, easing: linear },
-  };
+    return {
+        size: brush.size,
+        thinning: brush.thinning,
+        smoothing: brush.smoothing,
+        streamline: brush.streamline,
+        simulatePressure: brush.simulatePressure,
+        easing: linear,
+        last: true,
+        start: { cap: true, taper: brush.taperStart, easing: linear },
+        end: { cap: true, taper: brush.taperEnd, easing: linear }
+    }
 }

@@ -6,5 +6,5 @@
  * so no import is needed. "stk_" + a UUID is 4 + 36 = 40 chars, well under 64.
  */
 export function newId(): string {
-  return `stk_${crypto.randomUUID()}`;
+    return `stk_${crypto.randomUUID()}`
 }

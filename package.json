@@ -1,22 +1,25 @@
 {
-  "name": "justpaint-monorepo",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
-  "engines": {
-    "node": ">=22"
-  },
-  "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "types": "npm run types --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
-  },
-  "devDependencies": {
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
-  }
+    "name": "justpaint-monorepo",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "workspaces": [
+        "packages/*",
+        "apps/*"
+    ],
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build": "npm run build --workspaces --if-present",
+        "types": "npm run types --workspaces --if-present",
+        "test": "npm run test --workspaces --if-present",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
+    },
+    "devDependencies": {
+        "prettier": "^3.9.4",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.9"
+    }
 }

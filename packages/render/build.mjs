@@ -7,19 +7,19 @@
  * used after `konva/canvas-backend` registers node-canvas (import order in
  * render.mjs is preserved).
  */
-import { build } from "esbuild";
+import { build } from 'esbuild'
 
 await build({
-  entryPoints: ["render.mjs"],
-  outfile: "dist/render.mjs",
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node20",
-  external: ["canvas"], // native .node addon — cannot be bundled
-  // Konva backends `require('canvas')`; ESM output has no `require`, so provide one.
-  banner: {
-    js: "import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);",
-  },
-  logLevel: "info",
-});
+    entryPoints: ['render.mjs'],
+    outfile: 'dist/render.mjs',
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node20',
+    external: ['canvas'], // native .node addon — cannot be bundled
+    // Konva backends `require('canvas')`; ESM output has no `require`, so provide one.
+    banner: {
+        js: "import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);"
+    },
+    logLevel: 'info'
+})
