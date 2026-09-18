@@ -584,6 +584,29 @@ async function copyPngToClipboard() {
     }
 }
 
+/**
+ * Ask the gate, but only ever ONCE at a time.
+ *
+ * A gated action waits on a HUMAN, and `busy` — the mutation's own pending flag
+ * — does not go true until the mutation actually starts, which is after that
+ * wait. So a second trigger landing in the window before the modal is up (the
+ * gate first awaits the store's cookie restore) queues a SECOND waiter, and one
+ * sign-in then resolves both: the same canvas saved twice, as two rows. Once the
+ * dialog is up the rest of the page is inert and this cannot happen — it is
+ * exactly the gap before that which needs closing.
+ */
+let awaitingGate = false
+
+async function gated(reason: string): Promise<boolean> {
+    if (awaitingGate) return false
+    awaitingGate = true
+    try {
+        return await gate.ensure(reason)
+    } finally {
+        awaitingGate = false
+    }
+}
+
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
         // The transport has already forgotten the dead session, so just ask for
@@ -594,7 +617,7 @@ function reportError(err: unknown, action: string) {
         // the button is right there. Close the cheat-sheet first: its focus trap
         // would fight the incoming dialog.
         shortcutsOpen.value = false
-        void gate.ensure(`Sign in to ${action}.`)
+        void gated(`Your session expired — sign in to ${action}.`)
         return
     }
     const api = toApiError(err)
@@ -607,7 +630,7 @@ function reportError(err: unknown, action: string) {
 
 async function save() {
     if (!editor || busy.value) return
-    if (!(await gate.ensure('Sign in to save your drawing.'))) return
+    if (!(await gated('Sign in to save your drawing.'))) return
     // Re-check: the modal can stay up for minutes, and browser Back unmounts
     // this view and nulls `editor` underneath us. TypeScript keeps the
     // narrowing above across the await, so only this can catch it.
@@ -631,7 +654,7 @@ async function save() {
 
 async function load() {
     if (!editor || busy.value) return
-    if (!(await gate.ensure('Sign in to load your drawing.'))) return
+    if (!(await gated('Sign in to load your drawing.'))) return
     if (!editor) return
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
@@ -685,7 +708,7 @@ async function submitAssist() {
     const prompt = assistPrompt.value.trim()
     // Mirror the submit button's own disabled guard (Enter can reach here too).
     if (!prompt || assistPending.value || pendingOps.value) return
-    if (!(await gate.ensure('Sign in to use assist.'))) return
+    if (!(await gated('Sign in to use assist.'))) return
     if (!editor) return
     const targetLayerId = editor.getActiveLayerId() || undefined
     assistMutation.mutate(
@@ -870,7 +893,7 @@ function rejectAssist() {
                     class="draw__empty"
                     :signed-in="session.isLoggedIn"
                     @dismiss="dismissHint"
-                    @sign-in="void gate.ensure('Sign in to save and load your drawings.')"
+                    @sign-in="void gated('Sign in to save and load your drawings.')"
                     @shortcuts="shortcutsOpen = true"
                 />
             </Transition>
