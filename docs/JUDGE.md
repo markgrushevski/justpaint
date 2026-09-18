@@ -4,7 +4,7 @@
 >
 > **Ownership note.** `docs/ARCHITECTURE.md` §5, `docs/DOCUMENT-FORMAT.md` §10, and `docs/GAME.md` all *defer* to this doc for the `winner` representation, tie semantics, raster size, and background. This doc, in turn, defers the trust boundary / render pipeline to `DOCUMENT-FORMAT.md` §10 and the match lifecycle / A·B→player resolution to `GAME.md`.
 >
-> **Status:** v1 contract, Phase 0 (draft). Greenfield. The collaborator can integrate against this alone — he never reads our other docs, never parses our document schema, never runs `getStroke`.
+> **Status:** v1 contract, frozen. The in-process `FakeJudge` ships today; the collaborator's service plugs in against this contract, unchanged. Greenfield. The collaborator can integrate against this alone — he never reads our other docs, never parses our document schema, never runs `getStroke`.
 
 ## 1. What the judge is (and what it is NOT)
 

@@ -2,7 +2,7 @@
 
 > **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, the live WS realtime layer, AI assist, and the ratings leaderboard. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12); §10 owns the AI-assist HTTP edge (contract owned by `docs/ASSIST.md`); §11 owns the leaderboard read.
 >
-> **Status:** Phase 0 (draft). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
+> **Status:** Shipped (Phase 0–3 complete; §10–11 land with Phase 4, in progress — `docs/ROADMAP.md`). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
 
 ## 0. What this doc owns vs. references
 

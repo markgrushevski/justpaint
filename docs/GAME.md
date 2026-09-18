@@ -2,7 +2,7 @@
 
 > **The north star spec.** The AI-judged drawing duel (`/play`): two players draw the *same* prompt, the server renders authoritative rasters, the judge scores them, a winner (or tie) is recorded. This doc owns the **match lifecycle/state machine, the canonical game canvas size, prompt pinning, the ratings sketch, and tie handling**. It defers the judge contract wholesale to `docs/JUDGE.md` and the document/storage schema to `docs/DOCUMENT-FORMAT.md`.
 >
-> **Status:** Phase 0 (draft). The async duel is **v1**; live realtime (§9) has now shipped as a delivery upgrade, without forking the lifecycle. Companion: `docs/DECISIONS.md` (the "why"), `docs/ARCHITECTURE.md` (§7 data model, §8 async-first), `docs/JUDGE.md` (scoring contract), `docs/API.md` (routes, error shape, DoS caps). When this disagrees with those for what it owns, this doc wins; for what it defers, they win.
+> **Status:** Shipped (Phase 3, `docs/ROADMAP.md`). The async duel is **v1**; live realtime (§9) has now shipped as a delivery upgrade, without forking the lifecycle. Companion: `docs/DECISIONS.md` (the "why"), `docs/ARCHITECTURE.md` (§7 data model, §8 async-first), `docs/JUDGE.md` (scoring contract), `docs/API.md` (routes, error shape, DoS caps). When this disagrees with those for what it owns, this doc wins; for what it defers, they win.
 
 ## 1. Scope & ownership
 
