@@ -100,11 +100,12 @@ export interface MatchResultDone {
     winnerUserId: string | null
     isTie: boolean
     reason: string | null
-    /** How the match was decided: `judged` (the ML judge ran) or `forfeit` (one
-     *  player never submitted before the deadline, default win, no judge run). The
-     *  client branches its copy on this, never on the free-text `reason`
-     *  (docs/DESIGN-PHASE3-LIVE.md §2.8). */
-    resolution: 'judged' | 'forfeit'
+    /** How the match was decided: `judged` (the ML judge ran), `forfeit` (one
+     *  player never submitted before the deadline, default win, no judge run), or
+     *  `aborted` (judging exhausted its retries — both players drew, nobody was
+     *  scored, no rating moved; docs/GAME.md §3). The client branches its copy on
+     *  this, never on the free-text `reason` (docs/DESIGN-PHASE3-LIVE.md §2.8). */
+    resolution: 'judged' | 'forfeit' | 'aborted'
     players: ResultPlayer[]
 }
 
