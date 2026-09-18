@@ -14,15 +14,19 @@ export interface DuelResult {
     you: DuelSide
     /** The opponent side plus their safe display label (never a login). */
     opponent: DuelSide & { name: string }
-    /** Verdict from the judge, mapped to the local player (GAME.md §7.1). */
-    winner: 'you' | 'opponent' | 'tie'
+    /** Verdict from the judge, mapped to the local player (GAME.md §7.1).
+     *  `none` is not a draw — it means no verdict applies at all, which is the
+     *  aborted case below. It exists as its own value so an unscored round can
+     *  never fall through into tie copy or tie styling by accident. */
+    winner: 'you' | 'opponent' | 'tie' | 'none'
     /** The judge's reason string, shown verbatim. */
     reason: string
     /** How the match was decided — `forfeit` means one side never submitted before
-     *  the deadline (no judge run, scores are meaningless); the reveal branches its
-     *  copy on this instead of the normal score comparison
-     *  (docs/DESIGN-PHASE3-LIVE.md §2.9). */
-    resolution: 'judged' | 'forfeit'
+     *  the deadline (no judge run, scores are meaningless), `aborted` means both
+     *  sides drew but judging failed outright, so nobody was scored and no rating
+     *  moved (docs/GAME.md §3). The reveal branches its copy on this instead of the
+     *  normal score comparison (docs/DESIGN-PHASE3-LIVE.md §2.9). */
+    resolution: 'judged' | 'forfeit' | 'aborted'
     /** Elo delta applied to the local player (may be negative). */
     eloDelta: number
     /** The local player's rating before this match. */
@@ -48,9 +52,15 @@ const youWon = computed(() => props.result.winner === 'you')
 const tie = computed(() => props.result.winner === 'tie')
 const winnerIsOpp = computed(() => props.result.winner === 'opponent')
 const isForfeit = computed(() => props.result.resolution === 'forfeit')
+const isAborted = computed(() => props.result.resolution === 'aborted')
+/** Only a judged round has scores to show; the other two never ran the judge, so
+ *  every score bar, percentage and rating move is suppressed rather than rendered
+ *  as a truthful-looking 0%. */
+const scored = computed(() => props.result.resolution === 'judged')
 const headline = computed(() => {
-    // A forfeit never ran the judge, so lead with what actually happened rather
+    // Neither of these ran the judge, so lead with what actually happened rather
     // than a normal win/lose framing (docs/DESIGN-PHASE3-LIVE.md §2.9).
+    if (isAborted.value) return 'Round couldn’t be scored'
     if (isForfeit.value) return youWon.value ? 'Opponent forfeited — you win' : 'You forfeited — no submission in time'
     return tie.value ? 'It’s a tie' : youWon.value ? 'You win!' : 'You lose'
 })
@@ -95,11 +105,11 @@ function scoreText(score: number): string {
                 </div>
                 <div class="result__meta">
                     <span class="result__player">You</span>
-                    <!-- No judge ran on a forfeit, so the score is null server-side —
-                         a 0% bar would misread as a bad judged score. -->
-                    <span v-if="!isForfeit" class="result__score">{{ scoreText(result.you.score) }}%</span>
+                    <!-- No judge ran on a forfeit or an abort, so the score is null
+                         server-side — a 0% bar would misread as a bad judged score. -->
+                    <span v-if="scored" class="result__score">{{ scoreText(result.you.score) }}%</span>
                 </div>
-                <div v-if="!isForfeit" class="result__bar">
+                <div v-if="scored" class="result__bar">
                     <div class="result__bar-fill result__bar-fill--you" :style="{ width: pct(result.you.score) }"></div>
                 </div>
             </OriCard>
@@ -122,9 +132,9 @@ function scoreText(score: number): string {
                 </div>
                 <div class="result__meta">
                     <span class="result__player">{{ result.opponent.name }}</span>
-                    <span v-if="!isForfeit" class="result__score">{{ scoreText(result.opponent.score) }}%</span>
+                    <span v-if="scored" class="result__score">{{ scoreText(result.opponent.score) }}%</span>
                 </div>
-                <div v-if="!isForfeit" class="result__bar">
+                <div v-if="scored" class="result__bar">
                     <div
                         class="result__bar-fill result__bar-fill--opp"
                         :style="{ width: pct(result.opponent.score) }"
@@ -134,11 +144,14 @@ function scoreText(score: number): string {
         </div>
 
         <p class="result__reason">
-            <span class="result__reason-label">{{ isForfeit ? 'Result' : 'Judge' }}</span>
+            <span class="result__reason-label">{{ scored ? 'Judge' : 'Result' }}</span>
             {{ result.reason }}
         </p>
 
-        <div class="result__elo" role="group" aria-label="Rating change">
+        <!-- A forfeit still moves the rating (full-K to the submitter), so the pop
+             stays for it; an aborted round moves nothing, and "1200 → 1200 +0"
+             reads as a result when it is really the absence of one. -->
+        <div v-if="!isAborted" class="result__elo" role="group" aria-label="Rating change">
             <span class="result__rating">{{ result.ratingBefore }}</span>
             <span class="result__arrow" aria-hidden="true">→</span>
             <span class="result__rating result__rating--after">{{ ratingAfter }}</span>

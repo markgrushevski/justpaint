@@ -645,7 +645,8 @@ function applyResult(r: MatchResultDone): void {
     const after = me?.ratingAfter ?? before
     result.value = {
         // Judge scores are 0..1; the reveal bar is 0..100. Both are null server-side
-        // on a forfeit (no judge ran); the reveal hides the score row/bar itself via
+        // whenever the judge never ran — a forfeit, or an aborted round where
+        // judging failed outright; the reveal hides the score row/bar itself via
         // `resolution` rather than showing a misleading 0%.
         you: { score: (me?.score ?? 0) * 100, image: youImageUrl },
         opponent: {
@@ -655,7 +656,18 @@ function applyResult(r: MatchResultDone): void {
             // object storage); null until it resolves → "No preview" placeholder.
             image: null
         },
-        winner: r.winnerUserId === null ? 'tie' : r.winnerUserId === myUserId ? 'you' : 'opponent',
+        // Read the server's own `isTie` instead of re-deriving it from a null
+        // winner: a null winner also means "nobody was scored" on an aborted
+        // round, and the server already distinguishes the two (it sends
+        // isTie: false there). Deriving tie-ness here is what made an aborted
+        // duel render as a cheerful "It's a tie" (docs/GAME.md §3).
+        winner: r.isTie
+            ? 'tie'
+            : r.resolution === 'aborted'
+              ? 'none'
+              : r.winnerUserId === myUserId
+                ? 'you'
+                : 'opponent',
         reason: r.reason ?? '',
         resolution: r.resolution,
         eloDelta: after - before,
