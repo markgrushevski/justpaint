@@ -11,6 +11,17 @@ Lightweight record of key decisions and their rationale, so they aren't relitiga
 - **Three tiers, each its own `*ratelimit.Limiter`, rejected: one shared limiter with per-route weights.** A single shared bucket would let a burst of cheap default-tier traffic (the SPA's own asset fetches) drain the auth tier's budget or vice versa. Policy rows are tried in order, first match wins, so `auth-strict` (bcrypt is expensive — the credential-stuffing target) and the `matches`/`drawings` write tier (each creates real work: a render+judge pass, storage) sit ahead of the generous catch-all default, which exists so a normal page load never comes close to it.
 - **A full bucket map fails OPEN, not closed.** `ratelimit.Limiter` caps tracked keys (100,000) and evicts idle ones; if distinct IPs fill the map faster than eviction reclaims it, a brand-new key rides through untracked rather than being denied. Refusing to track a key would let an attacker who can generate enough distinct source IPs black-hole every other caller's very first request — worse than the limiter occasionally forgetting one.
 
+## 2026-09-18 — The server applies its own migrations at boot
+
+The first live deploy came up against an empty database and announced itself healthy. The reason is structural, not an oversight: the target host has no shell — running a one-off command against the production database is a paid feature — so "apply migrations, then roll the binary" is a sequence nobody can perform there.
+
+- **The binary embeds `server/migrations/` and runs goose before serving** (`AUTO_MIGRATE`, default true). The .sql files did not move, so `goose -dir server/migrations …` still works and stays what local development uses.
+- **goose becomes a library dependency, not only a CLI.** This reverses the earlier "goose and sqlc are external CLIs" rule for goose alone. sqlc stays a build-time CLI — it generates code, it does not run in production.
+- **Rejected: a pre-deploy command or a one-off job.** Both are paid features on the target host, which is the whole problem.
+- **Rejected: migrating from a developer machine each release.** It works (and unblocked the first deploy) but it makes every deploy depend on a human being present with the production credentials, and it silently breaks the moment the app is deployed by anything automated.
+- **Accepted trade: a bad migration now fails the deploy instead of being applied under supervision.** For a single-instance greenfield service that is the right side — an unmigrated database is broken anyway, and a boot failure is louder than a per-request one. A Postgres session advisory lock (goose's `WithSessionLocker`) serializes the run, so a second instance waits rather than racing the same DDL.
+- **Readiness was tightened in the same change**: `/readyz` now verifies the schema exists (`to_regclass`), not merely that Postgres answers. A reachable-but-unmigrated database was exactly the state the probe used to call healthy.
+
 ## 2026-09-18 — `TRUST_PROXY` defaults to false, and the client IP is the rightmost `X-Forwarded-For` entry
 
 Both the rate limiter and the request-id/client-ip log correlation need one honest answer to "what is the caller's address," and a reverse proxy changes what that means.

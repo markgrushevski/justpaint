@@ -21,6 +21,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/platform/config"
 	"github.com/markgrushevski/justpaint/server/internal/platform/logging"
+	"github.com/markgrushevski/justpaint/server/internal/platform/migrate"
 	"github.com/markgrushevski/justpaint/server/internal/platform/postgres"
 	"github.com/markgrushevski/justpaint/server/internal/platform/ratelimit"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
@@ -56,6 +57,20 @@ func run() error {
 	}
 	defer pool.Close()
 	logger.Info("database connected")
+
+	// Before anything reads or writes: a database that exists but was never
+	// migrated is not an edge case on a host with no shell, it is the default
+	// first state. Failing here is loud; the alternative is a service that
+	// reports itself live and errors on every game query.
+	if cfg.AutoMigrate {
+		migrateCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		if err := migrate.Run(migrateCtx, cfg.DatabaseURL, logger); err != nil {
+			return err
+		}
+	} else {
+		logger.Info("migrations: skipped (AUTO_MIGRATE=false) — the schema is someone else's job")
+	}
 
 	queries := db.New(pool)
 
