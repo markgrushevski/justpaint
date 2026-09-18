@@ -1,7 +1,12 @@
 /**
  * Post-deploy smoke: drive a whole duel through a running deployment.
  *
- *     npm run smoke -- https://justpaint.onrender.com
+ *     npm run smoke                                  # the local stack (default)
+ *     npm run smoke -- https://justpaint.onrender.com # a real deployment
+ *
+ * Default to the local stack: `docker compose up -d` + `go run ./cmd/server`.
+ * Pointing it at production is a deliberate act, not the easy path — read the
+ * cleanup note below before you do.
  *
  * CI proves the image boots and serves; this proves the PRODUCT works — auth and
  * the session cookie's flags, matchmaking, prompt reveal, the document validator
@@ -26,11 +31,27 @@ const stamp = Date.now().toString(36)
 const password = `smoke-${stamp}-${Math.random().toString(36).slice(2)}`
 
 let failures = 0
+let skipped = 0
 const ok = (label, cond, detail = '') => {
     if (!cond) failures++
     console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`)
 }
+/** Not asserted here, and SAYING so — a silent pass would be a lie. */
+const skip = (label, why) => {
+    skipped++
+    console.log(`SKIP  ${label} — ${why}`)
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Two checks below only hold for a production-shaped deployment: the Secure
+ * cookie flag (ENV=dev drops it so http://localhost can hold a session at all)
+ * and the served SPA shell (a dev server sets no STATIC_DIR and leaves the SPA
+ * to Vite on :7777). Against the DEFAULT localhost target both failed on every
+ * run — which teaches you to read a red line as normal, the one habit a smoke
+ * test must never build. Asserted against https; reported as skipped otherwise.
+ */
+const prodShaped = new URL(BASE).protocol === 'https:'
 
 /** One browser-like session: its own cookie jar of exactly one cookie. */
 const session = (label) => ({ label, cookie: null, user: null })
@@ -94,7 +115,11 @@ const anon = session('anon')
 const ready = await call(anon, 'GET', '/readyz')
 ok('readiness reports a migrated schema', ready.status === 200, JSON.stringify(ready.json))
 const shell = await fetch(`${BASE}/leaderboard`)
-ok('a client route serves the SPA shell', (await shell.text()).toLowerCase().includes('<!doctype html'))
+// Absent on a dev target is expected; absent on https is a broken deployment.
+// Present is asserted either way, so running the real image over http still counts.
+const servesShell = (await shell.text()).toLowerCase().includes('<!doctype html')
+if (!servesShell && !prodShaped) skip('a client route serves the SPA shell', 'no STATIC_DIR — Vite serves it in dev')
+else ok('a client route serves the SPA shell', servesShell)
 const guarded = await call(anon, 'GET', '/api/leaderboard')
 ok('the API refuses an anonymous caller', guarded.status === 401, `status ${guarded.status}`)
 
@@ -111,11 +136,10 @@ for (const s of [a, b]) {
     s.user = res.json?.user
     if (s.label === 'A') {
         const c = res.setCookie ?? ''
-        ok(
-            'the session cookie is HttpOnly + Secure + SameSite',
-            /HttpOnly/i.test(c) && /Secure/i.test(c) && /SameSite/i.test(c),
-            c.replace(/=[^;]+/, '=…')
-        )
+        const redacted = c.replace(/=[^;]+/, '=…')
+        ok('the session cookie is HttpOnly + SameSite', /HttpOnly/i.test(c) && /SameSite/i.test(c), redacted)
+        if (prodShaped) ok('the session cookie is Secure', /Secure/i.test(c), redacted)
+        else skip('the session cookie is Secure', 'a Secure cookie cannot travel over http at all')
         ok('the password is never echoed', !JSON.stringify(res.json).includes(password))
     }
 }
@@ -216,6 +240,6 @@ const trespass = await call(stranger, 'GET', `/api/matches/${matchId}`)
 ok('a non-player gets 404, never 403', trespass.status === 404, `status ${trespass.status}`)
 
 console.log(
-    `\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`} — accounts created: smoke-{a,b,c}-${stamp} (see the header for cleanup SQL)`
+    `\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`}${skipped ? ` (${skipped} skipped: not a production-shaped target)` : ''} — accounts created: smoke-{a,b,c}-${stamp} (see the header for cleanup SQL)`
 )
 process.exit(failures === 0 ? 0 : 1)
