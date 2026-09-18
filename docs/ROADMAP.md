@@ -136,7 +136,7 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 - [ ] **Object selection, tldraw-style** — a select tool, per-stroke hit testing, marquee, move/scale, multi-select, all through the existing command stack. Lands mostly in `packages/editor`. A phase, not a slice.
 - [ ] **Recomposing the editor chrome** — the owner moves things himself; then make his layout hold across breakpoints.
 
-**Also open, and NOT in this phase:** the oriui `1.0.0-rc` bump ([ISSUES-INNER.md](ISSUES-INNER.md) JP-I-03), which the owner put BEFORE the next release.
+**Done alongside, and NOT part of this phase:** the oriui bump to `1.0.0-rc.18` (2026-09-18, `chore/oriui-rc18`), which the owner put BEFORE the next release. It turned eight local workarounds back into plain API use — see [ISSUES-OUTER.md](ISSUES-OUTER.md) "Bump landed" and [DECISIONS.md](DECISIONS.md) 2026-09-18.
 
 ---
 

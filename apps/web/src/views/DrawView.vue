@@ -557,12 +557,11 @@ async function copyDocJson() {
     if (!editor) return
     try {
         await copyText(JSON.stringify(editor.getDocument()))
-        toaster.success({ text: 'Copied document JSON', duration: TOAST_SUCCESS, closable: false })
+        toaster.success({ text: 'Copied document JSON', duration: TOAST_SUCCESS })
     } catch (err) {
         toaster.error({
             text: err instanceof Error ? err.message : 'Could not copy to the clipboard.',
-            duration: TOAST_ERROR,
-            closable: false
+            duration: TOAST_ERROR
         })
     }
 }
@@ -574,12 +573,11 @@ async function copyPngToClipboard() {
         const doc = editor.getDocument()
         const blob = await editor.toPNG({ outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
         await copyImage(blob)
-        toaster.success({ text: 'Copied image', duration: TOAST_SUCCESS, closable: false })
+        toaster.success({ text: 'Copied image', duration: TOAST_SUCCESS })
     } catch (err) {
         toaster.error({
             text: err instanceof Error ? err.message : 'Could not copy the image.',
-            duration: TOAST_ERROR,
-            closable: false
+            duration: TOAST_ERROR
         })
     }
 }
@@ -623,8 +621,7 @@ function reportError(err: unknown, action: string) {
     const api = toApiError(err)
     toaster.error({
         text: api ? `Could not ${action}: ${api.message}` : `Could not ${action} (is the server running?).`,
-        duration: TOAST_ERROR,
-        closable: false
+        duration: TOAST_ERROR
     })
 }
 
@@ -643,8 +640,7 @@ async function save() {
                 currentId.value = meta.id
                 toaster.success({
                     text: existing ? 'Saved.' : `Saved as ${meta.id}.`,
-                    duration: TOAST_SUCCESS,
-                    closable: false
+                    duration: TOAST_SUCCESS
                 })
             },
             onError: (err) => reportError(err, 'save')
@@ -659,7 +655,7 @@ async function load() {
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
             if (!full) {
-                toaster.info({ text: 'No saved drawings yet.', duration: TOAST_INFO, closable: false })
+                toaster.info({ text: 'No saved drawings yet.', duration: TOAST_INFO })
                 return
             }
             // full.document is already validated by drawings.get (parseDocument).
@@ -669,7 +665,7 @@ async function load() {
             clearAssistProposal()
             currentId.value = full.id
             drawingName.value = full.name
-            toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST_SUCCESS, closable: false })
+            toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST_SUCCESS })
         },
         onError: (err) => reportError(err, 'load')
     })
@@ -755,21 +751,21 @@ function rejectAssist() {
                     icon="help"
                     label="Keyboard shortcuts — ?"
                     placement="bottom"
-                    :active="shortcutsOpen"
+                    :pressed="shortcutsOpen"
                     @click="shortcutsOpen = !shortcutsOpen"
                 />
                 <IconButton
                     icon="layers"
                     label="Toggle layers panel"
                     placement="bottom"
-                    :active="layersOpen"
+                    :pressed="layersOpen"
                     @click="layersOpen = !layersOpen"
                 />
                 <IconButton
                     icon="assist"
                     label="AI assist — describe what to draw"
                     placement="bottom"
-                    :active="assistOpen"
+                    :pressed="assistOpen"
                     @click="toggleAssist"
                 />
                 <!-- Which layer new strokes / the eraser land on — shown only when the
@@ -881,7 +877,7 @@ function rejectAssist() {
              manage their own stacking; the card opts back into pointer events. -->
         <template #overlay>
             <!-- Transient status: the oriui toast queue (pushed via useToast()) -->
-            <OriToaster position="top-center" />
+            <OriToaster position="top-center" align="center" />
 
             <!-- First-run empty state: a welcome card centered on a blank canvas,
                  only until dismissed or the first stroke lands. The shell overlay
@@ -945,7 +941,7 @@ function rejectAssist() {
                 :icon="menuOpen ? 'close' : 'menu'"
                 :label="menuOpen ? 'Close menu' : 'Open menu'"
                 placement="bottom"
-                :active="menuOpen"
+                :pressed="menuOpen"
                 @click="menuOpen = !menuOpen"
             />
         </OriSurface>
