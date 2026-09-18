@@ -1,0 +1,49 @@
+# Render blueprint — a thin adapter over the Dockerfile, which is the real
+# contract. Nothing host-specific lives in the app: the same image runs on Fly, a
+# VPS or `docker run` with the same environment variables.
+#
+# Deliberately NOT declaring a Render database: a free Render Postgres EXPIRES 30
+# DAYS after creation, which would quietly kill a live demo a month in. Point
+# DATABASE_URL at an external free Postgres (Neon, Supabase) instead — set it in
+# the dashboard, it is not in this file.
+#
+# Free-tier facts that shaped this file:
+#   - a free web service spins down after ~15 min idle and takes ~1 min to wake;
+#     Render's own cron jobs are paid, so keep it warm with an external pinger
+#     (cron-job.org, UptimeRobot) hitting /readyz every ~10 min;
+#   - 750 free instance hours a month ≈ one service running continuously;
+#   - 512 MB RAM, which is why JUDGE_CONCURRENCY stays small — each judging pass
+#     forks two node-canvas processes;
+#   - the filesystem is ephemeral (we need no disk) and WebSockets are supported.
+
+services:
+    - type: web
+      name: justpaint
+      runtime: docker
+      plan: free
+      region: frankfurt
+      dockerfilePath: ./Dockerfile
+      # Readiness, not liveness: this one answers 503 when Postgres is unreachable.
+      healthCheckPath: /readyz
+      envVars:
+          # ENV=prod is what turns on the Secure cookie flag; the server refuses
+          # to boot without it.
+          - key: ENV
+            value: prod
+          # Generated once by Render and kept; rotating it invalidates every
+          # session. Must be >= 32 bytes outside dev — generateValue satisfies that.
+          - key: JWT_SECRET
+            generateValue: true
+          # Set by hand in the dashboard: an external Postgres that does not expire.
+          - key: DATABASE_URL
+            sync: false
+          # The image already defaults these; they are repeated here so the
+          # deployment reads as a whole rather than hiding half its shape.
+          - key: RENDER_MODE
+            value: node
+          - key: JUDGE_CONCURRENCY
+            value: 2
+          # Keep the pool under the external database's connection budget —
+          # free tiers allow very few.
+          - key: DB_MAX_CONNS
+            value: 5

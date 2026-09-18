@@ -147,6 +147,19 @@ func run() error {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+	// The built SPA, when this instance is the one origin serving both (prod).
+	// Registered last and on "/" so it is the catch-all: Go 1.22 ServeMux gives
+	// every API pattern above precedence, and anything left over is a client-side
+	// route that gets the shell.
+	if cfg.StaticDir != "" {
+		spa, err := web.SPA(cfg.StaticDir)
+		if err != nil {
+			return err
+		}
+		mux.Handle("/", spa)
+		logger.Info("serving the built SPA", "dir", cfg.StaticDir)
+	}
+
 	authHandler.Routes(mux)
 	drawingsHandler.Routes(mux, authHandler.RequireAuth)
 	gameHandler.Routes(mux, authHandler.RequireAuth)
