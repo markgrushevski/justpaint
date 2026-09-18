@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -45,6 +46,36 @@ func New(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error)
 	}
 
 	return pool, nil
+}
+
+// ErrSchemaMissing means the database answered but has not been migrated, so the
+// app can serve nothing useful. Callers distinguish it from an unreachable
+// database because the two need opposite responses: wait and retry vs run goose.
+var ErrSchemaMissing = errors.New("schema not applied")
+
+// Ready reports whether the database is usable, not merely reachable.
+//
+// A plain Ping is not enough for a readiness probe: a fresh managed database
+// accepts connections the moment it exists, so a deploy whose migrations were
+// never run answers "ok" while every real request fails on a missing table.
+// That is worse than a red probe — the platform reports the service healthy and
+// the failure surfaces to users instead.
+//
+// The check is a catalog lookup (to_regclass), not a query against the table, so
+// it costs nothing to run on every probe.
+func Ready(ctx context.Context, pool *pgxpool.Pool, table string) error {
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("ping: %w%s", err, connectHint(err))
+	}
+
+	var present bool
+	if err := pool.QueryRow(ctx, "select to_regclass($1) is not null", table).Scan(&present); err != nil {
+		return fmt.Errorf("schema check: %w", err)
+	}
+	if !present {
+		return fmt.Errorf("%w: table %q is absent — apply the migrations (goose -dir server/migrations postgres \"$DATABASE_URL\" up)", ErrSchemaMissing, table)
+	}
+	return nil
 }
 
 // connectHint turns a dial failure that is really a deployment mismatch into
