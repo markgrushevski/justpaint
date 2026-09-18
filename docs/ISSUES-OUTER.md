@@ -82,3 +82,28 @@ workaround exists (named, so nobody deletes it as dead code) · `accepted` — a
 - **Workaround that exists because of this:** the app declares its own outline colour — currently under
   oriui's prefix, which is its own bug (JP-I-02). Renaming it to `--jp-*` is the right move regardless;
   if oriui later ships a real neutral token, the app repoints its own token at it in one line.
+
+## JP-O-07 — The toast queue forces a close button the component itself defaults off
+
+`mitigated` · upstream: not yet filed · confirmed 2026-09-18 (`@oriui/vue` 1.0.0-alpha.13)
+
+- **What:** `OriToast` declares `closable` with a `false` default and renders the × behind a `v-if`, which
+  is right. But `useToast`'s queue stamps `closable: true` onto every toast it enqueues
+  (`dist/components/toast/use-toast.js`), so the component default is unreachable: a caller who says
+  nothing gets a dismiss button. The two defaults disagree, and the queue wins.
+- **Where it bites us:** every toast in `apps/web/src/views/DrawView.vue`. Removing our `closable: true`
+  flags changed nothing; only an explicit `closable: false` per call site removes the ×.
+- **Ask:** let the queue leave `closable` undefined so the component default applies, or document that the
+  queue is the authority and change its default to false.
+
+## JP-O-08 — A toast has no way to centre its text
+
+`accepted` · upstream: not yet filed · confirmed 2026-09-18
+
+- **What:** `.ori-toast__text` is `text-align: start` with no prop or token to change it. In a
+  `position="top-center"` toaster carrying one-line status messages ("Saved.", "Copied image"), the text
+  hugs the left of a fixed-width box and reads as misaligned rather than as a centred status bar.
+- **Where it bites us:** `OriToaster position="top-center"` on `/draw`.
+- **Ask:** a toast-level alignment choice — either a prop, or centring when the toast has a single text
+  child and no title/action/close. Not urgent; we are not overriding it locally, because a consumer
+  restyling a vendor component is exactly what `docs/DESIGN-SYSTEM.md` forbids.

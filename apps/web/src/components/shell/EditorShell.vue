@@ -186,6 +186,16 @@ defineExpose({ canvasEl })
     pointer-events: none;
 }
 
+/* A <dialog> renders in the browser's top layer, but `pointer-events` still
+   inherits down the DOM tree — so a modal parked in this layer looked normal and
+   swallowed every click: its × and its backdrop were dead, while Esc still
+   worked because that is the keyboard, not the pointer. Any dialog under this
+   overlay opts back in, once, here — through `:deep()`, because the <dialog>
+   belongs to a child component and never carries this component's scope id. */
+.shell__overlay :deep(dialog) {
+    pointer-events: auto;
+}
+
 /* --- small screens ----------------------------------------------------------- */
 
 @media (width <= 600px) {
