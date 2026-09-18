@@ -1,6 +1,6 @@
 // packages/editor/src/tools/eraser.ts — the eraser tool.
-import type { FreehandPoint, FreehandStroke } from "@justpaint/document";
-import type { LogicalPoint, StrokeTool, ToolContext } from "../types";
+import type { FreehandPoint, FreehandStroke } from '@justpaint/document'
+import type { LogicalPoint, StrokeTool, ToolContext } from '../types'
 
 /**
  * Eraser — a freehand stroke that erases earlier content on its own layer.
@@ -18,21 +18,21 @@ import type { LogicalPoint, StrokeTool, ToolContext } from "../types";
  * Only a truly empty gesture (zero samples) yields `null`.
  */
 export const eraserTool: StrokeTool = {
-  kind: "stroke",
-  id: "eraser",
+    kind: 'stroke',
+    id: 'eraser',
 
-  buildStroke(ctx: ToolContext, gesture: readonly LogicalPoint[]): FreehandStroke | null {
-    if (gesture.length < 1) return null;
+    buildStroke(ctx: ToolContext, gesture: readonly LogicalPoint[]): FreehandStroke | null {
+        if (gesture.length < 1) return null
 
-    const points: FreehandPoint[] = gesture.map((p) => [p.x, p.y, p.pressure]);
+        const points: FreehandPoint[] = gesture.map((p) => [p.x, p.y, p.pressure])
 
-    return {
-      id: ctx.newId(),
-      type: "freehand",
-      composite: "destination-out",
-      color: ctx.style.color,
-      points,
-      brush: ctx.style.brush,
-    };
-  },
-};
+        return {
+            id: ctx.newId(),
+            type: 'freehand',
+            composite: 'destination-out',
+            color: ctx.style.color,
+            points,
+            brush: ctx.style.brush
+        }
+    }
+}

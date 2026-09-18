@@ -1,5 +1,5 @@
 // packages/editor/src/tools/hand.ts — the hand (pan) tool.
-import type { PanTool } from "../types";
+import type { PanTool } from '../types'
 
 /**
  * Hand — pans the view on a PRIMARY pointer drag (mouse left-drag or a
@@ -14,6 +14,6 @@ import type { PanTool } from "../types";
  * the middle-button drag uses.
  */
 export const handTool: PanTool = {
-  kind: "pan",
-  id: "hand",
-};
+    kind: 'pan',
+    id: 'hand'
+}
