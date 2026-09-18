@@ -261,3 +261,54 @@ func TestLoad_WSLimits(t *testing.T) {
 		}
 	})
 }
+
+// TestLoad_DatabaseURLShape pins the boot-time shape check on DATABASE_URL. A
+// managed provider's dashboard shows a project URL right next to the connection
+// string, and pasting the wrong one used to surface as a driver parse error at
+// runtime ("failed to parse as keyword/value") — unreadable as a config mistake.
+func TestLoad_DatabaseURLShape(t *testing.T) {
+	tests := []struct {
+		name    string
+		dsn     string
+		wantErr string // substring the message must carry
+	}{
+		{name: "uri form", dsn: "postgres://u:p@localhost:5432/db"},
+		{name: "postgresql scheme", dsn: "postgresql://u:p@db.example.com:5432/postgres?sslmode=require"},
+		{name: "keyword/value form", dsn: "host=localhost user=justpaint dbname=justpaint"},
+		{name: "supabase project url", dsn: "https://fesidgriglgmszjksorp.supabase.co", wantErr: "not a database connection string"},
+		{name: "plain http url", dsn: "http://example.com", wantErr: "not a database connection string"},
+		{name: "nonsense", dsn: "justpaint", wantErr: "not a Postgres connection string"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requireBaseEnv(t)
+			t.Setenv("DATABASE_URL", tt.dsn)
+			_, err := Load()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Load with %q: %v", tt.dsn, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Load with %q: expected a boot error", tt.dsn)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q does not contain %q", err, tt.wantErr)
+			}
+		})
+	}
+
+	t.Run("the password is not echoed in full", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("DATABASE_URL", "https://user:sup3r-secret-password@example.com/db")
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected a boot error")
+		}
+		if strings.Contains(err.Error(), "sup3r-secret-password") {
+			t.Errorf("error leaks the credential: %q", err)
+		}
+	})
+}

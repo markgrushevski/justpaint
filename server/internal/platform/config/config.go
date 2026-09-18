@@ -219,6 +219,10 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: ENV must be %q or %q, got %q", EnvDev, EnvProd, cfg.Env)
 	}
 
+	if err := validateDatabaseURL(cfg.DatabaseURL); err != nil {
+		return Config{}, err
+	}
+
 	// Outside dev, require a strong HS256 secret: a short/guessable key is
 	// brute-forceable offline against any captured token, and a forged token is
 	// full account takeover (the JWT subject is trusted as the owner id).
@@ -272,6 +276,38 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// validateDatabaseURL rejects a DATABASE_URL that is not a Postgres DSN at all,
+// with a message that says what to paste instead.
+//
+// The mistake this exists for is specific and easy to make: a managed provider's
+// dashboard shows a project URL (https://<ref>.supabase.co) next to the actual
+// connection string, and pasting the former gets you a parse error from deep
+// inside the driver — "failed to parse as keyword/value" — which reads like a
+// bug in the app rather than a wrong value in one env var.
+func validateDatabaseURL(dsn string) error {
+	switch {
+	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
+		return nil
+	// The keyword/value form ("host=... user=...") is equally valid for pgx.
+	case strings.Contains(dsn, "host="):
+		return nil
+	case strings.HasPrefix(dsn, "http://"), strings.HasPrefix(dsn, "https://"):
+		return fmt.Errorf("config: DATABASE_URL is an HTTP URL (%s…), which is a provider's project/API endpoint, not a database connection string — copy the Postgres URI instead (postgresql://user:password@host:5432/dbname)", firstRunes(dsn, 30))
+	default:
+		return fmt.Errorf("config: DATABASE_URL is not a Postgres connection string — expected postgres://… , postgresql://… or a keyword/value DSN (host=… user=…), got %q", firstRunes(dsn, 30))
+	}
+}
+
+// firstRunes truncates for an error message without splitting a rune, and
+// without echoing a whole DSN (it may carry a password) into the logs.
+func firstRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return string(r)
+	}
+	return string(r[:n])
 }
 
 // loadWSLimits reads the WebSocket hardening knobs and rejects a combination
