@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -51,6 +50,12 @@ type Limits struct {
 	// MaxConnsPerIP is the per-remote-IP concurrent WS connection cap (same <= 0 =
 	// unlimited caveat as MaxConns).
 	MaxConnsPerIP int
+	// TrustProxy mirrors the HTTP side: it decides whether the per-IP cap keys on
+	// X-Forwarded-For or on the direct peer. It must agree with the rate limiter,
+	// or the two disagree about who a client IS — and behind a proxy, keying on the
+	// peer collapses MaxConnsPerIP into a second, much lower global cap, because
+	// every visitor arrives as the proxy.
+	TrustProxy bool
 }
 
 // Handler upgrades GET /api/matches/{id}/ws to a WebSocket after the SAME auth +
@@ -100,7 +105,7 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	// is deferred immediately so EVERY subsequent exit path — the 404s below, a
 	// failed Accept, a hub-shutdown refusal, or normal pump completion (panic
 	// included, via the pumps' own recover) — decrements it exactly once.
-	release, ok := h.limiter.tryAcquire(clientIP(r))
+	release, ok := h.limiter.tryAcquire(web.ClientIP(r, h.limits.TrustProxy))
 	if !ok {
 		web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited, "too many connections")
 		return
@@ -180,19 +185,4 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	go func() { defer wg.Done(); c.writePump(connCtx); c.forceClose() }()
 	go func() { defer wg.Done(); c.heartbeatLoop(connCtx); c.forceClose() }()
 	wg.Wait()
-}
-
-// clientIP extracts the remote peer's address (no port) for the per-IP connection cap.
-// Deliberately r.RemoteAddr — the actual TCP peer — and NOT a client-supplied header
-// like X-Forwarded-For: this cap exists to bound a single abusive host, and trusting a
-// header the client controls would let it defeat the cap by rotating a fake value per
-// connection. If the deploy sits behind a reverse proxy (docs/IDEAS.md "SPA needs an
-// /api reverse proxy in prod"), RemoteAddr is the proxy's address for every connection
-// — see the report to the orchestrator on this branch for the operational implication.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

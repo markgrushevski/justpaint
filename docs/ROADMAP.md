@@ -13,6 +13,7 @@
 | **2** | Frontend refactor — vector editor, real layers; oriui swap | 🟢 **done** |
 | **3** | Game — async duel first, then live WS | 🟢 **done** |
 | **4** | Stretch — realtime hub, ratings, teams/tournaments, replay, AI assist | 🟡 in progress |
+| **5** | Public release — CI, prod-config fail-fast, per-IP rate limiting, judging durability, one deployable image | 🟢 **done** |
 
 Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check off deliverables as they land.
 
@@ -122,6 +123,31 @@ Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check 
 - [ ] **Real judge integration** — wire the collaborator's ML judge over HTTP against the live contract; keep the fake for tests/dev.
 
 **Exit criteria:** none fixed — these are stretch. Track individually.
+
+---
+
+## Phase 5 — Public release 🟢 (done)
+
+**Goal:** take justpaint from "the game loop works" to "a stranger can open a URL and play it" — CI that actually gates `main`, config that fails fast instead of shipping an insecure default, abuse protection before the world can hit it, a judging path that can't wedge a match forever, and one deployable artifact. A soft launch: the real judge, live AI assist, object storage and further `/play` polish are deliberately deferred past this phase, not part of it.
+
+**Deliverables**
+- [x] **CI** (`.github/workflows/ci.yml`, `ci/github-actions` + `ci/build-before-typecheck`) — three jobs, on every push to `main` and every PR: `ts` (Prettier `format:check`, build, `types`, Vitest `test`, apps/web's new check-mode `lint:ci` — stylelint + eslint + contrast, without `lint:all`'s `--fix`/`--write` — and the `packages/render` `selftest` liveness check); `go` (gofmt, vet, build, goose migrations, then `go test` against a `postgres:17-alpine` service container — the `DATABASE_URL` that lets the seven DB-gated `*_test.go` files actually run instead of skip); and `image` (`docker build`, then boots that exact image against the same real Postgres and curls `/readyz` plus `/` and a client-side route (`/leaderboard`) for the `<!doctype html` SPA shell — proving the shipped artifact, not just its source). **Ordering gotcha CI caught on its first run:** `npm run build` has to precede `npm run types`, because `apps/web` resolves `@justpaint/document`/`@justpaint/editor` through their gitignored `dist/` — a fresh checkout can't typecheck until the packages are built (`docs/NOTES.md`).
+- [x] **Prod config fail-fast** (`feat/prod-safety`) — `ENV` is now mandatory and closed-valued (`dev`|`prod` only; it decides `CookieSecure`, so defaulting to dev used to ship a silently non-Secure session cookie), `RENDER_MODE=node` also verifies the Node interpreter is on `PATH` (not just that `RENDER_CLI` exists), `DB_MAX_CONNS` bounds the pgx pool (default 10), `GET /readyz` pings the database while `/healthz` stays dependency-free, and shutdown now waits for the WS hub and the sweeper to drain before the deferred pool close runs.
+- [x] **Per-IP rate limiting + request correlation** (`feat/ratelimit-reqid`) — three independent token-bucket tiers (strict auth, moderate writes, generous default), keyed by client IP, with `TRUST_PROXY` gating whether `X-Forwarded-For` is believed; `X-Request-Id` generated-or-adopted and echoed on every response, correlated with client IP in the structured access log. Closes the "before any public deploy" rate-limiting deferral recorded in `docs/DECISIONS.md` (2026-06-20) and `docs/IDEAS.md`.
+- [x] **Judging durability** (`fix/judging-durability`) — a match whose judging exhausts its retries now ends `done` with `resolution = 'aborted'` (no winner, no Elo) instead of wedging in `judging` forever (migration `00005_judging_aborted`), plus a `JUDGE_CONCURRENCY` semaphore (default 2) bounding concurrent render+judge passes so a boot-drain sweep can't fork-bomb a small instance. `/play` (`fix/play-aborted-result`) now reads the server's own `isTie` instead of re-deriving it, so an aborted round renders as "round couldn't be scored," never as a tie.
+- [x] **Deployability** (`feat/deploy`) — the Go binary now serves the built SPA (`STATIC_DIR`, with history fallback to `index.html`) so the API, the WS upgrade and the frontend are one origin, matching what the httpOnly/SameSite cookie and the same-origin-only WS handshake already required (no CORS headers are sent anywhere). A multi-stage `Dockerfile` builds the SPA + render worker on a Node image and the Go service as a static binary, then combines both in a Node runtime carrying node-canvas's shared libraries (the judged raster is rendered by a local Node child process); a `render.yaml` blueprint deploys it against an external Postgres (Render's own expires 30 days after creation) with an external uptime pinger against `/readyz` (Render's free tier sleeps idle and its own cron is a paid feature).
+
+**Not in this phase (deliberate):**
+- [ ] **The real ML judge** — still `FakeJudge`, an ink-coverage heuristic that never reads the prompt (`server/internal/judge/fake.go`).
+- [ ] **Live AI assist** — `AnthropicAssist` is still a config-gated scaffold; `ASSIST_MODE=anthropic` boots (given a key) but every call returns "not built" — no Anthropic SDK call is wired.
+- [ ] **Object storage** — the `/play` opponent-canvas reveal still uses the membership-gated drawing endpoint + a client render (2026-07-11); `judgedImageUrl` stays `null`.
+- [x] **WS hardening** — merged (`feat/ws-hardening`): a server-side read-idle timeout evicts a socket with no proof of life (close `4002`), a protocol-level ping probes a quiet-but-healthy one so a player drawing in silence is never dropped (no client change — browsers answer in the network stack), and process-wide / per-IP connection caps refuse a saturated upgrade with `429`. The per-IP key runs through the same `web.ClientIP`/`TRUST_PROXY` resolver as the HTTP limiter, so the two agree on who a client is. The broader Phase 4 "Realtime hardening" item (presence depth, spectating) stays open.
+
+**Exit criteria**
+- CI is red-gated on `main`: format, build, types, unit tests, lint, a render-worker liveness check, and the full Go suite against a real migrated Postgres all run before a merge, not after.
+- A misconfigured deploy fails at boot, not silently: a missing/misspelled `ENV`, `JWT_SECRET` or `DATABASE_URL`, a `RENDER_MODE=node` missing its CLI or its Node interpreter, or an out-of-range `DB_MAX_CONNS`/`JUDGE_CONCURRENCY` all refuse to start rather than run in some half-safe mode.
+- The service survives the abuse it will actually see on a public URL: auth/write/default traffic each have their own ceiling, and a judging pass that fails outright resolves the match instead of leaving it stuck in `judging` forever.
+- `docker build` + `docker run` against a real Postgres, given only `JWT_SECRET` and `DATABASE_URL` (`ENV` already defaults to `prod` inside the image), is a complete, servable deployment — verified live in CI's `image` job.
 
 ---
 
