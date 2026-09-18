@@ -90,7 +90,7 @@ docs/                specs and decisions — the source of truth
 
 ## Quickstart
 
-Needs **Node ≥ 22**, **Go ≥ 1.26**, **Docker**, and the external CLIs **goose** (migrations) and
+Needs **Node ≥ 24**, **Go ≥ 1.26**, **Docker**, and the external CLIs **goose** (migrations) and
 **sqlc** (query codegen, only if you change queries).
 
 ```sh
