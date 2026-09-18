@@ -45,10 +45,11 @@ related edits rather than shipping many tiny commits. Git author is **Leonid**.
 **Update [`docs/ROADMAP.md`](docs/ROADMAP.md) in the same change that lands a deliverable or flips a
 phase.** The ROADMAP is the durable status tracker; a stale ROADMAP is a bug, not a nit.
 
-## Local gates (no CI yet)
+## Gates
 
-There is no GitHub Actions gate (that's an [`docs/IDEAS.md`](docs/IDEAS.md) item) — run the checks
-locally before committing:
+CI runs all of these on every push to `main` and every pull request
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) — but it is the second line of defence.
+Run them locally before committing, because a red `main` is worse than a slow commit:
 
 ```sh
 # TypeScript side (repo root)

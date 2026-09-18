@@ -52,3 +52,7 @@ services:
           # free tiers allow very few.
           - key: DB_MAX_CONNS
             value: 5
+          # 512 MB: each live socket costs memory, and one instance serves
+          # everyone. Well under the default 500, and still far above real load.
+          - key: WS_MAX_CONNS
+            value: 200

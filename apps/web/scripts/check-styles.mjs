@@ -61,13 +61,26 @@ const allCss = readdirSync(cssComponents)
     .map((f) => readFileSync(join(cssComponents, f), 'utf8'))
     .join('\n')
 
+/**
+ * Is `.cls` present as a whole class? A boundary check, not a substring one:
+ * the dist CSS is minified, so the same class turns up as `.ori-badge,`,
+ * `.ori-badge{`, `.ori-badge:hover` and `.ori-badge>*`. The lookahead also stops
+ * `.ori-badge` from matching inside `.ori-badge-anchor`, which is a different block.
+ */
+function hasClass(css, cls) {
+    return new RegExp(`\.${cls}(?![\w-])`).test(css)
+}
+
 const missing = []
 for (const component of [...used].sort()) {
     const cls = toClass(component)
-    const defined = allCss.includes(`.${cls},`) || allCss.includes(`.${cls} `) || allCss.includes(`.${cls})`)
-    if (!defined) continue // no block styles of its own — nothing to import
-    const loaded = loadedCss.includes(`.${cls},`) || loadedCss.includes(`.${cls} `) || loadedCss.includes(`.${cls})`)
-    if (!loaded) missing.push({ component, cls })
+    // A class oriui defines nowhere means the component has no block styles of its
+    // own, so there is nothing to import. Note this abstains rather than
+    // false-positives, and it is the one blind spot: a component whose block name
+    // does not follow from its component name would be skipped silently. None of
+    // the components this app renders are in that position today.
+    if (!hasClass(allCss, cls)) continue
+    if (!hasClass(loadedCss, cls)) missing.push({ component, cls })
 }
 
 if (missing.length > 0) {
