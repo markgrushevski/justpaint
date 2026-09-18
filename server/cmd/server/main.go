@@ -145,13 +145,20 @@ func run() error {
 	// load balancer (or an uptime pinger keeping a free-tier dyno awake) should
 	// read, not the liveness probe above.
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		readyCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		w.Header().Set("Content-Type", "application/json")
-		if err := pool.Ping(pingCtx); err != nil {
-			logger.Warn("readiness: database unreachable", "error", err)
+		// "Reachable" is not "usable": a database that exists but was never
+		// migrated accepts connections and fails every real query, which is the
+		// one state a probe must not call healthy.
+		if err := postgres.Ready(readyCtx, pool, "matches"); err != nil {
+			dependency := "database"
+			if errors.Is(err, postgres.ErrSchemaMissing) {
+				dependency = "schema"
+			}
+			logger.Warn("readiness: not ready", "dependency", dependency, "error", err)
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"status":"unavailable","dependency":"database"}`))
+			_, _ = fmt.Fprintf(w, `{"status":"unavailable","dependency":%q}`, dependency)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
