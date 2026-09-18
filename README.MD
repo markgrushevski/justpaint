@@ -139,8 +139,9 @@ export RENDER_CLI=/absolute/path/to/packages/render/dist/render.mjs
 | `packages/document`, `packages/editor` | `npm run test -w @justpaint/<name>` | package-level Vitest suites |
 | `server/` | `gofmt -l .` / `go vet ./...` / `go test ./...` / `go build ./...` | format check, vet, test, build the Go service |
 
-There is no CI yet — these are the local gates; see [`docs/REVIEW.md`](docs/REVIEW.md) for the
-judgment layer on top of them.
+CI runs these same gates on every push to `main` and every pull request
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)); see [`docs/REVIEW.md`](docs/REVIEW.md)
+for the judgment layer on top of them.
 
 ## Docs map
 
