@@ -321,8 +321,14 @@ let recovering = false
 async function recoverFromAuthError(): Promise<void> {
     if (recovering) return
     recovering = true
+    // Stop the clock BEFORE waiting on a human. The round countdown auto-submits
+    // a few seconds before the server cutoff, and it does not care that a modal
+    // is up: left running it fired into the dead session, and the 401 it earned
+    // came straight back here to be swallowed by the sentinel above — leaving
+    // the player parked in `submitting` forever, their round gone.
+    stopCountdown()
     try {
-        const signedIn = await gate.recover('Sign in to play a ranked duel.')
+        const signedIn = await gate.ensure('Sign in to play a ranked duel.')
         if (disposed) return
         if (signedIn && session.user) {
             // Re-read the identity: the visitor may well have signed back in as
@@ -706,11 +712,12 @@ function applyResult(r: MatchResultDone): void {
         eloDelta: after - before,
         ratingBefore: before
     }
-    // The session store only sets `user.rating` on fetchMe/login/register, so
-    // without this the SideMenu (and the leaderboard) would keep showing the
-    // page-load rating after a duel. If the signed-in user is one of the duelists,
-    // patch their rating to the post-match value; then invalidate the ladder so the
-    // cached leaderboard re-fetches and agrees with this result card.
+    // The session store only sets `user.rating` on its boot restore, or on a
+    // login/register, so without this the SideMenu (and the leaderboard) would
+    // keep showing the page-load rating after a duel. If the signed-in user is
+    // one of the duelists, patch their rating to the post-match value; then
+    // invalidate the ladder so the cached leaderboard re-fetches and agrees with
+    // this result card.
     if (session.user && me) session.user.rating = after
     void queryClient.invalidateQueries({ queryKey: leaderboardKeys.all })
     phase.value = 'done'
@@ -785,6 +792,10 @@ const KEY_TO_TOOL = new Map<string, ToolId>(
 )
 
 function onKeydown(e: KeyboardEvent) {
+    // The sign-in modal owns the keyboard while it is up — including Ctrl+Enter,
+    // which would otherwise submit the round into the very session we are asking
+    // the player to replace.
+    if (gate.open) return
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return
@@ -813,10 +824,8 @@ function onKeydown(e: KeyboardEvent) {
         return
     }
     if (e.altKey) return
-    // Only bind tool keys while actually drawing (not during judging/result),
-    // and never underneath the sign-in modal — a session can die mid-round, and
-    // a modal overlay must swallow the single-key tool hotkeys above it.
-    if (phase.value !== 'drawing' || gate.open) return
+    // Only bind tool keys while actually drawing (not during judging/result).
+    if (phase.value !== 'drawing') return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
         e.preventDefault()
@@ -839,12 +848,10 @@ onMounted(async () => {
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
 
-    // A duel is auth-required. Restore an existing cookie session, then raise
-    // the ONE shared sign-in modal for an anonymous visitor — signing in
-    // resumes straight into the duel instead of the old dead-end error screen
-    // (see useAuthGate.ts).
-    await session.fetchMe()
-    if (disposed) return
+    // A duel is auth-required. `ensure` waits for the store's own cookie restore
+    // before deciding, then raises the ONE shared sign-in modal for an anonymous
+    // visitor — signing in resumes straight into the duel instead of the old
+    // dead-end error screen (see useAuthGate.ts).
     const signedIn = await gate.ensure('Sign in to play a ranked duel.')
     if (disposed) return
     if (!signedIn) {

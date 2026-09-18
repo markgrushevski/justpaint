@@ -9,7 +9,7 @@
  * row. `displayName` is nullable and never a login (GAME.md §4.2), so a safe
  * fallback label is used for anonymous players.
  */
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { OriAvatar, OriBadge, OriButton, OriSkeleton, OriSurface } from '@oriui/vue'
 import { icons, isAuthError, toApiError, useLeaderboard, useSessionStore } from '@core'
@@ -24,7 +24,6 @@ const session = useSessionStore()
 // Restore an existing cookie session on a cold/direct load (mirrors DrawView) —
 // this makes the signed-in player's own row highlight on a fresh load, and turns
 // a lapsed session into the sign-in branch rather than a generic error.
-void session.fetchMe()
 const { data, isPending, isError, error, refetch } = useLeaderboard(LIMIT)
 
 const entries = computed<LeaderboardEntry[]>(() => data.value?.leaderboard ?? [])
@@ -35,15 +34,6 @@ const needsAuth = computed(() => isAuthError(error.value))
 const errorMessage = computed(
     () => toApiError(error.value)?.message ?? 'Could not load the leaderboard. Try again later.'
 )
-
-// A 401 here means the cookie session already died server-side (expired, or
-// cleared in another tab) — but the store still holds the old user, so the
-// rest of the app (menu, /play) keeps believing someone is signed in. `watch`
-// only re-fires when `needsAuth` actually changes value, so this clears once
-// per lapse instead of on every re-render.
-watch(needsAuth, (stale) => {
-    if (stale) session.clear()
-})
 
 /** Safe display label — `displayName` is nullable server-side; never a login. */
 function nameFor(entry: LeaderboardEntry): string {
