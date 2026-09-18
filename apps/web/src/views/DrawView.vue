@@ -536,12 +536,12 @@ async function copyDocJson() {
     if (!editor) return
     try {
         await copyText(JSON.stringify(editor.getDocument()))
-        toaster.success({ text: 'Copied document JSON', duration: TOAST_SUCCESS })
+        toaster.success({ text: 'Copied document JSON', duration: TOAST_SUCCESS, closable: false })
     } catch (err) {
         toaster.error({
             text: err instanceof Error ? err.message : 'Could not copy to the clipboard.',
             duration: TOAST_ERROR,
-            closable: true
+            closable: false
         })
     }
 }
@@ -553,12 +553,12 @@ async function copyPngToClipboard() {
         const doc = editor.getDocument()
         const blob = await editor.toPNG({ outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
         await copyImage(blob)
-        toaster.success({ text: 'Copied image', duration: TOAST_SUCCESS })
+        toaster.success({ text: 'Copied image', duration: TOAST_SUCCESS, closable: false })
     } catch (err) {
         toaster.error({
             text: err instanceof Error ? err.message : 'Could not copy the image.',
             duration: TOAST_ERROR,
-            closable: true
+            closable: false
         })
     }
 }
@@ -569,14 +569,14 @@ function reportError(err: unknown, action: string) {
         // cheat-sheet first: its focus trap would fight the incoming drawer.
         shortcutsOpen.value = false
         menuOpen.value = true
-        toaster.error({ text: `Sign in from the menu to ${action}.`, duration: TOAST_ERROR, closable: true })
+        toaster.error({ text: `Sign in from the menu to ${action}.`, duration: TOAST_ERROR, closable: false })
         return
     }
     const api = toApiError(err)
     toaster.error({
         text: api ? `Could not ${action}: ${api.message}` : `Could not ${action} (is the server running?).`,
         duration: TOAST_ERROR,
-        closable: true
+        closable: false
     })
 }
 
@@ -588,7 +588,11 @@ function save() {
         {
             onSuccess: (meta) => {
                 currentId.value = meta.id
-                toaster.success({ text: existing ? 'Saved.' : `Saved as ${meta.id}.`, duration: TOAST_SUCCESS })
+                toaster.success({
+                    text: existing ? 'Saved.' : `Saved as ${meta.id}.`,
+                    duration: TOAST_SUCCESS,
+                    closable: false
+                })
             },
             onError: (err) => reportError(err, 'save')
         }
@@ -600,7 +604,7 @@ function load() {
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
             if (!full) {
-                toaster.info({ text: 'No saved drawings yet.', duration: TOAST_INFO })
+                toaster.info({ text: 'No saved drawings yet.', duration: TOAST_INFO, closable: false })
                 return
             }
             // full.document is already validated by drawings.get (parseDocument).
@@ -610,7 +614,7 @@ function load() {
             clearAssistProposal()
             currentId.value = full.id
             drawingName.value = full.name
-            toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST_SUCCESS })
+            toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST_SUCCESS, closable: false })
         },
         onError: (err) => reportError(err, 'load')
     })

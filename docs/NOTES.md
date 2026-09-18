@@ -307,6 +307,15 @@ small practical gotchas go here.
   for exactly this reason. The very first CI run (2026-09-18) failed with `TS2307: Cannot find module
   '@justpaint/editor'` plus knock-on `TS7006` implicit-any errors — green locally only because a
   stale `dist/` was lying around. Any new job that typechecks a fresh checkout must build first.
+- **A `<dialog>` in the shell overlay is unclickable, and only the mouse notices.** `EditorShell`'s
+  `.shell__overlay` is `pointer-events: none` (the island pattern: the layer is transparent to the
+  pointer, each island opts back in). A native `<dialog>` renders in the browser's TOP LAYER but still
+  **inherits `pointer-events` down the DOM tree** — so the shortcuts modal looked and animated fine while
+  its × and its backdrop were dead, and Esc kept working because that is the keyboard, not the pointer.
+  Diagnosed with `document.elementFromPoint()` on the button's own centre: it returned `<html>`.
+  Fixed by `.shell__overlay :deep(dialog) { pointer-events: auto }` — `:deep()` matters, because the
+  `<dialog>` belongs to a child component and never carries the shell's scope id, so the plain selector
+  silently matched nothing.
 - **The oriui CSS import list in `main.ts` is hand-maintained, and it silently rots.** We import
   `@oriui/css/components/*.css` à la carte, one file per component used. `OriBadge` and `OriSkeleton`
   shipped with NO block styles because nobody added their two lines (found by an oriui consumer review,
