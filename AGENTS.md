@@ -31,7 +31,7 @@ go build ./... && go vet ./... && go test ./...
 ```
 
 goose (migrations, `server/migrations/`) and sqlc (`sqlc generate`, `server/sqlc.yaml`) are external
-CLIs, not Go module deps. There is no CI yet — run the gates locally.
+CLIs, not Go module deps. CI runs the same gates on push/PR (`.github/workflows/ci.yml`) — run them locally first.
 
 ## Layout
 

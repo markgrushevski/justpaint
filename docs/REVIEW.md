@@ -1,8 +1,8 @@
 # Review checklist
 
 The bar a change must clear before it's "done". The **mechanical** layer is commands — don't
-hand-check what tooling asserts (there is no CI yet, so run these locally; a GitHub Actions gate is
-an [IDEAS.md](IDEAS.md) item):
+hand-check what tooling asserts (CI runs these on push/PR — `.github/workflows/ci.yml` — but run
+them locally before you push):
 
 ```sh
 # TypeScript workspaces (repo root)
