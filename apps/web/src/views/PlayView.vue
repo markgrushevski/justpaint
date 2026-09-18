@@ -328,7 +328,7 @@ async function recoverFromAuthError(): Promise<void> {
     // the player parked in `submitting` forever, their round gone.
     stopCountdown()
     try {
-        const signedIn = await gate.ensure('Sign in to play a ranked duel.')
+        const signedIn = await gate.ensure('Sign in to play a duel.')
         if (disposed) return
         if (signedIn && session.user) {
             // Re-read the identity: the visitor may well have signed back in as
@@ -337,7 +337,7 @@ async function recoverFromAuthError(): Promise<void> {
             myUserId = session.user.id
             void startMatch()
         } else {
-            toError('Sign in to play a ranked duel.')
+            toError('Sign in to play a duel.')
         }
     } finally {
         recovering = false
@@ -852,14 +852,14 @@ onMounted(async () => {
     // before deciding, then raises the ONE shared sign-in modal for an anonymous
     // visitor — signing in resumes straight into the duel instead of the old
     // dead-end error screen (see useAuthGate.ts).
-    const signedIn = await gate.ensure('Sign in to play a ranked duel.')
+    const signedIn = await gate.ensure('Sign in to play a duel.')
     if (disposed) return
     if (!signedIn) {
         // Declined the modal: land on the plain retry card, not the old
         // needsAuth dead end — "Try again" re-attempts the match, which
         // re-raises this same gate on the inevitable 401, so there is always a
         // way back in from here.
-        toError('Sign in to play a ranked duel.')
+        toError('Sign in to play a duel.')
         return
     }
     if (!session.user) return // gate only resolves true once a session exists
