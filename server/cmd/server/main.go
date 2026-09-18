@@ -65,7 +65,7 @@ func run() error {
 	if cfg.AutoMigrate {
 		migrateCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		if err := migrate.Run(migrateCtx, cfg.DatabaseURL, logger); err != nil {
+		if _, err := migrate.Run(migrateCtx, cfg.DatabaseURL, logger); err != nil {
 			return err
 		}
 	} else {
