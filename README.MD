@@ -188,7 +188,7 @@ string you copied:
 | Probe | Answers |
 |---|---|
 | `GET /healthz` | liveness — dependency-free, always 200 while the process is up |
-| `GET /readyz` | readiness — pings Postgres, 503 when it is unreachable |
+| `GET /readyz` | readiness — 503 when Postgres is unreachable **or** unmigrated (`{"dependency":"database"|"schema"}`) |
 
 [`render.yaml`](render.yaml) is a thin adapter for [Render](https://render.com);
 the image is host-agnostic and runs the same on Fly, a VPS or plain Docker. Two
