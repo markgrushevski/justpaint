@@ -26,6 +26,10 @@ this file at once. Reviewers read it first: a defect already recorded here is no
 - **What:** the exact pin is deliberate (oriui's prerelease dist-tags drift, so a range is unsafe), but the
   gap has grown to four releases and now spans a React adapter, `useTabs`/`useToast` moving into the headless
   package, `useDismissable`, and the Tier-0 accessibility fixes.
+- **Priority (owner, 2026-09-18): this bump happens BEFORE the next release**, not after it. All eight
+  `ISSUES-OUTER` entries are already fixed on oriui `main` (see that file's bump checklist), so the rc is
+  what turns a pile of local workarounds back into plain API use — including the toast centring the
+  owner noticed on screen.
 - **Timing (verified 2026-09-18 against the oriui repo):** do NOT land on `alpha.17` — it was published
   2026-07-18 and predates the pre-1.0 work now on oriui `main` (`fix/pre-1.0-tier-0`: AA tone for form
   error text, a caller's `aria-describedby` no longer dropped by text controls, toasts actually announced,
