@@ -115,7 +115,16 @@ func run() error {
 	hub := ws.NewHub(gameSvc, logger)
 	background.Go(func() { hub.Run(ctx) })
 	gameSvc.SetPublisher(hub)
-	wsHandler := ws.NewHandler(hub, gameSvc, cfg.WSAllowedOrigins, logger)
+	wsHandler := ws.NewHandler(hub, gameSvc, cfg.WSAllowedOrigins, logger, ws.Limits{
+		ReadIdleTimeout:   cfg.WSReadIdleTimeout,
+		HeartbeatInterval: cfg.WSHeartbeatInterval,
+		MaxConns:          cfg.WSMaxConns,
+		MaxConnsPerIP:     cfg.WSMaxConnsPerIP,
+		// Same notion of "who is this client" as the HTTP rate limiter: behind a
+		// proxy, keying the per-IP cap on the peer would make every visitor share
+		// one bucket and turn MaxConnsPerIP into a far lower global cap.
+		TrustProxy: cfg.TrustProxy,
+	})
 
 	// Background deadline sweeps (forfeit / abandon / stuck-judging re-fire /
 	// stale-open reaper) on the shutdown-cancellable context, so a round resolves

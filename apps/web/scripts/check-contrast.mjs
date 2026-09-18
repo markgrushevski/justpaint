@@ -79,11 +79,15 @@ for (const name of [
     'background-light',
     'on-background-light',
     'background-dark',
-    'on-background-dark',
-    'outline-light',
-    'outline-dark'
+    'on-background-dark'
 ]) {
     tokens[name] = parseColor(prop(root, `--ori-color-${name}`, ':root'), `--ori-color-${name}`)
+}
+// Outline is OURS, not oriui's — oriui ships no outline token, so it lives in the
+// --jp-* namespace rather than squatting in the vendor prefix (JP-I-02). Same
+// contrast duty as the rest: it draws borders that must clear 3:1 (WCAG 1.4.11).
+for (const name of ['outline-light', 'outline-dark']) {
+    tokens[name] = parseColor(prop(root, `--jp-color-${name}`, ':root'), `--jp-color-${name}`)
 }
 // The letterbox desk tokens: parsed + validated (a rename/typo fails the run),
 // but no contrast assertion — nothing is required to read against the desk.
