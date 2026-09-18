@@ -30,6 +30,19 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { VueQueryPlugin } from '@tanstack/vue-query'
 import { router } from './router'
+import { setUnauthorizedHandler, useAuthGate, useSessionStore } from './core'
 import App from './App.vue'
 
-createApp(App).use(router).use(VueQueryPlugin).use(createPinia()).mount('#app')
+const pinia = createPinia()
+const app = createApp(App).use(router).use(VueQueryPlugin).use(pinia)
+
+// The composition root, where the store-free fetch client meets the store: any
+// 401 forgets the session, everywhere, once. Asking for a NEW one stays a UI
+// decision (docs/DECISIONS.md) — a background poll must not raise a modal.
+setUnauthorizedHandler(() => useSessionStore(pinia).clear())
+
+// The sign-in modal is global, so a route change has to release it — otherwise it
+// follows the visitor to the next page still holding the previous page's waiter.
+router.afterEach(() => useAuthGate(pinia).settle(false))
+
+app.mount('#app')

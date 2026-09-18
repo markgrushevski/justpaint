@@ -130,6 +130,18 @@ const MAX_LAYERS = LIMITS.maxLayers
 
 const session = useSessionStore()
 const gate = useAuthGate()
+
+// A DIFFERENT account signed in (a session lapsed mid-visit and someone else
+// took over the tab): the open drawing belongs to the previous one, so forget
+// its id. Saving would otherwise PUT a row this user does not own, and an
+// ownership-scoped query answers 404 — surfacing as "Could not save: not
+// found", which is a lie about what happened.
+watch(
+    () => session.user?.id,
+    (now, before) => {
+        if (before && now && now !== before) currentId.value = null
+    }
+)
 const theme = useThemeStore()
 
 // Konva canvas cannot read CSS custom properties, so the brush-size cursor ring
@@ -317,7 +329,6 @@ function onCanvasPointerLeave() {
 }
 
 onMounted(() => {
-    void session.fetchMe() // restore an existing cookie session, if any
     try {
         hintDismissed.value = localStorage.getItem(HINT_KEY) === '1'
         backdropGrid.value = localStorage.getItem(BACKDROP_KEY) === '1'
@@ -376,6 +387,11 @@ const KEY_TO_TOOL = new Map<string, ToolId>(
  * it — so it does NOT suppress single keys; only the modal overlays do.
  */
 function onKeydown(e: KeyboardEvent) {
+    // The sign-in modal owns the keyboard while it is up. Without this the
+    // Ctrl-branch below still fired underneath it: Ctrl+Z mutated the canvas
+    // behind an opaque backdrop, and Ctrl+S queued a SECOND save on the same
+    // modal, which on a first save meant two `POST /api/drawings` and two rows.
+    if (gate.open) return
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return
@@ -407,9 +423,6 @@ function onKeydown(e: KeyboardEvent) {
     // Esc: the menu first — it's non-modal, so focus may still sit on the
     // canvas where its own panel-scoped Esc never fires — then the cheat-sheet.
     if (e.key === 'Escape') {
-        // The sign-in modal sits in the top layer and cancels itself; never
-        // reach past it to close the drawer underneath.
-        if (gate.open) return
         if (menuOpen.value) menuOpen.value = false
         else if (shortcutsOpen.value) shortcutsOpen.value = false
         return
@@ -425,7 +438,7 @@ function onKeydown(e: KeyboardEvent) {
     // Every MODAL overlay must be listed here, or its single-key tool hotkeys
     // (B/E/L/R/O/T) leak to this window listener and fire underneath it. The
     // non-modal side menu deliberately is not — drawing under it is a feature.
-    if (shortcutsOpen.value || confirmNewOpen.value || gate.open) return
+    if (shortcutsOpen.value || confirmNewOpen.value) return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
         e.preventDefault()
@@ -573,11 +586,15 @@ async function copyPngToClipboard() {
 
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        // Close the cheat-sheet first: its focus trap would fight the incoming
-        // sign-in dialog. recover(), not ensure() — a 401 means the cookie is
-        // already gone, so the stale session must drop before we ask again.
+        // The transport has already forgotten the dead session, so just ask for
+        // a new one. Deliberately NOT re-firing the action afterwards: minutes
+        // may have passed, the canvas may have moved on, and the visitor may
+        // sign in as someone else entirely — replaying their old click then
+        // saves something they never asked to save. Their canvas is intact and
+        // the button is right there. Close the cheat-sheet first: its focus trap
+        // would fight the incoming dialog.
         shortcutsOpen.value = false
-        void gate.recover(`Sign in to ${action}.`)
+        void gate.ensure(`Sign in to ${action}.`)
         return
     }
     const api = toApiError(err)
@@ -591,6 +608,10 @@ function reportError(err: unknown, action: string) {
 async function save() {
     if (!editor || busy.value) return
     if (!(await gate.ensure('Sign in to save your drawing.'))) return
+    // Re-check: the modal can stay up for minutes, and browser Back unmounts
+    // this view and nulls `editor` underneath us. TypeScript keeps the
+    // narrowing above across the await, so only this can catch it.
+    if (!editor) return
     const existing = currentId.value
     saveMutation.mutate(
         { id: existing ?? undefined, document: editor.getDocument(), name: drawingName.value },
@@ -611,6 +632,7 @@ async function save() {
 async function load() {
     if (!editor || busy.value) return
     if (!(await gate.ensure('Sign in to load your drawing.'))) return
+    if (!editor) return
     loadMutation.mutate(undefined, {
         onSuccess: (full) => {
             if (!full) {
@@ -664,6 +686,7 @@ async function submitAssist() {
     // Mirror the submit button's own disabled guard (Enter can reach here too).
     if (!prompt || assistPending.value || pendingOps.value) return
     if (!(await gate.ensure('Sign in to use assist.'))) return
+    if (!editor) return
     const targetLayerId = editor.getActiveLayerId() || undefined
     assistMutation.mutate(
         { prompt, docSummary: buildDocSummary(), targetLayerId },

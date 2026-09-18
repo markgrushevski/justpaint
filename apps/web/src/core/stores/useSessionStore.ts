@@ -11,46 +11,28 @@ export const useSessionStore = defineStore('session', () => {
     const user = ref<User | null>(null)
     const isLoggedIn = computed(() => user.value !== null)
 
-    /** The in-flight cookie restore, shared by every concurrent caller. */
-    let restoring: Promise<void> | null = null
-    /** Whether a restore has completed at least once (success OR anonymous). */
-    let restored = false
-
     /**
-     * Restore a session from the cookie on load. A 401 is the expected anonymous
-     * case; any other failure (500 / network) is logged — we still fall back to
-     * anonymous, but must not silently hide a real error.
-     *
-     * Concurrent callers share one request: three views call this on mount and
-     * the auth gate awaits it, and a burst of /me calls all answering the same
-     * cookie is pure waste.
+     * Restore a session from the cookie, ONCE, when the store is constructed.
+     * A 401 is the expected anonymous case; any other failure (500 / network) is
+     * logged — we still fall back to anonymous, but must not silently hide a
+     * real error.
      */
-    function fetchMe(): Promise<void> {
-        if (restoring) return restoring
-        const done = (async () => {
-            try {
-                user.value = await auth.me()
-            } catch (err) {
-                if (!isAuthError(err)) console.warn('session check failed:', err)
-                user.value = null
-            } finally {
-                restoring = null
-                restored = true
-            }
-        })()
-        restoring = done
-        return done
-    }
+    const restored = (async () => {
+        try {
+            user.value = await auth.me()
+        } catch (err) {
+            if (!isAuthError(err)) console.warn('session check failed:', err)
+            user.value = null
+        }
+    })()
 
     /**
-     * Await the initial cookie restore before concluding that someone is
-     * anonymous. The views fire `fetchMe()` on mount WITHOUT awaiting it, so a
-     * click landing inside that window reads `isLoggedIn === false` for a
-     * visitor who is in fact signed in — which merely cost a stray 401 before,
-     * and would now put a sign-in modal in their face. Restores at most once.
+     * Await that restore before concluding someone is anonymous. Nothing in the
+     * app wants a RE-restore: `login`/`register`/`clear` already write the
+     * authoritative answer, so this resolves once and stays resolved.
      */
     function ready(): Promise<void> {
-        return restored ? Promise.resolve() : fetchMe()
+        return restored
     }
 
     async function login(loginId: string, password: string): Promise<void> {
@@ -79,5 +61,5 @@ export const useSessionStore = defineStore('session', () => {
         user.value = null
     }
 
-    return { user, isLoggedIn, fetchMe, ready, login, register, logout, clear }
+    return { user, isLoggedIn, ready, login, register, logout, clear }
 })

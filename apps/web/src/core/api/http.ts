@@ -55,6 +55,25 @@ export function isAuthError(err: unknown): boolean {
     )
 }
 
+/**
+ * Called whenever the server answers "no session". This is the ONE place that
+ * sees every 401, so no caller has to remember to forget a session the server
+ * has already rejected — the omission that used to leave the side menu showing
+ * the profile of someone who was no longer signed in.
+ *
+ * Forgetting is transport knowledge. ASKING for a new session is not, and
+ * deliberately stays out of here: a background poll tick or a WS reconnect must
+ * never throw a sign-in modal in the player's face (docs/DECISIONS.md). The
+ * caller decides that; the transport only stops lying about the session.
+ *
+ * `main.ts` wires it, keeping this module store-free (no api-store cycle).
+ */
+let onUnauthorized: (() => void) | null = null
+
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+    onUnauthorized = fn
+}
+
 export interface RequestOptions {
     method?: string
     body?: unknown
@@ -96,7 +115,9 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
         } | null
         const code = data?.error?.code ?? 'internal'
         const message = data?.error?.message ?? res.statusText ?? 'request failed'
-        throw new ApiError(message, code, res.status)
+        const err = new ApiError(message, code, res.status)
+        if (isAuthError(err)) onUnauthorized?.()
+        throw err
     }
 
     if (res.status === 204) return undefined as T
