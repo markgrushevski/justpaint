@@ -303,6 +303,10 @@ small practical gotchas go here.
   until you `npm run build` the packages, and `apps/web` / `vue-tsc` can't resolve
   `@justpaint/document|editor` before then. After a clone, and after editing package `src`, rebuild
   the package — there's no HMR across the boundary. (A Vite src alias is a deferred IDEAS.md item.)
+  **CI trips on this too:** `.github/workflows/ci.yml` runs `npm run build` *before* `npm run types`
+  for exactly this reason. The very first CI run (2026-09-18) failed with `TS2307: Cannot find module
+  '@justpaint/editor'` plus knock-on `TS7006` implicit-any errors — green locally only because a
+  stale `dist/` was lying around. Any new job that typechecks a fresh checkout must build first.
 - **`apps/web/tsconfig.json` does NOT extend `tsconfig.base.json`** — it re-declares its own strict
   flags and **omits** `noUncheckedIndexedAccess` / `noImplicitOverride` / `noFallthroughCasesInSwitch`.
   So the app is type-checked less strictly than the packages; a strict-only bug can pass
