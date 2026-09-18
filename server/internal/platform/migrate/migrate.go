@@ -31,16 +31,21 @@ import (
 	"github.com/markgrushevski/justpaint/server/migrations"
 )
 
-// Run applies every outstanding migration and reports what it did. It is a
-// no-op — one round trip — when the schema is already current.
+// Run applies every OUTSTANDING migration and returns how many it applied.
+//
+// Already-applied versions are never re-run: goose records each one in its
+// goose_db_version table and only executes what is missing from it, so a boot
+// against a current schema costs one round trip and returns 0. That is what
+// makes running this on every single start safe — the migration set is not
+// replayed, it is reconciled.
 //
 // It opens its own short-lived database/sql handle rather than borrowing the
 // pgx pool: goose speaks database/sql, and a migration connection wants none of
 // the pool's tuning (lifetime recycling, connection ceiling) anyway.
-func Run(ctx context.Context, dsn string, logger *slog.Logger) error {
+func Run(ctx context.Context, dsn string, logger *slog.Logger) (int, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		return fmt.Errorf("migrate: open: %w", err)
+		return 0, fmt.Errorf("migrate: open: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -51,27 +56,27 @@ func Run(ctx context.Context, dsn string, logger *slog.Logger) error {
 	db.SetMaxOpenConns(1)
 	locker, err := lock.NewPostgresSessionLocker()
 	if err != nil {
-		return fmt.Errorf("migrate: locker: %w", err)
+		return 0, fmt.Errorf("migrate: locker: %w", err)
 	}
 
 	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS, goose.WithSessionLocker(locker))
 	if err != nil {
-		return fmt.Errorf("migrate: provider: %w", err)
+		return 0, fmt.Errorf("migrate: provider: %w", err)
 	}
 
 	start := time.Now()
 	results, err := provider.Up(ctx)
 	if err != nil {
-		return fmt.Errorf("migrate: up: %w", err)
+		return 0, fmt.Errorf("migrate: up: %w", err)
 	}
 
 	if len(results) == 0 {
-		logger.Info("migrations: schema already current")
-		return nil
+		logger.Info("migrations: schema already current — nothing to apply")
+		return 0, nil
 	}
 	for _, r := range results {
 		logger.Info("migrations: applied", "version", r.Source.Version, "file", r.Source.Path, "duration_ms", r.Duration.Milliseconds())
 	}
 	logger.Info("migrations: done", "applied", len(results), "duration_ms", time.Since(start).Milliseconds())
-	return nil
+	return len(results), nil
 }
