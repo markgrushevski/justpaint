@@ -10,3 +10,5 @@ test-results
 playwright-report
 blob-report
 playwright/.cache
+# Agent worktrees (git worktrees created inside the repo by tooling)
+.claude/worktrees/

@@ -102,6 +102,7 @@ goose -dir server/migrations postgres "postgres://justpaint:justpaint@localhost:
 
 # 3. required env — the server does NOT auto-load .env, export it directly
 #    (see server/.env.example for the full list)
+export ENV=dev   # mandatory: dev relaxes the Secure cookie flag for http://localhost
 export DATABASE_URL=postgres://justpaint:justpaint@localhost:5432/justpaint?sslmode=disable
 export JWT_SECRET=$(openssl rand -base64 48)
 
