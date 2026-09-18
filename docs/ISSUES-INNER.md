@@ -26,6 +26,11 @@ this file at once. Reviewers read it first: a defect already recorded here is no
 - **What:** the exact pin is deliberate (oriui's prerelease dist-tags drift, so a range is unsafe), but the
   gap has grown to four releases and now spans a React adapter, `useTabs`/`useToast` moving into the headless
   package, `useDismissable`, and the Tier-0 accessibility fixes.
+- **Timing (verified 2026-09-18 against the oriui repo):** do NOT land on `alpha.17` — it was published
+  2026-07-18 and predates the pre-1.0 work now on oriui `main` (`fix/pre-1.0-tier-0`: AA tone for form
+  error text, a caller's `aria-describedby` no longer dropped by text controls, toasts actually announced,
+  plus packaging/dist-tag fixes), with a `1.0.0-rc` as the next publish. Several of those change the exact
+  chrome a visual pass covers, so bumping now means doing that pass twice. **Wait for the rc.**
 - **Fix:** upgrade to the current release as one change, with a visual pass over the toolbar, dialogs and
   the leaderboard; the upgrade is also the moment to re-check every entry in
   [ISSUES-OUTER.md](ISSUES-OUTER.md) and close the ones that shipped. Re-pin exactly, not with a range,
