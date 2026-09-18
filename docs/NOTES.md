@@ -307,6 +307,14 @@ small practical gotchas go here.
   for exactly this reason. The very first CI run (2026-09-18) failed with `TS2307: Cannot find module
   '@justpaint/editor'` plus knock-on `TS7006` implicit-any errors — green locally only because a
   stale `dist/` was lying around. Any new job that typechecks a fresh checkout must build first.
+- **The oriui CSS import list in `main.ts` is hand-maintained, and it silently rots.** We import
+  `@oriui/css/components/*.css` à la carte, one file per component used. `OriBadge` and `OriSkeleton`
+  shipped with NO block styles because nobody added their two lines (found by an oriui consumer review,
+  2026-09-18) — the leaderboard chip and every skeleton placeholder rendered bare, and nothing failed.
+  `apps/web/scripts/check-styles.mjs` now guards it (`npm run lint:styles`, in `lint:all` + `lint:ci`).
+  It checks **selectors, not filenames**, which matters: some component CSS is inlined into another file
+  (`.ori-spinner` lives inside `button.css`), so a filename check would report a bug that does not exist.
+  A component whose class oriui defines nowhere is skipped — it has no block styles to import.
 - **`apps/web/tsconfig.json` does NOT extend `tsconfig.base.json`** — it re-declares its own strict
   flags and **omits** `noUncheckedIndexedAccess` / `noImplicitOverride` / `noFallthroughCasesInSwitch`.
   So the app is type-checked less strictly than the packages; a strict-only bug can pass
@@ -454,13 +462,50 @@ small practical gotchas go here.
 
 ## WS realtime (`internal/ws`, `feat/ws-realtime`)
 
-- **No server-side read-idle timeout/heartbeat.** The app-level `{"type":"ping"}` is **client→server
-  only** — `readPump` answers it with a `pong` but nothing on the server side pings the client or
-  arms a read deadline. A black-hole TCP drop (no FIN/RST, e.g. a yanked cable or a dead NAT mapping)
-  is therefore only reclaimed by the next outbound write hitting `wsWriteTimeout` (10s, `conn.go`) or
-  by the session-expiry close (≤7-day `sessionTTL`, `auth/token.go`) — whichever comes first — bounded
-  in the meantime by the per-user-per-match connection cap (`wsMaxConnsPerUser = 5`, `hub.go`). Fine at
-  this scale; a real idle-eviction deadline is an `IDEAS.md` item.
+- **No server-side read-idle timeout/heartbeat — RESOLVED (`feat/ws-hardening`).** `conn.go`'s
+  `heartbeatLoop` (a third per-connection pump) now evicts a connection idle for
+  `Limits.ReadIdleTimeout` (private close code `4002`) and, well under that budget, proactively pings
+  the peer every `Limits.HeartbeatInterval`. A black-hole TCP drop is reclaimed on that schedule
+  instead of riding out to the next `wsWriteTimeout` write or the session-expiry close. See
+  `docs/API.md` §9.1 and the gotcha below before touching this again.
+- **coder/websocket ties ANY context expiry passed to `Read`/`Write` to closing the WHOLE
+  connection, not just failing that one call** — the `Conn` doc comment says so outright ("On any
+  error from any method, the connection is closed... This applies to context expirations as well
+  unfortunately"), and the mechanism is real: `setupReadTimeout`/`setupWriteTimeout` arm a
+  `context.AfterFunc(ctx, ...)` that calls `c.close()` (a real `rwc.Close()`) the moment that ctx
+  is Done — deadline OR cancellation, and regardless of how many control frames (ping/pong) were
+  handled inside that same call first, since it's one fixed deadline for the whole call. Two
+  consequences that shaped `heartbeatLoop`: (1) you cannot implement a "rolling" idle timeout by
+  wrapping each `Read` in a short, renewed `context.WithTimeout` — the FIRST such call that times
+  out (even briefly, even if the peer is healthy) kills the connection outright, it does not just
+  return an error you can loop past. (2) a received Pong does NOT reset an in-flight `Read`'s own
+  bound — control frames are absorbed inside `handleControl` without causing `Read` to return, so
+  they can't extend a deadline that's already fixed for that call. This is why eviction here is
+  driven off a plain wall-clock `lastActive` timestamp checked by an independent ticker, while
+  `readPump`'s own `Read` stays on the connection's unbounded lifetime context exactly as before —
+  never touch that call's context shape without re-reading this.
+- **`(*websocket.Conn).Ping` requires a concurrently-running `Read`/`Reader` loop to ever observe
+  the reply** — documented on the method ("Ping must be called concurrently with Reader as it does
+  not read from the connection but instead waits for a Reader call to read the pong"). `heartbeatLoop`
+  relies on `readPump`'s already-continuous `Read` loop for this; a caller that ever adds a code path
+  which stops reading (e.g. `CloseRead`, or simply not starting `readPump`) will make every `Ping`
+  hang until its own ctx times out. `Ping`/`Write`/`Close` ARE safe to call concurrently with each
+  other and with `Read` — only two `Read`/`Reader` calls concurrently with each other are disallowed.
+- **The server heartbeat probes over the WS protocol's native ping/pong, not an app-level JSON
+  frame** — deliberately: browsers answer a native ping automatically in the network stack, so it
+  needs no frontend change and is not subject to background-tab `setInterval` throttling the way the
+  client's own app-level heartbeat is (`apps/web` `PlayView.vue` `WS_PING_MS = 25000`, a `setInterval`
+  which CAN be throttled/delayed when the tab is hidden). `Limits.ReadIdleTimeout` must clear that
+  25s client cadence with real margin regardless, since the client's ping is still real, independent
+  proof of life via the ordinary `readPump` path.
+- **The per-IP connection cap keys on `r.RemoteAddr`, never `X-Forwarded-For`/`X-Real-Ip`** — those
+  headers are client-supplied and trusting them without a trusted-proxy allowlist (which nothing in
+  `config` implements) would let an attacker defeat the cap outright by sending a different fake IP
+  per connection. If the deploy ever sits behind a reverse proxy (`IDEAS.md` "SPA needs an `/api`
+  reverse proxy in prod"), `RemoteAddr` is the proxy's own address for every connection, which
+  collapses the per-IP cap to a de-facto global one — the proxy would need to preserve the real peer
+  (e.g. PROXY protocol) and the cap would need trusted-proxy-aware header parsing to tell them apart
+  again. Not done — no trusted-proxy config surface exists yet.
 - **`MatchStateJSON`/`ResultJSON` → `Get`/`Result` read without a snapshot** — the same torn-read
   caveat already on record above (`Get` runs its match→prompt→roster reads on the pool with no
   snapshot). WS calls this path far more often than the 2s REST poll (on every roster/deadline change

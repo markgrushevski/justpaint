@@ -183,5 +183,8 @@ jobs:
                   go install github.com/pressly/goose/v3/cmd/goose@latest
                   goose -dir migrations postgres "$DATABASE_URL" up
 
-            - name: go test
-              run: go test ./...
+            # -race here and nowhere else: the server is concurrency-heavy (the WS
+            # hub, the sweeper, three limiters) and Windows dev boxes have no C
+            # compiler, so this Linux runner is the only place it can run at all.
+            - name: go test (race detector)
+              run: go test -race ./...

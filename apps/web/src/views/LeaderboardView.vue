@@ -237,7 +237,7 @@ function goBack(): void {
 .lb__th {
     padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
     /* The header underline uses the neutral outline role at full strength. */
-    border-bottom: 1px solid var(--ori-color-outline);
+    border-bottom: 1px solid var(--jp-color-outline);
 
     color: var(--ori-color-on-surface);
 
@@ -275,7 +275,7 @@ function goBack(): void {
     /* Inter-row separators derived from the neutral outline role (design-system
        §1 — a neutral structural token, not a banned brand-role re-mix); softened
        so 20 rows don't read as a heavy grid. */
-    border-bottom: 1px solid color-mix(in srgb, var(--ori-color-outline) 45%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--jp-color-outline) 45%, transparent);
 }
 
 .lb__row--me {

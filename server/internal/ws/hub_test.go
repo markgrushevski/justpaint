@@ -39,9 +39,10 @@ func (f *fakeSource) ResultJSON(_ context.Context, viewerID, _ string) (json.Raw
 
 // newTestClient builds a client with no socket (conn nil) and a no-op cancel — enough to
 // exercise register/unregister/broadcast/fan-out, none of which touch the conn. The pumps
-// are never started.
+// are never started, so the 0/0 heartbeat settings (disabled — conn_test.go covers that
+// pump) are never exercised here.
 func newTestClient(id string) *client {
-	return newClient(id, nil, func() {}, testLogger())
+	return newClient(id, nil, func() {}, testLogger(), 0, 0)
 }
 
 // drainFrames non-blocking-reads every queued frame from a client's send buffer.

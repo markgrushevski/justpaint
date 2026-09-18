@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds runtime configuration for the server.
@@ -63,6 +64,20 @@ type Config struct {
 	// AssistModel is the model id for the real impl (default "claude-opus-4-8").
 	AssistModel string
 
+	// WSReadIdleTimeout evicts a socket that has gone this long without any proof
+	// of life. It must clear the client's own ping cadence (apps/web PlayView.vue
+	// WS_PING_MS, 25s) with margin for jitter and background-tab throttling.
+	WSReadIdleTimeout time.Duration
+	// WSHeartbeatInterval is how often the server probes a quiet socket itself, so
+	// a duelist who is drawing in silence is never mistaken for a dead peer. Must
+	// stay well under WSReadIdleTimeout.
+	WSHeartbeatInterval time.Duration
+	// WSMaxConns / WSMaxConnsPerIP bound concurrent sockets process-wide and per
+	// client. Memory is the scarce resource on a small instance, and a socket is
+	// cheap enough to open that "one per user per match" is not a bound at all.
+	WSMaxConns      int
+	WSMaxConnsPerIP int
+
 	// WSAllowedOrigins are extra Origin hosts authorized for the WebSocket handshake
 	// (coder/websocket path.Match patterns against the Origin header host, e.g.
 	// "app.example.com" or "localhost:*"). The request Host is ALWAYS authorized, so a
@@ -89,6 +104,16 @@ const DefaultDBMaxConns = 10
 // JUDGE_CONCURRENCY overrides it. Two, because each pass under RENDER_MODE=node
 // forks two node-canvas processes and the target instance is memory-poor.
 const DefaultJudgeConcurrency = 2
+
+// WebSocket hardening defaults. The idle timeout clears the client's 25s ping
+// with margin; the heartbeat sits well under the timeout so a quiet-but-healthy
+// socket is probed twice before it could ever be evicted.
+const (
+	DefaultWSReadIdleTimeout   = 60 * time.Second
+	DefaultWSHeartbeatInterval = 20 * time.Second
+	DefaultWSMaxConns          = 500
+	DefaultWSMaxConnsPerIP     = 20
+)
 
 // Render modes.
 const (
@@ -170,6 +195,10 @@ func Load() (Config, error) {
 	}
 	cfg.JudgeConcurrency = judgeConcurrency
 
+	if err := loadWSLimits(&cfg); err != nil {
+		return Config{}, err
+	}
+
 	var missing []string
 	if cfg.Env == "" {
 		missing = append(missing, "ENV")
@@ -243,6 +272,63 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// loadWSLimits reads the WebSocket hardening knobs and rejects a combination
+// that would quietly disable what it claims to configure: an unlimited cap, or a
+// heartbeat no more frequent than the idle timeout (which would let a healthy but
+// silent socket be evicted between probes — mid-round, for a player who is simply
+// drawing).
+func loadWSLimits(cfg *Config) error {
+	idle, err := getenvDuration("WS_READ_IDLE_TIMEOUT", DefaultWSReadIdleTimeout)
+	if err != nil {
+		return err
+	}
+	heartbeat, err := getenvDuration("WS_HEARTBEAT_INTERVAL", DefaultWSHeartbeatInterval)
+	if err != nil {
+		return err
+	}
+	if idle <= 0 || heartbeat <= 0 {
+		return fmt.Errorf("config: WS_READ_IDLE_TIMEOUT and WS_HEARTBEAT_INTERVAL must be positive (got %s and %s)", idle, heartbeat)
+	}
+	if heartbeat >= idle {
+		return fmt.Errorf("config: WS_HEARTBEAT_INTERVAL (%s) must be shorter than WS_READ_IDLE_TIMEOUT (%s), or a quiet connection is evicted before it is ever probed", heartbeat, idle)
+	}
+
+	maxConns, err := getenvInt("WS_MAX_CONNS", DefaultWSMaxConns)
+	if err != nil {
+		return err
+	}
+	maxPerIP, err := getenvInt("WS_MAX_CONNS_PER_IP", DefaultWSMaxConnsPerIP)
+	if err != nil {
+		return err
+	}
+	if maxConns < 1 || maxPerIP < 1 {
+		return fmt.Errorf("config: WS_MAX_CONNS and WS_MAX_CONNS_PER_IP must be >= 1 (0 or less means unlimited, which is not a cap)")
+	}
+	if maxPerIP > maxConns {
+		return fmt.Errorf("config: WS_MAX_CONNS_PER_IP (%d) exceeds WS_MAX_CONNS (%d), so the per-IP cap can never bind", maxPerIP, maxConns)
+	}
+
+	cfg.WSReadIdleTimeout = idle
+	cfg.WSHeartbeatInterval = heartbeat
+	cfg.WSMaxConns = maxConns
+	cfg.WSMaxConnsPerIP = maxPerIP
+	return nil
+}
+
+// getenvDuration reads a Go duration env var ("60s", "2m"), falling back when
+// unset; a malformed value is a boot error, like getenvInt.
+func getenvDuration(key string, fallback time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	v, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("config: %s must be a duration like \"60s\" or \"2m\", got %q: %w", key, raw, err)
+	}
+	return v, nil
 }
 
 // getenvBool reads a boolean env var, falling back when unset. Like getenvInt, a

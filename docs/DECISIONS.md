@@ -2,6 +2,39 @@
 
 Lightweight record of key decisions and their rationale, so they aren't relitigated and survive context resets / onboard new agents and collaborators. Newest first.
 
+## 2026-09-18 — Rate limiting is per-IP, in-process, three tiers
+
+`feat/ratelimit-reqid` closes the rate-limiting deferral recorded 2026-06-20 below, ahead of the public release.
+
+- **Per-IP, not per-user or per-login.** Keying on the authenticated user doesn't cover the actual target: credential stuffing and registration abuse hit `/api/auth/*` before there is a user to key on. IP is the only identity available at that point, so every tier keys on `ClientIP` — including the write tiers, where a user id would otherwise be the more precise choice.
+- **In-process token buckets, rejected: a shared store (e.g. Redis).** A shared limiter would keep the ceiling correct across N instances, but this deployment doesn't otherwise need that dependency and v1 runs a single instance. Accepted limitation, stated plainly: with N instances the effective ceiling is N times the configured one, since each process enforces its own buckets.
+- **Three tiers, each its own `*ratelimit.Limiter`, rejected: one shared limiter with per-route weights.** A single shared bucket would let a burst of cheap default-tier traffic (the SPA's own asset fetches) drain the auth tier's budget or vice versa. Policy rows are tried in order, first match wins, so `auth-strict` (bcrypt is expensive — the credential-stuffing target) and the `matches`/`drawings` write tier (each creates real work: a render+judge pass, storage) sit ahead of the generous catch-all default, which exists so a normal page load never comes close to it.
+- **A full bucket map fails OPEN, not closed.** `ratelimit.Limiter` caps tracked keys (100,000) and evicts idle ones; if distinct IPs fill the map faster than eviction reclaims it, a brand-new key rides through untracked rather than being denied. Refusing to track a key would let an attacker who can generate enough distinct source IPs black-hole every other caller's very first request — worse than the limiter occasionally forgetting one.
+
+## 2026-09-18 — `TRUST_PROXY` defaults to false, and the client IP is the rightmost `X-Forwarded-For` entry
+
+Both the rate limiter and the request-id/client-ip log correlation need one honest answer to "what is the caller's address," and a reverse proxy changes what that means.
+
+- **Default false.** Reading `X-Forwarded-For` when nothing in front of the app is known to set it honestly is worse than not reading it: a direct caller can put anything in that header and use it to evade a per-IP limit entirely. The safe default trusts only `RemoteAddr` — the raw TCP peer — until an operator explicitly says a proxy sits in front.
+- **The rightmost entry, not the leftmost, once trusted.** Each proxy hop *appends* the address it received the connection from, so the leftmost entry is the oldest claim in the chain — exactly what a client can forge by sending its own `X-Forwarded-For` before ever reaching the trusted proxy. The rightmost entry is what that proxy itself observed on the wire, which the client cannot set. Trusting the leftmost, the more common naive reading, would make the whole header attacker-controlled again.
+- **Assumption stated, not hidden: exactly one proxy hop.** This resolves for a single trusted edge (Render's or Fly's load balancer terminating TLS directly in front of the app). A second chained proxy — a CDN in front of that load balancer — would need the second-from-right entry instead; out of scope today, noted in `docs/NOTES.md`.
+
+## 2026-09-18 — The Go binary serves the SPA; one origin, one image
+
+`feat/deploy` had to pick how the built frontend reaches production.
+
+- **Rejected: a separate static host plus a reverse proxy in front of both, with CORS.** The session cookie is httpOnly + SameSite and the WS handshake enforces same-origin with an allow-list that never includes `*` (`docs/DESIGN-PHASE3-LIVE.md` §3.4) — both predate this decision and both assume one origin. A second origin would need CORS headers, credentialed cross-origin requests, and a proxy able to forward the WS upgrade: three moving parts standing in for the one the existing trust model already gets for free.
+- **The Go binary serves `apps/web`'s built `dist/` directly** (`internal/platform/web.SPA`, `STATIC_DIR`), registered last on `/` so the `ServeMux` gives every API pattern precedence and anything left over falls through to it — a real static file when one exists (immutable caching under Vite's fingerprinted `/assets/`), the `index.html` shell otherwise (the history fallback a client-side router needs, since `/play` or `/leaderboard` isn't a file on disk).
+- **One image carries both runtimes.** The image is Go on a Node base, not the reverse, because the authoritative judged raster is rendered by a local Node child process (`packages/render`) the Go binary spawns — `RENDER_MODE=node` needs `node` and node-canvas's shared libraries sitting on the same filesystem as the server binary, not a separate deployable.
+
+## 2026-09-18 — Render for hosting, with an EXTERNAL Postgres
+
+`render.yaml` is a thin blueprint over the Dockerfile, which stays the real, host-agnostic contract — but it pins two choices worth recording.
+
+- **No Render-managed database.** A free Render Postgres expires 30 days after creation, which would quietly kill a live demo a month in with no code change to blame. `DATABASE_URL` is `sync: false` in the blueprint — set by hand in the dashboard against an external free Postgres (Neon, Supabase, or similar) that doesn't expire.
+- **An external uptime pinger against `/readyz`, not Render's own cron.** A free Render web service sleeps after roughly 15 minutes idle, and Render's own scheduled jobs are a paid feature, so keeping a demo warm needs a pinger outside Render entirely (cron-job.org, UptimeRobot, etc.). `/readyz`, not `/healthz`, is the right target — it is the endpoint that actually proves the instance can serve, by pinging Postgres.
+- **The same image stays host-agnostic.** Nothing in the Dockerfile or the app is Render-specific — every setting is env-driven, so the identical artifact runs unchanged on Fly, a VPS, or plain `docker run` with a different environment.
+
 ## 2026-09-18 — Exhausted judging ends as `done` + `resolution = 'aborted'` (no Elo); judging passes are capped
 
 Two production-durability holes in the judging path, found while preparing the first public deploy (a small 512 MB instance running `RENDER_MODE=node`), closed together on `fix/judging-durability`.
@@ -18,6 +51,13 @@ Two production-durability holes in the judging path, found while preparing the f
 - **A counting semaphore (buffered channel, no new dependency) bounds concurrent judging passes on *both* dispatch paths**, with the bound an explicit constructor parameter — `NewServiceWithConcurrency(..., judgeConcurrency)`, default **2** — so the deployment tunes it per instance size rather than recompiling a constant.
 - **Non-blocking by design.** A caller that cannot take a slot is never parked and nothing is queued: the match stays in `judging` with its attempt stamped, and the stuck-judging sweep re-claims it — the same recovery that already covers a crashed judge. Because no goroutine ever waits on a slot, shutdown can never deadlock against an in-flight render.
 - **The sweeper takes its slot *before* `refireJudging`**, not after: re-firing bumps `judge_attempts`, and a retry spent on a pass that never ran would walk a perfectly healthy match toward the abort cap above.
+
+## 2026-09-18 — `ENV` becomes mandatory, with no default
+
+`feat/prod-safety`, closing a hole found while preparing the first public deploy.
+
+- **Rejected: keep the `dev` default `ENV` has always had.** `CookieSecure` derives directly from `ENV != "dev"` — a deploy that forgot to set `ENV=prod` silently fell back to `dev`, which set `CookieSecure = false` and booted without complaint. The session cookie shipped non-Secure, and the only way to notice was reading the `Set-Cookie` header by hand.
+- **A missing or misspelled `ENV` is now a boot error**, not a silent default: `config.Load` requires the value to be exactly `dev` or `prod` and fails fast otherwise, matching the existing `JWT_SECRET`/`DATABASE_URL` fail-fast posture. `ENV` also gates the JWT-secret-length floor (32 bytes outside dev) and the default WS-origin allowlist, so a typo'd value is as dangerous as a missing one — both are rejected the same way. A missing value is now the one failure mode you cannot miss.
 
 ## 2026-07-17 — Cross-match ladder write: atomic `rating += delta`, not an absolute `SET`
 

@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // requireBaseEnv sets the always-mandatory env so Load() reaches the assist
@@ -196,4 +197,67 @@ func TestLoad_TrustProxy(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLoad_WSLimits pins the WebSocket hardening knobs, including the two
+// combinations that would silently defeat what they claim to configure: a
+// heartbeat no more frequent than the idle timeout (a healthy but quiet socket
+// gets evicted between probes — mid-round, for a player who is simply drawing),
+// and a per-IP cap above the global one (it can never bind).
+func TestLoad_WSLimits(t *testing.T) {
+	t.Run("defaults are sane and ordered", func(t *testing.T) {
+		requireBaseEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.WSHeartbeatInterval >= cfg.WSReadIdleTimeout {
+			t.Errorf("heartbeat %s must be shorter than idle timeout %s", cfg.WSHeartbeatInterval, cfg.WSReadIdleTimeout)
+		}
+		if cfg.WSMaxConnsPerIP > cfg.WSMaxConns {
+			t.Errorf("per-IP cap %d exceeds global cap %d", cfg.WSMaxConnsPerIP, cfg.WSMaxConns)
+		}
+	})
+
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{name: "heartbeat equal to the timeout", env: map[string]string{"WS_HEARTBEAT_INTERVAL": "60s", "WS_READ_IDLE_TIMEOUT": "60s"}},
+		{name: "heartbeat longer than the timeout", env: map[string]string{"WS_HEARTBEAT_INTERVAL": "90s", "WS_READ_IDLE_TIMEOUT": "60s"}},
+		{name: "unlimited global cap", env: map[string]string{"WS_MAX_CONNS": "0"}},
+		{name: "unlimited per-IP cap", env: map[string]string{"WS_MAX_CONNS_PER_IP": "0"}},
+		{name: "per-IP cap above the global cap", env: map[string]string{"WS_MAX_CONNS": "10", "WS_MAX_CONNS_PER_IP": "50"}},
+		{name: "malformed duration", env: map[string]string{"WS_READ_IDLE_TIMEOUT": "60"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+" is a boot error", func(t *testing.T) {
+			requireBaseEnv(t)
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			if _, err := Load(); err == nil {
+				t.Fatalf("expected a boot error for %v", tt.env)
+			}
+		})
+	}
+
+	t.Run("overrides apply", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("WS_READ_IDLE_TIMEOUT", "2m")
+		t.Setenv("WS_HEARTBEAT_INTERVAL", "30s")
+		t.Setenv("WS_MAX_CONNS", "50")
+		t.Setenv("WS_MAX_CONNS_PER_IP", "5")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.WSReadIdleTimeout != 2*time.Minute || cfg.WSHeartbeatInterval != 30*time.Second {
+			t.Errorf("durations = %s / %s, want 2m / 30s", cfg.WSReadIdleTimeout, cfg.WSHeartbeatInterval)
+		}
+		if cfg.WSMaxConns != 50 || cfg.WSMaxConnsPerIP != 5 {
+			t.Errorf("caps = %d / %d, want 50 / 5", cfg.WSMaxConns, cfg.WSMaxConnsPerIP)
+		}
+	})
 }
