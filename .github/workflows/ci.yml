@@ -1,0 +1,112 @@
+# The gates from docs/REVIEW.md, run on every push to main and every PR.
+# Everything here is a command the repo already has locally — CI adds no new
+# tooling, it just refuses to let a red gate land on main.
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    ts:
+        name: TS workspaces (packages + web)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: actions/setup-node@v5
+              with:
+                  node-version: 22
+                  cache: npm
+
+            # packages/render depends on node-canvas; the linux-x64 prebuild
+            # normally lands without system cairo, so no apt step is needed.
+            - run: npm ci
+
+            - name: Prettier (format:check)
+              run: npm run format:check
+
+            - name: Typecheck (tsc + vue-tsc)
+              run: npm run types
+
+            - name: Unit tests (Vitest)
+              run: npm run test
+
+            - name: Build (packages + SPA)
+              run: npm run build
+
+            # lint:all rewrites files (--fix / --write); lint:ci is the same
+            # linters in check mode (prettier is covered by format:check above).
+            - name: Lint (stylelint + eslint + contrast, check mode)
+              run: npm run lint:ci -w @justpaint/web
+
+            - name: Render worker selftest
+              run: |
+                  npm run build -w @justpaint/render
+                  npm run selftest -w @justpaint/render
+
+    go:
+        name: Go service
+        runs-on: ubuntu-latest
+
+        services:
+            postgres:
+                image: postgres:17-alpine
+                env:
+                    POSTGRES_USER: justpaint
+                    POSTGRES_PASSWORD: justpaint
+                    POSTGRES_DB: justpaint
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U justpaint -d justpaint"
+                    --health-interval 5s
+                    --health-timeout 3s
+                    --health-retries 10
+
+        env:
+            # The DB-backed tests skip themselves without this; with it they run.
+            DATABASE_URL: postgres://justpaint:justpaint@localhost:5432/justpaint?sslmode=disable
+            # Config rejects secrets shorter than 32 bytes outside dev. CI-only value.
+            JWT_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+
+        defaults:
+            run:
+                working-directory: server
+
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: actions/setup-go@v6
+              with:
+                  go-version: '1.26'
+                  cache-dependency-path: server/go.sum
+
+            - name: gofmt
+              run: |
+                  unformatted=$(gofmt -l .)
+                  if [ -n "$unformatted" ]; then
+                      echo "gofmt needed on:"; echo "$unformatted"; exit 1
+                  fi
+
+            - name: go vet
+              run: go vet ./...
+
+            - name: go build
+              run: go build ./...
+
+            - name: Apply migrations (goose)
+              run: |
+                  go install github.com/pressly/goose/v3/cmd/goose@latest
+                  goose -dir migrations postgres "$DATABASE_URL" up
+
+            - name: go test
+              run: go test ./...
