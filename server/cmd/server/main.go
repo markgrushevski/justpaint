@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -48,7 +49,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := postgres.New(ctx, cfg.DatabaseURL)
+	pool, err := postgres.New(ctx, cfg.DatabaseURL, cfg.DBMaxConns)
 	if err != nil {
 		return fmt.Errorf("database connect: %w", err)
 	}
@@ -101,10 +102,17 @@ func run() error {
 	// Live realtime (Phase 3 back-half): the in-memory WS hub pushes committed match
 	// transitions to both duelists, Postgres stays authoritative, the poll loop is the
 	// fallback. The hub implements game.Publisher and is injected via SetPublisher, so
-	// game never imports ws (no cycle). Run on the shutdown ctx and NOT awaited — ctx
-	// cancel drains it, same as the sweeper (docs/DESIGN-PHASE3-LIVE.md §3).
+	// game never imports ws (no cycle). Runs on the shutdown ctx — cancel drains it,
+	// same as the sweeper (docs/DESIGN-PHASE3-LIVE.md §3).
+	//
+	// background tracks the long-lived goroutines (hub, sweeper) so shutdown can
+	// wait for them. srv.Shutdown only drains in-flight HTTP handlers; without
+	// this the process could exit while the hub was mid-fan-out or the sweeper
+	// mid-transition.
+	var background sync.WaitGroup
+
 	hub := ws.NewHub(gameSvc, logger)
-	go hub.Run(ctx)
+	background.Go(func() { hub.Run(ctx) })
 	gameSvc.SetPublisher(hub)
 	wsHandler := ws.NewHandler(hub, gameSvc, cfg.WSAllowedOrigins, logger)
 
@@ -112,11 +120,30 @@ func run() error {
 	// stale-open reaper) on the shutdown-cancellable context, so a round resolves
 	// even if no client is polling (docs/DESIGN-PHASE3-LIVE.md §2.4). Boot-drains the
 	// backlog, then ticks every 3s; returns when ctx is cancelled.
-	go gameSvc.RunSweeper(ctx, 3*time.Second)
+	background.Go(func() { gameSvc.RunSweeper(ctx, 3*time.Second) })
 
 	mux := http.NewServeMux()
+	// Liveness: is the process up? Deliberately dependency-free — a DB blip must
+	// not make an orchestrator kill an otherwise healthy process.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	// Readiness: can this instance actually serve? Every route below needs
+	// Postgres, so an unreachable database is a 503 here — that is the signal a
+	// load balancer (or an uptime pinger keeping a free-tier dyno awake) should
+	// read, not the liveness probe above.
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		w.Header().Set("Content-Type", "application/json")
+		if err := pool.Ping(pingCtx); err != nil {
+			logger.Warn("readiness: database unreachable", "error", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"unavailable","dependency":"database"}`))
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
@@ -160,6 +187,22 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
+
+	// ctx is already cancelled here (that is what woke us), so the hub and the
+	// sweeper are unwinding; wait for them before the deferred pool.Close runs,
+	// or a final transition can lose its connection mid-write. Bounded, so a
+	// wedged goroutine delays the exit instead of blocking it forever.
+	drained := make(chan struct{})
+	go func() {
+		background.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+	case <-shutdownCtx.Done():
+		logger.Warn("background workers did not stop in time")
+	}
+
 	logger.Info("stopped")
 	return nil
 }
