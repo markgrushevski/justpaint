@@ -8,12 +8,14 @@ this file is a short map; read it (and the docs it links) before non-trivial wor
 
 justpaint — a web drawing app whose north star is an **AI-judged drawing duel**
 (two players draw the same prompt; an external ML judge scores similarity and picks a winner). A
-free-draw editor (`/draw`) is a supporting mode. Greenfield; Phases 1–2 (Go backend, vector editor)
-are done and **Phase 3 (the game) is in progress** — the async-duel loop runs end-to-end in the
-backend (create/join → submit → out-of-band judging → result + Elo), with the authoritative render
-worker (`packages/render`, `RENDER_MODE=node`) live and the judge still a swappable fake; the `/play`
-page + live WS are next. A **Go + TS monorepo** (npm workspaces for the TS side; the Go service is
-separate).
+free-draw editor (`/draw`) is a supporting mode. Greenfield; **Phases 1–3 are done** (Go backend,
+vector editor, the game) — the async-duel loop runs end-to-end (create/join → submit → out-of-band
+judging → result + Elo), a server-authoritative round deadline with forfeit/abandon, the `/play` page
+live against `/api/matches`, and live WS realtime (`internal/ws`) all shipped; the authoritative
+render worker (`packages/render`, `RENDER_MODE=node`) is live and the judge is still a swappable
+fake. **Phase 4** (AI assist + ratings/leaderboard shipped; realtime hardening, teams/tournaments,
+replay, and the real judge integration remain) is in progress. A **Go + TS monorepo** (npm workspaces
+for the TS side; the Go service is separate).
 
 ## Setup & commands
 
@@ -37,8 +39,8 @@ CLIs, not Go module deps. There is no CI yet — run the gates locally.
 packages/document/   @justpaint/document — vector-doc schema + validate + serialize (the contract)
 packages/editor/     @justpaint/editor — Konva + perfect-freehand: pure tools, renderToStage, Editor controller
 packages/render/     @justpaint/render — headless Node render worker (reuses editor renderToStage; node-canvas; esbuild-bundled)
-apps/web/            @justpaint/web — Vue 3 SPA: /draw (free); /play = Phase 3
-server/              Go modular monolith: auth + drawings + judge/render seams + game (full async duel: create/join/submit/judge/result; WS hub = rest of Phase 3)
+apps/web/            @justpaint/web — Vue 3 SPA: /draw (free); /play = the duel
+server/              Go modular monolith: auth + drawings + judge/render seams + game (full async duel: create/join/submit/judge/result) + WS realtime hub (internal/ws)
 docs/                specs — the source of truth
 ```
 
