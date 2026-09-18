@@ -27,6 +27,13 @@ type Config struct {
 	// entirely. Default false — the safe half.
 	TrustProxy bool
 
+	// AutoMigrate applies the embedded goose migrations at boot. On by default
+	// because the deployment target has no shell — a one-off command against the
+	// production database is a paid feature there, so "migrate, then roll the
+	// binary" is not a sequence anyone can perform. Set false where a human (or a
+	// pipeline) owns migrations and the server must never touch the schema.
+	AutoMigrate bool
+
 	// StaticDir is the built SPA (apps/web/dist) the server also serves, making
 	// the API and the frontend one origin — required, since the session cookie
 	// and the WS upgrade are same-origin and no CORS headers are sent. Empty
@@ -185,6 +192,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.TrustProxy = trustProxy
+
+	autoMigrate, err := getenvBool("AUTO_MIGRATE", true)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AutoMigrate = autoMigrate
 
 	judgeConcurrency, err := getenvInt("JUDGE_CONCURRENCY", DefaultJudgeConcurrency)
 	if err != nil {
