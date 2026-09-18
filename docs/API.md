@@ -67,6 +67,28 @@ The token's claims carry at minimum the user id (`sub`) and expiry (`exp`). Clai
 
 > `422` is reserved (not used in v1): semantic document errors return `400 validation_failed` for a single client error path.
 
+### 3.1 Rate limiting
+
+Every request passes a **per-client-IP token bucket** before routing; the tier is
+chosen by the first matching rule, and each tier has its own independent budget.
+
+| Tier | Applies to | Burst | Sustained |
+|---|---|---|---|
+| strict | `POST /api/auth/*` | 10 | 1 per 6s |
+| write | `POST`/`PUT`/`DELETE` on `/api/matches*`, `/api/drawings*` | 30 | 1 per 2s |
+| default | everything else, including reads, the WS upgrade and the served SPA | 300 | 5 per s |
+
+A throttled request gets **`429 rate_limited`** in the standard envelope plus a
+**`Retry-After`** header (seconds). `POST /api/assist/ops` keeps its own
+*per-user* bucket on top of this (§10) — that one guards API spend, not abuse.
+
+The client IP is the direct peer unless the server is configured to trust a
+proxy (`TRUST_PROXY`), in which case it is taken from the **rightmost**
+`X-Forwarded-For` entry — the one hop the proxy itself observed, and therefore the
+only one a client cannot forge by sending its own header. Buckets live in
+process memory: with several instances behind a load balancer the effective
+ceiling multiplies by the instance count.
+
 ## 4. Auth routes
 
 All under `/api/auth`. Identity is a single **`login`** credential — an **email OR a nickname** — plus a password. `display_name` is optional. Passwords are **bcrypt-hashed, never plaintext** (`users` columns: `ARCHITECTURE.md` §7).

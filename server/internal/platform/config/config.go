@@ -18,6 +18,14 @@ type Config struct {
 	Env          string // "dev" | "prod" — required, never defaulted
 	CookieSecure bool   // Secure flag on the session cookie
 
+	// TrustProxy says whether an X-Forwarded-For / X-Request-Id header may be
+	// believed. It is a real fork, not a formality: left false behind a proxy,
+	// every client collapses into the proxy's own IP — one shared rate-limit
+	// bucket and useless abuse logs; set true anywhere NOT behind exactly one
+	// trusted hop, a client can forge the header and evade per-IP limits
+	// entirely. Default false — the safe half.
+	TrustProxy bool
+
 	// StaticDir is the built SPA (apps/web/dist) the server also serves, making
 	// the API and the frontend one origin — required, since the session cookie
 	// and the WS upgrade are same-origin and no CORS headers are sent. Empty
@@ -147,6 +155,12 @@ func Load() (Config, error) {
 	}
 	cfg.DBMaxConns = int32(maxConns)
 
+	trustProxy, err := getenvBool("TRUST_PROXY", false)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TrustProxy = trustProxy
+
 	judgeConcurrency, err := getenvInt("JUDGE_CONCURRENCY", DefaultJudgeConcurrency)
 	if err != nil {
 		return Config{}, err
@@ -229,6 +243,21 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getenvBool reads a boolean env var, falling back when unset. Like getenvInt, a
+// malformed value is a boot error: TRUST_PROXY="yes" silently read as false would
+// be a security control quietly not doing what the operator meant.
+func getenvBool(key string, fallback bool) (bool, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("config: %s must be a boolean (true/false/1/0), got %q: %w", key, raw, err)
+	}
+	return v, nil
 }
 
 // getenvInt reads an integer env var, falling back when unset. A malformed value

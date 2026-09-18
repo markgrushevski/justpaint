@@ -39,6 +39,11 @@ services:
             sync: false
           # The image already defaults these; they are repeated here so the
           # deployment reads as a whole rather than hiding half its shape.
+          # Render terminates TLS at its edge and appends the real client to
+          # X-Forwarded-For — exactly the single trusted hop TRUST_PROXY assumes.
+          # Without this every visitor shares one rate-limit bucket.
+          - key: TRUST_PROXY
+            value: true
           - key: RENDER_MODE
             value: node
           - key: JUDGE_CONCURRENCY

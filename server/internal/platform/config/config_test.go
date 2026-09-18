@@ -158,3 +158,42 @@ func TestLoad_DBMaxConns(t *testing.T) {
 		})
 	}
 }
+
+// TestLoad_TrustProxy pins the proxy-trust fork. It gates whether
+// X-Forwarded-For is believed, which decides what rate limiting is keyed on, so
+// an unparseable value must fail the boot rather than quietly resolve to false —
+// a security control that silently does nothing is worse than an obvious error.
+func TestLoad_TrustProxy(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    bool
+		wantErr bool
+	}{
+		{name: "unset is untrusted", raw: "", want: false},
+		{name: "true", raw: "true", want: true},
+		{name: "1 is true", raw: "1", want: true},
+		{name: "false stays false", raw: "false", want: false},
+		{name: "yes is not a boolean", raw: "yes", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requireBaseEnv(t)
+			t.Setenv("TRUST_PROXY", tt.raw)
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Load() with TRUST_PROXY=%q: expected a boot error", tt.raw)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.TrustProxy != tt.want {
+				t.Errorf("TrustProxy = %v, want %v", cfg.TrustProxy, tt.want)
+			}
+		})
+	}
+}
