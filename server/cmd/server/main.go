@@ -22,6 +22,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/platform/config"
 	"github.com/markgrushevski/justpaint/server/internal/platform/logging"
 	"github.com/markgrushevski/justpaint/server/internal/platform/postgres"
+	"github.com/markgrushevski/justpaint/server/internal/platform/ratelimit"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 	"github.com/markgrushevski/justpaint/server/internal/ratings"
 	"github.com/markgrushevski/justpaint/server/internal/render"
@@ -167,9 +168,40 @@ func run() error {
 	ratingsHandler.Routes(mux, authHandler.RequireAuth)
 	wsHandler.Routes(mux, authHandler.RequireAuth)
 
+	// Abuse protection, keyed by client IP (docs/DECISIONS.md, docs/IDEAS.md: due
+	// before any public deploy). Three tiers, each with its OWN limiter so one
+	// tier's traffic cannot drain another's budget:
+	//   auth    — bcrypt is expensive and login is the credential-stuffing target;
+	//   writes  — a match creates work (render + judge), a drawing costs storage;
+	//   default — everything else, including the SPA's own asset fetches, so a
+	//             normal page load never comes close.
+	// Rows are first-match-wins, so the catch-all must stay last.
+	authLimiter := ratelimit.New(10, 6*time.Second, 0, 0)
+	writeLimiter := ratelimit.New(30, 2*time.Second, 0, 0)
+	defaultLimiter := ratelimit.New(300, 200*time.Millisecond, 0, 0)
+	for _, l := range []*ratelimit.Limiter{authLimiter, writeLimiter, defaultLimiter} {
+		background.Go(func() { l.RunSweeper(ctx, 2*time.Minute) })
+	}
+	policies := []web.RatePolicy{
+		{Name: "auth-strict", Match: web.MethodPrefix("/api/auth/", http.MethodPost), Limiter: authLimiter},
+		{Name: "matches-write", Match: web.MethodPrefix("/api/matches", http.MethodPost, http.MethodPut, http.MethodDelete), Limiter: writeLimiter},
+		{Name: "drawings-write", Match: web.MethodPrefix("/api/drawings", http.MethodPost, http.MethodPut, http.MethodDelete), Limiter: writeLimiter},
+		{Name: "default", Match: func(*http.Request) bool { return true }, Limiter: defaultLimiter},
+	}
+	if !cfg.TrustProxy {
+		// Worth saying out loud at boot: behind a proxy this collapses every
+		// client into one bucket, which looks like a working limiter and is not.
+		logger.Info("rate limiting keyed by the direct peer address (TRUST_PROXY=false)")
+	}
+
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           web.LogRequests(logger, web.Recover(logger, mux)),
+		Addr: cfg.Addr,
+		// Order matters. Recover must sit INSIDE LogRequests so a panic still
+		// logs with its request id, and the limiter sits inside both so a
+		// throttled request is still logged and still recovered.
+		Handler: web.LogRequests(logger, cfg.TrustProxy,
+			web.Recover(logger,
+				web.RateLimit(cfg.TrustProxy, policies, logger)(mux))),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		// WriteTimeout bounds slow-reading clients. It does NOT cut the WS upgrades:
