@@ -73,11 +73,10 @@ const emit = defineEmits<{
 }>()
 
 /**
- * `type="single"` is deselectable — clicking the active tool emits `undefined`
- * (Radix-style clear). A drawing tool must ALWAYS stay selected, so we drive the
- * group one-way off `props.activeTool` (the parent owns it) and ignore any clear
- * or non-tool value here; the group re-reads the unchanged model and keeps the
- * current tool pressed, no flicker.
+ * `:deselectable="false"` (oriui rc.18) means the group can no longer clear
+ * itself when the active tool is clicked again — a drawing tool must ALWAYS stay
+ * selected. What is left here is type narrowing, not a workaround: the emit is
+ * typed `string | string[] | undefined` for the group's other modes.
  */
 function onToolChange(value: string | string[] | undefined) {
     if (typeof value === 'string' && value in TOOLS) {
@@ -109,6 +108,7 @@ function onWidth(e: Event) {
         <OriToolbar class="bar__toolbar" label="Drawing tools">
             <OriToolbarToggleGroup
                 type="single"
+                :deselectable="false"
                 label="Tool"
                 :model-value="props.activeTool"
                 @update:model-value="onToolChange"
@@ -200,10 +200,8 @@ function onWidth(e: Event) {
         -->
         <OriPopover placement="top">
             <template #trigger="{ props: popoverTrigger }">
-                <!-- Cast: the slot types aria-haspopup as plain string; Vue's
-                     ButtonHTMLAttributes wants its literal union. -->
                 <button
-                    v-bind="popoverTrigger as Record<string, unknown>"
+                    v-bind="popoverTrigger"
                     class="bar__tool bar__style-trigger"
                     type="button"
                     aria-label="Stroke & fill"
