@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useThemeStore } from '@core'
+import AuthDialog from './components/auth/AuthDialog.vue'
 
 // Construct the theme controller once at the app root so the persisted / OS
 // theme is applied on EVERY route. Without this, a direct load of (or refresh
@@ -11,4 +12,9 @@ useThemeStore()
 
 <template>
     <RouterView />
+
+    <!-- The sign-in modal lives here, not inside a view: any route can ask for a
+         session, and here it has no `pointer-events: none` ancestor to inherit
+         from (the trap docs/NOTES.md records about the editor's overlay layer). -->
+    <AuthDialog />
 </template>

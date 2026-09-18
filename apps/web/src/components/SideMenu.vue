@@ -11,16 +11,14 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { OriAvatar, OriButton, OriIcon, OriInput, OriSelect, OriSwitch } from '@oriui/vue'
-import { icons, useSessionStore, useThemeStore } from '@core'
+import { icons, useAuthGate, useSessionStore, useThemeStore } from '@core'
 import type { ThemeMode } from '@core'
 import SegmentedControl from './ui/SegmentedControl.vue'
-import AuthForm from './auth/AuthForm.vue'
 import type { IconName } from './icons/ToolIcon.vue'
 
 const props = defineProps<{
     open: boolean
     busy: boolean
-    canRename: boolean
     title: string
     backdropGrid: boolean
     canvasWidth: number
@@ -41,6 +39,7 @@ const emit = defineEmits<{
 
 const session = useSessionStore()
 const theme = useThemeStore()
+const gate = useAuthGate()
 
 // --------------------------------------------------------------- appearance
 
@@ -162,6 +161,15 @@ async function logout() {
     await session.logout()
 }
 
+// The owner wants the bulky inline auth form out of the drawer (2026-09-18) —
+// hand off to the shared modal instead. Close the drawer first: AuthDialog is a
+// true modal with its own backdrop, so leaving the drawer's Save/Load/Canvas/
+// Appearance sections slid out behind it would just double up on chrome.
+const signIn = () => {
+    emit('close')
+    void gate.ensure()
+}
+
 // File actions: emit the action, then close the drawer (the action runs in the
 // host view while the menu slides away).
 const fileNew = () => {
@@ -204,7 +212,6 @@ function onKeydown(e: KeyboardEvent) {
             <!-- Title row: the drawing name (inline rename when allowed) -->
             <header class="menu__title-row">
                 <span
-                    v-if="props.canRename"
                     class="menu__title menu__title--editable"
                     contenteditable="true"
                     role="textbox"
@@ -214,8 +221,7 @@ function onKeydown(e: KeyboardEvent) {
                     @keydown.enter="onTitleEnter"
                     >{{ displayTitle }}</span
                 >
-                <span v-else class="menu__title" title="Sign in to rename">{{ displayTitle }}</span>
-                <OriIcon v-if="props.canRename" :icon="icons.mdiRename" class="menu__title-pencil" />
+                <OriIcon :icon="icons.mdiRename" class="menu__title-pencil" />
             </header>
 
             <!-- Copy row: stays open after copying (legacy behavior) -->
@@ -249,7 +255,6 @@ function onKeydown(e: KeyboardEvent) {
                         fluid
                         :icon="icons.mdiContentSaveOutline"
                         :loading="props.busy"
-                        :disabled="!session.isLoggedIn"
                         @click="fileSave"
                     />
                     <OriButton
@@ -259,7 +264,6 @@ function onKeydown(e: KeyboardEvent) {
                         fluid
                         :icon="icons.mdiCloudDownloadOutline"
                         :loading="props.busy"
-                        :disabled="!session.isLoggedIn"
                         @click="fileLoad"
                     />
                     <OriButton text="New" variant="outline" radius="md" fluid :icon="icons.mdiPlus" @click="fileNew" />
@@ -272,7 +276,6 @@ function onKeydown(e: KeyboardEvent) {
                         @click="fileExport"
                     />
                 </div>
-                <p v-if="!session.isLoggedIn" class="menu__hint">Sign in to save &amp; load</p>
             </section>
 
             <!-- Canvas settings -->
@@ -326,9 +329,9 @@ function onKeydown(e: KeyboardEvent) {
                 <OriButton text="Log out" variant="outline" radius="md" :icon="icons.mdiLogout" @click="logout" />
             </section>
 
-            <!-- Auth (anonymous) -->
+            <!-- Auth (anonymous): one entry point into the shared sign-in modal. -->
             <section v-else class="menu__section menu__section--bottom" aria-label="Sign in">
-                <AuthForm />
+                <OriButton text="Sign in" variant="outline" radius="md" :icon="icons.mdiLogin" @click="signIn" />
             </section>
         </aside>
     </Teleport>
@@ -452,12 +455,6 @@ function onKeydown(e: KeyboardEvent) {
 
 .menu__size-custom > * {
     flex: 1;
-}
-
-.menu__hint {
-    margin: var(--ori-size-gap_xs, 0.25rem) 0 0;
-    font-size: var(--ori-font-size_xs, 0.75rem);
-    opacity: 0.7;
 }
 
 .menu__profile {

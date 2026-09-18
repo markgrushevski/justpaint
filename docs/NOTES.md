@@ -663,3 +663,18 @@ small practical gotchas go here.
   integrated with `--no-ff` (then delete the branch); single-commit work goes straight to `main`.
   See [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 - `LF will be replaced by CRLF` warnings on commit are normal on Windows — harmless.
+
+## Escape on a `<dialog>` cannot be tested through browser automation
+
+Chasing a "the sign-in modal ignores Escape" bug cost a cycle before the decisive experiment: create a bare
+`<dialog>` in the page, `showModal()` it, focus it, and send Escape through the automation harness. It does
+not close, and no `cancel` event fires — with nothing of ours anywhere near it. The synthesized key arrives
+at `window` and at `document` with `defaultPrevented === false`, so JS listeners see it; what does not happen
+is the **user-agent's own default action** for a modal dialog.
+
+So a dialog that "closes on Escape" under automation is closing because some app-level `keydown` handler set
+its `open` prop — which is exactly why the shortcuts cheat-sheet looked fine and the new sign-in modal
+looked broken: `DrawView`'s window handler lists the cheat-sheet and did not yet know about the modal. Test
+Escape by hand in a real browser, or assert on the handler, and verify dismissal in automation through the
+close button and the backdrop, which are pointer events and arrive normally.
+
