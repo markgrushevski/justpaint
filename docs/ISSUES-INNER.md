@@ -39,3 +39,27 @@ this file at once. Reviewers read it first: a defect already recorded here is no
   the leaderboard; the upgrade is also the moment to re-check every entry in
   [ISSUES-OUTER.md](ISSUES-OUTER.md) and close the ones that shipped. Re-pin exactly, not with a range,
   until oriui reaches a stable 1.0.
+
+---
+
+## JP-I-04 — The sign-in form is rendered twice, into both tab panels
+
+`confirmed` · severity `nice-to-fix` · source: live DOM inspection while building the auth modal, 2026-09-18
+
+- **Where:** `apps/web/src/components/auth/AuthForm.vue` — the fields live in `OriTabs`'s **default**
+  slot, under a two-entry `:tabs` list (`Log in` / `Register`).
+- **What:** `OriTabs`'s documented API is one **named slot per tab** (`#panel-login`, `#panel-register`);
+  a default slot is rendered into *every* panel. So the whole form exists twice in the DOM. Measured in
+  the browser: two `.auth-form` nodes inside the one open dialog, four `<input>`s (ids `v-2`/`v-4` and
+  `v-6`/`v-8`) all bound to the same two refs, and the hidden panel's submit reading `Create account`
+  while the visible one reads the same — because the label follows the shared `authMode`, not the panel.
+- **Impact is small and entirely invisible:** the inactive panel carries `hidden` + `display: none`, so it
+  is out of the accessibility tree and out of the tab order, and the shared refs keep the two copies in
+  sync. It is wasted DOM and a misused component API, not a user-facing defect — which is why it is
+  recorded rather than fixed mid-slice.
+- **Fix (two candidates, both visual decisions):** move the fields into real `#panel-*` slots, or drop
+  `OriTabs` here for the repo's own `SegmentedControl` (`components/ui/SegmentedControl.vue`) and render
+  ONE form beneath it. The second is the honest shape — the two modes share every field and differ only
+  in the submit label and `autocomplete` — but it changes how the form looks, so it belongs to the
+  owner's UI recomposition ([IDEAS.md](IDEAS.md), post-launch list) or to the oriui rc bump, not to a
+  behaviour slice.

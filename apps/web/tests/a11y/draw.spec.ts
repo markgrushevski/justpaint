@@ -147,4 +147,16 @@ test.describe('/draw — open overlays (desktop)', () => {
         await expect(shortcutsDialog).toHaveCSS('opacity', '1')
         await expectNoSeriousViolations(page, 'shortcuts-open')
     })
+
+    test('sign-in dialog open has no serious/critical a11y violations', async ({ page }) => {
+        await gotoDraw(page)
+        // The gate's own entry point for an anonymous visitor: the empty-state
+        // card's "Sign in" row. Raising it this way (rather than poking the
+        // store) is the point — it exercises what a real visitor reaches.
+        await page.getByRole('button', { name: 'Sign in' }).first().click()
+        const signInDialog = page.getByRole('dialog', { name: 'Sign in' })
+        await signInDialog.waitFor({ state: 'visible' })
+        await expect(signInDialog).toHaveCSS('opacity', '1')
+        await expectNoSeriousViolations(page, 'sign-in-open')
+    })
 })

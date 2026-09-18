@@ -129,3 +129,31 @@ the source.
 - **Ask:** a toast-level alignment choice — either a prop, or centring when the toast has a single text
   child and no title/action/close. Not urgent; we are not overriding it locally, because a consumer
   restyling a vendor component is exactly what `docs/DESIGN-SYSTEM.md` forbids.
+
+## JP-O-09 — `OriDialog` dims its whole body, dropping the primary button and hints below AA
+
+`confirmed` · upstream: not yet filed · measured 2026-09-18 against `1.0.0-alpha.13`, **still present on `1.0.0-rc.18`**
+
+- **What:** `.ori-dialog__body { opacity: 0.85 }` (`packages/css/src/components/dialog.css`) dims everything
+  slotted into a dialog — not just captions, but the primary action's label too. Inside a field, it
+  compounds with `.ori-field__hint { opacity: 0.7 }` for an effective 0.595.
+- **Measured in a real browser** on the sign-in modal (light theme, `--ori-color-surface` `rgb(240 242 246)`):
+
+  | element | raw | composited | WCAG AA |
+  |---|---|---|---|
+  | `OriButton variant="fill" color="primary"` label, 16px/400 | 5.43:1 | **4.00:1** | needs 4.5:1 |
+  | `.ori-field__hint`, 12.8px/400 | 13.72:1 | **3.95:1** | needs 4.5:1 |
+
+  Dark theme passes — this is a light-theme-only failure, which is exactly how it survived: the token
+  pair itself is AA (5.43:1) and only loses AA once the dialog dims it.
+- **Why it is yours, not ours:** `docs/DESIGN-SYSTEM.md` bars us from restyling a vendor component's
+  internals, and the fix belongs upstream anyway — an ambient dim is right for supporting text and wrong
+  for an interactive control. Either scope the opacity to the dialog's descriptive content, or drop it and
+  express the hierarchy with a token tone that is AA by construction.
+- **Why no local workaround yet:** overriding `.ori-dialog__body` would be exactly the vendor-restyling the
+  design system forbids, and every consumer of every oriui dialog has the same bug. Recorded and reported
+  instead. Our own guard against a recurrence is a test, not a CSS override: `apps/web/tests/a11y/draw.spec.ts`
+  now opens the sign-in dialog and runs axe over it.
+- **Note for the bump:** `scripts/check-contrast.mjs` cannot catch this class of defect — it reads token
+  pairs out of `main.css` and knows nothing about a component's runtime opacity. Only a rendered audit does.
+- **Also affected here:** `ConfirmDialog`'s `color="danger"` Confirm button, same mechanism, predates this.
