@@ -338,8 +338,9 @@ type resultDone struct {
 	WinnerUserID *string   `json:"winnerUserId"`
 	IsTie        bool      `json:"isTie"`
 	Reason       *string   `json:"reason"`
-	// Resolution is how the match was decided: 'judged' | 'forfeit'. The client
-	// branches its copy on this, never on the free-text Reason (docs/DESIGN-PHASE3-LIVE.md §2.8).
+	// Resolution is how the match was decided: 'judged' | 'forfeit' | 'aborted'. The
+	// client branches its copy on this, never on the free-text Reason
+	// (docs/DESIGN-PHASE3-LIVE.md §2.8, docs/GAME.md §4.1).
 	Resolution string            `json:"resolution"`
 	Players    []resultPlayerDTO `json:"players"`
 }
@@ -436,9 +437,12 @@ func buildResultDTO(v ResultView) any {
 		Status: v.Status, Ready: true,
 		Prompt:       promptDTO{ID: v.PromptID, Text: &text},
 		WinnerUserID: v.WinnerUserID,
-		IsTie:        v.WinnerUserID == nil,
-		Reason:       v.Reason,
-		Resolution:   resolution,
-		Players:      players,
+		// A tie is a VERDICT with no winner. An aborted round also has no winner but
+		// produced no verdict at all, so it must not read as a drawn duel — the
+		// resolution is the only thing that distinguishes them (docs/API.md §8.4).
+		IsTie:      v.WinnerUserID == nil && resolution != resolutionAborted,
+		Reason:     v.Reason,
+		Resolution: resolution,
+		Players:    players,
 	}
 }
