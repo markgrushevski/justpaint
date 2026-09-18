@@ -131,11 +131,29 @@ for update skip locked;
 -- name: ListStuckJudgingMatches :many
 -- Judging rows wedged past the stale window with retries left — a crashed/hung
 -- judge attempt to re-fire (docs/DESIGN-PHASE3-LIVE.md §2.6). Staleness is measured
--- against judging_started_at (the current attempt), not updated_at.
+-- against judging_started_at (the current attempt), not updated_at. The rows this
+-- filter excludes on judge_attempts are NOT dropped: ListExhaustedJudgingMatches
+-- below is its exact complement (>= the same cap, same stale window) and sweeps
+-- them to the terminal 'aborted' resolution instead (docs/GAME.md §4.1).
 select id from matches
 where status = 'judging'
   and judging_started_at <= now() - make_interval(secs => sqlc.arg('stale_secs')::int)
   and judge_attempts < sqlc.arg('max_attempts')::int
+order by judging_started_at
+limit sqlc.arg('lim')::int
+for update skip locked;
+
+-- name: ListExhaustedJudgingMatches :many
+-- The complement of ListStuckJudgingMatches: judging rows whose retries are USED UP
+-- and whose last attempt is stale. Without this they would sit in `judging` forever
+-- (the re-fire filter stops at the cap and nothing else moves them), losing the duel
+-- with no recourse. They are swept to `done` + resolution 'aborted' — no winner, no
+-- Elo (docs/GAME.md §4.1, docs/DECISIONS.md 2026-09-18). Same partial index
+-- (matches_judging_stuck_idx), same stale window, so a row is in exactly one list.
+select id from matches
+where status = 'judging'
+  and judging_started_at <= now() - make_interval(secs => sqlc.arg('stale_secs')::int)
+  and judge_attempts >= sqlc.arg('max_attempts')::int
 order by judging_started_at
 limit sqlc.arg('lim')::int
 for update skip locked;

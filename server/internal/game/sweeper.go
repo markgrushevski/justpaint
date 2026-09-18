@@ -22,7 +22,9 @@ const (
 	// not healthy in-flight attempts.
 	judgeStaleSecs = 45
 	// maxJudgeAttempts caps stuck-judging retries so a genuinely wedged judge does
-	// not spin forever (docs/DESIGN-PHASE3-LIVE.md §2.6, §5 Q5).
+	// not spin forever (docs/DESIGN-PHASE3-LIVE.md §2.6, §5 Q5). Hitting the cap is
+	// not the end of the line: sweepExhaustedJudging then closes the match out as
+	// `done` + resolution 'aborted' (docs/GAME.md §4.1).
 	maxJudgeAttempts = 3
 	// openTTLSecs reaps open matches nobody joined, so a ghost can't later ambush a
 	// fresh joiner (docs/DESIGN-PHASE3-LIVE.md §2.6, §5 Q9).
@@ -35,9 +37,17 @@ const (
 // migration backfilled), then ticks at interval doing one batch per phase. It
 // returns when ctx is cancelled (server shutdown) (docs/DESIGN-PHASE3-LIVE.md §2.4,
 // §2.5). Start it once: `go svc.RunSweeper(ctx, 3*time.Second)`.
+// Phase order matters: sweepStuckJudging runs BEFORE sweepExhaustedJudging, so a row
+// it re-fires (re-stamping judging_started_at to now()) is no longer stale and cannot
+// be aborted by the very same tick.
+//
+// RunSweeper returns as soon as ctx is cancelled; it never waits on the judging
+// goroutines it dispatched (they hold a limiter slot and run on their own background
+// context), so shutdown cannot deadlock against an in-flight render.
 func (s *Service) RunSweeper(ctx context.Context, interval time.Duration) {
 	s.drain(ctx, s.sweepExpiredDrawing)
 	s.drain(ctx, s.sweepStuckJudging)
+	s.drain(ctx, s.sweepExhaustedJudging)
 	s.drain(ctx, s.sweepStaleOpen)
 
 	t := time.NewTicker(interval)
@@ -49,6 +59,7 @@ func (s *Service) RunSweeper(ctx context.Context, interval time.Duration) {
 		case <-t.C:
 			s.sweepExpiredDrawing(ctx)
 			s.sweepStuckJudging(ctx)
+			s.sweepExhaustedJudging(ctx)
 			s.sweepStaleOpen(ctx)
 		}
 	}
@@ -94,7 +105,7 @@ func (s *Service) sweepExpiredDrawing(ctx context.Context) int {
 		}
 		handled++
 		if outcome == outcomeJudging {
-			go s.judgeMatch(id)
+			s.dispatchJudging(id)
 		}
 		// Uniform post-commit tail (same as the Submit late-path): forfeit→result,
 		// abandoned→abandoned, judging→judging frame (docs/DESIGN-PHASE3-LIVE.md §2.4, §3.2).
@@ -136,6 +147,11 @@ func (s *Service) resolveExpiredMatch(ctx context.Context, matchID string) (reso
 // re-checked status=='judging' before re-stamping, so it can never revert a match
 // that just committed to 'done' (which would double-apply Elo). Returns the count of
 // rows handled without error (drain's progress signal, not len(ids)).
+//
+// The concurrency slot is taken BEFORE refireJudging, not after: refiring bumps
+// judge_attempts, and a retry spent on a pass that never ran would walk the match
+// toward the abort cap for no reason. If no slot is free the whole pass stops early
+// — the rows are untouched, still `judging`, and the next tick lists them again.
 func (s *Service) sweepStuckJudging(ctx context.Context) int {
 	ids, err := s.q.ListStuckJudgingMatches(ctx, db.ListStuckJudgingMatchesParams{
 		StaleSecs: judgeStaleSecs, MaxAttempts: maxJudgeAttempts, Lim: sweepBatch,
@@ -145,18 +161,110 @@ func (s *Service) sweepStuckJudging(ctx context.Context) int {
 		return 0
 	}
 	handled := 0
-	for _, id := range ids {
+	for i, id := range ids {
+		if !s.judging.tryAcquire() {
+			// Saturated: leave the rest of the batch for a later tick. handled stays
+			// short, so the boot drain stops here instead of spinning on rows it
+			// cannot judge yet.
+			s.logger.Warn("sweep stuck judging: concurrency limit reached, deferring the rest of the batch",
+				"limit", s.judging.limit(), "deferred", len(ids)-i)
+			break
+		}
 		refired, err := s.refireJudging(ctx, id)
 		if err != nil {
+			s.judging.release()
 			s.logger.Error("sweep stuck judging: refire", "matchID", id, "err", err)
 			continue
 		}
+		if !refired {
+			s.judging.release() // resolved between list and lock — nothing to run
+			handled++
+			continue
+		}
 		handled++
-		if refired {
-			go s.judgeMatch(id)
+		s.judging.goHeld(func() { s.judgeMatch(id) })
+	}
+	return handled
+}
+
+// sweepExhaustedJudging is the terminal fallback for a match whose judging retries
+// are used up: it closes the round as `done` with resolution 'aborted' — no winner,
+// no Elo, a player-facing reason — instead of leaving it wedged in `judging` forever
+// with `{ready:false}` and no recourse short of manual DB surgery (docs/GAME.md
+// §4.1, docs/DECISIONS.md 2026-09-18). Its list query is the exact complement of
+// sweepStuckJudging's, so the retry cap hides no row from the sweeper. Returns the
+// count of rows handled without error (drain's progress signal, not len(ids)).
+func (s *Service) sweepExhaustedJudging(ctx context.Context) int {
+	ids, err := s.q.ListExhaustedJudgingMatches(ctx, db.ListExhaustedJudgingMatchesParams{
+		StaleSecs: judgeStaleSecs, MaxAttempts: maxJudgeAttempts, Lim: sweepBatch,
+	})
+	if err != nil {
+		s.logger.Error("sweep exhausted judging: list", "err", err)
+		return 0
+	}
+	handled := 0
+	for _, id := range ids {
+		aborted, err := s.abortJudging(ctx, id)
+		if err != nil {
+			s.logger.Error("sweep exhausted judging: abort", "matchID", id, "err", err)
+			continue
+		}
+		handled++
+		if aborted {
+			s.logger.Error("match aborted: judging exhausted its retries — no verdict, no rating change",
+				"matchID", id, "attempts", maxJudgeAttempts)
+			// Post-commit: both duelists' sockets get the (unscored) terminal result,
+			// the same frame a judged/forfeit resolution publishes
+			// (docs/DESIGN-PHASE3-LIVE.md §3.2).
+			s.publisher.Resolved(id)
 		}
 	}
 	return handled
+}
+
+// abortJudging writes the terminal `done` + 'aborted' state for one match under the
+// SAME row lock the rest of the lifecycle uses, rechecking both guards inside it:
+// status is still 'judging' (a pass that committed a real verdict between the list
+// and the lock must win) and judge_attempts is still at the cap (the list's FOR
+// UPDATE SKIP LOCKED lock is released when the SELECT returns, so a racing re-fire
+// could have reset the picture). Reports whether it actually aborted the match.
+//
+// It writes through SetMatchResult — status/winner/reason/resolution only — and
+// deliberately NOT through writeFinalResult: no judge ran, so there is no score and
+// no Elo to apply. match_players keeps its null score/rating_before/rating_after,
+// exactly like an abandoned round (docs/GAME.md §8).
+func (s *Service) abortJudging(ctx context.Context, matchID string) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("game: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.q.WithTx(tx)
+
+	row, err := qtx.GetMatchForUpdate(ctx, matchID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("game: lock match: %w", err)
+	}
+	if row.Status != statusJudging {
+		return false, nil // a verdict landed between list and lock — never overwrite it
+	}
+	if row.JudgeAttempts < maxJudgeAttempts {
+		return false, nil // retries left — sweepStuckJudging owns this row, not us
+	}
+
+	reason, resolution := abortedReason, resolutionAborted
+	if _, err := qtx.SetMatchResult(ctx, db.SetMatchResultParams{
+		ID: matchID, WinnerPlayerID: nil, JudgeReason: &reason, Resolution: &resolution,
+	}); err != nil {
+		return false, fmt.Errorf("game: abort judging: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("game: commit tx: %w", err)
+	}
+	return true, nil
 }
 
 // refireJudging re-stamps a stuck judging attempt (bumping judge_attempts +

@@ -343,7 +343,7 @@ When decided (`status: "done"`), `200 OK`:
     "winnerUserId": "…",          // null on a tie (ties are allowed — DECISIONS / JUDGE.md)
     "isTie": false,
     "reason": "left image matches the prompt more closely",  // matches.judge_reason
-    "resolution": "judged",       // or "forfeit" — see below
+    "resolution": "judged",       // or "forfeit" / "aborted" — see below
     "players": [
       { "userId": "…", "displayName": "Ada",
         "drawingId": "…", "score": 0.81,
@@ -357,9 +357,9 @@ When decided (`status: "done"`), `200 OK`:
   }
 }
 ```
-- `winnerUserId` is the **resolved player id** (`matches.winner_player_id`) — the `game` module mapped the judge's positional `A`/`B`/`tie` onto it at submit time (`JUDGE.md` / `ARCHITECTURE.md` §5). `null` ⇔ `isTie: true`.
+- `winnerUserId` is the **resolved player id** (`matches.winner_player_id`) — the `game` module mapped the judge's positional `A`/`B`/`tie` onto it at submit time (`JUDGE.md` / `ARCHITECTURE.md` §5). `null` ⇔ `isTie: true`, **except on `resolution: "aborted"`**, where it is null because no verdict exists at all and `isTie` is `false` (a round nobody scored is not a drawn duel). Branch on `resolution` before reading `isTie`.
 - `score` / `reason` come from the judge (`match_players.score`, `matches.judge_reason`). `judgedImageUrl` **stays `null`**: it *would* point at the server-rendered authoritative raster in object storage, but object storage is **deferred** (not built). The reveal shows the opponent's canvas via `GET …/players/{userId}/drawing` (below) + a client render instead, so no raster URL is needed for it; the field is kept for a future feed-thumbnail / render-offload use.
-- `resolution` is `"judged"` (the normal path — both players submitted, the judge ran) or `"forfeit"` (the round deadline passed with exactly one submitter — that player won by default, full Elo, **no judge ran**, `GAME.md` §4.1/§8). On a forfeit, both players' `score` is `null` (no judge similarity was produced — never `0`); the forfeiting player's `drawingId` is `null` if they never submitted. The client branches its result copy on `resolution`, never on the free-text `reason`. Every completed match has a non-null `resolution` (historical pre-migration rows default to `"judged"`).
+- `resolution` is `"judged"` (the normal path — both players submitted, the judge ran), `"forfeit"` (the round deadline passed with exactly one submitter — that player won by default, full Elo, **no judge ran**, `GAME.md` §4.1/§8), or `"aborted"` (both submitted but judging exhausted its retries and never produced a verdict — `GAME.md` §4.1). On a forfeit, both players' `score` is `null` (no judge similarity was produced — never `0`); the forfeiting player's `drawingId` is `null` if they never submitted. On an **abort** the round is terminal (`status: "done"`, `ready: true`) but carries **no verdict at all**: `winnerUserId` and every player's `score` / `ratingBefore` / `ratingAfter` are `null`, **no rating was applied**, and `reason` is a fixed player-facing line explaining the round could not be scored — the one thing a player ever sees about it. Both `drawingId`s are present, so the reveal can still show both canvases. The client branches its result copy on `resolution`, never on the free-text `reason`. Every completed match has a non-null `resolution` (historical pre-migration rows default to `"judged"`).
 - Errors: `404 not_found`, `401 unauthorized`.
 
 ### `GET /api/matches/{id}/players/{userId}/drawing`
@@ -400,7 +400,7 @@ Eight frame types, JSON `{ "type": …, … }`. `match_state` / `result` carry t
 | `match_state` | `{ match: <Match> }` | **per viewer** | on connect/reconnect, and on every roster/deadline change |
 | `opponent_submitted` | `{ userId }` | shared | any player's submit commits (room-broadcast — including back to the submitter's own other tabs; clients ignore a `userId` that is their own) |
 | `judging` | `{}` | shared | the last submit flips the match to `judging` |
-| `result` | `{ result: <MatchResultDone> }` | **per viewer** | the verdict is recorded — `resolution: "judged"` **or** `"forfeit"` |
+| `result` | `{ result: <MatchResultDone> }` | **per viewer** | the match reached `done` — `resolution: "judged"`, `"forfeit"`, **or** `"aborted"` (terminal with no verdict, §8.4) |
 | `abandoned` | `{}` | shared | the sweep resolves the match to `abandoned` |
 | `opponent_connected` | `{ userId }` | shared | that `userId`'s live-client set goes empty → non-empty (presence) |
 | `opponent_disconnected` | `{ userId }` | shared | that `userId`'s live-client set goes non-empty → empty |
