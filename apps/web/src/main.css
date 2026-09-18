@@ -42,12 +42,14 @@
        the tinted surface is darker than white, so it, not #ffffff, sets the floor).
        Dark: hsl(0 0% 46%) is 3.83:1 on the #191919 surface (binding), 4.08:1 on the
        #121212 background. */
-    --ori-color-outline-light: hsl(220 5% 55%);
-    --ori-color-outline-dark: hsl(0 0% 46%);
+    --jp-color-outline-light: hsl(220 5% 55%);
+    --jp-color-outline-dark: hsl(0 0% 46%);
 
-    /* outline is a justpaint-invented token (oriui ships none) — resolve it for
+    /* Outline is ours: oriui ships no outline token, so it carries the --jp-*
+       prefix rather than squatting in the vendor --ori-* namespace, where a future
+       oriui token of the same name would silently collide (JP-I-02). Resolved for
        light here; the dark block below repoints it. */
-    --ori-color-outline: var(--ori-color-outline-light);
+    --jp-color-outline: var(--jp-color-outline-light);
 
     /* The letterbox "desk" behind the paper — one step darker (light) / lighter
        (dark) than the paper so the document edge reads at any zoom; the editor
@@ -84,7 +86,7 @@
     --ori-color-on-surface: var(--ori-color-on-surface-dark);
     --ori-color-background: var(--ori-color-background-dark);
     --ori-color-on-background: var(--ori-color-on-background-dark);
-    --ori-color-outline: var(--ori-color-outline-dark);
+    --jp-color-outline: var(--jp-color-outline-dark);
     --jp-desk: var(--jp-desk-dark);
 
     /* oriui's `danger` is a single light-tuned red (#b91c1c) with no dark variant —

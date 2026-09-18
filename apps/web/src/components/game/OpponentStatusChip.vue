@@ -117,7 +117,7 @@ const inProgress = computed(() => props.status !== 'submitted')
     height: 0.5rem;
 
     border-radius: 50%;
-    background-color: var(--dot-color, var(--ori-color-outline));
+    background-color: var(--dot-color, var(--jp-color-outline));
 }
 
 .opp__status--drawing {

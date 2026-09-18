@@ -306,7 +306,7 @@ function onWidth(e: Event) {
     align-self: stretch;
     width: 1px;
     margin: 0.2rem 0.15rem;
-    background-color: var(--ori-color-outline, rgb(0 0 0 / 12%));
+    background-color: var(--jp-color-outline, rgb(0 0 0 / 12%));
 }
 
 /* Base chrome for the one remaining raw button — the mobile stroke/fill popover
@@ -380,7 +380,7 @@ function onWidth(e: Event) {
     height: var(--jp-control-lg, 2.4rem);
     padding: 0;
 
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
+    border: 1px solid var(--jp-color-outline, rgb(0 0 0 / 20%));
     border-radius: 50%;
     background: none;
 
@@ -420,7 +420,7 @@ function onWidth(e: Event) {
     width: 3.2rem;
     padding: 0.15rem 0.3rem;
 
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 20%));
+    border: 1px solid var(--jp-color-outline, rgb(0 0 0 / 20%));
     border-radius: var(--ori-size-radius_sm, 4px);
     background: transparent;
     color: var(--ori-color-on-surface);
@@ -446,7 +446,7 @@ function onWidth(e: Event) {
 
     border: 2px solid var(--ori-color-surface, #ffffff);
     border-radius: 50%;
-    box-shadow: 0 0 0 1px var(--ori-color-outline, rgb(0 0 0 / 20%));
+    box-shadow: 0 0 0 1px var(--jp-color-outline, rgb(0 0 0 / 20%));
 }
 
 /* The popover panel: vertical stack of the same stroke/fill controls. */

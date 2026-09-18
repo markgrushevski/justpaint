@@ -210,7 +210,7 @@ const top = () => props.layers.length - 1
 
     padding: var(--ori-size-gap_md, 0.5rem);
 
-    border: 1px solid var(--ori-color-outline, rgb(0 0 0 / 12%));
+    border: 1px solid var(--jp-color-outline, rgb(0 0 0 / 12%));
     border-radius: var(--ori-size-radius_md, 8px);
     color: var(--ori-color-on-surface);
 
@@ -243,7 +243,7 @@ const top = () => props.layers.length - 1
 }
 
 .layers__name:focus {
-    border-color: var(--ori-color-outline, rgb(0 0 0 / 25%));
+    border-color: var(--jp-color-outline, rgb(0 0 0 / 25%));
     background: var(--ori-color-background);
 }
 

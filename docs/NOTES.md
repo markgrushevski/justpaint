@@ -307,6 +307,14 @@ small practical gotchas go here.
   for exactly this reason. The very first CI run (2026-09-18) failed with `TS2307: Cannot find module
   '@justpaint/editor'` plus knock-on `TS7006` implicit-any errors — green locally only because a
   stale `dist/` was lying around. Any new job that typechecks a fresh checkout must build first.
+- **The oriui CSS import list in `main.ts` is hand-maintained, and it silently rots.** We import
+  `@oriui/css/components/*.css` à la carte, one file per component used. `OriBadge` and `OriSkeleton`
+  shipped with NO block styles because nobody added their two lines (found by an oriui consumer review,
+  2026-09-18) — the leaderboard chip and every skeleton placeholder rendered bare, and nothing failed.
+  `apps/web/scripts/check-styles.mjs` now guards it (`npm run lint:styles`, in `lint:all` + `lint:ci`).
+  It checks **selectors, not filenames**, which matters: some component CSS is inlined into another file
+  (`.ori-spinner` lives inside `button.css`), so a filename check would report a bug that does not exist.
+  A component whose class oriui defines nowhere is skipped — it has no block styles to import.
 - **`apps/web/tsconfig.json` does NOT extend `tsconfig.base.json`** — it re-declares its own strict
   flags and **omits** `noUncheckedIndexedAccess` / `noImplicitOverride` / `noFallthroughCasesInSwitch`.
   So the app is type-checked less strictly than the packages; a strict-only bug can pass
