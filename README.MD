@@ -176,6 +176,15 @@ inside the driver. With Supabase, use the **Session pooler** string (port 5432):
 is IPv4 on every plan while a direct connection is IPv6-only without the paid add-on, and the
 transaction pooler on 6543 drops prepared statements, which pgx relies on.
 
+The three Supabase strings are easy to mix up, and only one works on an IPv4-only host. Check the
+string you copied:
+
+| | Host | User | Works from Render/Fly |
+|---|---|---|---|
+| Session pooler | `…pooler.supabase.com:5432` | `postgres.<project-ref>` | yes — use this |
+| Transaction pooler | `…pooler.supabase.com:6543` | `postgres.<project-ref>` | connects, then breaks on prepared statements |
+| Direct connection | `db.<project-ref>.supabase.co:5432` | `postgres` | no — IPv6 only without the paid add-on |
+
 | Probe | Answers |
 |---|---|
 | `GET /healthz` | liveness — dependency-free, always 200 while the process is up |
