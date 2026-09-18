@@ -170,6 +170,12 @@ docker run --rm -p 8080:8080 \
 Migrations are **not** run by the container — apply them before rolling a new
 binary: `goose -dir server/migrations postgres "$DATABASE_URL" up`.
 
+`DATABASE_URL` must be a Postgres connection string (`postgresql://user:password@host:5432/db`),
+not a provider project URL — the server refuses to boot on the latter rather than failing deep
+inside the driver. With Supabase, use the **Session pooler** string (port 5432): the shared pooler
+is IPv4 on every plan while a direct connection is IPv6-only without the paid add-on, and the
+transaction pooler on 6543 drops prepared statements, which pgx relies on.
+
 | Probe | Answers |
 |---|---|
 | `GET /healthz` | liveness — dependency-free, always 200 while the process is up |

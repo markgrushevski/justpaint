@@ -35,6 +35,12 @@ services:
           - key: JWT_SECRET
             generateValue: true
           # Set by hand in the dashboard: an external Postgres that does not expire.
+          # It must be the POSTGRES CONNECTION STRING, not the provider's project/API
+          # URL — the server now refuses to boot on an https:// value and says so.
+          # On Supabase take Connect -> "Session pooler" (port 5432): the shared
+          # pooler is IPv4 on every plan, while a direct connection is IPv6-only
+          # without the paid add-on, and the TRANSACTION pooler (6543) drops
+          # prepared statements, which pgx uses by default. Append ?sslmode=require.
           - key: DATABASE_URL
             sync: false
           # The image already defaults these; they are repeated here so the
