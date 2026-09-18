@@ -580,6 +580,29 @@ small practical gotchas go here.
 - **The two validator TEST TABLES are 1:1** — a rejection added to one side must be added to the other
   (`server/internal/document/validate_test.go` ↔ `packages/document/test/validate.test.ts`).
 
+## Rate limiting & request correlation (`internal/platform/ratelimit`, `internal/platform/web`)
+
+- **`Recover` must stay wrapped INSIDE `LogRequests`, not the other way around.** `LogRequests` is what
+  assigns the per-request id (adopts a trusted inbound `X-Request-Id` or generates a uuid) into the
+  request context, and it does so on its OWN locally-rebound `r` before calling `next`. If `Recover`
+  were the OUTER middleware instead, the panic it catches would unwind into a closure still holding the
+  ORIGINAL `r` (pre-context-assignment), so `RequestID(r.Context())` inside `Recover` would silently
+  find nothing — no crash, just an empty `request_id` on every panic log line. Same class of
+  ordering hazard as the `statusRecorder.Unwrap()` gotcha above (WS hijacking) — don't reorder this
+  chain without re-checking both.
+- **`ratelimit.Limiter` fails OPEN, not closed, when its bucket map is at capacity and every existing
+  bucket is still recently active** (`Allow`, `internal/platform/ratelimit/limiter.go`): a brand-new key
+  rides through untracked rather than being denied. Deliberate, not an oversight — keyed by client IP,
+  a hard deny here would let an attacker who can generate enough distinct source IPs/keys turn the rate
+  limiter itself into a lockout of every OTHER caller's first request. The idle-bucket sweep
+  (opportunistic inside `Allow`, periodic via `RunSweeper`) is what keeps this path rare in practice;
+  it only triggers under sustained, genuinely-high key cardinality.
+- **`go test -race` needs a working cgo C toolchain, which a Windows dev box may not have.** `CGO_ENABLED`
+  defaults to `0` there and `-race` refuses to run without a `gcc`/`clang` on `PATH` (none ships with a
+  plain Go + Git-Bash setup). Verified race-free by code review + `go test ./...` (no `-race`) on such a
+  machine; CI (`ci.yml`, Linux, has `gcc`) is where `-race` coverage actually gets exercised — install a
+  mingw-w64 toolchain and set `CGO_ENABLED=1` if you need `-race` locally before pushing.
+
 ## Git / Windows
 
 - Conventional Commits, present tense, one logical change. Multi-commit units go on a branch

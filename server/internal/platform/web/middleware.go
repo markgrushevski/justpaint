@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -8,12 +9,15 @@ import (
 
 // Recover turns a panic in any handler into a logged 500 error-envelope response
 // instead of a bare stack trace and a dropped connection. Wrap it INSIDE
-// LogRequests so the access log sees the 500 it writes.
+// LogRequests so the access log sees the 500 it writes, and so the request id
+// LogRequests already assigned is in r's context by the time we read it here.
 func Recover(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				logger.Error("panic recovered", "err", rec, "method", r.Method, "path", r.URL.Path)
+				reqID, _ := RequestID(r.Context())
+				logger.Error("panic recovered",
+					"err", rec, "method", r.Method, "path", r.URL.Path, "request_id", reqID)
 				Error(w, http.StatusInternalServerError, CodeInternal, "internal error")
 			}
 		}()
@@ -21,11 +25,27 @@ func Recover(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// LogRequests emits one structured access-log line per request
-// (method, path, status, duration). Logs via defer so a panic is still recorded.
-func LogRequests(logger *slog.Logger, next http.Handler) http.Handler {
+// LogRequests emits one structured access-log line per request (method, path,
+// status, duration, request_id, client_ip). Logs via defer so a panic is
+// still recorded.
+//
+// It also OWNS request-id assignment for the whole handler chain: it resolves
+// (or, when trustProxy is true, adopts an inbound X-Request-Id) an id, echoes
+// it on the response header, and stores it in the request context BEFORE
+// calling next — so every downstream handler (including Recover, meant to
+// wrap INSIDE this) can read the same id via RequestID(ctx). trustProxy gates
+// both that adoption and the client-ip resolution (ClientIP): both read
+// headers that only a trusted reverse proxy in front of us should be allowed
+// to set (docs/NOTES.md; docs/IDEAS.md "Request-id correlation").
+func LogRequests(logger *slog.Logger, trustProxy bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+
+		reqID := resolveRequestID(r, trustProxy)
+		w.Header().Set(RequestIDHeader, reqID)
+		r = r.WithContext(context.WithValue(r.Context(), requestIDCtxKey{}, reqID))
+		clientIP := ClientIP(r, trustProxy)
+
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		defer func() {
 			logger.Info("request",
@@ -33,6 +53,8 @@ func LogRequests(logger *slog.Logger, next http.Handler) http.Handler {
 				"path", r.URL.Path,
 				"status", rec.status,
 				"duration_ms", time.Since(start).Milliseconds(),
+				"request_id", reqID,
+				"client_ip", clientIP,
 			)
 		}()
 		next.ServeHTTP(rec, r)
