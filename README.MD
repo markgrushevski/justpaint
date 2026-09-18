@@ -167,8 +167,11 @@ docker run --rm -p 8080:8080 \
     justpaint
 ```
 
-Migrations are **not** run by the container — apply them before rolling a new
-binary: `goose -dir server/migrations postgres "$DATABASE_URL" up`.
+Migrations apply themselves at boot: the binary embeds `server/migrations/` and runs goose
+before serving, behind a Postgres advisory lock so two instances cannot race the same DDL. That is
+what makes the image deployable to a host with no shell. Set `AUTO_MIGRATE=false` where a pipeline
+owns the schema; the `goose -dir server/migrations postgres "$DATABASE_URL" up` CLI path still
+works and is what local development uses.
 
 `DATABASE_URL` must be a Postgres connection string (`postgresql://user:password@host:5432/db`),
 not a provider project URL — the server refuses to boot on the latter rather than failing deep
