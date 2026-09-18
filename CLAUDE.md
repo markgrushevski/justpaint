@@ -77,6 +77,11 @@ Source of truth lives in `docs/` (each doc owns one thing and cross-references t
 - `docs/DESIGN-SYSTEM.md` — how the UI consumes oriui (colors at root only, drive state with props, `JpFloat`/`IconButton`, `OriCard` for content) — the frontend chrome contract.
 - `docs/NOTES.md` — non-obvious implementation gotchas (read first; append what you learn).
 - `docs/IDEAS.md` — non-blocking backlog (deferred hardening & good-ideas-later).
+- `docs/ISSUES-INNER.md` — known problems **we** fix here (confirmed and unconfirmed, with evidence).
+- `docs/ISSUES-OUTER.md` — known problems a dependency must fix, oriui above all: each entry names the local
+  workaround it justifies and the upstream `ORI-I-*` id it waits on. oriui reads this file as its inbound
+  queue, so report an oriui gap here rather than only mentioning it. The axis is **who must fix it**, not
+  who found it; agents report, the orchestrator records.
 - `CONTRIBUTING.md` — branch / commit / merge workflow. `AGENTS.md` — tool-agnostic entry map.
 
 ## Working with agents

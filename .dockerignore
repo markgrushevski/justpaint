@@ -1,0 +1,28 @@
+# Everything the image builds for itself, plus everything it must never carry.
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+
+# Local secrets and env — the image takes its configuration from the environment.
+.env
+**/.env
+**/.env.local
+
+.git
+.github
+.idea
+.vscode
+.claude
+
+docs
+*.md
+*.MD
+LICENSE
+
+apps/web/test-results
+apps/web/tests
+**/*_test.go
+docker-compose.yml
