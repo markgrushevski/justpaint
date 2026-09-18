@@ -1,14 +1,18 @@
 // packages/editor/src/types.ts — the FROZEN contract every tool implements.
-import type { BrushOptions, Stroke } from "@justpaint/document";
+import type { BrushOptions, Stroke } from '@justpaint/document'
 
 /** Ids of the stroke-producing drawing tools (see {@link StrokeTool}). */
-export type StrokeToolId = "pen" | "eraser" | "line" | "rect" | "ellipse" | "triangle";
+export type StrokeToolId = 'pen' | 'eraser' | 'line' | 'rect' | 'ellipse' | 'triangle'
 
 /** Every selectable tool: the stroke tools plus the pan-only hand. */
-export type ToolId = StrokeToolId | "hand";
+export type ToolId = StrokeToolId | 'hand'
 
 /** A pointer sample in LOGICAL document coordinates. pressure in [0,1]. */
-export interface LogicalPoint { x: number; y: number; pressure: number; }
+export interface LogicalPoint {
+    x: number
+    y: number
+    pressure: number
+}
 
 /**
  * A read-only snapshot of a document layer for the editor's host UI (a layers
@@ -17,25 +21,25 @@ export interface LogicalPoint { x: number; y: number; pressure: number; }
  * document's z-order (`layers[0]` is the bottom-most).
  */
 export interface LayerView {
-  readonly id: string;
-  readonly name: string;
-  readonly visible: boolean;
-  readonly opacity: number;
-  readonly strokeCount: number;
+    readonly id: string
+    readonly name: string
+    readonly visible: boolean
+    readonly opacity: number
+    readonly strokeCount: number
 }
 
 /** Current drawing style the editor supplies to tools. */
 export interface ToolStyle {
-  color: string;        // stroke/brush color, "#rrggbb" or "#rrggbbaa"
-  fill: string | null;  // shape fill, or null for no fill
-  strokeWidth: number;  // shape/line stroke width, > 0
-  brush: BrushOptions;  // freehand brush options
+    color: string // stroke/brush color, "#rrggbb" or "#rrggbbaa"
+    fill: string | null // shape fill, or null for no fill
+    strokeWidth: number // shape/line stroke width, > 0
+    brush: BrushOptions // freehand brush options
 }
 
 /** Services a tool needs from the editor. */
 export interface ToolContext {
-  readonly style: ToolStyle;
-  newId(): string;      // returns a fresh document-unique id
+    readonly style: ToolStyle
+    newId(): string // returns a fresh document-unique id
 }
 
 /**
@@ -45,9 +49,9 @@ export interface ToolContext {
  * Returns null for a degenerate gesture that must be discarded.
  */
 export interface StrokeTool {
-  readonly kind: "stroke";
-  readonly id: StrokeToolId;
-  buildStroke(ctx: ToolContext, gesture: readonly LogicalPoint[]): Stroke | null;
+    readonly kind: 'stroke'
+    readonly id: StrokeToolId
+    buildStroke(ctx: ToolContext, gesture: readonly LogicalPoint[]): Stroke | null
 }
 
 /**
@@ -58,8 +62,8 @@ export interface StrokeTool {
  * inside-document gate (you can grab the letterbox).
  */
 export interface PanTool {
-  readonly kind: "pan";
-  readonly id: "hand";
+    readonly kind: 'pan'
+    readonly id: 'hand'
 }
 
 /**
@@ -67,4 +71,4 @@ export interface PanTool {
  * pointerdown — `"stroke"` enters the gesture→stroke pipeline, `"pan"` drags
  * the view. New non-stroke tools add a `kind`, not an id-list check.
  */
-export type Tool = StrokeTool | PanTool;
+export type Tool = StrokeTool | PanTool
