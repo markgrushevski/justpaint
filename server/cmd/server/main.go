@@ -25,6 +25,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/platform/postgres"
 	"github.com/markgrushevski/justpaint/server/internal/platform/ratelimit"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
+	"github.com/markgrushevski/justpaint/server/internal/practice"
 	"github.com/markgrushevski/justpaint/server/internal/ratings"
 	"github.com/markgrushevski/justpaint/server/internal/render"
 	"github.com/markgrushevski/justpaint/server/internal/ws"
@@ -145,6 +146,36 @@ func run() error {
 	}
 	gameHandler := game.NewHandler(gameSvc, logger)
 
+	// Single-player practice (internal/practice). It exists because a duel needs two
+	// people at once and, without a player base, the first visitor waits alone and
+	// gets an abandoned match — the product is unplayable by the person most likely
+	// to try it. Every part needed to score ONE drawing already exists here: prompts,
+	// the same renderer, the same quota.
+	//
+	// The critic is a seam of OURS (judge.Critic), NOT the collaborator's frozen
+	// two-image contract, and it follows JUDGE_MODE so a real judge and a real critic
+	// are never mismatched. JUDGE_MODE=http is the one mode with no critic: the
+	// collaborator's service answers "which of these two is better" and has no
+	// critique endpoint. Practice then refuses honestly rather than quietly falling
+	// back to the fake — a made-up score presented as a real one is worse than a 500,
+	// because the player cannot tell.
+	var critic judge.Critic
+	switch cfg.JudgeMode {
+	case config.JudgeModeGemini:
+		critic = judge.NewGeminiCritic(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		logger.Info("practice: gemini critic (scores one drawing against its prompt)", "model", cfg.GeminiModel)
+	case config.JudgeModeHTTP:
+		logger.Warn("practice: DISABLED — JUDGE_MODE=http has no critique endpoint (docs/JUDGE.md §2 is a two-image contract); /api/practice answers 500 until JUDGE_MODE is fake or gemini")
+	default:
+		critic = judge.NewFakeCritic()
+		logger.Info("practice: fake critic (ink coverage — it never reads the prompt; set JUDGE_MODE=gemini for a real critique)")
+	}
+	// The SAME budget as a duel, through the same code: a practice run spends one
+	// judge call from one provider's quota, so it is counted by one rule (budget.go,
+	// docs/GAME.md §4.3).
+	practiceHandler := practice.NewHandler(
+		practice.NewService(queries, renderer, critic, gameSvc.CheckJudgeBudget, logger), logger)
+
 	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic
 	// FakeAssist runs the whole client flow with zero API dependency, and the real
 	// AnthropicAssist swaps in by ASSIST_MODE with no handler change. The endpoint is
@@ -247,6 +278,7 @@ func run() error {
 	gameHandler.Routes(mux, authHandler.RequireAuth)
 	assistHandler.Routes(mux, authHandler.RequireAuth)
 	ratingsHandler.Routes(mux, authHandler.RequireAuth)
+	practiceHandler.Routes(mux, authHandler.RequireAuth)
 	wsHandler.Routes(mux, authHandler.RequireAuth)
 
 	// Abuse protection, keyed by client IP (docs/DECISIONS.md, docs/IDEAS.md: due
@@ -267,6 +299,11 @@ func run() error {
 		{Name: "auth-strict", Match: web.MethodPrefix("/api/auth/", http.MethodPost), Limiter: authLimiter},
 		{Name: "matches-write", Match: web.MethodPrefix("/api/matches", http.MethodPost, http.MethodPut, http.MethodDelete), Limiter: writeLimiter},
 		{Name: "drawings-write", Match: web.MethodPrefix("/api/drawings", http.MethodPost, http.MethodPut, http.MethodDelete), Limiter: writeLimiter},
+		// A practice run costs a render AND a judge call — the same work a duel
+		// submission costs, from one player instead of two. It belongs in the write
+		// tier, not the generous default. GET /api/practice/prompt is a cheap read and
+		// is left to the catch-all: this row matches POST only.
+		{Name: "practice-write", Match: web.MethodPrefix("/api/practice", http.MethodPost), Limiter: writeLimiter},
 		{Name: "default", Match: func(*http.Request) bool { return true }, Limiter: defaultLimiter},
 	}
 	if !cfg.TrustProxy {

@@ -93,12 +93,13 @@ var (
 	// late submission is NOT stamped; the match is resolved (forfeit/abandoned)
 	// instead → 409 (docs/DESIGN-PHASE3-LIVE.md §2.4).
 	ErrRoundExpired = errors.New("game: round deadline passed")
-	// ErrDailyDuelsSpent: this player has started their allowance of duels inside
-	// the rolling judge-budget window → 429. Their problem alone; everyone else
-	// still plays (budget.go).
+	// ErrDailyDuelsSpent: this player has spent their allowance of judge calls
+	// inside the rolling budget window → 429. Their problem alone; everyone else
+	// still plays (budget.go). The allowance is SHARED with practice — one player,
+	// one quota, whether they spend it on an opponent or alone.
 	ErrDailyDuelsSpent = errors.New("game: player daily duel allowance spent")
-	// ErrJudgeBudgetSpent: the service's whole daily judging budget is gone, so no
-	// new duel can be scored until the window rolls → 429. Distinct from
+	// ErrJudgeBudgetSpent: the service's whole daily judging budget is gone, so
+	// nothing new can be scored until the window rolls → 429. Distinct from
 	// ErrDailyDuelsSpent because the player did nothing wrong and the message they
 	// deserve is a different one.
 	ErrJudgeBudgetSpent = errors.New("game: daily judge budget spent")
@@ -191,7 +192,7 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 	// caller. Guarding only the join would let a player over their cap queue up and
 	// duel anyway. Outside the tx because these are advisory reads and the tx below
 	// holds row locks worth keeping short.
-	if err := s.checkJudgeBudget(ctx, userID); err != nil {
+	if err := s.CheckJudgeBudget(ctx, userID); err != nil {
 		return MatchView{}, err
 	}
 

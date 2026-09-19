@@ -18,10 +18,16 @@ import (
 const judgeBudgetWindow = 24 * time.Hour
 
 // JudgeBudget is the daily ceiling on judge calls, in two halves: PerUser caps how
-// many duels one player may start inside judgeBudgetWindow, Global caps how many
-// the whole service may. Both matter for different reasons — the global one is what
+// many one player may spend inside judgeBudgetWindow, Global caps how many the
+// whole service may. Both matter for different reasons — the global one is what
 // keeps the external quota from being emptied, the per-user one is what keeps a
 // single abuser from emptying it AT everyone else.
+//
+// The unit is a JUDGE CALL, not a duel: a single-player practice run spends the
+// same quota from the same provider, so both counts include practice_runs
+// (internal/db/queries/judge_budget.sql). A ceiling that only saw duels would be
+// no ceiling at all — practice is one cheap request per call, with no opponent to
+// wait for.
 //
 // Enforced is the fake-judge escape hatch, and it is a field rather than an
 // inference so the decision is made once, at the composition root, where the judge
@@ -47,31 +53,37 @@ func (s *Service) SetJudgeBudget(b JudgeBudget) {
 	s.budget = b
 }
 
-// checkJudgeBudget refuses a new duel when either half of the daily judge budget is
-// spent. It runs at match CREATION, which is the only humane place for it: a player
-// told "you are out of duels" before they pick up the brush has lost nothing, while
-// the same message after two minutes of drawing and a submit would be worse than the
-// bug this guards against.
+// CheckJudgeBudget refuses a new judge call when either half of the daily budget is
+// spent. For a duel it runs at match CREATION, which is the only humane place for
+// it: a player told "you are out of duels" before they pick up the brush has lost
+// nothing, while the same message after two minutes of drawing and a submit would
+// be worse than the bug this guards against.
 //
-// The counts are advisory, not transactional: two simultaneous creates can both read
+// It is exported so internal/practice can spend from the SAME budget through the
+// same code rather than growing a second, drifting copy of it — a practice run and
+// a duel draw on one external quota, so they must be counted by one rule. Practice
+// holds it as a plain func value (a one-question port), which is why this stays a
+// method here and the budget's home stays with the game (docs/GAME.md §4.3).
+//
+// The counts are advisory, not transactional: two simultaneous callers can both read
 // a count one below the ceiling and both pass. That is deliberate — serializing every
-// match creation on a budget row would cost more than the handful of duels a burst
+// match creation on a budget row would cost more than the handful of calls a burst
 // can overshoot by, and the ceiling is already set below the external quota.
-func (s *Service) checkJudgeBudget(ctx context.Context, userID string) error {
+func (s *Service) CheckJudgeBudget(ctx context.Context, userID string) error {
 	if !s.budget.Enforced {
 		return nil
 	}
 	windowSecs := int32(judgeBudgetWindow / time.Second)
 
-	// Per-user first: it is the cheaper read (match_players is indexed by user_id),
+	// Per-user first: it is the cheaper read (both tables are indexed by user_id),
 	// it is the case that actually fires in practice, and checking it first means a
 	// player over their own cap learns that — rather than being told about the
 	// service's global state, which is none of their business.
-	mine, err := s.q.CountPlayerDuelsInWindow(ctx, db.CountPlayerDuelsInWindowParams{
+	mine, err := s.q.CountPlayerJudgeCallsInWindow(ctx, db.CountPlayerJudgeCallsInWindowParams{
 		UserID: userID, WindowSecs: windowSecs,
 	})
 	if err != nil {
-		return fmt.Errorf("game: count player duels in window: %w", err)
+		return fmt.Errorf("game: count player judge calls in window: %w", err)
 	}
 	if mine >= int64(s.budget.PerUser) {
 		return ErrDailyDuelsSpent
@@ -86,7 +98,7 @@ func (s *Service) checkJudgeBudget(ctx context.Context, userID string) error {
 		// ordinary and stays quiet; the global budget running out means the product's
 		// core feature is off for EVERYONE until the window rolls, and without this
 		// line the only symptom is 429s the owner never receives.
-		s.logger.Warn("daily judge budget exhausted — no new duels start until the rolling window frees a slot",
+		s.logger.Warn("daily judge budget exhausted — no new duels or practice runs start until the rolling window frees a slot",
 			"spent", spent, "budget", s.budget.Global, "window", judgeBudgetWindow)
 		return ErrJudgeBudgetSpent
 	}

@@ -315,6 +315,18 @@ function onKeydown(e: KeyboardEvent) {
                 <div class="menu__rating">
                     Rating <b>{{ session.user?.rating }}</b>
                 </div>
+                <!-- Solo practice — the same RouterLink shape as the ladder below.
+                     This is the only way back to it once the /draw welcome card has
+                     been dismissed, which is every visit after the first. -->
+                <OriButton
+                    :as="RouterLink"
+                    to="/practice"
+                    text="Practice"
+                    variant="outline"
+                    radius="md"
+                    :icon="icons.target"
+                    icon-position="left"
+                />
                 <!-- The ranked ladder — a RouterLink (renders an <a>); the drawer
                      unmounts with /draw on navigation, so no explicit close. -->
                 <OriButton
