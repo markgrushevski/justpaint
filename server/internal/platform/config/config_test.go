@@ -407,3 +407,65 @@ func TestLoad_JudgeMode(t *testing.T) {
 		}
 	})
 }
+
+// TestLoad_JudgeBudget pins the two daily judge-call caps. They guard a resource no
+// rate limiter can see — a free tier's per-DAY quota, one call per duel — so a
+// mistyped or zeroed knob must be a boot error, not a budget quietly nobody set.
+// There is deliberately no "unlimited" sentinel: 0 reads as "off" to an operator and
+// would behave as "refuse every duel" in the code.
+func TestLoad_JudgeBudget(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		requireBaseEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.JudgeDailyBudget != DefaultJudgeDailyBudget {
+			t.Errorf("JudgeDailyBudget = %d, want %d", cfg.JudgeDailyBudget, DefaultJudgeDailyBudget)
+		}
+		if cfg.JudgeDailyPerUser != DefaultJudgeDailyPerUser {
+			t.Errorf("JudgeDailyPerUser = %d, want %d", cfg.JudgeDailyPerUser, DefaultJudgeDailyPerUser)
+		}
+	})
+
+	t.Run("both are overridable, and a per-user cap above the global one is allowed", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_DAILY_BUDGET", "50")
+		// Above the global budget on purpose: that is how an operator says "no
+		// per-player limit, the global budget is the only ceiling".
+		t.Setenv("JUDGE_DAILY_PER_USER", "500")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.JudgeDailyBudget != 50 || cfg.JudgeDailyPerUser != 500 {
+			t.Errorf("got budget=%d per-user=%d, want 50/500", cfg.JudgeDailyBudget, cfg.JudgeDailyPerUser)
+		}
+	})
+
+	rejected := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{"a zero global budget", "JUDGE_DAILY_BUDGET", "0"},
+		{"a negative global budget", "JUDGE_DAILY_BUDGET", "-1"},
+		{"a non-integer global budget", "JUDGE_DAILY_BUDGET", "lots"},
+		{"a zero per-user cap", "JUDGE_DAILY_PER_USER", "0"},
+		{"a negative per-user cap", "JUDGE_DAILY_PER_USER", "-5"},
+		{"a non-integer per-user cap", "JUDGE_DAILY_PER_USER", "some"},
+	}
+	for _, tc := range rejected {
+		t.Run(tc.name+" is a boot error", func(t *testing.T) {
+			requireBaseEnv(t)
+			t.Setenv(tc.key, tc.value)
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected a boot error for %s=%q", tc.key, tc.value)
+			}
+			if !strings.Contains(err.Error(), tc.key) {
+				t.Errorf("error %q does not name the knob %s", err, tc.key)
+			}
+		})
+	}
+}
