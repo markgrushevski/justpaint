@@ -4,7 +4,7 @@
 >
 > **Ownership note.** `docs/ARCHITECTURE.md` §5, `docs/DOCUMENT-FORMAT.md` §10, and `docs/GAME.md` all *defer* to this doc for the `winner` representation, tie semantics, raster size, and background. This doc, in turn, defers the trust boundary / render pipeline to `DOCUMENT-FORMAT.md` §10 and the match lifecycle / A·B→player resolution to `GAME.md`.
 >
-> **Status:** v1 contract, frozen. The in-process `FakeJudge` ships today; the collaborator's service plugs in against this contract, unchanged. Greenfield. The collaborator can integrate against this alone — he never reads our other docs, never parses our document schema, never runs `getStroke`.
+> **Status:** v1 contract, frozen. `FakeJudge` ships as the dev/CI default; `HTTPJudge` (§7) is built against this contract and waiting for the collaborator's service to exist; `GeminiJudge` (§8.1) is a real interim judge — a vision LLM scoring both rasters — so the product isn't stuck on a fake verdict while the collaborator's ML is built. Greenfield. The collaborator can integrate against this alone — he never reads our other docs, never parses our document schema, never runs `getStroke`.
 
 ## 1. What the judge is (and what it is NOT)
 
@@ -106,7 +106,7 @@ The `HTTPJudge` (§7) calls the collaborator's service over HTTP/JSON. This sect
 - **Inline base64 (default for v1):** `imageA`/`imageB` are base64-encoded PNG bytes as JSON strings (optionally a `data:image/png;base64,` prefix). Simplest to integrate; at 1024² a PNG payload is small. This is the v1 default because it needs no shared object storage between us and the collaborator.
 - **URL (when object storage lands):** `imageA`/`imageB` are signed, short-TTL `https://` URLs to the PNGs in our object storage (`ARCHITECTURE.md` §7/§9). The judge fetches them. Preferred once object storage exists, to keep request bodies tiny. URLs must be treated as opaque and fetched read-only.
 
-A request carries **both images the same way** (both inline or both URL), never mixed. Which mode is active is a deployment config on our side (`JUDGE_IMAGE_MODE`, §7); the request shape is otherwise identical.
+A request carries **both images the same way** (both inline or both URL), never mixed. **v1 ships inline only.** `HTTPJudge` always base64-encodes (§7), and there is deliberately no `JUDGE_IMAGE_MODE` config knob yet — a knob with exactly one legal value is worse than no knob. Add it alongside URL mode once object storage exists.
 
 **Response.** `200 OK`, `Content-Type: application/json`, body = the `JudgeResult` of §2:
 
@@ -150,15 +150,17 @@ type Result struct {
 }
 ```
 
-- **`Request` carries bytes** in Go regardless of wire mode: the `HTTPJudge` base64-encodes them (inline mode) or uploads + sends URLs (URL mode). The `game` module always hands the judge bytes and stays ignorant of transport.
-- **`game` depends on the `Judge` interface, not the impl** (`ARCHITECTURE.md` §4/§5) — it does not know whether the judge is fake, in-process, or HTTP.
+- **`Request` carries bytes** regardless of wire mode: `encoding/json`'s built-in rule that a `[]byte` field marshals as a base64 string does the inline-mode encoding for `HTTPJudge` — no custom marshaling, no `data:` prefix. The `game` module always hands the judge bytes and stays ignorant of transport.
+- **`game` depends on the `Judge` interface, not an impl** (`ARCHITECTURE.md` §4/§5) — it does not know whether the judge is fake, HTTP, or the interim vision judge (§8.1).
 
-**`HTTPJudge` behavior (pin these):**
-- **Timeout.** A per-call deadline via `ctx` — default **10s** (ML inference may be slow; tune by config). On deadline exceeded → transient error.
-- **Retries.** Up to **2 retries** (3 attempts total) on connection errors, timeouts, and `5xx`, with backoff. **No retry on `4xx`** (a 4xx means our request is wrong — fix it, don't hammer). Scoring is pure, so retries are safe; the `Idempotency-Key` lets the judge dedupe if it wants.
-- **Failure is not a verdict.** If all attempts fail, the call returns an `error`; `game` does **not** invent a winner. The match stays in `judging` and the submit step surfaces a retryable failure (`GAME.md` §3/§4 owns the state handling; `API.md` §8.3 owns the HTTP error to the client). The fake judge (§8) means dev/CI never hit this path.
-- **Strict response validation.** Reject a `200` whose body violates §2 (scores outside `[0,1]`, non-finite, `winner` not in the enum, `reason` too long) — treat as a contract violation, not a verdict.
-- **Configured by env**, swapped with the fake at composition time (`main` wiring, `ARCHITECTURE.md` §4): `JUDGE_MODE=fake|http`, `JUDGE_BASE_URL`, `JUDGE_TIMEOUT`, `JUDGE_IMAGE_MODE=inline|url`.
+**`HTTPJudge` is built** (`internal/judge/http.go`) — the transport to the collaborator's service, ready before that service exists. Its behavior, exactly as shipped:
+- **Timeout is PER ATTEMPT, not per call.** `JUDGE_TIMEOUT` (default **10s**) bounds one HTTP round trip, layered as its own `context.WithTimeout` under the caller's `ctx` on every attempt — a single budget shared across attempts would make "retry on timeout" dead code, since the first timeout would consume it.
+- **3 attempts total (1 try + 2 retries), backoff 250ms then 500ms (doubling).** Retries happen only on connection errors, timeouts, and `5xx`. **Never on a `4xx`, including `429`** — a 4xx means our own request is wrong, and hammering it doesn't fix that. Scoring is pure, so a retry is always safe when one happens.
+- **A `200` that fails `Result.Validate()` is a contract violation, not a verdict** — wrapped in `ErrInvalidResult` and, deliberately, **not retried**: the collaborator's service is pure, so a same-content retry would earn back the identical broken body. A `200` whose body isn't even JSON is a separate, equally non-retryable, error class.
+- **Failure is not a verdict.** If every attempt fails, `Score` returns an `error` and `game` does not invent a winner; the match stays in `judging` (`GAME.md` §3/§4 owns the state handling; the stuck-judging sweep is the eventual recovery, `NOTES.md`). `FakeJudge` (§8) means dev/CI never exercise this path for real.
+- **`Idempotency-Key` is a content hash, not a caller-supplied id.** `Request` carries no match/submit id — `internal/judge` knows nothing of matches — so the key is a hex SHA-256 over `sha256(prompt) ‖ sha256(imageA) ‖ sha256(imageB)`, computed once and reused by every attempt of one `Score` call, matching this section's "same key for retries of the same scoring" (§6). Side effect worth knowing: the stuck-judging sweep re-firing a stale judging pass on the same submissions (`GAME.md` §4.1) reuses the same key too, for the same reason.
+- **Inline images only — there is no `JUDGE_IMAGE_MODE` knob (§6).** URL mode needs object storage, which this project deliberately does not have; a config knob with exactly one legal value is worse than no knob. Add both together when object storage lands.
+- **Configured by env**, swapped with the fake (or the interim Gemini judge, §8.1) at composition time (`main` wiring, `ARCHITECTURE.md` §4): `JUDGE_MODE=fake|http|gemini` (default `fake`), `JUDGE_BASE_URL` (required when `JUDGE_MODE=http`), `JUDGE_TIMEOUT` (default 10s, per attempt, above). `config.Load` fails fast — refuses to boot — when a selected mode's dependency is missing, naming the env var, the same posture as `RENDER_CLI`.
 
 ## 8. `FakeJudge` (default in dev/CI — zero ML dependency)
 
@@ -171,12 +173,27 @@ The whole loop (create → draw → submit → judge → result → ratings) mus
 
 `FakeJudge` runs **in-process** (no HTTP), needs no network, and is what the Phase 3 async-duel exit criteria are demonstrated against (`ROADMAP.md` Phase 3).
 
+## 8.1. `GeminiJudge` — an interim real judge, while the collaborator's ML is built
+
+`FakeJudge` (§8) proves the loop but never reads the prompt; `HTTPJudge` (§7) has nothing to call until the collaborator's service exists. `GeminiJudge` (`internal/judge/gemini.go`, `JUDGE_MODE=gemini`) closes that gap: it sends a vision model both judged rasters in one request and takes its structured JSON output as the §2 `Result`, so the product ships a verdict that actually looks at the prompt and the pictures instead of an ink-coverage proxy, for as long as the collaborator's ML is still being built.
+
+- **ONE `generateContent` call per duel, carrying BOTH rasters — never two calls.** The free tier's binding limit is requests per **day**, so scoring each image separately would halve the number of playable duels for nothing; one call is also what lets the model produce a `winner`/`reason` that is an actual comparison, rather than two independently-formed opinions stapled together.
+- **The API key travels in the `x-goog-api-key` HEADER, never `?key=`.** The Generative Language API accepts a query-string key too; this impl deliberately never uses it — a key in a URL leaks into access logs, proxy logs, and referrers, none of which a header does.
+- **Structured output, validated the same way as everything else.** The request sets `responseMimeType: "application/json"` and a `responseSchema` pinning exactly the §2 shape (`scoreA`/`scoreB`/`winner` as an `"A"|"B"|"tie"` enum/`reason`), plus `temperature: 0`. The model's JSON still runs through the same `Result.Validate()` as `HTTPJudge` and `FakeJudge` — structured output narrows what the model can say, it does not get a pass on the contract.
+- **The pictures are untrusted; the prompt is not.** The system instruction tells the model that everything inside the two images is drawing and never instruction — a player can draw words demanding a verdict. That **narrows, not eliminates**, the surface: an instruction is not a security boundary against a sufficiently persuasive image. The blast radius is bounded and specific to this game — the model holds no credentials and calls no tools, so a successful injection buys a **wrong verdict**, never more. The prompt text itself carries no such risk at all: it comes from a fixed, server-seeded table (`server/migrations/00002_seed_prompts.sql`), so **no player-authored text reaches the model** — only pixels do.
+- **`ErrQuotaExhausted` wraps HTTP 429 and is never retried** — a daily quota does not refill in 250ms, so retrying would just spend two more log lines waiting for the same failure. The wrapped error carries Google's own error message verbatim, so a log line can tell a spent daily budget apart from an ordinary per-minute rate limit.
+- **One deliberate asymmetry, worth calling out on its own: an over-long `reason` is CLAMPED here, but REJECTED by `HTTPJudge`.** This impl owns the model it prompts, and verbosity is a failure mode we invited by asking for prose in the first place — discarding a duel both players finished, over a rationale that ran forty characters long, is the worse outcome. A peer service (the collaborator's) breaking the same §2 cap is different: it is a contract violation, and silently repairing it would hide a real break in someone else's system. Scores and `winner` — the parts that actually decide the duel — are validated strictly in both, with no clamping involved.
+- **`JUDGE_MODE=gemini` knowingly relaxes §9's determinism expectation.** `temperature: 0` narrows the model's variance but does not *guarantee* identical output for identical input the way `FakeJudge`'s ink-coverage heuristic does — see §9.
+- **`GEMINI_MODEL` and `GEMINI_BASE_URL` are configurable because Google, not us, decides when they move.** The free tier's model names and quotas change on Google's schedule; the shipped defaults (`gemini-2.5-flash`, the public `v1beta` root) are a starting point that **nobody has verified against Google's own docs** — the machine this was built on could not reach them — so check both before relying on either.
+
+**Verified vs. not, precisely.** Exercised end to end against a local stand-in for Google's endpoint: the Go test suite (`gemini_test.go`) pins the exact request shape — the key absent from the URL and present in the header, exactly two `image/png` inline parts, the JSON-mime + schema request, the system instruction, and the match prompt — and a live run of the full stack (`RENDER_MODE=node`, the same stand-in swapped in for Google) drove a real duel through real ~25KB authoritative node-canvas renders to a result screen with Elo moving ±16. **Not verified: whether Google's real API accepts this exact JSON shape** — nobody has called it yet, because there is no key. See `docs/ISSUES-INNER.md` for the specific reconstructed field names/casing that would 400 first if any of them is wrong.
+
 ## 9. Expectations on the real ML judge (for the collaborator)
 
 The contract is the hard boundary; these are the soft requirements that keep matches fair:
 
 - **Bound the scores.** Return `scoreA`/`scoreB` in `[0, 1]`, finite. If the model emits unbounded logits/distances, normalize before returning — do not leak raw model scale.
-- **Determinism is strongly preferred.** Same inputs ⇒ same output. Non-determinism (e.g. sampling) makes a replay/audit score differ from the live one; if unavoidable, fix a seed. We render byte-identical PNGs on our side specifically so the only remaining variance is the model's (`DOCUMENT-FORMAT.md` §1 design goal).
+- **Determinism is strongly preferred.** Same inputs ⇒ same output. Non-determinism (e.g. sampling) makes a replay/audit score differ from the live one; if unavoidable, fix a seed. We render byte-identical PNGs on our side specifically so the only remaining variance is the model's (`DOCUMENT-FORMAT.md` §1 design goal). (Our own interim `GeminiJudge`, §8.1, knowingly relaxes this: `temperature: 0` narrows but does not guarantee identical output for identical input — a documented exception for our impl, not a lowered bar for the collaborator's ML.)
 - **Positional fairness.** Don't bias toward `imageA` or `imageB` by position. We may, for audit, send the same pair swapped and expect the verdict to swap accordingly (`A`↔`B`, `tie` stable).
 - **Latency.** Aim well under the 10s timeout (§7); the async duel tolerates seconds, not minutes.
 - **The `reason` is player-facing.** Keep it short, plain, and free of player identity (positional or generic language only). It is shown verbatim on the result screen.

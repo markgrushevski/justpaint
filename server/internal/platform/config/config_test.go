@@ -312,3 +312,98 @@ func TestLoad_DatabaseURLShape(t *testing.T) {
 		}
 	})
 }
+
+// TestLoad_JudgeMode pins the JUDGE_MODE mode-switch. Each non-fake mode depends
+// on something the process cannot invent — the collaborator's URL, or a
+// server-side API key — and a mode missing its dependency would fail out of band
+// on the first duel, long after the deploy that broke it. Same fail-fast shape as
+// RENDER_CLI and ANTHROPIC_API_KEY.
+func TestLoad_JudgeMode(t *testing.T) {
+	t.Run("default is fake with the pinned timeout", func(t *testing.T) {
+		requireBaseEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.JudgeMode != JudgeModeFake {
+			t.Errorf("JudgeMode = %q, want %q", cfg.JudgeMode, JudgeModeFake)
+		}
+		if cfg.JudgeTimeout != DefaultJudgeTimeout {
+			t.Errorf("JudgeTimeout = %s, want %s", cfg.JudgeTimeout, DefaultJudgeTimeout)
+		}
+	})
+
+	t.Run("http without a base url is a boot error", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_MODE", "http")
+		t.Setenv("JUDGE_BASE_URL", "")
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected a boot error when JUDGE_MODE=http without JUDGE_BASE_URL")
+		}
+		if !strings.Contains(err.Error(), "JUDGE_BASE_URL") {
+			t.Errorf("error %q does not name the missing knob", err)
+		}
+	})
+
+	t.Run("gemini without a key is a boot error", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_MODE", "gemini")
+		t.Setenv("GEMINI_API_KEY", "")
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected a boot error when JUDGE_MODE=gemini without GEMINI_API_KEY")
+		}
+		if !strings.Contains(err.Error(), "GEMINI_API_KEY") {
+			t.Errorf("error %q does not name the missing knob", err)
+		}
+	})
+
+	t.Run("gemini with a key loads, model and base url overridable", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_MODE", "gemini")
+		t.Setenv("GEMINI_API_KEY", "test-key")
+		t.Setenv("GEMINI_MODEL", "gemini-3-flash-lite")
+		// Trailing slash trimmed so callers can join paths without doubling it.
+		t.Setenv("GEMINI_BASE_URL", "http://127.0.0.1:1/v1beta/")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.GeminiModel != "gemini-3-flash-lite" {
+			t.Errorf("GeminiModel = %q, want the override", cfg.GeminiModel)
+		}
+		if cfg.GeminiBaseURL != "http://127.0.0.1:1/v1beta" {
+			t.Errorf("GeminiBaseURL = %q, want the trailing slash trimmed", cfg.GeminiBaseURL)
+		}
+	})
+
+	t.Run("http trims the base url trailing slash", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_MODE", "http")
+		t.Setenv("JUDGE_BASE_URL", "https://judge.example.com/")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.JudgeBaseURL != "https://judge.example.com" {
+			t.Errorf("JudgeBaseURL = %q, want the trailing slash trimmed", cfg.JudgeBaseURL)
+		}
+	})
+
+	t.Run("a non-positive timeout is a boot error", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_TIMEOUT", "0s")
+		if _, err := Load(); err == nil {
+			t.Fatal("expected a boot error for JUDGE_TIMEOUT=0s")
+		}
+	})
+
+	t.Run("unknown mode is a boot error", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_MODE", "bogus")
+		if _, err := Load(); err == nil {
+			t.Fatal("expected a boot error for an unknown JUDGE_MODE")
+		}
+	})
+}

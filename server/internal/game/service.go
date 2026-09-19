@@ -459,12 +459,27 @@ func (s *Service) dispatchJudging(matchID string) bool {
 	return false
 }
 
+// JudgePassBudget bounds ONE judging pass end to end: two authoritative renders
+// plus the judge call, retries included.
+//
+// It must clear the judge's whole retry envelope, or the wrapper silently
+// truncates the policy the judge was configured with — which is what a flat 30s
+// did: docs/JUDGE.md §7 pins 3 attempts, so a default JUDGE_TIMEOUT of 10s needs
+// 30s for the judge ALONE, before either render has run. The arithmetic is
+// 3x10s of judge + ~1s of backoff + room for two node-canvas renders.
+//
+// Generous on purpose: this is not the abuse guard. A pass that wedges anyway is
+// caught by the stuck-judging sweep and finally resolved as done/'aborted'
+// (sweeper.go, docs/GAME.md §4.1), so being too tight (a truncated retry, a lost
+// duel) costs more than being too loose (a player waits a little longer).
+const JudgePassBudget = 60 * time.Second
+
 // judgeMatch runs the judging pass for a match that just entered judging, on its
 // own background context (the request that triggered it has already returned). It
 // runs holding a judgeLimiter slot — always start it via dispatchJudging (or, for a
 // caller that pre-acquired, judging.goHeld), never a bare `go`.
 func (s *Service) judgeMatch(matchID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), JudgePassBudget)
 	defer cancel()
 	if err := s.runJudging(ctx, matchID); err != nil {
 		// Log and leave the match in judging: the stuck-judging sweep re-fires the
