@@ -84,6 +84,7 @@ server/
     judge/       # Judge interface + FakeJudge (HTTPJudge = Phase 4)                    [done: fake]
     assist/      # Assist interface + FakeAssist + AnthropicAssist scaffold; docs/ASSIST.md            [done: fake]
     ratings/     # read-only leaderboard module (aggregate + sort over match_players); docs/API.md §11 [done]
+    practice/    # single-player scoring: one prompt/drawing/score, no match; judge.Critic, not Judge  [done]
     ws/          # coder/websocket hub for the game (coder/websocket hub — shipped; async-first)       [Phase 3]
   migrations/    # goose (00001_initial_schema.sql, 00002_seed_prompts.sql)
 ```

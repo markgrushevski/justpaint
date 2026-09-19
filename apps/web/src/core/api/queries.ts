@@ -5,6 +5,8 @@ import { drawings } from './drawings'
 import type { DrawingFull, DrawingMeta } from './drawings'
 import { matches } from './matches'
 import type { Match, SubmitMatch } from './matches'
+import { practice } from './practice'
+import type { PracticePrompt, PracticeRun } from './practice'
 import { leaderboard } from './leaderboard'
 import type { LeaderboardPage } from './leaderboard'
 import { assist } from './assist'
@@ -111,6 +113,30 @@ export function useSubmitMatch() {
     return useMutation({
         mutationFn: ({ id, document }: { id: string; document: Document }): Promise<SubmitMatch> =>
             matches.submit(id, document)
+    })
+}
+
+/**
+ * Practice mutations. Both are imperative button actions with no cache to own, so
+ * they take the store-free mutation shape rather than `useQuery` — and the prompt
+ * fetch in particular MUST NOT be cached: "New prompt" means give me a different
+ * one, which a cached read would refuse to do.
+ */
+
+/** Fetch a prompt to draw. */
+export function usePracticePrompt() {
+    return useMutation({
+        mutationFn: (): Promise<PracticePrompt> => practice.prompt()
+    })
+}
+
+/** Submit a practice drawing and wait on the judge. Slow by nature (the server
+ *  renders the raster and calls a vision model in-request) — the caller shows a
+ *  judging state for the several seconds this takes. */
+export function useSubmitPractice() {
+    return useMutation({
+        mutationFn: ({ promptId, document }: { promptId: string; document: Document }): Promise<PracticeRun> =>
+            practice.run(promptId, document)
     })
 }
 

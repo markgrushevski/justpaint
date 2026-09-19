@@ -20,6 +20,15 @@ defineProps<{
     prompt: string
     /** false → redacted "waiting…"; true → the prompt text is shown. */
     revealed: boolean
+    /**
+     * No opponent exists for this banner, so the waiting layer must not either.
+     * A duel cross-fades out of "waiting for opponent" because its roster fills
+     * before the prompt does; practice has no roster, mounts the banner only once
+     * it HAS a prompt, and would otherwise carry an invisible layer announcing a
+     * duel that is not pending — invisible to the eye and to assistive tech, but
+     * still there for find-in-page, a text dump, or anyone reading the DOM.
+     */
+    solo?: boolean
 }>()
 </script>
 
@@ -30,6 +39,7 @@ defineProps<{
              cascade, no Vue <Transition> to stall; the fade is the CSS transition
              on `.banner__layer`. -->
         <div
+            v-if="!solo"
             class="banner__layer banner__layer--waiting"
             :style="{ opacity: revealed ? 0 : 1 }"
             :aria-hidden="revealed"
