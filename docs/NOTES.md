@@ -713,3 +713,18 @@ like a broken dependency and is a broken assumption.
 npm decides hoisting from the whole tree, so it is neither stable across installs nor ours to predict.
 `createRequire(import.meta.url).resolve('<pkg>/package.json')` asks Node the same question the bundler asks,
 and gets the same answer.
+
+## Pass a third-party API's error text through verbatim
+
+The Gemini judge's wire format was reconstructed from documentation, and the worry was that some field name or
+casing would be wrong. All three guesses were right. What was wrong was the thing that felt safest: the default
+model id. The first live call answered `404 NOT_FOUND: This model models/gemini-2.5-flash is no longer available
+to new users. Please update your code to use models/gemini-3.6-flash`.
+
+That was a one-run diagnosis ONLY because the upstream message reaches our error unedited. A tidier
+`judge: gemini: request failed (404)` would have cost an afternoon and a packet capture. When wrapping a
+third-party failure, add context in front of their words — never in place of them.
+
+The second lesson is about defaults: a pinned model id is a liability with an expiry date, which is why
+`GEMINI_MODEL` is configuration. A pin is still the right default over a floating `-latest` alias, because a
+judge decides ratings and a model that changes under you silently is worse than one that stops loudly.

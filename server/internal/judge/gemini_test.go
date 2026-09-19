@@ -19,7 +19,7 @@ import (
 
 const (
 	geminiTestKey    = "AIza-test-key-do-not-log"
-	geminiTestModel  = "gemini-2.5-flash"
+	geminiTestModel  = "gemini-test-model"
 	geminiTestPrompt = "a fox riding a bicycle"
 )
 
@@ -104,7 +104,7 @@ func geminiEnvelope(modelOutput string) string {
 	return `{"candidates":[{"content":{"role":"model","parts":[{"text":` + strconv.Quote(modelOutput) +
 		`}]},"finishReason":"STOP","index":0,"safetyRatings":[]}],` +
 		`"usageMetadata":{"promptTokenCount":1544,"candidatesTokenCount":61,"totalTokenCount":1605},` +
-		`"modelVersion":"gemini-2.5-flash"}`
+		`"modelVersion":"gemini-test-model"}`
 }
 
 // --- tiny JSON accessors, so the request assertions read as prose ------------
