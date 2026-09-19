@@ -128,6 +128,21 @@ func run() error {
 			"timeout", cfg.JudgeTimeout, "retry_envelope", envelope, "pass_budget", game.JudgePassBudget)
 	}
 	gameSvc := game.NewServiceWithConcurrency(pool, queries, renderer, arbiter, logger, cfg.JudgeConcurrency)
+	// The daily judge budget. The per-IP write limiter bounds the request RATE; this
+	// bounds the scarce thing BEHIND the requests — a free tier's per-DAY quota, one
+	// call per duel. Enforced only against a real judge: the fake has no quota to
+	// protect, and a ceiling on the local dev loop would be a bug, not a guard.
+	judgeBudget := game.JudgeBudget{
+		Enforced: cfg.JudgeMode != config.JudgeModeFake,
+		Global:   cfg.JudgeDailyBudget,
+		PerUser:  cfg.JudgeDailyPerUser,
+	}
+	gameSvc.SetJudgeBudget(judgeBudget)
+	if judgeBudget.Enforced {
+		logger.Info("judge budget: per rolling 24h", "global", judgeBudget.Global, "per_user", judgeBudget.PerUser)
+	} else {
+		logger.Info("judge budget: not enforced (JUDGE_MODE=fake has no external quota to protect)")
+	}
 	gameHandler := game.NewHandler(gameSvc, logger)
 
 	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic

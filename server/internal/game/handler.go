@@ -167,12 +167,24 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	view, err := h.svc.CreateOrJoin(r.Context(), uid)
 	if err != nil {
-		if errors.Is(err, ErrNoPrompts) {
+		switch {
+		// Both budget refusals are 429s, but they are not the same news. One is "you
+		// have had your turn", the other is "the service has had its turn" — and the
+		// second deliberately says nothing about how large the budget is or how much
+		// of it is left, which is operator information, not player information.
+		case errors.Is(err, ErrDailyDuelsSpent):
+			web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited,
+				"you have used all of your duels for today — new ones unlock as the day rolls over")
+		case errors.Is(err, ErrJudgeBudgetSpent):
+			web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited,
+				"the daily judging budget is spent — duels resume tomorrow")
+		case errors.Is(err, ErrNoPrompts):
 			h.logger.Error("create match: no active prompts — run the seed migration (00002)")
-		} else {
+			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
+		default:
 			h.logger.Error("create match", "err", err)
+			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
 		}
-		web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
 		return
 	}
 	web.JSON(w, http.StatusCreated, matchEnvelope{Match: buildMatchDTO(view, uid, time.Now())})

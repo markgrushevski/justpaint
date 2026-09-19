@@ -81,6 +81,11 @@ chosen by the first matching rule, and each tier has its own independent budget.
 A throttled request gets **`429 rate_limited`** in the standard envelope plus a
 **`Retry-After`** header (seconds). `POST /api/assist/ops` keeps its own
 *per-user* bucket on top of this (§10) — that one guards API spend, not abuse.
+`POST /api/matches` layers on a third, unrelated `429 rate_limited`: a **daily
+judge-call budget** (§8), global and per-player, guarding a resource this
+per-IP bucket cannot see at all — a free-tier quota measured in requests per
+**day**, not per second. Unlike the tiers above it carries **no `Retry-After`**
+header: the window rolls continuously, so there is no fixed reset to name.
 
 The client IP is the direct peer unless the server is configured to trust a
 proxy (`TRUST_PROXY`), in which case it is taken from the **rightmost**
@@ -285,7 +290,7 @@ Success `201 Created` (the caller opened a new match and is waiting — or was r
 > `canvas` echoes the canonical **1080×1080** game canvas (owned by `GAME.md`) so the client configures the editor without guessing. The submitted document's `width`/`height` MUST match it (enforced at submit, §8.3).
 > `drawingDeadline` is `null` while `status: "open"`; once the roster fills and the match flips to `drawing` it becomes an absolute RFC3339Nano UTC instant (`now() + 90s`, the server's clock — `GAME.md` §4.1). `serverTime` is the response-build instant, always present, in the same format, so the client reconciles clock skew instead of trusting its own clock for the countdown.
 
-Errors: `400 validation_failed` (bad `mode`), `401 unauthorized`, `429 rate_limited`.
+Errors: `400 validation_failed` (bad `mode`), `401 unauthorized`, `429 rate_limited` — two distinct causes, same code and status, checked in order: the caller's own daily duel allowance is spent (message `"you have used all of your duels for today — new ones unlock as the day rolls over"`), or — only once they've cleared that check — the service's whole daily judge budget is spent (message `"the daily judging budget is spent — duels resume tomorrow"`). Neither response discloses the budget's size, and unlike §3.1's tiers, neither carries a `Retry-After` header. Full rule: `GAME.md` §4.3; why: `DECISIONS.md` 2026-09-19.
 
 ### `GET /api/matches/{id}`
 Fetch match state. **Auth: required**; caller must be a player ⇒ otherwise `404 not_found` (hidden). **Opponent's drawing is redacted until `status: "done"`** (visibility rule, `GAME.md`).

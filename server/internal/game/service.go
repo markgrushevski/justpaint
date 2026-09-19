@@ -93,6 +93,15 @@ var (
 	// late submission is NOT stamped; the match is resolved (forfeit/abandoned)
 	// instead → 409 (docs/DESIGN-PHASE3-LIVE.md §2.4).
 	ErrRoundExpired = errors.New("game: round deadline passed")
+	// ErrDailyDuelsSpent: this player has started their allowance of duels inside
+	// the rolling judge-budget window → 429. Their problem alone; everyone else
+	// still plays (budget.go).
+	ErrDailyDuelsSpent = errors.New("game: player daily duel allowance spent")
+	// ErrJudgeBudgetSpent: the service's whole daily judging budget is gone, so no
+	// new duel can be scored until the window rolls → 429. Distinct from
+	// ErrDailyDuelsSpent because the player did nothing wrong and the message they
+	// deserve is a different one.
+	ErrJudgeBudgetSpent = errors.New("game: daily judge budget spent")
 )
 
 // PlayerRow is one roster slot, decoupled from the generated row type so the
@@ -137,6 +146,10 @@ type Service struct {
 	// judging bounds concurrent judging passes across BOTH dispatch paths (the last
 	// submit and the sweeper). Never nil — both constructors build it.
 	judging *judgeLimiter
+	// budget is the daily ceiling on judge calls (budget.go). Its zero value means
+	// "unbudgeted", which is what the fake judge and every test get; main.go installs
+	// a real one via SetJudgeBudget when a real judge is configured.
+	budget JudgeBudget
 }
 
 // NewService builds the service with defaultJudgeConcurrency judging passes in
@@ -168,7 +181,20 @@ func NewServiceWithConcurrency(pool *pgxpool.Pool, q *db.Queries, renderer rende
 //     waiting player tapping "play" again does not stack duplicate open matches;
 //  3. failing that, creates a fresh open match with one random active prompt
 //     pinned, and seats the caller as the first player.
+//
+// It refuses with ErrDailyDuelsSpent / ErrJudgeBudgetSpent (→ 429) when the daily
+// judge budget is out (budget.go).
 func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, error) {
+	// Ahead of the matchmaking tx, and ahead of all three branches: branch (1) starts
+	// a round on the spot, and a match created in branch (3) starts one the moment
+	// anybody joins — at which point it is the JOINER being budget-checked, not this
+	// caller. Guarding only the join would let a player over their cap queue up and
+	// duel anyway. Outside the tx because these are advisory reads and the tx below
+	// holds row locks worth keeping short.
+	if err := s.checkJudgeBudget(ctx, userID); err != nil {
+		return MatchView{}, err
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return MatchView{}, fmt.Errorf("game: begin tx: %w", err)
@@ -482,6 +508,15 @@ func (s *Service) judgeMatch(matchID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), JudgePassBudget)
 	defer cancel()
 	if err := s.runJudging(ctx, matchID); err != nil {
+		// Quota exhaustion is an operational fact, not a bug, and it reads nothing
+		// like one in a wall of "judge match" errors: every duel from here until
+		// the budget resets will fail the same way. Name it so the cause is one
+		// grep away instead of an evening spent suspecting the judge.
+		if errors.Is(err, judge.ErrQuotaExhausted) {
+			s.logger.Error("judge quota exhausted — every duel will abort until the budget resets",
+				"matchID", matchID, "err", err)
+			return
+		}
 		// Log and leave the match in judging: the stuck-judging sweep re-fires the
 		// attempt once it goes stale, up to maxJudgeAttempts, and the exhausted sweep
 		// then closes it out as done/'aborted' rather than letting it wedge forever
@@ -523,6 +558,7 @@ func (s *Service) runJudging(ctx context.Context, matchID string) error {
 		return fmt.Errorf("game: render B: %w", err)
 	}
 
+	startedAt := time.Now()
 	res, err := s.judge.Score(ctx, judge.Request{Prompt: prompt.Text, ImageA: imgA, ImageB: imgB})
 	if err != nil {
 		return fmt.Errorf("game: judge: %w", err)
@@ -530,6 +566,21 @@ func (s *Service) runJudging(ctx context.Context, matchID string) error {
 	if err := res.Validate(); err != nil {
 		return fmt.Errorf("game: judge result: %w", err)
 	}
+	// The ONE line that says the product's core feature worked. Without it a live
+	// judge is unobservable: you cannot tell a sane verdict from a degenerate one
+	// (every duel a tie, every score 0), or notice latency creeping toward the
+	// pass budget, and the first signal would be a player complaining. Scores and
+	// latency, not the reason — the rationale is player-facing text that can carry
+	// whatever a drawing provoked, and logs are not the place for it.
+	s.logger.Info("match judged",
+		"matchID", matchID,
+		"prompt", prompt.Text,
+		"scoreA", res.ScoreA,
+		"scoreB", res.ScoreB,
+		"winner", res.Winner,
+		"judge_ms", time.Since(startedAt).Milliseconds(),
+		"render_bytes", len(imgA)+len(imgB),
+	)
 
 	// Map positional winner → concrete player id (null on tie), and A's Elo score.
 	var winner *string
