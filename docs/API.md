@@ -1,8 +1,8 @@
 # API contract
 
-> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, the live WS realtime layer, AI assist, and the ratings leaderboard. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12); §10 owns the AI-assist HTTP edge (contract owned by `docs/ASSIST.md`); §11 owns the leaderboard read.
+> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, the live WS realtime layer, AI assist, single-player practice, and the ratings leaderboard. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12); §10 owns the AI-assist HTTP edge (contract owned by `docs/ASSIST.md`); §11 owns the leaderboard read; §12 owns the single-player practice HTTP edge (contract owned by `docs/GAME.md`'s practice section and the `Critic` seam in `docs/JUDGE.md`).
 >
-> **Status:** Shipped (Phase 0–3 complete; §10–11 land with Phase 4, in progress — `docs/ROADMAP.md`). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
+> **Status:** Shipped (Phase 0–3 complete; §10–12 land with Phase 4, in progress — `docs/ROADMAP.md`). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
 
 ## 0. What this doc owns vs. references
 
@@ -75,17 +75,21 @@ chosen by the first matching rule, and each tier has its own independent budget.
 | Tier | Applies to | Burst | Sustained |
 |---|---|---|---|
 | strict | `POST /api/auth/*` | 10 | 1 per 6s |
-| write | `POST`/`PUT`/`DELETE` on `/api/matches*`, `/api/drawings*` | 30 | 1 per 2s |
+| write | `POST`/`PUT`/`DELETE` on `/api/matches*`, `/api/drawings*`, `/api/practice` | 30 | 1 per 2s |
 | default | everything else, including reads, the WS upgrade and the served SPA | 300 | 5 per s |
 
 A throttled request gets **`429 rate_limited`** in the standard envelope plus a
 **`Retry-After`** header (seconds). `POST /api/assist/ops` keeps its own
 *per-user* bucket on top of this (§10) — that one guards API spend, not abuse.
-`POST /api/matches` layers on a third, unrelated `429 rate_limited`: a **daily
-judge-call budget** (§8), global and per-player, guarding a resource this
-per-IP bucket cannot see at all — a free-tier quota measured in requests per
-**day**, not per second. Unlike the tiers above it carries **no `Retry-After`**
-header: the window rolls continuously, so there is no fixed reset to name.
+`POST /api/matches` **and** `POST /api/practice` (§12) each layer on a third,
+unrelated `429 rate_limited`: a **daily judge-call budget** (`GAME.md` §4.3),
+global and per-player, guarding a resource this per-IP bucket cannot see at
+all — a free-tier quota measured in requests per **day**, not per second,
+spent alike by a duel entering judging and by a practice run being critiqued.
+Unlike the tiers above it carries **no `Retry-After`** header: the window
+rolls continuously, so there is no fixed reset to name. (`GET
+/api/practice/prompt` is a cheap read and sits in the generous `default` tier,
+not `write` — only the scoring `POST` costs a render and a judge call.)
 
 The client IP is the direct peer unless the server is configured to trust a
 proxy (`TRUST_PROXY`), in which case it is taken from the **rightmost**
@@ -150,7 +154,7 @@ Errors: `401 unauthorized` if no valid session. (`password_hash` is **never** se
 
 ## 6. DoS caps (binding for the Go validator)
 
-These exact numbers are pinned **here** (`DOCUMENT-FORMAT.md` §7 step 1 & step 5 and `DECISIONS.md` "Document size / DoS caps" defer the numbers to API.md). They apply to every drawings write path (create + update) — and to game submit, which writes a drawing.
+These exact numbers are pinned **here** (`DOCUMENT-FORMAT.md` §7 step 1 & step 5 and `DECISIONS.md` "Document size / DoS caps" defer the numbers to API.md). They apply to every drawings write path (create + update), to game submit (which writes a drawing), and to practice scoring (§12) — which runs the identical validator over the identical document but, unlike a submit, never persists it.
 
 | Limit | Value | Enforced by | Notes |
 |---|---|---|---|
@@ -504,3 +508,50 @@ Success `200 OK`:
 
 Errors:
 - `401 unauthorized` — no/expired/invalid `jp_session`. This is the **only** client error: `limit` is clamped rather than rejected, so there is no `400` path.
+
+## 12. Practice — single-player scoring
+
+All under `/api/practice`. **Auth: required** on both routes — a run is recorded against a user and spends their share of the judge budget (§3.1, `GAME.md` §4.3), so there is no anonymous path. Practice is the async duel's (§8) solo sibling: one player, one prompt, the SAME real judge infrastructure and the SAME 1080×1080 canvas — but no match, no roster, no deadline, and the verdict comes back **synchronously**, in the response that submits the drawing. Full rules (why it isn't a `matches` row, why it isn't rated): `docs/GAME.md`'s practice section. The scoring seam (`Critic`, explicitly not the `Judge` contract): `docs/JUDGE.md` §8.2. The "why": `docs/DECISIONS.md` 2026-09-20.
+
+### `GET /api/practice/prompt`
+Fetch one prompt to draw. **Auth: required.**
+
+Unlike a duel's prompt — redacted until an opponent joins (§8) — the text is **never redacted** here: there is nobody to pre-draw against. This is a cheap read and sits in the generous **default** rate-limit tier (§3.1), not `write`.
+
+Success `200 OK`:
+```json
+{ "prompt": { "id": "…", "text": "a jellyfish disco party" } }
+```
+
+Errors: `401 unauthorized`; `500 internal` — practice has no critic configured for this deployment (see the `POST` errors below; the same cause, refused before a player spends any time drawing for a prompt that could never be scored).
+
+### `POST /api/practice`
+Score one drawing against a prompt. **Auth: required.** Sits in the **write** rate-limit tier (§3.1) — a run costs a render and a judge call, the same work a duel submission costs, from one player instead of two.
+
+Request:
+```json
+{ "promptId": "…", "document": { "version": 1, "width": 1080, "height": 1080, "background": "#ffffff", "layers": [ … ] } }
+```
+- The same **8 MB body cap + full document validator + DoS caps** as drawings/duel submissions apply (§6), including the **1080×1080 canvas check** (`GAME.md` §2) — practice draws on the identical judged canvas a duel does. Unknown fields are tolerated, exactly as on the duel submit path (§1). A client `thumbnail` may ride along but is advisory only and is ignored server-side (trust boundary, `DOCUMENT-FORMAT.md` §10).
+- **Unlike a duel submission, the document is never persisted** — no `drawings` row is created. It is validated, rendered to the authoritative raster, handed to the critic, and discarded; only the verdict (`score`/`feedback`) survives, in `practice_runs`. A client's own advisory thumbnail is therefore the only picture of a run that outlives its response.
+
+Success `200 OK` — the verdict, produced **synchronously** inside this request (the authoritative render and the critic's call both happen before the response is written, unlike a duel's out-of-band judging, §8.3):
+```json
+{
+  "run": {
+    "id": "…",
+    "score": 0.0,
+    "feedback": "You drew a clean sun symbol, but it does not show any part of the prompt. To depict a jellyfish disco party, try drawing umbrella-shaped jellyfish with wavy tentacles dancing beneath a shiny disco ball.",
+    "prompt": { "id": "…", "text": "a jellyfish disco party" }
+  }
+}
+```
+- `score` is the critic's similarity-to-prompt reading in `[0, 1]` — the **same scale** a duel's `scoreA`/`scoreB` use (`JUDGE.md` §8.2), so a practice score and a duel score mean the same thing to a player. `feedback` is plain text, ≤500 characters, addressed to the player as "you". `run.id` identifies the `practice_runs` row; there is no `drawingId` in this response (see above — nothing was stored to point at).
+
+Errors:
+- `400 validation_failed` — invalid document, or the wrong canvas size.
+- `413 document_too_large` — over 8 MB.
+- `404 not_found` — `promptId` is not a valid UUID, or names no *active* prompt. A retired prompt answers exactly like a made-up one (§1 ownership-hiding, applied here to "does this prompt still exist" rather than ownership) — deactivation is not detectable by trying to draw for it.
+- `429 rate_limited` — the **same daily judge-call budget** a duel draws on (`GAME.md` §4.3), two distinct causes, same code/status, checked in order: the caller's own daily allowance is spent (message *"you have used all of your scored drawings for today — new ones unlock as the day rolls over"*), or — only once they've cleared that check — the service's whole daily judging budget is spent (message *"the daily judging budget is spent — scoring resumes tomorrow"*). Neither response discloses the budget's size, and neither carries a `Retry-After` header (same posture as `POST /api/matches`, §8).
+- `500 internal` — **practice is not configured on this server.** Under `JUDGE_MODE=http` there is no `Critic` (the collaborator's service has no critique endpoint and was never asked to build one — `JUDGE.md` §8.2), so every call refuses rather than silently scoring with the fake critic. This is the **one `500` in this API whose message names its cause** — *"practice is not available on this server: the configured judge cannot score a single drawing"* — instead of the usual opaque `"internal error"` (§3): a misconfigured `JUDGE_MODE` is a deployment fact worth surfacing, not a secret, and an opaque message here would let the mistake go unnoticed for a long time.
+- `401 unauthorized`.

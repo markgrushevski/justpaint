@@ -34,5 +34,10 @@ export const icons = {
     // paths, but @mdi/js isn't installed, this metaphor is simple enough to draw
     // by hand, and the real upstream mdiPodium is a differently-shaped glyph — so
     // this hand-authored one must not borrow that name.
-    podium: 'M3,13H9V21H3V13M9.5,8H14.5V21H9.5V8M15,16H21V21H15V16Z'
+    podium: 'M3,13H9V21H3V13M9.5,8H14.5V21H9.5V8M15,16H21V21H15V16Z',
+    // Self-authored bullseye for practice — five concentric circles with
+    // alternating sweep flags, so the default nonzero fill-rule punches the gaps
+    // out and leaves two rings plus a centre dot. Hand-drawn for the same reason
+    // as `podium` above (no @mdi/js here), and likewise NOT prefixed `mdi`.
+    target: 'M2,12a10,10 0 1,0 20,0a10,10 0 1,0-20,0M4.25,12a7.75,7.75 0 1,1 15.5,0a7.75,7.75 0 1,1-15.5,0M6.5,12a5.5,5.5 0 1,0 11,0a5.5,5.5 0 1,0-11,0M8.75,12a3.25,3.25 0 1,1 6.5,0a3.25,3.25 0 1,1-6.5,0M10.75,12a1.25,1.25 0 1,0 2.5,0a1.25,1.25 0 1,0-2.5,0'
 } as const

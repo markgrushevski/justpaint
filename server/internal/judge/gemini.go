@@ -44,6 +44,123 @@ const (
 // request is a duel nobody gets to play.
 var geminiPNGMagic = []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
 
+// geminiClient is the HTTP half of every Gemini-backed impl in this package: one
+// generateContent endpoint, the credential, the per-attempt deadline and the §7
+// retry policy. It is deliberately ignorant of what it is asking for — it takes a
+// request body and hands back the model's structured-output TEXT — so GeminiJudge
+// (a comparative verdict over two rasters) and GeminiCritic (a score for one
+// drawing) share the plumbing instead of keeping two drifting copies of it.
+//
+// It is EMBEDDED by both, so the label below is what keeps their error messages
+// distinguishable in a log where the two failure modes have different fixes.
+type geminiClient struct {
+	label     string // "gemini" | "gemini critic" — which impl an error came from
+	apiKey    string
+	endpoint  string
+	timeout   time.Duration
+	retryBase time.Duration
+	httpc     *http.Client
+}
+
+// newGeminiClient builds the shared client. model and baseURL are supplied by
+// config (which owns their defaults, so they are used as given); timeout bounds
+// ONE attempt, and a non-positive timeout means "no deadline of our own" — the
+// caller's context stays the only bound.
+func newGeminiClient(label, apiKey, model, baseURL string, timeout time.Duration) geminiClient {
+	return geminiClient{
+		label:  label,
+		apiKey: apiKey,
+		// {base}/models/{model}:generateContent — the ":generateContent" verb is
+		// part of the path grammar, so only the model id is escaped.
+		endpoint:  fmt.Sprintf("%s/models/%s:generateContent", strings.TrimRight(baseURL, "/"), url.PathEscape(model)),
+		timeout:   timeout,
+		retryBase: geminiRetryBase,
+		httpc:     &http.Client{},
+	}
+}
+
+// generate posts body and returns the model's structured-output text. The body is
+// built once by the caller and replayed across attempts — the base64 rasters are
+// the bulk of it, and re-encoding them per retry would be pure waste.
+//
+// The retry policy mirrors JUDGE.md §7: up to 2 retries on connection errors,
+// timeouts and 5xx, with doubling backoff; never on a 4xx. Note that the timeout
+// is applied PER ATTEMPT — a single budget shared across attempts would make
+// "retry on timeout" dead code, since the first timeout would consume it.
+func (c *geminiClient) generate(ctx context.Context, body []byte) (geminiOutput, error) {
+	var lastErr error
+	for attempt := 1; attempt <= geminiMaxAttempts; attempt++ {
+		if attempt > 1 {
+			if err := geminiBackoff(ctx, c.retryBase, attempt); err != nil {
+				return geminiOutput{}, fmt.Errorf("judge: %s: retry aborted: %w (last failure: %v)", c.label, err, lastErr)
+			}
+		}
+		out, retryable, err := c.attempt(ctx, body)
+		if err == nil {
+			return out, nil
+		}
+		lastErr = err
+		if !retryable {
+			return geminiOutput{}, err
+		}
+		// The caller giving up outranks our retry budget: a cancelled parent means
+		// nobody is waiting for this answer any more.
+		if ctx.Err() != nil {
+			return geminiOutput{}, fmt.Errorf("judge: %s: call aborted: %w (last failure: %v)", c.label, ctx.Err(), lastErr)
+		}
+	}
+	return geminiOutput{}, fmt.Errorf("judge: %s: failed after %d attempts: %w", c.label, geminiMaxAttempts, lastErr)
+}
+
+// attempt performs one request and extracts the candidate's answer. The bool
+// reports whether the failure is worth another try; an unusable 200 is NOT.
+func (c *geminiClient) attempt(ctx context.Context, body []byte) (geminiOutput, bool, error) {
+	if c.timeout > 0 {
+		// Layered over the caller's ctx, so whichever gives up first wins and the
+		// caller's cancellation is never swallowed.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return geminiOutput{}, false, fmt.Errorf("judge: %s: build request: %w", c.label, err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set(geminiAPIKeyHeader, c.apiKey)
+
+	resp, err := c.httpc.Do(httpReq)
+	if err != nil {
+		// DNS, TLS, connection reset, or our own per-attempt deadline — all §7
+		// transient.
+		return geminiOutput{}, true, fmt.Errorf("judge: %s: request failed: %w", c.label, err)
+	}
+	defer resp.Body.Close()
+
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, geminiMaxResponseBytes))
+	if err != nil {
+		return geminiOutput{}, true, fmt.Errorf("judge: %s: read response: %w", c.label, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		// 5xx only. A 4xx means OUR request is wrong, and a 429 on a DAILY budget
+		// least of all — the quota does not refill in 250ms, so a retry is just two
+		// more log lines and a longer wait for the same failure.
+		return geminiOutput{}, resp.StatusCode >= 500, geminiStatusError(c.label, resp.StatusCode, payload)
+	}
+
+	out, err := geminiCandidateOutput(c.label, payload)
+	if err != nil {
+		// A 200 we cannot read an answer out of is a contract violation, not a blip:
+		// at temperature 0 the retry buys the same answer for another slot of a
+		// scarce daily quota (§7).
+		return geminiOutput{}, false, err
+	}
+	return out, false, nil
+}
+
 // GeminiJudge is a REAL verdict while the collaborator's ML is built: it sends
 // both judged rasters to Google's Generative Language API in ONE vision call and
 // takes the model's structured JSON as the JUDGE.md §2 result. Unlike FakeJudge
@@ -79,39 +196,18 @@ var geminiPNGMagic = []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
 // injection buys is a WRONG VERDICT in a drawing game — a stolen win, skewed
 // scores, and a silly sentence on the result screen.
 type GeminiJudge struct {
-	apiKey    string
-	endpoint  string
-	timeout   time.Duration
-	retryBase time.Duration
-	httpc     *http.Client
+	geminiClient
 }
 
-// NewGeminiJudge builds the judge. model and baseURL are supplied by config
-// (which owns their defaults, so they are used as given); timeout bounds ONE
-// attempt, and a non-positive timeout means "no deadline of our own" — the
-// caller's context stays the only bound.
+// NewGeminiJudge builds the judge over the shared client.
 func NewGeminiJudge(apiKey, model, baseURL string, timeout time.Duration) *GeminiJudge {
-	return &GeminiJudge{
-		apiKey: apiKey,
-		// {base}/models/{model}:generateContent — the ":generateContent" verb is
-		// part of the path grammar, so only the model id is escaped.
-		endpoint:  fmt.Sprintf("%s/models/%s:generateContent", strings.TrimRight(baseURL, "/"), url.PathEscape(model)),
-		timeout:   timeout,
-		retryBase: geminiRetryBase,
-		httpc:     &http.Client{},
-	}
+	return &GeminiJudge{geminiClient: newGeminiClient("gemini", apiKey, model, baseURL, timeout)}
 }
 
 var _ Judge = (*GeminiJudge)(nil)
 
-// Score implements Judge. The body is built once and replayed across attempts —
-// the two base64 rasters are the bulk of it, and re-encoding them per retry
-// would be pure waste.
-//
-// The retry policy mirrors JUDGE.md §7: up to 2 retries on connection errors,
-// timeouts and 5xx, with doubling backoff; never on a 4xx. Note that the
-// timeout is applied PER ATTEMPT — a single budget shared across attempts would
-// make "retry on timeout" dead code, since the first timeout would consume it.
+// Score implements Judge: one vision call over both rasters, and the model's
+// structured JSON re-checked against the §2 contract before it can be a verdict.
 func (g *GeminiJudge) Score(ctx context.Context, req Request) (Result, error) {
 	if err := validateGeminiRequest(req); err != nil {
 		return Result{}, err
@@ -120,78 +216,11 @@ func (g *GeminiJudge) Score(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("judge: gemini: encode request: %w", err)
 	}
-
-	var lastErr error
-	for attempt := 1; attempt <= geminiMaxAttempts; attempt++ {
-		if attempt > 1 {
-			if err := geminiBackoff(ctx, g.retryBase, attempt); err != nil {
-				return Result{}, fmt.Errorf("judge: gemini: retry aborted: %w (last failure: %v)", err, lastErr)
-			}
-		}
-		res, retryable, err := g.attempt(ctx, body)
-		if err == nil {
-			return res, nil
-		}
-		lastErr = err
-		if !retryable {
-			return Result{}, err
-		}
-		// The caller giving up outranks our retry budget: a cancelled parent means
-		// nobody is waiting for this verdict any more.
-		if ctx.Err() != nil {
-			return Result{}, fmt.Errorf("judge: gemini: call aborted: %w (last failure: %v)", ctx.Err(), lastErr)
-		}
-	}
-	return Result{}, fmt.Errorf("judge: gemini: failed after %d attempts: %w", geminiMaxAttempts, lastErr)
-}
-
-// attempt performs one request. The bool reports whether the failure is worth
-// another try; a verdict that fails validation is NOT (see below).
-func (g *GeminiJudge) attempt(ctx context.Context, body []byte) (Result, bool, error) {
-	if g.timeout > 0 {
-		// Layered over the caller's ctx, so whichever gives up first wins and the
-		// caller's cancellation is never swallowed.
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, g.timeout)
-		defer cancel()
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.endpoint, bytes.NewReader(body))
+	out, err := g.generate(ctx, body)
 	if err != nil {
-		return Result{}, false, fmt.Errorf("judge: gemini: build request: %w", err)
+		return Result{}, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set(geminiAPIKeyHeader, g.apiKey)
-
-	resp, err := g.httpc.Do(httpReq)
-	if err != nil {
-		// DNS, TLS, connection reset, or our own per-attempt deadline — all §7
-		// transient.
-		return Result{}, true, fmt.Errorf("judge: gemini: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, geminiMaxResponseBytes))
-	if err != nil {
-		return Result{}, true, fmt.Errorf("judge: gemini: read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		// 5xx only. A 4xx means OUR request is wrong, and a 429 on a DAILY budget
-		// least of all — the quota does not refill in 250ms, so a retry is just two
-		// more log lines and a longer wait for the same failure.
-		return Result{}, resp.StatusCode >= 500, geminiStatusError(resp.StatusCode, payload)
-	}
-
-	res, err := parseGeminiVerdict(payload)
-	if err != nil {
-		// A 200 we cannot turn into a valid verdict is a contract violation, not a
-		// blip: at temperature 0 the retry buys the same answer for another slot of
-		// a scarce daily quota. Fail, and let the match stay in `judging` (§7).
-		return Result{}, false, err
-	}
-	return res, false, nil
+	return parseGeminiVerdict(out)
 }
 
 // geminiBackoff waits retryBase * 2^(attempt-2) — 250ms, then 500ms — while
@@ -378,31 +407,46 @@ func geminiPNGPart(img []byte) *geminiInlineData {
 	return &geminiInlineData{MIMEType: geminiImageMIME, Data: base64.StdEncoding.EncodeToString(img)}
 }
 
-// parseGeminiVerdict turns a 200 body into a validated Result, or explains why it
-// is not one. Every path here is a failure, never a fallback verdict: the game
-// does not get to invent a winner because the model was unhelpful (§7).
-func parseGeminiVerdict(payload []byte) (Result, error) {
+// geminiOutput is one candidate's answer: the structured-output text plus why the
+// model stopped. The finish reason is carried alongside because it is the whole
+// difference between "the model refused" and "the JSON was cut off mid-object" —
+// two failures with entirely different fixes.
+type geminiOutput struct {
+	text   string
+	finish string
+}
+
+// geminiCandidateOutput turns a 200 body into the model's answer, or explains why
+// it is not one. Shared by both impls: everything here is about the envelope, not
+// about what we asked for.
+func geminiCandidateOutput(label string, payload []byte) (geminiOutput, error) {
 	var resp geminiResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
-		return Result{}, fmt.Errorf("judge: gemini: decode response envelope: %w", err)
+		return geminiOutput{}, fmt.Errorf("judge: %s: decode response envelope: %w", label, err)
 	}
 	if len(resp.Candidates) == 0 {
 		// Safety filters drop the whole response rather than returning an empty
 		// candidate, and player-drawn images make that a real operational case.
 		if reason := resp.PromptFeedback.BlockReason; reason != "" {
-			return Result{}, fmt.Errorf("judge: gemini: request blocked (%s)", reason)
+			return geminiOutput{}, fmt.Errorf("judge: %s: request blocked (%s)", label, reason)
 		}
-		return Result{}, errors.New("judge: gemini: response carried no candidates")
+		return geminiOutput{}, fmt.Errorf("judge: %s: response carried no candidates", label)
 	}
 	candidate := resp.Candidates[0]
 	text := geminiCandidateText(candidate)
 	if text == "" {
-		return Result{}, fmt.Errorf("judge: gemini: candidate carried no text (finishReason %q)", candidate.FinishReason)
+		return geminiOutput{}, fmt.Errorf("judge: %s: candidate carried no text (finishReason %q)", label, candidate.FinishReason)
 	}
+	return geminiOutput{text: text, finish: candidate.FinishReason}, nil
+}
 
+// parseGeminiVerdict turns the model's answer into a validated Result, or explains
+// why it is not one. Every path here is a failure, never a fallback verdict: the
+// game does not get to invent a winner because the model was unhelpful (§7).
+func parseGeminiVerdict(out geminiOutput) (Result, error) {
 	var v geminiVerdict
-	if err := json.Unmarshal([]byte(text), &v); err != nil {
-		return Result{}, fmt.Errorf("judge: gemini: output is not the JSON verdict (finishReason %q): %w", candidate.FinishReason, err)
+	if err := json.Unmarshal([]byte(out.text), &v); err != nil {
+		return Result{}, fmt.Errorf("judge: gemini: output is not the JSON verdict (finishReason %q): %w", out.finish, err)
 	}
 	res := Result{
 		ScoreA: v.ScoreA,
@@ -412,7 +456,7 @@ func parseGeminiVerdict(payload []byte) (Result, error) {
 		// the scores: JUDGE.md §3 lets a judge call 0.71 vs 0.70 a tie.
 		Winner: v.Winner,
 		// Reason is display text, so trimming stray whitespace is cosmetic.
-		Reason: clampReason(strings.TrimSpace(v.Reason)),
+		Reason: clampText(strings.TrimSpace(v.Reason), maxReasonLen),
 	}
 	if err := res.Validate(); err != nil {
 		return Result{}, fmt.Errorf("judge: gemini: %w", err)
@@ -420,8 +464,8 @@ func parseGeminiVerdict(payload []byte) (Result, error) {
 	return res, nil
 }
 
-// clampReason trims an over-long rationale to the JUDGE.md §2 cap instead of
-// failing the verdict over it.
+// clampText trims over-long player-facing prose to its cap instead of failing the
+// whole answer over it. Shared by the judge's reason and the critic's feedback.
 //
 // This is the one place we normalize rather than reject, and the asymmetry is
 // deliberate: HTTPJudge rejects an over-long reason because that is a PEER
@@ -430,14 +474,14 @@ func parseGeminiVerdict(payload []byte) (Result, error) {
 // asked for by prompting in prose, and a duel that both players finished should
 // not be thrown away over a rationale that ran forty characters long. The scores
 // and the winner — the parts that decide anything — are still validated strictly.
-func clampReason(reason string) string {
-	if utf8.RuneCountInString(reason) <= maxReasonLen {
-		return reason
+func clampText(s string, limit int) string {
+	if utf8.RuneCountInString(s) <= limit {
+		return s
 	}
-	runes := []rune(reason)
+	runes := []rune(s)
 	// Cut at the last space in the tail so the text ends on a word, not mid-glyph.
-	cut := runes[:maxReasonLen-1]
-	if i := lastIndexRune(cut, ' '); i > maxReasonLen-40 {
+	cut := runes[:limit-1]
+	if i := lastIndexRune(cut, ' '); i > limit-40 {
 		cut = cut[:i]
 	}
 	return strings.TrimRight(string(cut), " ,;:") + "…"
@@ -469,21 +513,21 @@ func geminiCandidateText(c geminiCandidate) string {
 // API's own message because that is where "quota", "model not found" and "bad
 // key" are distinguished — truncated, since an error body can be an HTML page
 // from something in the middle.
-func geminiStatusError(status int, payload []byte) error {
+func geminiStatusError(label string, status int, payload []byte) error {
 	var env geminiErrorEnvelope
 	_ = json.Unmarshal(payload, &env)
 	detail := geminiTruncate(env.Error.Message, 300)
 	if detail == "" {
 		detail = geminiTruncate(string(payload), 300)
 	}
-	label := fmt.Sprintf("HTTP %d", status)
+	statusLabel := fmt.Sprintf("HTTP %d", status)
 	if env.Error.Status != "" {
-		label += " " + env.Error.Status
+		statusLabel += " " + env.Error.Status
 	}
 	if status == http.StatusTooManyRequests {
-		return fmt.Errorf("judge: %w (%s): %s", ErrQuotaExhausted, label, detail)
+		return fmt.Errorf("judge: %w (%s): %s", ErrQuotaExhausted, statusLabel, detail)
 	}
-	return fmt.Errorf("judge: gemini: %s: %s", label, detail)
+	return fmt.Errorf("judge: %s: %s: %s", label, statusLabel, detail)
 }
 
 func geminiTruncate(s string, limit int) string {

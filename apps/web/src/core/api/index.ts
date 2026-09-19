@@ -1,6 +1,7 @@
 export * from './http.ts'
 export * from './drawings.ts'
 export * from './matches.ts'
+export * from './practice.ts'
 export * from './leaderboard.ts'
 export * from './assist.ts'
 export * from './queries.ts'
