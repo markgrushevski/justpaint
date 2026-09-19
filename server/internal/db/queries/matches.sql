@@ -36,24 +36,6 @@ set status = $2, updated_at = now()
 where id = $1
 returning *;
 
--- name: CountJudgeCallsInWindow :one
--- The global half of the judge budget: how many matches entered judging inside the
--- rolling window, i.e. how much of the external judge's quota this service has spent
--- (or is about to — a row still in `judging` has its call in flight).
---
--- judging_started_at is stamped by exactly one statement (SetMatchJudging), which
--- makes it the only column that means "the judge was called". Counting `done` rows
--- instead would bill us for forfeits, which resolve drawing→done without the judge
--- ever seeing them. A match that never reached judging has it null, and `null > x`
--- is null, so it simply never matches — no is-not-null guard needed.
---
--- Anchored on judging_started_at rather than created_at because that is the instant
--- the quota was actually spent; a stuck-judging re-fire re-stamps it, so a retried
--- match correctly ages from its latest attempt.
-select count(*)
-from matches
-where judging_started_at > now() - make_interval(secs => sqlc.arg('window_secs')::int);
-
 -- name: FindOpenMatchToJoin :one
 -- The oldest open async match the caller is NOT already in — the auto-join
 -- candidate (docs/GAME.md §4.1, docs/DECISIONS.md "Matchmaking"). FOR UPDATE

@@ -1,32 +1,45 @@
 <script lang="ts" setup>
 /**
  * JudgingOverlay — the pending state shown between submit and result: a centred
- * skeleton card that foreshadows the two-canvas result layout while the server
- * renders authoritative rasters and awaits the judge (GAME.md §4, `judging`).
+ * skeleton card that foreshadows the result layout while the server renders
+ * authoritative rasters and awaits the judge (GAME.md §4, `judging`).
  *
- * Presentational: PlayView shows it while `phase = 'judging'`. It renders a
- * full-bleed scrim (pointer-events:auto) so stray taps don't reach the canvas
+ * `solo` switches it to the single-player practice wait: one skeleton frame and
+ * copy that doesn't mention an opponent. The two modes share this component
+ * because the moment IS the same one — the judge is looking at a drawing — and a
+ * second copy of the scrim would drift; the only thing practice must not do is
+ * render an opponent frame for a player who has none.
+ *
+ * Presentational: the view shows it while its own phase says judging. It renders
+ * a full-bleed scrim (pointer-events:auto) so stray taps don't reach the canvas
  * mid-judging; the shell's overlay layer is pointer-events:none, so opting back
  * in here is required.
  */
 import { OriSkeleton, OriSpinner, OriSurface } from '@oriui/vue'
 
-withDefaults(defineProps<{ opponentName?: string }>(), { opponentName: 'Player 2' })
+withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
+    opponentName: 'Player 2',
+    solo: false
+})
 </script>
 
 <template>
     <div class="judging">
         <OriSurface class="judging__card">
             <OriSpinner size="lg" color="primary" />
-            <h2 class="judging__title">Judging the duel…</h2>
-            <p class="judging__sub">Scoring both drawings against the prompt.</p>
+            <h2 class="judging__title">{{ solo ? 'The judge is looking…' : 'Judging the duel…' }}</h2>
+            <p class="judging__sub">
+                {{ solo ? 'Scoring your drawing against the prompt.' : 'Scoring both drawings against the prompt.' }}
+            </p>
 
-            <div class="judging__frames">
+            <!-- One frame solo, two in a duel: the grid narrows to a single column
+                 so the lone skeleton doesn't sit beside an empty half. -->
+            <div class="judging__frames" :class="{ 'judging__frames--solo': solo }">
                 <div class="judging__frame">
                     <OriSkeleton class="judging__canvas" radius="md" />
                     <span class="judging__cap">You</span>
                 </div>
-                <div class="judging__frame">
+                <div v-if="!solo" class="judging__frame">
                     <OriSkeleton class="judging__canvas" radius="md" />
                     <span class="judging__cap">{{ opponentName }}</span>
                 </div>
@@ -83,6 +96,15 @@ withDefaults(defineProps<{ opponentName?: string }>(), { opponentName: 'Player 2
     gap: var(--ori-size-gap_md, 0.5rem);
 
     width: 100%;
+}
+
+/* Solo: one frame, centred and held to half the card so a single square doesn't
+   stretch to a wall of skeleton. */
+.judging__frames--solo {
+    grid-template-columns: minmax(0, 1fr);
+
+    width: 50%;
+    margin: 0 auto;
 }
 
 .judging__frame {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/markgrushevski/justpaint/server/internal/db"
@@ -158,6 +159,37 @@ func TestJudgeBudget_DB(t *testing.T) {
 		return n
 	}
 
+	// judgeCalls reads the global count together with its two halves in ONE
+	// repeatable-read snapshot.
+	//
+	// The count stopped being about duels alone when practice shipped: it is
+	// `matches entering judging` PLUS `practice_runs`, because both spend the same
+	// external quota. That makes a before/after delta on the total non-deterministic
+	// here — `go test ./...` runs packages in parallel, and internal/practice's DB
+	// test writes practice_runs into the same rolling window. The identity
+	// `total == duels + practice`, read under one snapshot, is deterministic no
+	// matter who else is writing, and it proves more than a delta did: that the
+	// query really is both halves and nothing else.
+	judgeCalls := func() (total, duels, practice int64) {
+		t.Helper()
+		windowSecs := int32(judgeBudgetWindow / time.Second)
+		tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+		if err != nil {
+			t.Fatalf("begin snapshot: %v", err)
+		}
+		defer tx.Rollback(ctx)
+		if total, err = q.WithTx(tx).CountJudgeCallsInWindow(ctx, windowSecs); err != nil {
+			t.Fatalf("count judge calls: %v", err)
+		}
+		if err = tx.QueryRow(ctx, `select
+			(select count(*) from matches where judging_started_at > now() - make_interval(secs => $1::int)),
+			(select count(*) from practice_runs where created_at > now() - make_interval(secs => $1::int))`,
+			windowSecs).Scan(&duels, &practice); err != nil {
+			t.Fatalf("count the halves: %v", err)
+		}
+		return total, duels, practice
+	}
+
 	// --- (a) under the cap, a duel starts ---------------------------------
 	t.Run("a player under their cap starts a duel", func(t *testing.T) {
 		host := mkUser("under-host")
@@ -197,13 +229,13 @@ func TestJudgeBudget_DB(t *testing.T) {
 			t.Errorf("CreateOrJoin at the cap: err = %v, want %v", err, ErrDailyDuelsSpent)
 		}
 		// The property that makes a per-player cap worth having.
-		if err := svc.checkJudgeBudget(ctx, innocent); err != nil {
+		if err := svc.CheckJudgeBudget(ctx, innocent); err != nil {
 			t.Errorf("a different player was refused too (%v) — one abuser must not deny service to everyone", err)
 		}
 
 		// One duel short of the cap is still allowed, so the boundary is `>=`, not `>`.
 		svc.SetJudgeBudget(JudgeBudget{Enforced: true, Global: int(globalSpent()) + 10, PerUser: cap + 1})
-		if err := svc.checkJudgeBudget(ctx, heavy); err != nil {
+		if err := svc.CheckJudgeBudget(ctx, heavy); err != nil {
 			t.Errorf("one duel under the cap was refused: %v", err)
 		}
 	})
@@ -221,22 +253,27 @@ func TestJudgeBudget_DB(t *testing.T) {
 		}
 
 		svc.SetJudgeBudget(JudgeBudget{Enforced: true, Global: int(globalSpent()) + 10, PerUser: 1})
-		if err := svc.checkJudgeBudget(ctx, lonely); err != nil {
+		if err := svc.CheckJudgeBudget(ctx, lonely); err != nil {
 			t.Errorf("a never-joined match counted against its creator: %v", err)
 		}
 	})
 
 	// --- (c) the global budget refuses everyone ---------------------------
 	t.Run("the global budget refuses everyone once reached", func(t *testing.T) {
-		before := globalSpent()
+		_, beforeDuels, _ := judgeCalls()
 		mid := newMatch(mkUser("global-a"), mkUser("global-b"))
 		if _, err := q.SetMatchJudging(ctx, mid); err != nil {
 			t.Fatalf("to judging: %v", err)
 		}
 		// Proves the global count reads the judging transition itself, not `done`:
-		// a forfeit reaches done without ever calling the judge.
-		if after := globalSpent(); after != before+1 {
-			t.Fatalf("global count = %d, want %d — a match entering judging must be counted", after, before+1)
+		// a forfeit reaches done without ever calling the judge. And that the total
+		// is exactly its two halves — practice spends the same quota.
+		total, duels, practice := judgeCalls()
+		if duels != beforeDuels+1 {
+			t.Fatalf("duel half = %d, want %d — a match entering judging must be counted", duels, beforeDuels+1)
+		}
+		if total != duels+practice {
+			t.Fatalf("global count = %d, want %d (%d duels + %d practice runs)", total, duels+practice, duels, practice)
 		}
 
 		spent := globalSpent()
@@ -250,9 +287,12 @@ func TestJudgeBudget_DB(t *testing.T) {
 				t.Errorf("%s: err = %v, want %v", tag, err, ErrJudgeBudgetSpent)
 			}
 		}
-		// One call of headroom and the same players are welcome again.
-		svc.SetJudgeBudget(JudgeBudget{Enforced: true, Global: int(spent) + 1, PerUser: 1000})
-		if err := svc.checkJudgeBudget(ctx, mkUser("bystander-3")); err != nil {
+		// Headroom and the same players are welcome again. Deliberately more than one
+		// call of it: the boundary itself (`>=`, not `>`) is pinned by the refusal
+		// above, and a parallel test package can legitimately spend a slot between
+		// this read and the check.
+		svc.SetJudgeBudget(JudgeBudget{Enforced: true, Global: int(globalSpent()) + 10, PerUser: 1000})
+		if err := svc.CheckJudgeBudget(ctx, mkUser("bystander-3")); err != nil {
 			t.Errorf("with budget left the duel was still refused: %v", err)
 		}
 	})
@@ -286,25 +326,25 @@ func TestJudgeBudget_DB(t *testing.T) {
 		roller := mkUser("roller")
 		startedDuel(roller, stale)
 		svc.SetJudgeBudget(JudgeBudget{Enforced: true, Global: int(globalSpent()) + 10, PerUser: 1})
-		if err := svc.checkJudgeBudget(ctx, roller); err != nil {
+		if err := svc.CheckJudgeBudget(ctx, roller); err != nil {
 			t.Errorf("a duel older than %s still counted against its player: %v", judgeBudgetWindow, err)
 		}
 		// The same duel inside the window does count — otherwise the case above would
 		// pass for a count that is simply broken.
 		startedDuel(roller, time.Hour)
-		if err := svc.checkJudgeBudget(ctx, roller); !errors.Is(err, ErrDailyDuelsSpent) {
+		if err := svc.CheckJudgeBudget(ctx, roller); !errors.Is(err, ErrDailyDuelsSpent) {
 			t.Errorf("a duel inside the window did not count: err = %v, want %v", err, ErrDailyDuelsSpent)
 		}
 
 		// And the global half rolls on the same clock.
-		before := globalSpent()
+		_, beforeDuels, _ := judgeCalls()
 		old := newMatch(mkUser("roll-global"))
 		if _, err := q.SetMatchJudging(ctx, old); err != nil {
 			t.Fatalf("to judging: %v", err)
 		}
 		age(old, stale)
-		if after := globalSpent(); after != before {
-			t.Errorf("global count = %d, want %d — a judging pass older than %s must have rolled out", after, before, judgeBudgetWindow)
+		if _, afterDuels, _ := judgeCalls(); afterDuels != beforeDuels {
+			t.Errorf("duel half = %d, want %d — a judging pass older than %s must have rolled out", afterDuels, beforeDuels, judgeBudgetWindow)
 		}
 	})
 }

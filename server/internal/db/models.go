@@ -48,6 +48,15 @@ type MatchPlayer struct {
 	SubmittedAt  *time.Time
 }
 
+type PracticeRun struct {
+	ID        string
+	UserID    string
+	PromptID  string
+	Score     *float64
+	Feedback  *string
+	CreatedAt time.Time
+}
+
 type Prompt struct {
 	ID        string
 	Text      string

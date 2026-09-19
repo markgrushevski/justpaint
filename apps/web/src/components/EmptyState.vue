@@ -58,6 +58,28 @@ const emit = defineEmits<{
                     icon-position="left"
                 />
             </li>
+            <li>
+                <!-- Practice sits directly under the duel, in the same accent, as
+                     the other half of one offer: a duel needs two people at the
+                     same moment and there is no player base yet, so for most first
+                     visitors this is the row that actually pays off today.
+                     Deliberately NOT gated on `signedIn` (unlike Leaderboard
+                     below): /practice raises the shared sign-in modal itself and
+                     drops straight into a prompt, so an anonymous visitor lands
+                     somewhere real rather than on a 401. -->
+                <OriButton
+                    class="empty__action"
+                    :as="RouterLink"
+                    to="/practice"
+                    text="Practice solo"
+                    variant="text"
+                    color="primary"
+                    radius="md"
+                    fluid
+                    :icon="icons.target"
+                    icon-position="left"
+                />
+            </li>
             <li v-if="props.signedIn">
                 <!-- Also a RouterLink (renders an <a>) — the ranked ladder. Neutral
                      surface glyph like the other secondary entries. Signed-in only:

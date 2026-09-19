@@ -299,7 +299,7 @@ func (h *Handler) decodeSubmission(w http.ResponseWriter, r *http.Request) (docu
 		return document.Document{}, nil, false
 	}
 
-	doc, err := document.ParseAndValidate(req.Document)
+	doc, err := ValidateSubmission(req.Document)
 	if err != nil {
 		msg := "invalid document"
 		var ve *document.ValidationError
@@ -309,15 +309,31 @@ func (h *Handler) decodeSubmission(w http.ResponseWriter, r *http.Request) (docu
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, msg)
 		return document.Document{}, nil, false
 	}
-
-	// Both duelists share one honest space: a submission must be the square game
-	// canvas (docs/GAME.md §2). Off-size is a validation error.
-	if doc.Width != GameCanvasSize || doc.Height != GameCanvasSize {
-		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed,
-			fmt.Sprintf("submission must be %d×%d", GameCanvasSize, GameCanvasSize))
-		return document.Document{}, nil, false
-	}
 	return doc, req.Document, true
+}
+
+// ValidateSubmission is the ONE rule set for a drawing offered up to be scored:
+// the vector-document contract (the Go half of it — docs/DOCUMENT-FORMAT.md, kept
+// 1:1 with packages/document) plus the square game canvas both duelists share
+// (docs/GAME.md §2).
+//
+// Exported because single-player practice submits a drawing for exactly the same
+// purpose — a server-side render handed to a model — and must therefore accept
+// exactly the same documents. A second copy of these two rules would be a second
+// contract, and the first off-size drawing to be scored anyway would prove it.
+// Every failure is a *document.ValidationError, so every caller maps it to the
+// same 400 validation_failed.
+func ValidateSubmission(raw json.RawMessage) (document.Document, error) {
+	doc, err := document.ParseAndValidate(raw)
+	if err != nil {
+		return document.Document{}, err
+	}
+	if doc.Width != GameCanvasSize || doc.Height != GameCanvasSize {
+		return document.Document{}, &document.ValidationError{
+			Msg: fmt.Sprintf("submission must be %d×%d", GameCanvasSize, GameCanvasSize),
+		}
+	}
+	return doc, nil
 }
 
 // --- result ---

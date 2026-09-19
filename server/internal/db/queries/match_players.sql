@@ -17,24 +17,6 @@ where match_id = $1 and user_id = $2 and submitted_at is null;
 select count(*) from match_players
 where match_id = $1 and submitted_at is null;
 
--- name: CountPlayerDuelsInWindow :one
--- One player's share of the judge budget: how many duels they have STARTED inside
--- the rolling window. One started duel costs exactly one judge call, so this is the
--- count the per-player daily cap compares against (docs/GAME.md).
---
--- The "actually started" test is `drawing_deadline is not null`, NOT `status <>
--- 'open'`: the stale-open reaper flips a match nobody ever joined to `abandoned`, and
--- that duel cost nothing — billing a player for having waited alone would be a cap on
--- patience rather than on judge calls. The deadline is stamped at exactly one site
--- (SetMatchDrawing, open→drawing), which makes it the honest marker for "an opponent
--- showed up and the round ran".
-select count(*)
-from match_players mp
-join matches m on m.id = mp.match_id
-where mp.user_id = sqlc.arg('user_id')
-  and m.drawing_deadline is not null
-  and m.created_at > now() - make_interval(secs => sqlc.arg('window_secs')::int);
-
 -- name: GetSubmissionsForJudging :many
 -- The two submissions with each player's live rating and their drawing document,
 -- ordered by (submitted_at, user_id) — the stable A/B ordering (docs/GAME.md §7.1):
