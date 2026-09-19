@@ -39,10 +39,12 @@ Concretely shipped:
 
 ## Current limits
 
-- **The judge is a stand-in.** `FakeJudge` scores each image by ink coverage — the fraction of
-  non-background pixels — and does not read the prompt at all. The real judge is being built by an
-  external collaborator; it plugs into the `Judge` interface (`server/internal/judge`) against the
-  contract in [`docs/JUDGE.md`](docs/JUDGE.md), with no change to the game loop.
+- **The collaborator's ML judge does not exist yet.** `HTTPJudge` (`JUDGE_MODE=http`) implements the
+  contract in [`docs/JUDGE.md`](docs/JUDGE.md) and is waiting for a service to call. In the meantime
+  `JUDGE_MODE=gemini` scores both rasters with a vision model in one request, so a duel gets a verdict
+  that actually reads the prompt and looks at the pictures. The default stays `fake` — ink coverage,
+  no API key, no network — which is right for dev and CI and is **not a judge**: it never reads the
+  prompt. All three swap behind one interface with no change to the game loop.
 - **AI Assist's model backend is scaffolded, not live.** `ASSIST_MODE=fake` — deterministic,
   no API key required — is the default and what ships. `ASSIST_MODE=anthropic` wires the config
   and fails fast without an `ANTHROPIC_API_KEY`, but has no live model call behind it yet.
@@ -125,6 +127,20 @@ npm run build -w @justpaint/render          # needs node on PATH
 export RENDER_MODE=node
 export RENDER_CLI=/absolute/path/to/packages/render/dist/render.mjs
 ```
+
+**Optional: a real judge.** `JUDGE_MODE` defaults to `fake`, which scores ink coverage and never reads
+the prompt. For a verdict that does:
+
+```sh
+export JUDGE_MODE=gemini
+export GEMINI_API_KEY=...                   # from Google AI Studio; server-side only
+```
+
+Pair it with `RENDER_MODE=node` above — a real judge on the stub renderer scores ink-coverage
+rectangles rather than drawings, and the server warns at boot when you do that. The free tier's binding
+limit is requests per **day**, and one duel costs exactly one request; when it runs out a match resolves
+as "couldn't be scored" instead of inventing a winner. `GEMINI_MODEL` is pinned rather than floating, so
+an upstream retirement is a loud 404 naming its replacement, not a silent change in how duels are judged.
 
 ## Commands
 
