@@ -55,6 +55,13 @@ export function isAuthError(err: unknown): boolean {
     )
 }
 
+/** True when the server refused because a budget or a rate ceiling is spent.
+ *  Distinct from an ordinary failure because retrying is precisely what will
+ *  NOT help: the caller should offer a way out, not a way round. */
+export function isRateLimited(err: unknown): boolean {
+    return err instanceof ApiError && (err.code === 'rate_limited' || err.status === 429)
+}
+
 /**
  * Called whenever the server answers "no session". This is the ONE place that
  * sees every 401, so no caller has to remember to forget a session the server
