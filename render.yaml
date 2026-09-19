@@ -52,6 +52,24 @@ services:
             value: true
           - key: RENDER_MODE
             value: node
+          # Who decides the duel (docs/JUDGE.md). Declared here rather than only
+          # in the dashboard so a service re-created from this blueprint cannot
+          # quietly fall back to the ink-coverage fake and keep scoring duels
+          # without reading the prompt.
+          #
+          # NOTE the coupling, deliberately: gemini WITHOUT GEMINI_API_KEY is a
+          # BOOT FAILURE, not a silent downgrade. That is the safer direction
+          # — a deploy that refuses to start is a problem you see, and a judge
+          # that has quietly stopped judging is one you do not.
+          - key: JUDGE_MODE
+            value: gemini
+          # Set by hand in the dashboard; never in this file. Get one from Google
+          # AI Studio. The free tier's binding limit is requests per DAY and one
+          # duel costs exactly one request, so the ceiling is duels-per-day
+          # shared by everyone playing. When it runs out, matches resolve as
+          # done/'aborted' ("couldn't be scored") rather than inventing a winner.
+          - key: GEMINI_API_KEY
+            sync: false
           - key: JUDGE_CONCURRENCY
             value: 2
           # Keep the pool under the external database's connection budget —
