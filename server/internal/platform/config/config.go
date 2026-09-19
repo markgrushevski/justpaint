@@ -60,6 +60,27 @@ type Config struct {
 	// is a fork bomb on a small instance.
 	JudgeConcurrency int
 
+	// JudgeMode selects the judge impl (docs/JUDGE.md): "fake" (default; the
+	// zero-dependency ink-coverage stand-in that never reads the prompt), "http"
+	// (the collaborator's ML over the §6 contract) or "gemini" (a vision LLM
+	// scoring both rasters in one call — the real verdict while the ML is built).
+	JudgeMode string
+	// JudgeBaseURL is the collaborator's service root, required for JudgeMode
+	// "http" (§7).
+	JudgeBaseURL string
+	// JudgeTimeout bounds ONE judging call, retries excluded (§7 pins 10s).
+	JudgeTimeout time.Duration
+	// GeminiAPIKey is the server-side key for JudgeMode "gemini". Never reaches
+	// the client. Required when that mode is selected.
+	GeminiAPIKey string
+	// GeminiModel is the model id. Configurable rather than hardcoded because
+	// Google's free-tier model names and quotas move faster than our releases —
+	// a changed name must not need a code change.
+	GeminiModel string
+	// GeminiBaseURL is the API root, overridable for the same reason and so a
+	// test can point at an httptest server.
+	GeminiBaseURL string
+
 	// AssistMode selects the AI-assist impl (docs/ASSIST.md): "fake" (default;
 	// deterministic canned ops, zero API dependency) or "anthropic" (the real LLM
 	// impl, scaffolded in Phase A). Mirrors the RenderMode mode-switch.
@@ -130,6 +151,10 @@ const (
 
 // Assist modes.
 const (
+	JudgeModeFake   = "fake"
+	JudgeModeHTTP   = "http"
+	JudgeModeGemini = "gemini"
+
 	AssistModeFake      = "fake"
 	AssistModeAnthropic = "anthropic"
 )
@@ -137,6 +162,18 @@ const (
 // DefaultAssistModel is the model id used by the real assist impl unless
 // ASSIST_MODEL overrides it (docs/ASSIST.md §3.2).
 const DefaultAssistModel = "claude-opus-4-8"
+
+// DefaultJudgeTimeout bounds one judging call (docs/JUDGE.md §7). ML inference
+// and a vision LLM are both slow; JUDGE_TIMEOUT overrides it.
+const DefaultJudgeTimeout = 10 * time.Second
+
+// DefaultGeminiModel is a starting point, not a promise: verify the current
+// free-tier model id against Google's own docs and override GEMINI_MODEL rather
+// than editing this.
+const DefaultGeminiModel = "gemini-2.5-flash"
+
+// DefaultGeminiBaseURL is the public Generative Language API root.
+const DefaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 
 // Load reads configuration from the environment and fails fast on any missing
 // required value.
@@ -165,6 +202,11 @@ func Load() (Config, error) {
 		RenderMode:      strings.ToLower(getenv("RENDER_MODE", RenderModeStub)),
 		RenderCLI:       os.Getenv("RENDER_CLI"),
 		RenderNodeBin:   getenv("RENDER_NODE_BIN", "node"),
+		JudgeMode:       strings.ToLower(getenv("JUDGE_MODE", JudgeModeFake)),
+		JudgeBaseURL:    strings.TrimRight(os.Getenv("JUDGE_BASE_URL"), "/"),
+		GeminiAPIKey:    os.Getenv("GEMINI_API_KEY"),
+		GeminiModel:     getenv("GEMINI_MODEL", DefaultGeminiModel),
+		GeminiBaseURL:   strings.TrimRight(getenv("GEMINI_BASE_URL", DefaultGeminiBaseURL), "/"),
 		AssistMode:      strings.ToLower(getenv("ASSIST_MODE", AssistModeFake)),
 		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
 		AssistModel:     getenv("ASSIST_MODEL", DefaultAssistModel),
@@ -266,6 +308,32 @@ func Load() (Config, error) {
 		}
 	default:
 		return Config{}, fmt.Errorf("config: RENDER_MODE must be %q or %q", RenderModeStub, RenderModeNode)
+	}
+
+	judgeTimeout, err := getenvDuration("JUDGE_TIMEOUT", DefaultJudgeTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	if judgeTimeout <= 0 {
+		return Config{}, fmt.Errorf("config: JUDGE_TIMEOUT must be > 0, got %s", judgeTimeout)
+	}
+	cfg.JudgeTimeout = judgeTimeout
+
+	// Same fail-fast shape as RENDER_CLI and ANTHROPIC_API_KEY: a judge mode whose
+	// dependency is missing would fail out of band on the first duel, long after
+	// the deploy that broke it. A boot error names the cause.
+	switch cfg.JudgeMode {
+	case JudgeModeFake:
+	case JudgeModeHTTP:
+		if cfg.JudgeBaseURL == "" {
+			return Config{}, fmt.Errorf("config: JUDGE_BASE_URL is required when JUDGE_MODE=%s", JudgeModeHTTP)
+		}
+	case JudgeModeGemini:
+		if cfg.GeminiAPIKey == "" {
+			return Config{}, fmt.Errorf("config: GEMINI_API_KEY is required when JUDGE_MODE=%s", JudgeModeGemini)
+		}
+	default:
+		return Config{}, fmt.Errorf("config: JUDGE_MODE must be %q, %q or %q", JudgeModeFake, JudgeModeHTTP, JudgeModeGemini)
 	}
 
 	switch cfg.AssistMode {

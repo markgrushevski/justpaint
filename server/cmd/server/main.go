@@ -82,8 +82,7 @@ func run() error {
 	drawingsHandler := drawings.NewHandler(drawings.NewService(queries), logger)
 	// The render worker and judge are seams (docs/GAME.md §6, docs/JUDGE.md): the
 	// in-process stub/fake run the full loop, and each swaps for a real impl with
-	// no loop change. RENDER_MODE=node uses the authoritative Konva worker; the
-	// judge stays fake until the collaborator's HTTP judge (Phase 4).
+	// no loop change. RENDER_MODE=node uses the authoritative Konva worker.
 	var renderer render.Renderer
 	if cfg.RenderMode == config.RenderModeNode {
 		renderer = render.NewNodeRenderer(cfg.RenderNodeBin, cfg.RenderCLI)
@@ -92,7 +91,43 @@ func run() error {
 		renderer = render.NewStubRenderer()
 		logger.Info("render: stub (set RENDER_MODE=node for the authoritative render)")
 	}
-	gameSvc := game.NewServiceWithConcurrency(pool, queries, renderer, judge.NewFakeJudge(), logger, cfg.JudgeConcurrency)
+	// Who actually decides the duel. The fake never reads the prompt, so it is a
+	// loop-prover, not a judge — the two real impls are the collaborator's ML over
+	// the JUDGE.md §6 contract, and a vision model scoring both rasters in one
+	// call. config.Load has already proven each mode's dependency exists, so
+	// nothing here can fail.
+	var arbiter judge.Judge
+	switch cfg.JudgeMode {
+	case config.JudgeModeHTTP:
+		arbiter = judge.NewHTTPJudge(cfg.JudgeBaseURL, cfg.JudgeTimeout)
+		logger.Info("judge: http (the collaborator's ML)", "base_url", cfg.JudgeBaseURL, "timeout", cfg.JudgeTimeout)
+	case config.JudgeModeGemini:
+		arbiter = judge.NewGeminiJudge(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		// The key is deliberately absent from this line: it is server-side only.
+		logger.Info("judge: gemini vision", "model", cfg.GeminiModel, "timeout", cfg.JudgeTimeout)
+	default:
+		arbiter = judge.NewFakeJudge()
+		logger.Info("judge: fake (ink coverage — it never reads the prompt; set JUDGE_MODE for a real verdict)")
+	}
+	// A real judge on the stub renderer scores a rectangle, not a drawing: the stub
+	// paints ink coverage proportional to stroke count and never reproduces the
+	// art (internal/render/stub.go). The pairing WORKS, which is exactly why it is
+	// dangerous — the verdicts are confident and meaningless. Not a boot error,
+	// because it is a legitimate way to exercise the wiring in dev.
+	if cfg.JudgeMode != config.JudgeModeFake && cfg.RenderMode != config.RenderModeNode {
+		logger.Warn("judge: a real judge is scoring STUB rasters, which are ink-coverage blocks and not the drawings — set RENDER_MODE=node",
+			"judge_mode", cfg.JudgeMode, "render_mode", cfg.RenderMode)
+	}
+	// The judge retries up to 3 times (docs/JUDGE.md §7), and the whole pass — both
+	// renders included — has to fit inside game.JudgePassBudget. A JUDGE_TIMEOUT
+	// generous enough to overflow it would not fail; it would silently truncate the
+	// last attempt, which is the kind of misconfiguration that only shows up as an
+	// occasional lost duel.
+	if envelope := 3 * cfg.JudgeTimeout; envelope >= game.JudgePassBudget {
+		logger.Warn("judge: JUDGE_TIMEOUT leaves no room for its own retries inside the judging pass",
+			"timeout", cfg.JudgeTimeout, "retry_envelope", envelope, "pass_budget", game.JudgePassBudget)
+	}
+	gameSvc := game.NewServiceWithConcurrency(pool, queries, renderer, arbiter, logger, cfg.JudgeConcurrency)
 	gameHandler := game.NewHandler(gameSvc, logger)
 
 	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic
