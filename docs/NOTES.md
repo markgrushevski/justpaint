@@ -108,14 +108,25 @@ small practical gotchas go here.
   test`). Only `RENDER_MODE=node` requires the worker. Don't flip the default without owning the native-dep
   cost for everyone running the server.
 - **Judging runs in an out-of-band in-process goroutine** (`judgeMatch`), spawned by the final submit
-  *after* its tx commits, on a fresh `context.Background()` + 30s timeout (the request ctx is already
-  gone). It's idempotent (`runJudging` no-ops unless the match is still `judging`) and writes the result
-  in one tx. **Durability gap (v1):** a crash mid-judge leaves the match stuck in `judging` — no retry.
-  A restart-time sweeper is an `IDEAS.md` item, deferred with the real render worker. Note the 30s
-  budget is **stub/fake-sized**: when the real render worker + `HTTPJudge` (10s + retries, `JUDGE.md` §7)
-  land, widen it so the outer context outlives render + judge-with-backoff. Also: the 30s judging window
-  can outlive the 10s graceful-shutdown timeout, so a clean shutdown can still abort a pass (the sweeper
-  is the fix; a `sync.WaitGroup` waited during shutdown is the natural interim).
+  *after* its tx commits (via `dispatchJudging`/`judging.tryGo`, bounded by `JudgeConcurrency`), on a
+  fresh `context.Background()` + `game.JudgePassBudget`. It's idempotent (`runJudging` no-ops unless the
+  match is still `judging`) and writes the result in one tx. **Durability gap (v1):** a crash mid-judge
+  leaves the match stuck in `judging`; the stuck-judging sweep (`sweeper.go` — shipped; this bullet used
+  to call it a deferred `IDEAS.md` item, before it landed) re-fires it up to `maxJudgeAttempts`, then
+  aborts it (`resolution: 'aborted'`, no Elo — `DECISIONS.md` 2026-09-18). The goroutine itself still
+  isn't drained by the shutdown `sync.WaitGroup` that covers the hub and the sweeper (`main.go`'s
+  `background`), so a clean shutdown can in principle still cut a pass short — the sweeper's re-fire is
+  the recovery for that, not a graceful wait.
+  **`JudgePassBudget` is 60s, not the flat 30s this used to be — a real trap, found wiring
+  `HTTPJudge`/`GeminiJudge` in (`feat/real-judge`).** `docs/JUDGE.md` §7 pins the judge to **3 attempts**;
+  at the default `JUDGE_TIMEOUT` (10s) the judge alone can need up to 30s, *before either authoritative
+  render has even run* — so a flat 30s wrapper meant the third retry attempt could never actually
+  complete, silently killing part of the documented policy. Neither `internal/judge`'s retry count nor
+  the old `judgeMatch` timeout was wrong by itself; only the pair was. Fixed by naming the budget
+  (`game.JudgePassBudget`, its doc comment spelling out the arithmetic — `3×10s` judge + ~1s backoff +
+  room for two node-canvas renders) and by a boot-time warning in `main.go` that fires whenever
+  `3 × JUDGE_TIMEOUT` would not fit inside it, so a generous `JUDGE_TIMEOUT` override can't quietly
+  reopen the same hole.
 - **`runJudging`'s status check is a no-op guard, NOT mutual exclusion — the real lock is in
   `persistResult`.** `runJudging` reads status on the pool (unlocked) and bails if not `judging`; that
   alone wouldn't stop two concurrent passes both rendering then both writing. So `persistResult` re-takes
