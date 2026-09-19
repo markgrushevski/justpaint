@@ -167,10 +167,14 @@ const DefaultAssistModel = "claude-opus-4-8"
 // and a vision LLM are both slow; JUDGE_TIMEOUT overrides it.
 const DefaultJudgeTimeout = 10 * time.Second
 
-// DefaultGeminiModel is a starting point, not a promise: verify the current
-// free-tier model id against Google's own docs and override GEMINI_MODEL rather
-// than editing this.
-const DefaultGeminiModel = "gemini-2.5-flash"
+// DefaultGeminiModel is a PINNED version, deliberately, not the floating
+// "gemini-flash-latest" alias. A judge decides ratings, so a model that changes
+// under us without a word is worse than one that stops: a pin is retired LOUDLY
+// — verified 2026-09-19, when the previous default answered "models/
+// gemini-2.5-flash is no longer available to new users" and named its own
+// replacement, which is about as good as a deprecation gets. Override
+// GEMINI_MODEL rather than editing this.
+const DefaultGeminiModel = "gemini-3.6-flash"
 
 // DefaultGeminiBaseURL is the public Generative Language API root.
 const DefaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
