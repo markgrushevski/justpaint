@@ -8,6 +8,7 @@
 
 This doc **owns**:
 - the match **state machine** (`open | drawing | judging | done | abandoned`) and every transition (§3, §4);
+- the **daily judge-call budget** gating every new match (§4.3);
 - the **canonical game canvas** = square **1080×1080** (§2);
 - how a **prompt** is pinned per match (§5);
 - the **trust boundary** for game submissions (§6);
@@ -83,6 +84,21 @@ Notes:
 ### 4.2 Visibility rule
 
 **During a round each player sees ONLY their own canvas.** No peeking at the opponent's in-progress (or finished) drawing while the match is live. **Both canvases are revealed together on the result screen** once `status = done` (`DECISIONS.md` "Game screen visibility"). The opponent's `drawing_id` / rendered raster is not exposed by any read endpoint until the match is `done`.
+
+### 4.3 Daily judge budget
+
+Every `POST /api/matches` call is gated on a **daily judge-call budget**, checked once, before any of the three `CreateOrJoin` branches above run (`server/internal/game/budget.go`) — ahead of the matchmaking transaction, since these are advisory reads and that transaction holds row locks worth keeping short. It exists because the per-IP rate limiter (`API.md` §3.1) bounds request *rate*, not the resource actually at risk: the judge runs on a quota measured in requests per **day**, one duel costs exactly one judge call, and the write tier alone (30/minute) lets a single IP threaten a whole day's quota within minutes (`DECISIONS.md` 2026-09-19).
+
+Two independent halves, both must clear:
+
+- **Per-player** (`ErrDailyDuelsSpent` → `429`, checked first): how many duels this player has **started** — `drawing_deadline is not null`, stamped at exactly one site, `open → drawing` above — inside a rolling window anchored on `created_at`. Never `status <> 'open'`: the stale-open reaper (`open → abandoned` above) flips a match nobody ever joined to `abandoned`, and that duel cost no judge call — counting by status would cap patience, not judge calls.
+- **Global** (`ErrJudgeBudgetSpent` → `429`, checked second, only once the caller clears their own cap): how many matches have **entered judging** — `judging_started_at is not null`, stamped only by `drawing → judging` above — inside the same rolling window, anchored on that same column. Never `status in ('judging', 'done')`: a forfeit (`drawing → done`) resolves without the judge ever running. Anchoring on `judging_started_at` also means a stuck-judging re-fire (the "aborted" row above) ages from its latest attempt, not its first.
+
+Per-player is checked first because it is the case that actually fires and it is the cheaper read; a player over their own cap is told exactly that, never anything about the service's remaining budget, which the response never discloses either way (`API.md` §8).
+
+**Window:** rolling 24h, not a calendar day — no timezone to get wrong, and since both ceilings sit under the external judge's own per-day quota, never exceeding either in *any* 24h also never exceeds it in whatever calendar day the provider counts. **Defaults:** 200 global / 20 per player (`JUDGE_DAILY_BUDGET` / `JUDGE_DAILY_PER_USER`); both are rejected below 1 at boot — there is no "unlimited" setting, and a per-player cap set *above* the global one is kept legal on purpose, as the idiom for "no real per-player limit, the global budget is the only ceiling." **Enforced only when a real judge is configured** (`JUDGE_MODE` ≠ `fake`): the fake judge has no external quota to protect.
+
+Both counts are **advisory, not transactional** — deliberately: serializing every match creation on a budget row would cost more than the handful of duels a race can overshoot by. Two accepted inaccuracies follow: a burst of concurrent creates can outrun the global count by roughly the number of matches currently `drawing`, since none of them have reached `judging` yet; and a match the stuck-judging watchdog retries spends one judge call per attempt but is one row, so it counts once no matter how many attempts it burned. Both are why the defaults sit under the free tier's quota rather than at it. No new table, no migration — both counts are derived over `matches` / `match_players` as they already stand (§7).
 
 ## 5. Prompts
 

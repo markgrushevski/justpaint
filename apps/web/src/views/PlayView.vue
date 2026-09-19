@@ -35,7 +35,9 @@ import {
     useCreateMatch,
     useSubmitMatch,
     matches,
+    icons,
     isAuthError,
+    isRateLimited,
     toApiError,
     openMatchSocket,
     leaderboardKeys
@@ -298,7 +300,14 @@ function startCountdown(): void {
 }
 
 /** Move to the terminal error phase. */
-function toError(msg: string): void {
+// A refusal the player cannot retry their way out of (a spent daily budget,
+// theirs or the service's). The card drops "Try again" for it: inviting a
+// retry that is guaranteed to fail until tomorrow is a worse dead end than
+// saying so, so it offers the ladder instead — somewhere to actually go.
+const exhausted = ref(false)
+
+function toError(msg: string, spent = false): void {
+    exhausted.value = spent
     errorMsg.value = msg
     phase.value = 'error'
     stopCountdown()
@@ -351,7 +360,10 @@ function handleError(err: unknown): void {
         void recoverFromAuthError()
         return
     }
-    toError(toApiError(err)?.message ?? 'Something went wrong. Try again.')
+    // The server's own wording is the right wording here: it is the only side that
+    // knows whether the player spent THEIR duels or the service spent its budget,
+    // and it deliberately tells them the first without exposing the second.
+    toError(toApiError(err)?.message ?? 'Something went wrong. Try again.', isRateLimited(err))
 }
 
 /** True once a terminal phase (`done`, or abandoned/error) has been reached for
@@ -955,9 +967,20 @@ onBeforeUnmount(() => {
         <!-- Overlay: one card per terminal/pending phase — error, judging, result. -->
         <template #overlay>
             <OriSurface v-if="phase === 'error'" class="play__notice" role="alert">
-                <h2 class="play__notice-title">Can’t start the duel</h2>
+                <h2 class="play__notice-title">
+                    {{ exhausted ? 'That’s your duels for today' : 'Can’t start the duel' }}
+                </h2>
                 <p class="play__notice-msg">{{ errorMsg }}</p>
-                <OriButton text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
+                <OriButton
+                    v-if="exhausted"
+                    text="Leaderboard"
+                    variant="outline"
+                    radius="md"
+                    :icon="icons.podium"
+                    icon-position="left"
+                    @click="viewLeaderboard"
+                />
+                <OriButton v-else text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
             </OriSurface>
             <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
             <ResultReveal

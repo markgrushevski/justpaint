@@ -60,6 +60,20 @@ type Config struct {
 	// is a fork bomb on a small instance.
 	JudgeConcurrency int
 
+	// JudgeDailyBudget and JudgeDailyPerUser cap how many judge calls a rolling
+	// 24h window may spend, globally and per player. They guard a resource the
+	// per-IP rate limiter cannot see: the free tier's binding limit is requests
+	// per DAY, one duel costs exactly one call, and a duel is only ~4 write
+	// requests — so a single IP inside the write limiter can burn a daily quota
+	// in the hundreds within minutes, after which NOBODY's duels get judged. The
+	// per-user half is what keeps one abuser from denying service to everyone.
+	//
+	// There is deliberately no "unlimited" sentinel: a judge always has a budget,
+	// and an operator who wants effectively none sets a large number. Both are
+	// rejected below 1 at boot.
+	JudgeDailyBudget  int
+	JudgeDailyPerUser int
+
 	// JudgeMode selects the judge impl (docs/JUDGE.md): "fake" (default; the
 	// zero-dependency ink-coverage stand-in that never reads the prompt), "http"
 	// (the collaborator's ML over the §6 contract) or "gemini" (a vision LLM
@@ -132,6 +146,15 @@ const DefaultDBMaxConns = 10
 // JUDGE_CONCURRENCY overrides it. Two, because each pass under RENDER_MODE=node
 // forks two node-canvas processes and the target instance is memory-poor.
 const DefaultJudgeConcurrency = 2
+
+// Judge-budget defaults, in judge calls per rolling 24h window. 200 global sits
+// under a free tier's daily request quota with headroom for the odd retry; 20 per
+// player is a generous evening of duelling and still leaves the global budget
+// reachable only by a real crowd, never by one person.
+const (
+	DefaultJudgeDailyBudget  = 200
+	DefaultJudgeDailyPerUser = 20
+)
 
 // WebSocket hardening defaults. The idle timeout clears the client's 25s ping
 // with margin; the heartbeat sits well under the timeout so a quiet-but-healthy
@@ -253,6 +276,10 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: JUDGE_CONCURRENCY must be >= 1, got %d (0 would stop judging entirely)", judgeConcurrency)
 	}
 	cfg.JudgeConcurrency = judgeConcurrency
+
+	if err := loadJudgeBudget(&cfg); err != nil {
+		return Config{}, err
+	}
 
 	if err := loadWSLimits(&cfg); err != nil {
 		return Config{}, err
@@ -393,6 +420,35 @@ func firstRunes(s string, n int) string {
 		return string(r)
 	}
 	return string(r[:n])
+}
+
+// loadJudgeBudget reads the two daily judge-call caps. Zero or negative is a boot
+// error rather than a synonym for "off": a 0 here would read as "no budget" to an
+// operator and behave as "refuse every duel" to the code, and the mode where the
+// budget genuinely does not apply is JUDGE_MODE=fake, which needs no sentinel
+// because there is no external quota to protect. Same fail-fast shape, and the same
+// reasoning, as JUDGE_CONCURRENCY.
+//
+// A per-user cap ABOVE the global one is allowed on purpose: that is how you say
+// "effectively no per-player limit, the global budget is the only ceiling".
+func loadJudgeBudget(cfg *Config) error {
+	global, err := getenvInt("JUDGE_DAILY_BUDGET", DefaultJudgeDailyBudget)
+	if err != nil {
+		return err
+	}
+	if global < 1 {
+		return fmt.Errorf("config: JUDGE_DAILY_BUDGET must be >= 1, got %d (0 would refuse every duel; there is no unlimited setting — set a large number if you mean effectively none)", global)
+	}
+	perUser, err := getenvInt("JUDGE_DAILY_PER_USER", DefaultJudgeDailyPerUser)
+	if err != nil {
+		return err
+	}
+	if perUser < 1 {
+		return fmt.Errorf("config: JUDGE_DAILY_PER_USER must be >= 1, got %d (0 would refuse every duel; there is no unlimited setting — set a large number if you mean effectively none)", perUser)
+	}
+	cfg.JudgeDailyBudget = global
+	cfg.JudgeDailyPerUser = perUser
+	return nil
 }
 
 // loadWSLimits reads the WebSocket hardening knobs and rejects a combination
