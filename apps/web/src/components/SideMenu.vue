@@ -6,7 +6,7 @@
  * Toggled from DrawView (the toggler lives there, not here). Holds the
  * drawing title (inline rename), copy actions, file actions, canvas settings,
  * and — at the bottom, since unregistered users are the /draw priority —
- * auth (login ⇄ register) / the profile.
+ * the profile / one entry point into the shared sign-in modal.
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'

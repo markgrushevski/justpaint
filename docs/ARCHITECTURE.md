@@ -2,7 +2,7 @@
 
 > **System topology & boundaries.** How the pieces fit, which way dependencies point, and where the seams are. Companion to `docs/DECISIONS.md` (the "why" of each call) and `docs/DOCUMENT-FORMAT.md` (the keystone contract). This doc maps the *structure*; it does not relitigate the decisions that produced it.
 >
-> **Status:** the monorepo layout below **now exists** (Phase 1 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone (the raster app survives only behind `/legacy`). This doc maps the structure and the explicit triggers for when to split further (§9); the game modules are landing in Phase 3 — `internal/judge` (FakeJudge), `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) exist, and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live. The WS hub (`internal/ws`) shipped 2026-07-12, and the real judge client exists twice over — `HTTPJudge` against the collaborator's §6 contract (still waiting on his service) and `GeminiJudge`, which decides duels in production today. Phase 4 and the post-launch UI work are what remain; §4 below is current, this header is the summary.
+> **Status:** the monorepo layout below **now exists** (Phases 1–3 and 5 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, `packages/render` and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone, and the throwaway raster app that briefly survived behind `/legacy` was deleted 2026-07-02. This doc maps the structure and the explicit triggers for when to split further (§9). The game modules all exist — `internal/judge`, `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) — and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live. The WS hub (`internal/ws`) shipped 2026-07-12, and the real judge client exists twice over — `HTTPJudge` against the collaborator's §6 contract (still waiting on his service) and `GeminiJudge`, which decides duels in production today. The single-player modules (`internal/practice`, `internal/guess`) and the shared AI-call ledger (`internal/aibudget`) landed 2026-09-20. Phase 4's remaining stretch items and the post-launch UI work are what is left; §4 below is current, this header is the summary.
 
 ## 1. One picture
 
@@ -12,7 +12,7 @@
 │        └──────────── packages/editor (Konva + perfect-freehand) ───────────┐    │
 │                              └── packages/document (schema · (de)serialize · render→PNG)
 └────────────────────────────────────────┬───────────────────────────────────────┘
-                                          │ HTTP/JSON (+ WS later)
+                                          │ HTTP/JSON + WS
                                           ▼
 ┌───────────────────────── server/ (Go modular monolith, one binary) ────────────┐
 │   auth · drawings · game · ws-hub · judge-client · assist · ratings [internal/ modules]   │
@@ -72,7 +72,7 @@ One Go service, one Postgres (DECISIONS: "one Go service … one Postgres"). Mic
 
 ```
 server/
-  cmd/server/main.go           # compose modules, start the http server (ws later)   [done]
+  cmd/server/main.go           # compose modules, start the http server + the ws hub [done]
   internal/
     auth/        # signup/login, bcrypt, golang-jwt issue/verify, middleware           [done]
     drawings/    # CRUD over the vector document (jsonb); validate on write            [done]
@@ -81,14 +81,14 @@ server/
     platform/    # shared infra: pgx pool, http server/router, config, slog, errors    [done]
     game/        # match lifecycle: create → both draw → submit → judge → result       [done: full loop]
     render/      # Renderer seam: StubRenderer + NodeRenderer (spawns packages/render)  [done]
-    judge/       # Judge interface + FakeJudge (HTTPJudge = Phase 4)                    [done: fake]
+    judge/       # the frozen Judge + our Critic/Guesser; Fake*/HTTP*/Gemini* impls     [done]
     assist/      # Assist interface + FakeAssist + GeminiAssist (the real one); docs/ASSIST.md          [done]
     ratings/     # read-only leaderboard module (aggregate + sort over match_players); docs/API.md §11 [done]
     practice/    # single-player scoring: one prompt/drawing/score, no match; judge.Critic, not Judge  [done]
     guess/       # "what did I draw?" on /draw: judge.Guesser, no row anywhere; docs/API.md §13        [done]
     aibudget/    # the daily AI-call ceiling, over ONE ledger table (ai_calls); docs/GAME.md §4.3      [done]
-    ws/          # coder/websocket hub for the game (coder/websocket hub — shipped; async-first)       [Phase 3]
-  migrations/    # goose (00001_initial_schema.sql, 00002_seed_prompts.sql)
+    ws/          # coder/websocket hub pushing match-room state to both duelists                       [done]
+  migrations/    # goose, embedded and applied at boot (00001_initial_schema … 00007_ai_calls)
 ```
 
 Module rules:
@@ -204,12 +204,12 @@ Notes:
 ## 9. Deployment & when-to-split triggers
 
 **Deployment (v1) — deliberately boring:**
-- **One Go binary** (modular monolith) — serves the JSON API and (later) WS on one port.
+- **One Go binary** (modular monolith) — serves the JSON API, the WS upgrade **and** the built SPA on one port.
 - **One Postgres.**
-- **Static frontend** — `apps/web` built to static assets, served by CDN/static host (or by the Go binary in the simplest setup).
+- **Static frontend** — `apps/web` built to static assets and served by the Go binary (`STATIC_DIR`, with history fallback). One origin is a **constraint, not a preference**: the session cookie is httpOnly + SameSite, the WS handshake is same-origin, and the service sends no CORS headers — so a frontend on a second host cannot authenticate.
 - **Object storage** for rendered PNGs (thumbnails + judged rasters) — **added when needed**, not day one.
 - **Render worker** — `packages/render`, a **Node** worker reusing the editor's `renderToStage` to rasterize submissions authoritatively (one renderer shared with the editor). **Built** (`RENDER_MODE=node`), currently **spawn-per-render** (inline/synchronous, per `DECISIONS.md`); a resident process or queue only if it becomes a bottleneck.
-- **External judge** — the collaborator's HTTP service; we point `HTTPJudge` at it via config, fall back to `FakeJudge` otherwise.
+- **External judge** — one `JUDGE_MODE` picks the impl: `http` (the collaborator's service, via `HTTPJudge`), `gemini` (a vision LLM scoring both rasters — what decides duels today), or `fake` (the zero-dependency dev/CI default).
 
 **Split only when a trigger actually fires** (resist premature distribution — microservices are over-engineering here):
 

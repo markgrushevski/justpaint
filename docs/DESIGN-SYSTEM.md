@@ -48,8 +48,11 @@ not an override.)
   | `outline` | `border=--ori-color-text`, transparent bg | `bg = mix(…, transparent 90%)` |
   | `text` | transparent, `text=--ori-color-text` | `bg = mix(…, transparent 90%)` |
   | `plain` | transparent, **opacity 0.5** | opacity 1 |
-- **Allowed** local color use: neutral structural tokens (`--ori-color-outline` for a hairline, `--ori-color-surface`
-  for a panel bg) and justpaint's own **non-brand** tokens (`--jp-desk`). Re-mixing a *brand* role is not.
+- **Allowed** local color use: neutral structural tokens (`--ori-color-surface` for a panel bg) and justpaint's own
+  **non-brand** tokens (`--jp-desk`, `--jp-color-outline` for a hairline). Re-mixing a *brand* role is not.
+  The hairline is deliberately **ours**, not oriui's `--ori-color-outline`: theirs is a `currentcolor` tint that
+  cannot meet the 3:1 non-text bar `scripts/check-contrast.mjs` enforces — same name, different job
+  ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-06).
 
 ## 2. Buttons — always `OriButton`, drive state with props
 

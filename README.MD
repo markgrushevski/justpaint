@@ -13,7 +13,9 @@ winner, with Elo ratings and a leaderboard tracking players over time. A free-dr
 | 1 | Go backend (auth + drawings CRUD) + a minimal Konva editor | done |
 | 2 | Frontend refactor — the real vector editor, oriui | done |
 | 3 | The game — async duel first, then live realtime | done |
-| 4 | Stretch — ratings, AI assist, teams/tournaments, replay | in progress |
+| 4 | Stretch — ratings, AI assist, single-player practice, teams/tournaments, replay | in progress |
+| 5 | Public release — CI, prod-config fail-fast, rate limiting, one deployable image | done |
+| 6 | Post-launch UI — the owner's own list after using the launched product | in progress |
 
 Full detail and history: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
@@ -34,8 +36,13 @@ Concretely shipped:
 - an **authoritative server-side render worker** — the judged raster is produced by the same
   Konva + perfect-freehand projection the browser editor uses, run headless in Node, so the judge
   scores real rendered pixels rather than a client-supplied image;
-- **AI Assist Phase A** — a text prompt turns into a validated batch of document operations,
-  previewed as a ghost layer before the user accepts or rejects it.
+- **AI Assist** — a text prompt turns into a validated batch of document operations, previewed as a
+  ghost layer before the user accepts or rejects it; `ASSIST_MODE=gemini` is the real impl, and the
+  prompt really becomes shapes;
+- **single-player practice** (`/practice`) — one prompt, one drawing, one score, no opponent — and
+  **"what did I draw?"** on `/draw`, which asks the AI to name what is on the canvas;
+- a **daily AI-call ledger** — every judged duel, practice run, guess and assist call is counted per
+  kind per player and per provider globally, so a free tier cannot be emptied in a burst.
 
 ## Current limits
 
@@ -45,9 +52,11 @@ Concretely shipped:
   that actually reads the prompt and looks at the pictures. The default stays `fake` — ink coverage,
   no API key, no network — which is right for dev and CI and is **not a judge**: it never reads the
   prompt. All three swap behind one interface with no change to the game loop.
-- **AI Assist's model backend is scaffolded, not live.** `ASSIST_MODE=fake` — deterministic,
-  no API key required — is the default and what ships. `ASSIST_MODE=anthropic` wires the config
-  and fails fast without an `ANTHROPIC_API_KEY`, but has no live model call behind it yet.
+- **Every AI seam defaults to a fake, assist included.** `ASSIST_MODE` defaults to `fake` for the same
+  reason `JUDGE_MODE` does, and the fake returns the same canned drawing whatever you type — fine in
+  dev and CI, a lie in production. `ASSIST_MODE=gemini` is the real one and shares the judge's
+  `GEMINI_API_KEY`, quota and HTTP client. The two modes are read independently: a deployment can
+  want a real prompt box while the duel still runs on the fake judge.
 - **No object storage yet.** The result screen's opponent-canvas reveal renders the opponent's
   vector document client-side through a membership-gated endpoint instead; `judgedImageUrl` stays
   `null` until a storage layer is added.
@@ -86,7 +95,7 @@ docs/                specs and decisions — the source of truth
 | `practice` | single-player mode — one prompt, one drawing, one score, no opponent |
 | `guess` | "what did I draw?" on `/draw` — one image in, a guess out, nothing persisted |
 | `judge` | three vision seams: the collaborator's frozen `Judge`, plus our own `Critic` (practice) and `Guesser` (guess); `Fake*`/`HTTP*`/`Gemini*` impls |
-| `assist` | the `Assist` interface + `FakeAssist` + a scaffolded `AnthropicAssist` |
+| `assist` | the `Assist` interface + `FakeAssist` + the real `GeminiAssist` (`ASSIST_MODE`) |
 | `aibudget` | the daily AI-call ceiling over the `ai_calls` ledger — per kind per player, per provider globally |
 | `ratings` | the read-only leaderboard (Elo aggregate + sort over match players) |
 | `ws` | the `coder/websocket` hub pushing match-room state in realtime |
@@ -136,12 +145,14 @@ the prompt. For a verdict that does:
 
 ```sh
 export JUDGE_MODE=gemini
+export ASSIST_MODE=gemini                   # optional — the same key powers the /draw prompt box
 export GEMINI_API_KEY=...                   # from Google AI Studio; server-side only
 ```
 
 Pair it with `RENDER_MODE=node` above — a real judge on the stub renderer scores ink-coverage
 rectangles rather than drawings, and the server warns at boot when you do that. The free tier's binding
-limit is requests per **day**, and one duel costs exactly one request; when it runs out a match resolves
+limit is requests per **day, per project, per model** (20, as of 2026-09), and one duel costs one
+judging pass — that is one request plus up to two retries; when it runs out a match resolves
 as "couldn't be scored" instead of inventing a winner. `GEMINI_MODEL` is pinned rather than floating, so
 an upstream retirement is a loud 404 naming its replacement, not a silent change in how duels are judged.
 
@@ -224,6 +235,7 @@ pinger against `/readyz`.
 
 | Doc | Owns |
 |---|---|
+| [`docs/ORIENTATION.md`](docs/ORIENTATION.md) | the owner's reading path and runbook (Russian) — where to re-enter the code |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | phases and durable status — the real status source |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | the decision log — the "why" behind each call |
 | [`docs/DOCUMENT-FORMAT.md`](docs/DOCUMENT-FORMAT.md) | the keystone vector-document schema (v1) |
@@ -238,6 +250,7 @@ pinger against `/readyz`.
 | [`docs/DESIGN-SYSTEM.md`](docs/DESIGN-SYSTEM.md) | how the UI consumes oriui — the frontend chrome contract |
 | [`docs/NOTES.md`](docs/NOTES.md) | non-obvious implementation gotchas |
 | [`docs/IDEAS.md`](docs/IDEAS.md) | the non-blocking backlog |
+| [`docs/ISSUES-INNER.md`](docs/ISSUES-INNER.md) / [`docs/ISSUES-OUTER.md`](docs/ISSUES-OUTER.md) | known problems — ours to fix here / a dependency's to fix upstream |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | branching, commit style, and the local gates |
 | [`AGENTS.md`](AGENTS.md) | a concise, tool-agnostic map of the repo |
 

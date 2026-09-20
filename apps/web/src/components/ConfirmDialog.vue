@@ -10,8 +10,8 @@
  * never mutates the prop. A user-initiated dismiss (Esc / backdrop / ×) maps
  * to `cancel` — controlled mode is optimistic, so the dialog has already
  * closed by the time `update:open(false)` fires; we just mirror it outward.
- * Reused by /draw today and the /play game shell later, so it stays free of
- * any product-specific copy or wiring.
+ * Used by /draw — /play and /practice went live with their own overlay cards
+ * instead — so it stays free of any product-specific copy or wiring.
  */
 import { OriButton, OriDialog } from '@oriui/vue'
 

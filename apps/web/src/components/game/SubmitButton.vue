@@ -5,8 +5,9 @@
  * (DECISIONS 2026-07-04: one design, game chrome on top), so a duel reads as the
  * same shell wearing game clothes.
  *
- * Presentational: emits `submit`; PlayView owns disabled/loading and the actual
- * (later: server) submit. Kept as the sole filled-primary control on the page.
+ * Presentational: emits `submit`; the host view (PlayView / PracticeView) owns
+ * disabled/loading and the actual server submit. Kept as the sole filled-primary
+ * control on the page.
  */
 import { computed } from 'vue'
 import { OriButton } from '@oriui/vue'

@@ -1,6 +1,7 @@
 <script lang="ts">
 /** One player's judged outcome — a 0..100 score and the rendered raster (or
- *  null, e.g. an opponent preview not yet wired). */
+ *  null: the opponent's canvas is fetched and rendered AFTER the reveal opens,
+ *  and a forfeiter has no submitted drawing to fetch at all). */
 export interface DuelSide {
     /** Similarity score, 0..100 (clamped for display). */
     score: number
@@ -9,7 +10,8 @@ export interface DuelSide {
 }
 
 /** The full judged result of a duel — everything the reveal screen needs. Shaped
- *  to mirror the eventual server result so real data drops straight in. */
+ *  to mirror the server result (`MatchResultDone`), which PlayView maps straight
+ *  into this. */
 export interface DuelResult {
     you: DuelSide
     /** The opponent side plus their safe display label (never a login). */

@@ -130,7 +130,7 @@ function goBack(): void {
             </table>
 
             <!-- Auth: a 401 (lapsed session / direct anon visit) offers inline
-                 sign-in (the same AuthForm as /draw & /play) and refetches on
+                 sign-in (the same AuthForm the app-root modal renders) and refetches on
                  success — instead of a dead-end generic error. -->
             <div v-else-if="needsAuth" class="lb__auth">
                 <p class="lb__state">Sign in to view the leaderboard.</p>

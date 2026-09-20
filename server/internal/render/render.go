@@ -1,9 +1,9 @@
 // Package render turns a validated vector document into the authoritative judged
 // raster, rendered off the client (the trust boundary — docs/GAME.md §6,
 // DOCUMENT-FORMAT §10). The game loop depends on the Renderer interface, never a
-// concrete impl, so the in-process StubRenderer here and a future Konva +
-// perfect-freehand Node worker swap by config with no change to the loop —
-// exactly like the Judge seam (internal/judge).
+// concrete impl, so the in-process StubRenderer here and the Konva +
+// perfect-freehand NodeRenderer beside it swap by config (RENDER_MODE) with no
+// change to the loop — exactly like the Judge seam (internal/judge).
 package render
 
 import (

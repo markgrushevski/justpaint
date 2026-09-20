@@ -140,7 +140,8 @@ export const matches = {
             await request<SubmitEnvelope>('/matches/' + id + '/submit', { method: 'POST', body: { document: doc } })
         ).match
     },
-    /** The end-of-round verdict; poll until `ready` (WS push replaces this later). */
+    /** The end-of-round verdict; poll until `ready`. The WS `result` frame carries the
+     *  same body instantly, so this poll is the reconciliation fallback, not the path. */
     async result(id: string): Promise<MatchResult> {
         return (await request<ResultEnvelope>('/matches/' + id + '/result')).result
     },

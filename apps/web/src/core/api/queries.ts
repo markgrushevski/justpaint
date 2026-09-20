@@ -99,8 +99,9 @@ export function useLeaderboard(limit = 20) {
  * The reads that DRIVE the flow — the roster poll (`matches.get`) and the verdict
  * poll (`matches.result`) — are called directly from the /play phase machine (an
  * ephemeral per-round flow with no shared cache to own, mirroring how
- * `useLoadLatestDrawing` reaches straight to `drawings.get`). WS push replaces the
- * polling later (docs/API.md §9, not-v1).
+ * `useLoadLatestDrawing` reaches straight to `drawings.get`). The live WS push
+ * (docs/API.md §9) now carries those same transitions, which demotes that polling
+ * to a reconciliation fallback rather than removing it.
  */
 
 /** Create or auto-join an async match. */

@@ -16,12 +16,12 @@ import (
 // him.
 //
 // Practice asks a different question — "how well does this ONE drawing depict the
-// prompt?" — for a player who has no opponent (docs/GAME.md has no such mode; the
-// duel needs two people and, until there is a player base, that makes the product
-// unplayable by its first visitor). Squeezing that into Judge would mean either
-// sending the same image twice and reading scoreA (a lie the winner field then
-// has to answer), or widening the frozen interface. So it gets its own, small,
-// LOCAL seam instead.
+// prompt?" — for a player who has no opponent (docs/GAME.md §10: the duel needs
+// two people and, until there is a player base, that makes the product unplayable
+// by its first visitor). Squeezing that into Judge would mean either sending the
+// same image twice and reading scoreA (a lie the winner field then has to
+// answer), or widening the frozen interface. So it gets its own, small, LOCAL
+// seam instead.
 //
 // The collaborator implements Judge. He does NOT implement Critic, he is not
 // asked to, and his service has no critique endpoint — which is precisely why

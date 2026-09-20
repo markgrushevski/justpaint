@@ -129,10 +129,13 @@ Owned by the `jp-design-reviewer` lens. The UI is built on the **oriui** design 
 
 ## Scope
 
-- [ ] `/draw` stays editor + save/load — a feature that serves only free-draw and not the game needs
-      a decision first (the two-products trap).
-- [ ] The judge remains interface + fake; nothing blocks on the collaborator's ML; the positional
-      `winner` (`"A"|"B"|"tie"`) → player-id mapping stays inside the game module.
+- [ ] `/draw` stays the editor, save/load and the AI-in-product surfaces (assist, guess) — anything
+      with a score, a ladder or an opponent belongs in the game, and a feature that serves only
+      free-draw needs a decision first (the two-products trap).
+- [ ] The collaborator's `Judge` contract stays frozen and nothing blocks on his ML — a new impl is a
+      new impl behind the interface (`JUDGE_MODE`), never a widening of the contract, and a question
+      that is ours to ask gets its own seam (`Critic`, `Guesser`). The positional `winner`
+      (`"A"|"B"|"tie"`) → player-id mapping stays inside the game module.
 - [ ] Roadmap order respected (don't start the game loop before the editor is real; async before
       live WS; no Phase-4 stretch before the core loop). No old red flag reintroduced.
 

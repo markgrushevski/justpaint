@@ -4,7 +4,7 @@
 >
 > **Ownership note.** The document schema and its invariants stay owned by `DOCUMENT-FORMAT.md` and the two validators; the HTTP envelope/status conventions by `API.md`; the command/undo model by `packages/editor`. This doc only defines what the LLM is allowed to say and how it gets applied.
 >
-> **Status:** v1 design, accepted 2026-07-07 (`DECISIONS.md`). Phase A build in progress on `feat/assist-phase-a`.
+> **Status:** shipped. v1 design accepted 2026-07-07 (`DECISIONS.md`); Phase A built 2026-07-13 (`feat/assist-phase-a`); the real impl landed 2026-09-20. Every section below describes code that runs — see the two amendments.
 >
 > **Amended 2026-07-13 (Phase A build):** the three resolutions in `DESIGN-ASSIST-PHASE-A.md` §1 are folded in — `add_layer` gains an `id`, all DTOs are **camelCase**, the `DocSummary` is **minimal** (§4), and retry-exhaustion returns **`400 validation_failed`** not `422` (§3.3). §2 and §4 reflect the **shipped** Op contract; §3.1 (endpoint), §3.4 (rate limit), and §5 (client) reflect the **shipped** Phase A code. Only §3.2 (the live SDK call) and §3.3 (the validate→retry loop) describe the still-scaffolded `AnthropicAssist` path — Phase A ships `FakeAssist` (always succeeds) plus the handler's own defense-in-depth re-validation; no impl exercises §3.2/§3.3 yet.
 >

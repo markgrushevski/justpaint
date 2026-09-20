@@ -2,9 +2,10 @@
 /**
  * The /draw empty-state card — an Excalidraw-inspired warm welcome shown
  * centered on a blank canvas (it replaces the old `.draw__hint` pill). A quick
- * launcher for the two things justpaint does: free-draw here, or a duel on
- * /play. Presentational — every action is an emit or a RouterLink; the host
- * (DrawView) owns the actual behavior and decides when to show/hide the card.
+ * launcher for what justpaint does: free-draw here, a duel on /play, or a solo
+ * run on /practice. Presentational — every action is an emit or a RouterLink;
+ * the host (DrawView) owns the actual behavior and decides when to show/hide
+ * the card.
  *
  * The card sits on the shared `OriSurface` island language (surface + 1px
  * outline + soft shadow), same as the toolbar/zoom/layers chrome.
@@ -44,7 +45,7 @@ const emit = defineEmits<{
             <li>
                 <!-- Rendered AS a RouterLink (renders an <a>): color=primary gives
                      the sanctioned AA role-as-text accent that oriui derives for
-                     ori-color_primary text/plain variants. /play lands later. -->
+                     ori-color_primary text/plain variants. -->
                 <OriButton
                     class="empty__action"
                     :as="RouterLink"

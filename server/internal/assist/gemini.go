@@ -105,9 +105,9 @@ var (
 	_ ProviderCaller = (*GeminiAssist)(nil)
 )
 
-// CallsProvider reports true: unlike the Phase A scaffold beside it, this impl
-// really reaches Google and really spends the quota, so assist finally has a
-// provider and therefore a real daily ceiling (docs/ASSIST.md §3.4).
+// CallsProvider reports true: unlike FakeAssist beside it, this impl really
+// reaches Google and really spends the quota, so assist finally has a provider
+// and therefore a real daily ceiling (docs/ASSIST.md §3.4).
 func (a *GeminiAssist) CallsProvider() bool { return true }
 
 const (

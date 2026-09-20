@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 /**
- * EditorShell — the shared editor LAYOUT SKELETON for /draw and (later) /play
+ * EditorShell — the shared editor LAYOUT SKELETON for /draw, /play and /practice
  * (DECISIONS 2026-07-04: one design, game chrome on top). It owns ONLY the
  * full-bleed desk/letterbox surface, the Konva canvas MOUNT element, and the
  * absolutely-positioned floating regions; every piece of chrome is a caller
  * slot. The parent constructs the Editor into the exposed `canvasEl` (in its own
- * onMounted) and fills the regions with its own (draw or play) chrome.
+ * onMounted) and fills the regions with its own (draw, play or practice) chrome.
  *
  * Regions: `#top-left #top-center #top-right #bottom-left #bottom-center
  * #bottom-right` are positioned wrappers; `#overlay` is the centered

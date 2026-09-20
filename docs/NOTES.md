@@ -25,8 +25,8 @@ small practical gotchas go here.
 - **`FREEHAND_VERSION` (`packages/document/src/constants.ts`) must equal the RESOLVED installed
   perfect-freehand.** `^1.2.0` resolves to 1.2.3 — the pin is the exact resolved string, not the
   range floor. perfect-freehand is a dep of `packages/editor` only (not `apps/web`). Bump the
-  constant in lockstep or rendered outlines diverge between the editor preview and the (future)
-  server render worker.
+  constant in lockstep or rendered outlines diverge between the editor preview and the
+  server render worker (`packages/render`), which is the raster the judge scores.
 - **Write-precision rounding lives only in `serializeDocument`** (2dp geometry, 3dp pressure). Don't
   round in the model or in tools — repeated rounding accumulates error.
 - **Ids share a single namespace** across layers + strokes (one `seen` set); a stroke id colliding
@@ -64,8 +64,9 @@ small practical gotchas go here.
   2026-07-03). `CreateOrJoin` dedupes a user's own open matches with a plain `SELECT` (`FindMyOpenMatch`),
   which two *concurrent* create-txs bypass (neither sees the other's uncommitted match). The composite PK
   still prevents any double-*seat*; only same-user self-stacking of `open` matches is possible, in a
-  narrow window. Hard fix (advisory-xact-lock on userID / partial unique index) is folded into the
-  deferred rate-limit slice (`IDEAS.md`) — don't re-file as a separate integrity bug.
+  narrow window. Hard fix (advisory-xact-lock on userID / partial unique index) was meant to ride the
+  rate-limit slice; that slice shipped 2026-09-18 without it, so it is still open and now needs its own
+  (`IDEAS.md`) — don't re-file as a separate integrity bug.
 - **`PickRandomActivePrompt` uses `order by random()`** — fine at seed scale (dozens of rows), but it's a
   full scan + sort; swap for a keyset/`tablesample`/id-range pick if the prompt pool ever grows large.
 - **Match ownership is hidden as 404, like drawings**: a non-player calling `GET /api/matches/{id}` (or a
@@ -139,8 +140,8 @@ small practical gotchas go here.
   `persistResult`.** `runJudging` reads status on the pool (unlocked) and bails if not `judging`; that
   alone wouldn't stop two concurrent passes both rendering then both writing. So `persistResult` re-takes
   `GetMatchForUpdate` and re-checks `status == judging` inside its write tx — whoever locks first commits
-  `done`, the loser bails. This is what makes the planned restart-sweeper safe to run alongside the live
-  trigger (idempotent, never double-applies Elo). Keep that lock if you refactor judging.
+  `done`, the loser bails. This is what makes the restart-sweeper (`internal/game/sweeper.go`) safe to
+  run alongside the live trigger (idempotent, never double-applies Elo). Keep that lock if you refactor judging.
 - **A submitted duel drawing is immutable via CRUD.** `UpdateDrawing`/`DeleteDrawing` carry
   `and match_id is null`, so `PUT`/`DELETE /api/drawings/{id}` on a match-linked drawing touches no row;
   the drawings service (`classifyMiss`) turns that miss into `ErrDuelLocked` → **409** (a genuinely
@@ -226,7 +227,8 @@ small practical gotchas go here.
   index covering the `group by`/`order by`. Fine at Phase-4 scale; mitigated in the meantime by the
   clamped `?limit` (`API.md` §11) and the frontend's 30s `staleTime` on the leaderboard query. Revisit
   with a covering index, a materialized rank, or a cached leaderboard table before a large real user
-  base — sits alongside the deferred global rate-limit (`IDEAS.md` "Drawings / API").
+  base. (The per-IP rate limiter this note once waited on shipped 2026-09-18 — it bounds request
+  rate, not this query's cost, so the revisit above stands on its own.)
 - **Deadline enforcement leans on Postgres `now()` being the TRANSACTION-START instant, not the
   statement instant.** `GetMatchForUpdate`'s `server_now`, `StampSubmission`'s `now()`, and
   `SetMatchDrawing`'s deadline stamp are all plain `now()` — the SAME instant throughout one
@@ -275,11 +277,12 @@ small practical gotchas go here.
   editor UI state out of the pure command model; don't "fix" it by threading active-layer into
   commands. If `/play` ever needs full editor-state restore, model that as a separate concern.
 - **`renderToPNG` is browser-only** (needs a real DOM + Konva stage) and is intentionally **not**
-  unit-tested (no DOM in the Vitest runner). A headless/Konva-node server render path is a separate
-  future thing (Phase 3 submit).
-- **Konva 10 dropped its default Node.js backend** (browser is unaffected — the editor is fine). When
-  the Phase-3 **headless server render worker** is built, it must `import 'konva/canvas-backend'`
-  (or `konva/skia-backend`) before using Konva, or it won't render off-DOM. Also: Konva 10's one
+  unit-tested (no DOM in the Vitest runner). The headless/Konva-node server render path is a separate
+  thing and it exists — `packages/render`, covered by its own `selftest`.
+- **Konva 10 dropped its default Node.js backend** (browser is unaffected — the editor is fine). The
+  **headless server render worker** therefore does `import 'konva/canvas-backend'` before any Konva use
+  (`packages/render/render.mjs`, first import) — drop or reorder it and nothing renders off-DOM.
+  (`konva/skia-backend` is the alternative.) Also: Konva 10's one
   render-behavior change (rounded corners on **negative-dimension** rects) can't bite us — `rect.ts`
   normalizes to non-negative w/h and the validator rejects zero/negative dims, so v9↔v10 output is
   identical for every document we can produce.
@@ -355,15 +358,18 @@ small practical gotchas go here.
   keeps the frozen contract checked.
 - **`URL.revokeObjectURL` in the same tick as `a.click()` can abort the download** in some browsers —
   defer the revoke (`setTimeout(…, 0)`).
-- **oriui is a normal npm dependency** now (`@oriui/{vue,css,headless}` pinned to `1.0.0-alpha.10`, the
-  owner's own alpha lib — was vendored under `vendor/oriui/` until the swap). The three move in
+- **oriui is a normal npm dependency** now (`@oriui/{vue,css,headless}` pinned to `1.0.0-rc.18`, the
+  owner's own library — was vendored under `vendor/oriui/` until the swap). The three move in
   **lockstep** — bump all three together (`@oriui/vue` pins its `css`/`headless` deps to the exact
   same version). `@oriui/css` must be imported for side effects (done in `main.ts`) or components
   render unstyled. A dep **version change needs a Vite dev-server restart** (Vite pre-bundles deps),
   not just an HMR reload.
-- **`--ori-color-outline` is justpaint-invented (oriui ships NO outline token):** the resolved alias
+- **The hairline token is `--jp-color-outline`, ours, and it stays ours:** the resolved alias
   must be set at base `:root` for light AND repointed in the dark block, or light-mode borders
-  silently fall to the black literal fallback.
+  silently fall to the black literal fallback. oriui shipped its own `--ori-color-outline` in
+  `1.0.0-rc.18`, and we deliberately did not adopt it — theirs is a `currentcolor` tint, ours is a
+  fixed per-theme colour held to the 3:1 non-text bar by `scripts/check-contrast.mjs`
+  (`ISSUES-OUTER.md` JP-O-06). Same name, different job; don't "fix" a component to the `--ori-` one.
 - **`OriButton size="sm"` does not shrink height below ~40px** (`size` only sets `--ori-size-action`;
   height is `max(2.5em, action)`) — budget floating-cluster widths accordingly.
 - **`layersOpen` is computed once at mount** from `innerWidth` and not re-evaluated on resize;
@@ -474,15 +480,20 @@ small practical gotchas go here.
   judging), reached from `startMatch`. `submit()` does **not** start a second loop — it only flips the
   phase to `judging`; the existing loop (which reschedules through the transient `submitting` phase)
   picks up the verdict branch. Adding a `scheduleNextPoll()` in `submit` would double every poll.
-- **The round timer is a soft client-side UX pressure only** — v1 has no server-authoritative
-  deadline, so the countdown is not reconciled against the match (it auto-submits on expiry). Don't
-  treat `remaining` as authoritative; a real deadline is a `TODO(play-api)`.
+- **The round timer is anchored on the SERVER's clock, not the browser's** (`feat/round-deadline`
+  closed the old client-only `TODO(play-api)`). `anchorClock(drawingDeadline, serverTime)` stores the
+  offset between the two clocks and every tick recomputes `remaining` from it, so a skewed or
+  suspended client cannot gain or lose round time. The countdown still auto-submits near expiry, but
+  it is a mirror of `matches.drawing_deadline` — the authority is the sweeper and the submit check,
+  both on Postgres' own clock, and a late submit is refused `409` regardless of what the client shows.
 - **Every async continuation checks the `disposed` flag** (set in `onBeforeUnmount`) before touching
   reactive state — the poll loop + `await`ed create/submit/capture can resolve after the route
   changes. `clearTimers()` clears both the countdown interval and the tracked poll `setTimeout`s.
-- **A duel is auth-required**; `/play` has no sign-in form. An anonymous visitor (or a `fetchMe`
-  failure) routes to the sign-in card, which links to `/draw` (where the SideMenu auth lives). A `409`
-  on submit is treated as already-recorded and proceeds to the verdict poll, not an error.
+- **A duel is auth-required**; `/play` has no sign-in form of its own. An anonymous visitor (or a
+  `fetchMe` failure) raises the ONE shared sign-in modal via `gate.ensure('Sign in to play a duel.')`
+  (`feat/auth-gate`, 2026-09-18) and the action resumes the moment they sign in — it no longer sends
+  them to `/draw`'s SideMenu. A `409` on submit is treated as already-recorded and proceeds to the
+  verdict poll, not an error.
 - **`PlayView.applyResult` mutates `session.user.rating` DIRECTLY**, bypassing the session store's
   `fetchMe`/`login`/`register` actions (the only places that normally set `user.rating`). Without this
   patch the SideMenu and the leaderboard would keep showing the page-load rating after a duel resolves
@@ -590,19 +601,29 @@ small practical gotchas go here.
   first on the 429 path (`server/internal/assist/handler.go`).
 - **Before enabling `ASSIST_MODE=anthropic` in any real deployment, add a global/per-IP spend ceiling
   in FRONT of the per-user bucket** (`ratelimit.go`) — account creation trivially bypasses per-user
-  rate limiting on a paid endpoint; the per-user bucket alone doesn't cap total spend.
+  rate limiting on a paid endpoint; the per-user bucket alone doesn't cap total spend. **Moot as of
+  2026-09-20:** `ASSIST_MODE=anthropic` was deleted rather than ever enabled (`docs/DECISIONS.md`
+  2026-09-20), and the concern is covered anyway — `internal/aibudget`'s global per-provider daily
+  ceiling now sits in front of every kind's per-user allowance, assist included.
 - **The real `AnthropicAssist` impl must route the model's raw JSON through
   `document.ParseAndValidateOpBatch`, not a bare struct-decode** — only `ParseAndValidateOpBatch` runs
   the `requiredOpKeys` presence guard; decoding straight into `Result` would let Go silently zero-fill
   an absent field the TS validator would reject (the same class of gap already flagged above for
-  `add_stroke`'s inner fields).
+  `add_stroke`'s inner fields). **Moot as of 2026-09-20:** `AnthropicAssist` was deleted rather than
+  built; the real impl (`GeminiAssist`) sidesteps this class of bug entirely — the model emits
+  primitive shapes, never `Op` JSON, so Go itself builds every required field and there is no
+  model-authored struct to zero-fill. The `add_stroke` presence-guard gap above still stands on its
+  own.
 - **Derive a `context.WithTimeout` for the LLM call itself**, rather than inheriting only the
   request's 30s `WriteTimeout` (`main.go`) — an LLM call has its own latency budget, distinct from the
   HTTP write deadline.
 - **Wrap the final validator error into `ErrInvalidBatch`** (`fmt.Errorf("%w: %v", ErrInvalidBatch,
   err)`) so the handler's `errors.Is` check (`handler.go`) actually maps retry-exhaustion to `400`
   instead of falling through to the generic `500` — `AnthropicAssist.GenerateOps` today returns a
-  plain, unwrapped error (it isn't implemented yet), exactly the case this would need to fix.
+  plain, unwrapped error (it isn't implemented yet), exactly the case this would need to fix. **Done
+  as of 2026-09-20:** `GeminiAssist.GenerateOps` (`gemini.go`) wraps retry-exhaustion exactly this way
+  (`fmt.Errorf("assist: gemini: %w: %v", ErrInvalidBatch, lastInvalid)`); `AnthropicAssist` was
+  deleted, not left unimplemented.
 - **Treat the model-generated `note` as untrusted text** — escape it before rendering; never treat it
   as HTML.
 - **The two op validators intentionally have swapped param order** — TS `validateOpBatch(summary,

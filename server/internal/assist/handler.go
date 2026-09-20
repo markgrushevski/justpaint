@@ -67,8 +67,8 @@ func CallsProvider(a Assist) bool {
 // They answer a DIFFERENT question from the limiter beside them. The token bucket
 // bounds the RATE — how fast one user may ask — and lives in this process, so the
 // host resets it on every deploy and every wake from idle. The budget bounds the
-// daily QUOTA, lives in Postgres, and therefore actually holds. Assist has had
-// only the first since Phase A, which means its ceiling has never survived a
+// daily QUOTA, lives in Postgres, and therefore actually holds. Assist had only
+// the first from Phase A until the ledger landed, so its ceiling never survived a
 // restart; layering both on one endpoint is the pattern docs/API.md §3.1 already
 // documents for POST /api/matches.
 

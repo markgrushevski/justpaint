@@ -242,7 +242,7 @@ const (
 	RenderModeNode = "node"
 )
 
-// Assist modes.
+// Judge and assist modes.
 const (
 	JudgeModeFake   = "fake"
 	JudgeModeHTTP   = "http"

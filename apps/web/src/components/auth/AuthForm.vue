@@ -1,9 +1,10 @@
 <script lang="ts" setup>
 /**
  * Shared sign-in form (login ⇄ register) — the tabs/fields/submit button,
- * extracted so both SideMenu's Sign in section (/draw) and PlayView's error
- * overlay (/play) can drop it in inline instead of duplicating the markup or
- * punting anonymous /play visitors to /draw.
+ * extracted so every surface that needs a session renders the SAME one: the
+ * app-root `AuthDialog` (raised from any route through `useAuthGate`) and
+ * LeaderboardView's inline 401 branch. /draw and /play reach it through that
+ * modal instead of duplicating the markup or punting anonymous visitors to /draw.
  */
 import { computed, ref } from 'vue'
 import { OriButton, OriField, OriInput, OriTabs } from '@oriui/vue'

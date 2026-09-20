@@ -1,9 +1,10 @@
 // Package game implements the async drawing-duel lifecycle: create/auto-join a
 // match, pin one shared prompt, draw the same prompt, submit, judge out-of-band,
 // and reveal the result — the full open → drawing → judging → done loop. The
-// render and judge are seams (internal/render, internal/judge); only the
-// pixel-authoritative Node render worker is still stubbed. See docs/GAME.md,
-// docs/API.md §8.
+// render and judge are seams (internal/render, internal/judge); each has a real
+// impl behind it — the pixel-authoritative Node worker (RENDER_MODE=node) and a
+// real judge (JUDGE_MODE=http|gemini) — plus an in-process stand-in that proves
+// the loop with no external dependency. See docs/GAME.md, docs/API.md §8.
 package game
 
 import (
@@ -28,10 +29,12 @@ import (
 
 // GameCanvasSize is the canonical square game canvas (docs/GAME.md §2). Both
 // duelists draw at exactly this size; it is echoed to the client so it configures
-// the editor without guessing, and (later slice) enforced at submit.
+// the editor without guessing, and enforced at submit (ValidateSubmission).
 const GameCanvasSize = 1080
 
-// modeAsync is the only match mode in v1 (live WS is Phase 3 back-half).
+// modeAsync is the only match mode in v1. Live realtime shipped as a transport
+// over this same lifecycle rather than a second mode, so nothing writes the
+// column's other legal value (docs/GAME.md §9).
 const modeAsync = "async"
 
 // Match statuses (docs/GAME.md §3). Only the states this slice reasons about are
@@ -101,7 +104,7 @@ var (
 type PlayerRow struct {
 	UserID      string
 	DisplayName *string
-	DrawingID   *string // nil until the player submits (later slice)
+	DrawingID   *string // nil until the player submits
 }
 
 // MatchView is the assembled match state the handler renders (applying the
@@ -780,8 +783,8 @@ func (s *Service) persistResult(ctx context.Context, matchID string, res judge.R
 	defer tx.Rollback(ctx)
 	qtx := s.q.WithTx(tx)
 
-	// Re-check status under the match lock so a second judging pass (a future
-	// restart sweeper racing the live trigger) can't double-apply Elo: whoever
+	// Re-check status under the match lock so a second judging pass (the
+	// stuck-judging sweeper racing the live trigger) can't double-apply Elo: whoever
 	// takes the lock first commits done; a loser sees status != judging and bails.
 	m, err := qtx.GetMatchForUpdate(ctx, matchID)
 	if err != nil {

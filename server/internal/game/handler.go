@@ -155,8 +155,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	// v1 accepts only "async" (the default). The value is validated here but not
 	// threaded into CreateOrJoin: creation relies on the matches.mode column
-	// default ('async') and auto-join only considers async matches, so mode is
-	// intentionally inert until live mode lands (docs/GAME.md §9).
+	// default ('async') and auto-join only considers async matches. Live realtime
+	// shipped as a transport over the same lifecycle and added no 'live' mode
+	// (docs/GAME.md §9), so mode stays intentionally inert — validated so a client
+	// asking for something else is told, threaded nowhere because there is nowhere
+	// for it to go.
 	mode := req.Mode
 	if mode == "" {
 		mode = modeAsync
@@ -355,8 +358,13 @@ type resultPlayerDTO struct {
 	Score        *float64 `json:"score"`
 	RatingBefore *int32   `json:"ratingBefore"`
 	RatingAfter  *int32   `json:"ratingAfter"`
-	// JudgedImageURL points at the server-rendered authoritative raster in object
-	// storage. Null until the object-storage seam + real render land (Phase 3 cont.).
+	// JudgedImageURL would point at the server-rendered authoritative raster in
+	// object storage. It stays null: the render is real (RENDER_MODE=node) but is
+	// never persisted, and the reveal shows the opponent's canvas through the
+	// membership-gated participant-drawing route below plus a client render, which
+	// is why object storage was dropped rather than built (docs/API.md §8.4,
+	// docs/DECISIONS.md 2026-07-11). The field is kept for a later feed-thumbnail
+	// or render-offload use.
 	JudgedImageURL *string `json:"judgedImageUrl"`
 }
 
@@ -452,7 +460,7 @@ func buildResultDTO(v ResultView) any {
 		players[i] = resultPlayerDTO{
 			UserID: p.UserID, DisplayName: p.DisplayName, DrawingID: p.DrawingID,
 			Score: p.Score, RatingBefore: p.RatingBefore, RatingAfter: p.RatingAfter,
-			JudgedImageURL: nil, // pending object storage + real render
+			JudgedImageURL: nil, // no object storage — see resultPlayerDTO
 		}
 	}
 	text := v.PromptText
