@@ -728,3 +728,22 @@ third-party failure, add context in front of their words — never in place of t
 The second lesson is about defaults: a pinned model id is a liability with an expiry date, which is why
 `GEMINI_MODEL` is configuration. A pin is still the right default over a floating `-latest` alias, because a
 judge decides ratings and a model that changes under you silently is worse than one that stops loudly.
+
+## `go run` leaves a zombie holding the port, and `/readyz` lies about it
+
+Killing a backgrounded `go run ./cmd/server` kills the *wrapper*, not the compiled binary it spawned. The
+binary keeps listening on :8080, so the next `go run` dies with `bind: Only one usage of each socket
+address` — easy to miss in a background log — while `curl /readyz` answers **200 from the OLD build**.
+
+That combination is the trap: the health check is green, the port is served, and every request is handled
+by code from before your change. It cost a wrong diagnosis here — brand-new routes answering 404 looked
+like a routing bug and was a stale process.
+
+Before concluding anything about a local server, check WHICH process owns the port:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8080 -State Listen | ForEach-Object { Get-Process -Id $_.OwningProcess }
+```
+
+and stop that pid, not the shell job. `go build -o` plus running the binary directly avoids the whole
+class of problem when you expect to restart often.
