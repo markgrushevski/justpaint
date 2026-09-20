@@ -195,9 +195,11 @@ small practical gotchas go here.
   swaps `$2`/`$3` in the SQL, viewer/target flip silently — the membership `exists` gate would key on the
   path-supplied target, not the JWT caller: an IDOR with **no compile error and no test failure**. Two
   guards exist: the `d.owner_id = $2 and d.match_id = $1` backstops (a flip fails them closed), and the
-  field-named struct call. Still owed: a DB-integration regression test (skip-without-`DATABASE_URL`,
-  like `roundtrip_test.go`) asserting a **non-member viewer gets 404 even when the named target has
-  submitted** — that's the one assertion that would catch a role flip.
+  field-named struct call. **Now also pinned by a test** (2026-09-20 — this note used to say one was still
+  owed): `internal/game/reveal_test.go`'s `TestPlayerDrawing_DB` drives the real query against Postgres
+  over eight gate combinations, and the case named *"non-member refused for a submitted target (IDOR /
+  role-flip)"* is exactly the assertion that catches a flip — a viewer who is in no match at all asking
+  for a target who HAS submitted. It skips without `DATABASE_URL`; CI supplies one, so it really runs there.
 - **`users.rating` is moved by an ATOMIC delta (`ApplyRatingDelta`: `set rating = rating + $delta
   returning rating`), never an absolute `SET`** — so two *different* matches that seat the SAME user
   and resolve concurrently BOTH land (no lost update). This is load-bearing because the match `FOR
