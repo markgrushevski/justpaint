@@ -1,8 +1,8 @@
 # API contract
 
-> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, the live WS realtime layer, AI assist, single-player practice, and the ratings leaderboard. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12); §10 owns the AI-assist HTTP edge (contract owned by `docs/ASSIST.md`); §11 owns the leaderboard read; §12 owns the single-player practice HTTP edge (contract owned by `docs/GAME.md`'s practice section and the `Critic` seam in `docs/JUDGE.md`).
+> **The HTTP surface.** Every route the Go modular monolith exposes: auth, drawings CRUD, the async duel, the live WS realtime layer, AI assist, single-player practice, the ratings leaderboard, and the free-draw AI guess. The single source of truth for the **error envelope**, the **auth cookie**, the **DoS cap numbers**, **pagination**, and the **HTTP status map** — sibling docs reference these rather than re-declaring them. §9 owns the **shipped** WS wire protocol (`feat/ws-realtime`, 2026-07-12); §10 owns the AI-assist HTTP edge (contract owned by `docs/ASSIST.md`); §11 owns the leaderboard read; §12 owns the single-player practice HTTP edge (contract owned by `docs/GAME.md`'s practice section and the `Critic` seam in `docs/JUDGE.md`); §13 owns the `/draw` guess edge (the `Guesser` seam in `docs/JUDGE.md` §8.3).
 >
-> **Status:** Shipped (Phase 0–3 complete; §10–12 land with Phase 4, in progress — `docs/ROADMAP.md`). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
+> **Status:** Shipped (Phase 0–3 complete; §10–13 land with Phase 4, in progress — `docs/ROADMAP.md`). Companions: `docs/DOCUMENT-FORMAT.md` (the keystone schema + the validation contract API.md applies), `docs/ARCHITECTURE.md` (topology, data model, the Judge seam), `docs/JUDGE.md` (judge contract — owns the result shape), `docs/GAME.md` (match lifecycle, canvas, ratings), `docs/DECISIONS.md` (the "why"). When in doubt those win; this doc does not relitigate them.
 
 ## 0. What this doc owns vs. references
 
@@ -75,22 +75,30 @@ chosen by the first matching rule, and each tier has its own independent budget.
 | Tier | Applies to | Burst | Sustained |
 |---|---|---|---|
 | strict | `POST /api/auth/*` | 10 | 1 per 6s |
-| write | `POST`/`PUT`/`DELETE` on `/api/matches*`, `/api/drawings*`, `/api/practice` | 30 | 1 per 2s |
+| write | `POST`/`PUT`/`DELETE` on `/api/matches*`, `/api/drawings*`, `/api/practice`, `/api/guess` | 30 | 1 per 2s |
 | default | everything else, including reads, the WS upgrade and the served SPA | 300 | 5 per s |
 
 A throttled request gets **`429 rate_limited`** in the standard envelope plus a
 **`Retry-After`** header (seconds). `POST /api/assist/ops` keeps its own
 *per-user* bucket on top of this (§10) — that one guards API spend, not abuse.
-`POST /api/matches`, `POST /api/practice` (§12) **and** `POST /api/assist/ops`
-(§10) each layer on a third, unrelated `429 rate_limited`: a **daily AI-call
-budget** (`GAME.md` §4.3), per-user-per-kind and per-provider, guarding a
-resource this per-IP bucket cannot see at all — a free-tier quota measured in
-requests per **day**, not per second, spent alike by a duel starting its
-round, a practice run being critiqued and an assist prompt reaching the model.
-Unlike the tiers above it carries **no `Retry-After`** header: the window
-rolls continuously, so there is no fixed reset to name. (`GET
+`POST /api/matches`, `POST /api/practice` (§12), `POST /api/guess` (§13)
+**and** `POST /api/assist/ops` (§10) each layer on a third, unrelated
+`429 rate_limited`: a **daily AI-call budget** (`GAME.md` §4.3),
+per-user-per-kind and per-provider, guarding a resource this per-IP bucket
+cannot see at all — a free-tier quota measured in requests per **day**, not
+per second, spent alike by a duel starting its round, a practice run being
+critiqued, a free-draw canvas being guessed at and an assist prompt reaching
+the model. Unlike the tiers above it carries **no `Retry-After`** header: the
+window rolls continuously, so there is no fixed reset to name. (`GET
 /api/practice/prompt` is a cheap read and sits in the generous `default` tier,
-not `write` — only the scoring `POST` costs a render and a judge call.)
+not `write` — only the scoring `POST` costs a render and a judge call.
+`POST /api/guess` is in `write` for the same reason, and the daily budget is
+**not** a substitute for that row: under `JUDGE_MODE=fake` guess has no
+provider and so is unbudgeted by design, which would otherwise leave the
+generous tier as the only thing between an authenticated caller and five
+renders a second — each one a `node-canvas` subprocess under
+`RENDER_MODE=node`. The daily ceiling guards a provider's quota; this tier
+guards our own machine.)
 
 The client IP is the direct peer unless the server is configured to trust a
 proxy (`TRUST_PROXY`), in which case it is taken from the **rightmost**
@@ -554,5 +562,42 @@ Errors:
 - `413 document_too_large` — over 8 MB.
 - `404 not_found` — `promptId` is not a valid UUID, or names no *active* prompt. A retired prompt answers exactly like a made-up one (§1 ownership-hiding, applied here to "does this prompt still exist" rather than ownership) — deactivation is not detectable by trying to draw for it.
 - `429 rate_limited` — the **same daily AI-call budget** a duel draws on (`GAME.md` §4.3), two distinct causes, same code/status, checked in order: the caller's own daily **practice** allowance is spent (message *"you have used all of your scored drawings for today — new ones unlock as the day rolls over"*), or — only once they've cleared that check — the whole daily budget of the provider behind the critic is spent (message *"the AI budget for today is spent — this feature resumes tomorrow"*). The **global** refusal discloses nothing about the budget's size; a per-kind refusal may name the caller's own cap where it is small enough to have been counted (this one does not). Neither carries a `Retry-After` header (same posture as `POST /api/matches`, §8).
-- `500 internal` — **practice is not configured on this server.** Under `JUDGE_MODE=http` there is no `Critic` (the collaborator's service has no critique endpoint and was never asked to build one — `JUDGE.md` §8.2), so every call refuses rather than silently scoring with the fake critic. This is the **one `500` in this API whose message names its cause** — *"practice is not available on this server: the configured judge cannot score a single drawing"* — instead of the usual opaque `"internal error"` (§3): a misconfigured `JUDGE_MODE` is a deployment fact worth surfacing, not a secret, and an opaque message here would let the mistake go unnoticed for a long time.
+- `500 internal` — **practice is not configured on this server.** Under `JUDGE_MODE=http` there is no `Critic` (the collaborator's service has no critique endpoint and was never asked to build one — `JUDGE.md` §8.2), so every call refuses rather than silently scoring with the fake critic. This is **one of the two `500`s in this API whose message names its cause** (the other is the guess route's, §13, refusing for the same reason) — *"practice is not available on this server: the configured judge cannot score a single drawing"* — instead of the usual opaque `"internal error"` (§3): a misconfigured `JUDGE_MODE` is a deployment fact worth surfacing, not a secret, and an opaque message here would let the mistake go unnoticed for a long time.
+- `401 unauthorized`.
+
+## 13. Guess — "what did I draw?" on `/draw`
+
+One route, `POST /api/guess`. **Auth: required** — a call spends the caller's own `guess` share of the daily AI-call budget (§3.1, `GAME.md` §4.3), so there is no anonymous path. This is the free editor's AI question and the mirror of assist (§10): assist draws what you say, this says what you drew. It borrows practice's (§12) *shape* — one document up, one verdict back synchronously, nothing stored — but not its question: there is **no prompt**, because nobody supplied an answer, so there is nothing to score against and **no score comes back**, only a label. The seam it runs on (`Guesser` — ours, explicitly not the frozen `Judge` contract): `docs/JUDGE.md` §8.3. The "why": `docs/DECISIONS.md` 2026-09-20.
+
+### `POST /api/guess`
+Say what the caller's free-draw canvas is. **Auth: required.** Answers `200`, never `202`: there is nobody to wait for, so the request that asks is the request that learns — the authoritative render and the model call both happen inside it, bounded by `guess.RunBudget` (25s, the same margin practice takes under the server's 30s write timeout, and for the same reason).
+
+Request:
+```json
+{ "document": { "version": 1, "width": 1280, "height": 720, "background": "#ffffff", "layers": [ … ] } }
+```
+- The same **8 MB body cap + full document validator + DoS caps** as `POST /api/drawings` and `POST /api/practice` (§6) — the same artefact, so the same ceiling and the same `413 document_too_large` code. Unknown fields are tolerated, exactly as on every other document-bearing route (§1). A client `thumbnail` may ride along but is advisory only and is ignored server-side (trust boundary, `DOCUMENT-FORMAT.md` §10).
+- **The canvas may be any valid size.** This route runs `document.ParseAndValidate`, **not** `game.ValidateSubmission` — the duel's extra **1080×1080** rule (`GAME.md` §2) belongs to the duel, where two players are compared and must therefore draw on the same canvas. A free-draw canvas is whatever the player made it, anywhere inside the format's 8192 bound, and importing the duel's rule would `400` exactly the drawings this feature exists to look at. Verified live: a real `/draw` canvas came back **1280×720**, which the duel's square check would have rejected outright.
+- **Nothing is persisted.** There is no `guesses` table and no row anywhere: no `drawings` row, nothing to read back, no `id` in the response. The drawing on `/draw` may never be saved at all, so there is frequently nothing for a guess to hang off — and a guess is a moment rather than a record, scoring nothing and gating nothing. The one durable trace is the AI-call ledger row (`GAME.md` §4.3), which records *that a provider call was made*, never what it said.
+
+Success `200 OK`:
+```json
+{
+  "guess": {
+    "label": "a cat wearing a hat",
+    "confidence": 0.82,
+    "alternatives": ["a rabbit in a basket"]
+  }
+}
+```
+- `label` is a short noun phrase, **≤80 characters** — deliberately a sixth of a critique's feedback cap, because the shortness *is* the product; the model is asked for ≤70 and the remaining ten are the clamp margin. Writing may itself **be** the drawing: for a carefully drawn word, *"the word HELLO"* is the correct answer.
+- `confidence` is in `[0,1]` and means something **different from a score**, despite sharing the scale: a practice/duel score says how well a drawing matched a prompt **we** handed the player, a confidence says how sure the model is of a label **nobody** handed anyone. The two are not comparable and must never be shown side by side as if they were — the `/draw` card renders it as a phrase, never as the number.
+- `alternatives` holds **0–2** runner-up guesses, genuinely different subjects rather than rewordings of `label`. It is **always an array on the wire, never `null`** — an absent list and an empty one are the same fact, and a clear drawing having no runner-up is the expected case, not a degraded one.
+
+Errors:
+- `400 validation_failed` — invalid document. **Not** a wrong canvas size: there is no size rule here beyond the format's own (above).
+- `413 document_too_large` — over 8 MB, tripped by `http.MaxBytesReader` before parse (§6); the same cap and the same code as `POST /api/drawings` and `POST /api/practice`.
+- `429 rate_limited` — the **same daily AI-call budget** a duel and a practice run draw on (`GAME.md` §4.3), two distinct causes, same code/status, checked in order: the caller's own daily **guess** allowance is spent (message *"you have used all 2 of your AI guesses for today — new ones unlock as the day rolls over"*), or — only once they've cleared that check — the whole daily budget of the provider behind the guesser is spent (message *"the AI budget for today is spent — this feature resumes tomorrow"*). This is the **one per-kind refusal that names its number**, and only because the cap is **2** — small enough that the player could have counted it themselves, which is the whole test (`GAME.md` §4.3); the **global** refusal still discloses nothing about the budget's size. Neither carries a `Retry-After` header (same posture as `POST /api/matches`, §8).
+- `500 internal` — **the guess is not configured on this server.** Under `JUDGE_MODE=http` there is no `Guesser`: the collaborator's service answers a comparative two-image question and has no endpoint that looks at one drawing and names it (`JUDGE.md` §2 is frozen, §8.3). Like practice's, this `500` **names its cause** — *"the AI guess is not available on this server: the configured judge cannot look at a single drawing"* — rather than falling back to `FakeGuesser`, whose "guess" reads ink coverage and has never looked at a picture: a wrong guess is *funny*, so a fabricated one reads as the feature working rather than as the feature being off, which makes it a more convincing lie than a fake score would be.
+- `500 internal` (opaque) — the render failed, the rendered raster came back over the **4 MiB** `maxRasterBytes` guard (a server-side fault — the document already passed validation), or the guesser answered with something that is not a valid `Guess`. All three get the usual `"internal error"`.
 - `401 unauthorized`.

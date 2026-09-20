@@ -85,6 +85,7 @@ server/
     assist/      # Assist interface + FakeAssist + AnthropicAssist scaffold; docs/ASSIST.md            [done: fake]
     ratings/     # read-only leaderboard module (aggregate + sort over match_players); docs/API.md §11 [done]
     practice/    # single-player scoring: one prompt/drawing/score, no match; judge.Critic, not Judge  [done]
+    guess/       # "what did I draw?" on /draw: judge.Guesser, no row anywhere; docs/API.md §13        [done]
     aibudget/    # the daily AI-call ceiling, over ONE ledger table (ai_calls); docs/GAME.md §4.3      [done]
     ws/          # coder/websocket hub for the game (coder/websocket hub — shipped; async-first)       [Phase 3]
   migrations/    # goose (00001_initial_schema.sql, 00002_seed_prompts.sql)

@@ -27,6 +27,7 @@ export type IconName =
     | 'minus'
     | 'fit'
     | 'assist'
+    | 'guess'
 
 const props = defineProps<{ name: IconName }>()
 
@@ -55,7 +56,13 @@ const ICONS: Record<IconName, string> = {
     minus: '<line x1="5" y1="12" x2="19" y2="12"/>',
     fit: '<path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><rect x="9" y="9.5" width="6" height="5" rx="1"/>',
     // AI assist — a four-point sparkle plus a small companion (the "generate" glyph).
-    assist: '<path d="M12 4 13.4 10.6 20 12 13.4 13.4 12 20 10.6 13.4 4 12 10.6 10.6Z"/><path d="M18.5 3.5v3"/><path d="M20 5h-3"/>'
+    assist: '<path d="M12 4 13.4 10.6 20 12 13.4 13.4 12 20 10.6 13.4 4 12 10.6 10.6Z"/><path d="M18.5 3.5v3"/><path d="M20 5h-3"/>',
+    // AI guess — an eye (the AI LOOKING at what you drew) carrying the same little
+    // spark mark as `assist`, so the two read as one family: both are the model.
+    // Deliberately not another question mark — `help` already owns the circled "?"
+    // two buttons away in the same island, and two "?" glyphs side by side would
+    // read as two flavours of help rather than "ask the AI what this is".
+    guess: '<path d="M2.5 13.5s3.2-6 9-6 9 6 9 6-3.2 6-9 6-9-6-9-6Z"/><circle cx="11.5" cy="13.5" r="2.6"/><path d="M18.6 2.6v3.4"/><path d="M20.3 4.3h-3.4"/>'
 }
 </script>
 
