@@ -23,7 +23,7 @@ func newGeminiTestCritic(t *testing.T, reply func(call int, w http.ResponseWrite
 	srv := httptest.NewServer(stub)
 	t.Cleanup(srv.Close)
 	c := NewGeminiCritic(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
-	c.retryBase = time.Millisecond
+	c.RetryBase = time.Millisecond
 	return c, stub
 }
 

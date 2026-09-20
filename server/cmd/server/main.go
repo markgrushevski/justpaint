@@ -101,6 +101,19 @@ func run() error {
 		logger.Info("render: stub (set RENDER_MODE=node for the authoritative render)")
 	}
 
+	// Which MODEL each AI kind runs on. GEMINI_MODEL is the default for all of them
+	// and AI_MODEL_PER_KIND overrides it per kind, because the jobs differ: the duel
+	// judge compares two drawings and its number feeds Elo, so it has to be the
+	// steadiest; the practice critic scores one drawing against a prompt; the
+	// guesser only names what it sees and its mistakes cost nothing. Unknown kind
+	// names are refused here rather than at first use (internal/aibudget owns the
+	// valid set).
+	aiModelByKind, err := aibudget.Models(cfg.GeminiModel, cfg.AIModelPerKind)
+	if err != nil {
+		return err
+	}
+	logAIModels(logger, aiModelByKind, cfg.GeminiModel)
+
 	// --- the AI impls, and WHO each one bills -------------------------------
 	//
 	// Every impl below is chosen and, in the same breath, says whose quota it
@@ -125,14 +138,20 @@ func run() error {
 	case config.JudgeModeHTTP:
 		arbiter = judge.NewHTTPJudge(cfg.JudgeBaseURL, cfg.JudgeTimeout)
 		// His service, his quota — still worth a ceiling, because a bug here would
-		// hammer it and we cannot see how much of it is left.
+		// hammer it and we cannot see how much of it is left. Bare, with no model
+		// attached: his service is one service however many models sit behind it, and
+		// splitting the counter would only hide how much of it we are using.
 		duelProvider = aibudget.ProviderCollaborator
 		logger.Info("judge: http (the collaborator's ML)", "base_url", cfg.JudgeBaseURL, "timeout", cfg.JudgeTimeout)
 	case config.JudgeModeGemini:
-		arbiter = judge.NewGeminiJudge(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.GeminiBaseURL, cfg.JudgeTimeout)
-		duelProvider = aibudget.ProviderGoogle
+		model := aiModelByKind[aibudget.KindDuel]
+		arbiter = judge.NewGeminiJudge(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		// Keyed to the MODEL, not to "google": the free tier meters per model, so two
+		// kinds on two models are two separate quota pools and one counter across both
+		// would refuse calls against a budget neither had spent (aibudget.WithModel).
+		duelProvider = aibudget.ProviderGoogle.WithModel(model)
 		// The key is deliberately absent from this line: it is server-side only.
-		logger.Info("judge: gemini vision", "model", cfg.GeminiModel, "timeout", cfg.JudgeTimeout)
+		logger.Info("judge: gemini vision", "model", model, "timeout", cfg.JudgeTimeout)
 	default:
 		arbiter = judge.NewFakeJudge()
 		logger.Info("judge: fake (ink coverage — it never reads the prompt; set JUDGE_MODE for a real verdict)")
@@ -173,9 +192,10 @@ func run() error {
 	var practiceProvider aibudget.Provider
 	switch cfg.JudgeMode {
 	case config.JudgeModeGemini:
-		critic = judge.NewGeminiCritic(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.GeminiBaseURL, cfg.JudgeTimeout)
-		practiceProvider = aibudget.ProviderGoogle
-		logger.Info("practice: gemini critic (scores one drawing against its prompt)", "model", cfg.GeminiModel)
+		model := aiModelByKind[aibudget.KindPractice]
+		critic = judge.NewGeminiCritic(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		practiceProvider = aibudget.ProviderGoogle.WithModel(model)
+		logger.Info("practice: gemini critic (scores one drawing against its prompt)", "model", model)
 	case config.JudgeModeHTTP:
 		// No critic at all, so no calls and no quota to protect — the empty provider
 		// is not a special case here, it is the same rule as a fake.
@@ -200,9 +220,10 @@ func run() error {
 	var guessProvider aibudget.Provider
 	switch cfg.JudgeMode {
 	case config.JudgeModeGemini:
-		guesser = judge.NewGeminiGuesser(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.GeminiBaseURL, cfg.JudgeTimeout)
-		guessProvider = aibudget.ProviderGoogle
-		logger.Info("guess: gemini vision (names what one drawing depicts)", "model", cfg.GeminiModel)
+		model := aiModelByKind[aibudget.KindGuess]
+		guesser = judge.NewGeminiGuesser(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		guessProvider = aibudget.ProviderGoogle.WithModel(model)
+		logger.Info("guess: gemini vision (names what one drawing depicts)", "model", model)
 	case config.JudgeModeHTTP:
 		logger.Warn("guess: DISABLED — JUDGE_MODE=http has no endpoint for it (docs/JUDGE.md §2 is a two-image contract); /api/guess answers 500 until JUDGE_MODE is fake or gemini")
 	default:
@@ -212,30 +233,52 @@ func run() error {
 
 	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic
 	// FakeAssist runs the whole client flow with zero API dependency, and the real
-	// AnthropicAssist swaps in by ASSIST_MODE with no handler change. The endpoint is
+	// GeminiAssist swaps in by ASSIST_MODE with no handler change. The endpoint is
 	// stateless (no DB) and rate-limited per user (each call can cost API money).
+	//
+	// ASSIST_MODE is read independently of JUDGE_MODE on purpose. They share a key
+	// and a quota but not a decision: a deployment may well want a real prompt box
+	// on /draw while the duel still runs on the fake judge.
 	assistLimiter := assist.NewRateLimiter(assist.DefaultBurst, assist.DefaultRefillInterval)
 	var assistImpl assist.Assist
-	if cfg.AssistMode == config.AssistModeAnthropic {
+	// The provider a mode WOULD bill, paired with the constructor that chose it —
+	// same discipline as the judge above. It is only adopted below if the impl
+	// confirms it really calls anybody.
+	var assistVendor aibudget.Provider
+	switch cfg.AssistMode {
+	case config.AssistModeGemini:
+		model := aiModelByKind[aibudget.KindAssist]
+		// Its OWN timeout, not the judge's: composing a picture takes tens of seconds
+		// on a thinking model, where a verdict takes one or two (config.AssistTimeout).
+		assistImpl = assist.NewGeminiAssist(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.AssistTimeout)
+		assistVendor = aibudget.ProviderGoogle.WithModel(model)
+		logger.Info("assist: gemini (a prompt really becomes shapes)", "model", model, "timeout", cfg.AssistTimeout)
+	case config.AssistModeAnthropic:
 		assistImpl = assist.NewAnthropicAssist(cfg.AnthropicAPIKey, cfg.AssistModel)
+		assistVendor = aibudget.ProviderAnthropic
 		// Not "real LLM": the impl behind this mode is still the Phase A scaffold, and
 		// the line right after CallsProvider below says so. A boot log that promises a
 		// working feature is how a scaffold reaches production unnoticed.
 		logger.Info("assist: anthropic", "model", cfg.AssistModel)
-	} else {
+	default:
 		assistImpl = assist.NewFakeAssist()
-		logger.Info("assist: fake (deterministic canned ops; set ASSIST_MODE=anthropic for the real LLM)")
+		// Worth naming what the fake actually is. It returns the same canned house
+		// whatever the user typed, which is a prompt box that ignores the prompt — fine
+		// in dev and CI, a lie in production.
+		logger.Info("assist: fake (the same canned ops for every prompt; set ASSIST_MODE=gemini for a real one)")
 	}
 	// The impl is ASKED whether it calls anybody rather than inferred from the mode
-	// (assist.CallsProvider). Today the anthropic impl is a scaffold that returns an
+	// (assist.CallsProvider). The anthropic impl is still a scaffold that returns an
 	// error without any network I/O, so ASSIST_MODE=anthropic bills nothing — which
 	// is the truth, and which the boot line below says out loud instead of writing
-	// ledger rows for calls that never happen.
+	// ledger rows for calls that never happen. The gemini impl answers true, which is
+	// what finally gives assist a real daily ceiling.
 	var assistProvider aibudget.Provider
 	if assist.CallsProvider(assistImpl) {
-		assistProvider = aibudget.ProviderAnthropic
-	} else if cfg.AssistMode == config.AssistModeAnthropic {
-		logger.Warn("assist: ASSIST_MODE=anthropic, but the impl makes no external call yet (scaffold) — nothing is billed and every request will fail until the SDK lands")
+		assistProvider = assistVendor
+	} else if assistVendor != "" {
+		logger.Warn("assist: this mode names a provider but its impl makes no external call — nothing is billed and every request will fail until the impl lands",
+			"assist_mode", cfg.AssistMode)
 	}
 
 	// The daily AI-call budget (internal/aibudget). The per-IP write limiter bounds
@@ -486,6 +529,36 @@ func run() error {
 	return nil
 }
 
+// logAIModels states which model each AI kind RESOLVED to, before anything is
+// built with it.
+//
+// It exists because AI_MODEL_PER_KIND fails quietly in the one direction that
+// matters: a kind whose override never took — a name that parsed, a value that
+// looked plausible — keeps working perfectly on the default model, and the only
+// symptom is a bill or a quality level that is not the one the operator chose.
+// Naming the resolved model per kind makes that a one-line check instead of a
+// reading of this file.
+//
+// Kinds are listed in a stable order so two boots are diffable, and the common
+// case — every kind on the default — says so in one line rather than four
+// identical pairs.
+func logAIModels(logger *slog.Logger, models map[aibudget.Kind]string, defaultModel string) {
+	pairs := make([]any, 0, 2*len(models))
+	overridden := false
+	for _, kind := range aibudget.AllKinds() {
+		model := models[kind]
+		if model != defaultModel {
+			overridden = true
+		}
+		pairs = append(pairs, string(kind), model)
+	}
+	if !overridden {
+		logger.Info("ai models: every kind on the default (set AI_MODEL_PER_KIND to give one its own)", "model", defaultModel)
+		return
+	}
+	logger.Info("ai models: resolved per kind", append([]any{"default", defaultModel}, pairs...)...)
+}
+
 // logAIBudget states the ceiling at boot, per kind, because an unenforced budget
 // and an enforced one look identical from the outside until the day the quota
 // runs out. Kinds are listed in a stable order so two boots are diffable.
@@ -511,7 +584,10 @@ func logAIBudget(logger *slog.Logger, policies map[aibudget.Kind]aibudget.Policy
 		logger.Info("ai budget: nothing enforced (no AI impl here calls a provider, so there is no external quota to protect)")
 		return
 	}
-	logger.Info("ai budget: per rolling 24h", append([]any{"global_per_provider", global}, enforced...)...)
+	// "per provider" is now literally per provider AND MODEL where the provider
+	// meters that way (aibudget.Provider.WithModel), which each kind's value below
+	// spells out — so the number and the pools it applies to are read together.
+	logger.Info("ai budget: per rolling 24h", append([]any{"global_per_provider_pool", global}, enforced...)...)
 	if len(unbilled) > 0 {
 		logger.Info("ai budget: not enforced — these impls call no provider", "kinds", strings.Join(unbilled, ","))
 	}

@@ -59,18 +59,51 @@ func (k Kind) Noun() string {
 // The global half of the ceiling is counted PER PROVIDER, never service-wide:
 // Google running dry must not throttle an Anthropic-backed feature that still has
 // quota, or the reverse (migration 00007).
+//
+// A provider is an opaque key, not a closed set: the constants below are the
+// vendors we know, but WithModel narrows one of them to a single model and the
+// result is a perfectly good provider that no constant spells. The ledger column
+// is plain `text` for exactly that reason, so a narrower key costs no migration.
 type Provider string
 
 const (
-	// ProviderGoogle backs the Gemini judge and critic (JUDGE_MODE=gemini).
+	// ProviderGoogle backs every Gemini seam (JUDGE_MODE=gemini, ASSIST_MODE=gemini).
+	// It is almost never used bare — see WithModel.
 	ProviderGoogle Provider = "google"
-	// ProviderAnthropic backs AI assist (ASSIST_MODE=anthropic).
+	// ProviderAnthropic backs AI assist under ASSIST_MODE=anthropic, which is still
+	// the Phase A scaffold and therefore still bills nothing (docs/ASSIST.md §3.4).
 	ProviderAnthropic Provider = "anthropic"
 	// ProviderCollaborator is the ML collaborator's own service (JUDGE_MODE=http).
 	// Its quota is not ours and we cannot see it, which is exactly why we keep a
 	// ceiling under it rather than waiting to be told we exceeded one.
 	ProviderCollaborator Provider = "collaborator"
 )
+
+// WithModel narrows a provider to one model, producing the key "<provider>:<model>"
+// that the global ceiling is actually counted on.
+//
+// It exists because Google's free tier meters requests PER MODEL, not per account.
+// The moment two kinds run on different models — which is the whole point of
+// AI_MODEL_PER_KIND — a bare "google" counter would add two independent quota
+// pools together and refuse calls against a budget neither of them had spent.
+// Keyed per model, each pool gets its own count and its own ceiling, and the
+// global number in config reads as "per provider per model", which is the unit
+// Google bills in.
+//
+// A provider whose quota is NOT metered per model keeps its bare name: the
+// collaborator's service is one service however many models sit behind it, and
+// splitting its counter would only hide how much of it we are using.
+//
+// An empty model returns the provider unchanged rather than "google:" — a key with
+// nothing after the colon counts a pool that does not exist, and the caller that
+// produced it has a bug worth seeing as a plain "google" in the ledger rather than
+// as a phantom model.
+func (p Provider) WithModel(model string) Provider {
+	if p == "" || model == "" {
+		return p
+	}
+	return p + ":" + Provider(model)
+}
 
 // DefaultPerUser is the per-kind daily allowance one player gets when the
 // operator configures none. The allowance is now per KIND, not one pot shared

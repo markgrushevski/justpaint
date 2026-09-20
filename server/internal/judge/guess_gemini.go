@@ -10,7 +10,7 @@ import (
 
 // GeminiGuesser is the real guesser behind /draw's "what did I draw?" button: ONE
 // generateContent call, one authoritative raster, and the model's structured JSON
-// as a Guess. It shares geminiClient with GeminiJudge and GeminiCritic — same
+// as a Guess. It shares GeminiClient with GeminiJudge and GeminiCritic — same
 // endpoint, same credential handling, same §7 retry policy, same
 // ErrQuotaExhausted — so a guess, a practice run and a duel fail the same way and
 // are fixed the same way.
@@ -44,14 +44,14 @@ import (
 // of the player who drew the picture that produced it — an audience of one, who
 // asked for it.
 type GeminiGuesser struct {
-	geminiClient
+	GeminiClient
 }
 
 // NewGeminiGuesser builds the guesser over the shared client. The arguments are
 // the judge's, from the same config: the guess button deliberately does not get
 // its own model or key knob — it is the same quota, spent on the same API.
 func NewGeminiGuesser(apiKey, model, baseURL string, timeout time.Duration) *GeminiGuesser {
-	return &GeminiGuesser{geminiClient: newGeminiClient("gemini guesser", apiKey, model, baseURL, timeout)}
+	return &GeminiGuesser{GeminiClient: NewGeminiClient("judge: gemini guesser", apiKey, model, baseURL, timeout)}
 }
 
 var _ Guesser = (*GeminiGuesser)(nil)
@@ -107,9 +107,9 @@ Return only the JSON object described by the response schema, with no commentary
 // happening to match Go field names case-insensitively.
 //
 // The runner-ups are TWO OPTIONAL STRINGS rather than an array, and that is a
-// deliberate shape rather than a limitation worked around. geminiSchema models
-// only the OpenAPI subset this package actually uses — no items, no maxItems — so
-// an array would reach the model as an unbounded list and the 0-2 arity would
+// deliberate shape rather than a limitation worked around. GeminiSchema can
+// describe an array (Items) but not its arity — maxItems is still unmodelled —
+// so an array would reach the model as an unbounded list and the 0-2 arity would
 // become something we trim after the fact. Two named fields pin the arity IN THE
 // SCHEMA, where the model is choosing, and the descriptions get to say what each
 // slot is for. Two is a tiny fixed arity, not a list.
@@ -126,10 +126,10 @@ type geminiGuessOutput struct {
 //
 // Only label and confidence are required: a clear drawing has no runner-up, and
 // requiring the alternatives would make the model invent doubt to fill them.
-func geminiGuessSchema() *geminiSchema {
-	return &geminiSchema{
+func geminiGuessSchema() *GeminiSchema {
+	return &GeminiSchema{
 		Type: "OBJECT",
-		Properties: map[string]*geminiSchema{
+		Properties: map[string]*GeminiSchema{
 			"label":        {Type: "STRING", Description: "What the picture is, as a short noun phrase of at most 70 characters."},
 			"confidence":   {Type: "NUMBER", Description: "How sure you are of the label, from 0 to 1 inclusive."},
 			"alternative1": {Type: "STRING", Description: "A runner-up guess that is a genuinely different subject, or an empty string if you have none."},
@@ -168,10 +168,10 @@ func buildGeminiGuessBody(img []byte) ([]byte, error) {
 // invented guess is worse than an honest error, because the player cannot tell
 // the two apart — and unlike a score, a wrong guess is funny enough to be
 // believed.
-func parseGeminiGuess(out geminiOutput) (Guess, error) {
+func parseGeminiGuess(out GeminiOutput) (Guess, error) {
 	var v geminiGuessOutput
-	if err := json.Unmarshal([]byte(out.text), &v); err != nil {
-		return Guess{}, fmt.Errorf("judge: gemini guesser: output is not the JSON guess (finishReason %q): %w", out.finish, err)
+	if err := json.Unmarshal([]byte(out.Text), &v); err != nil {
+		return Guess{}, fmt.Errorf("judge: gemini guesser: output is not the JSON guess (finishReason %q): %w", out.Finish, err)
 	}
 	// Display text, so trimming stray whitespace is cosmetic; the overrun clamp is
 	// the same deliberate normalization the duel's reason and the critic's feedback

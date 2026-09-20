@@ -563,6 +563,15 @@ small practical gotchas go here.
 
 ## AI assist (`internal/assist`, `packages/editor` ghost preview, feat/assist-phase-a)
 
+> **2026-09-20:** the real impl landed and it is `GeminiAssist`, not `AnthropicAssist`
+> (`docs/ASSIST.md` §3.2). The bullets below that are addressed to "the real impl" are answered
+> or moot: the call has its own `ASSIST_TIMEOUT` (60s, per attempt); the final validator error
+> is wrapped in `ErrInvalidBatch`; the daily AI-call budget now sits behind the per-user bucket,
+> which is the spend ceiling a new account cannot walk around; and the `ParseAndValidateOpBatch`
+> worry does not arise, because the model never emits ops at all — it emits primitive shapes and
+> Go builds the typed ops, so there is no struct-decode of model JSON to zero-fill. Everything
+> about the ghost preview, the `Retry-After` ordering and the two validators still stands.
+
 - **The op validator does NOT presence-guard the inner stroke fields of `add_stroke`** — safe today
   ONLY because `freehand` (the one stroke type whose all-zero `brush` still passes the existing
   stroke validator) is excluded from the Op schema (`docs/ASSIST.md` §2). If Phase B/C ever admits
@@ -862,3 +871,60 @@ to an opaque `500` — and the UI then offered a retry that could not succeed, s
 a player's two daily guesses on it. Both inline handlers now map it to the same refusal the
 service's own exhausted budget produces. Our ceiling is set below the provider's, but "below"
 is not "never".
+
+## Structured output that parses perfectly and is still wrong: set `maxOutputTokens`
+
+A model asked for a LIST over structured output can run out of output budget mid-answer. It
+does not then return broken JSON — the API **closes the object so it stays parseable**, and
+what arrives is a syntactically perfect answer whose last element is half written. Measured
+live on 2026-09-20 building the assist seam: `[{"type":"rect","x":0,"y":0` and then the
+closing brackets, which failed validation as a zero-area rect and read for all the world
+like a model that cannot draw a house.
+
+Two things follow, and both are now in the code:
+
+1. **A caller that asks for a list must set `MaxOutputTokens`** (`judge.GeminiJSONRequest`).
+   Zero leaves it to the model's own default, which a thinking model spends on its
+   reasoning. `assist` sets 8192; a whole house costs ~450 tokens, so loose is free and
+   tight is a silent failure.
+2. **Read the finish reason before blaming the model's judgement.**
+   `judge.GeminiFinishTruncated` (`"MAX_TOKENS"`) is exported for exactly this, and
+   `GeminiAssist` puts *"the answer was cut off before it finished"* in front of the
+   validator's complaint on the retry — otherwise the retry asks the model to explain a
+   zero-width rectangle it never meant to draw.
+
+The three verdict impls in `internal/judge` leave the budget unset on purpose: a verdict is
+four scalars and could not overrun anything. The trap belongs to lists.
+
+## At temperature 0, a schema that permits a boring continuation will get an infinite one
+
+The truncations above were not really a budget problem. They were **greedy decoding loops**,
+and the schema is what let them exist. Both were measured live on 2026-09-20; both are now
+impossible to express rather than merely unlikely.
+
+- **Fractional coordinates.** Geometry fields were `NUMBER`. Asked for a house, the model
+  emitted `"y": 440.0000000000000640000000000000000000000000…` and kept emitting zeros for
+  8176 tokens until the answer was truncated. Greedy decoding cannot escape a run like that
+  — the likeliest token after a zero is another zero — so the retry could not have helped
+  either, and what reached validation was a rect with no width. The fix is one word:
+  `INTEGER` (`assist.geminiCoordType`). A canvas coordinate is a pixel, so nothing is lost,
+  and the decimal point is gone from the grammar. A non-zero temperature was the other
+  candidate and was refused: it trades a reproducible answer for a probabilistic escape from
+  one specific loop.
+- **Optional fields.** The shape object required only `type`, on the reasonable-sounding
+  grounds that a rect has no centre and an outline-only shape has no fill, so requiring them
+  would make the model write something meaningless. What actually happened: the model closed
+  each shape after three fields and then repeated that same stub — 24 identical
+  `{"type":"rect","x":340,"y":400}` and counting — until the answer was truncated. An
+  "optional" field over structured output is not a field the model weighs; it is one it is
+  free to skip, and skipping most of them leaves objects so alike that greedy decoding
+  simply loops. **Every** property is now `required`
+  (`assist.geminiAssistRequiredShapeFields`), including the ones a given shape ignores; the
+  meaningless values cost a few tokens and are dropped on the way in, where `""` already
+  meant an absent colour and `0` an absent width.
+
+**The general lesson for the next structured-output seam:** at temperature 0 the schema is
+not a validation layer, it is the **grammar the decoder walks**. Ask of every field whether a
+repetitive or degenerate continuation is representable in it, because if it is, one day it
+will be the likeliest one — and the symptom will arrive as a truncated answer that blames
+the model.

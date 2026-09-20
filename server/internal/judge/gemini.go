@@ -17,9 +17,14 @@ import (
 
 // ErrQuotaExhausted marks an HTTP 429 from the API — the free tier's daily
 // request budget is spent. It is exported and wrapped (never swallowed) so a
-// live failure reads as "we ran out of judge calls today", not "the judge is
+// live failure reads as "we ran out of Gemini calls today", not "the feature is
 // broken": those two have completely different fixes.
-var ErrQuotaExhausted = errors.New("judge: gemini quota exhausted")
+//
+// It is the sentinel for EVERY Gemini-backed seam in the service, not just the
+// judge — the critic, the guesser and internal/assist all reach the same API
+// through GeminiClient below — so its text names the provider rather than the
+// caller. Which caller it was comes from the wrapping message's label.
+var ErrQuotaExhausted = errors.New("gemini: quota exhausted")
 
 const (
 	// geminiMaxAttempts is 1 try + 2 retries (JUDGE.md §7).
@@ -44,40 +49,110 @@ const (
 // request is a duel nobody gets to play.
 var geminiPNGMagic = []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
 
-// geminiClient is the HTTP half of every Gemini-backed impl in this package: one
+// GeminiClient is the HTTP half of every Gemini-backed impl in the service: one
 // generateContent endpoint, the credential, the per-attempt deadline and the §7
 // retry policy. It is deliberately ignorant of what it is asking for — it takes a
 // request body and hands back the model's structured-output TEXT — so GeminiJudge
 // (a comparative verdict over two rasters) and GeminiCritic (a score for one
 // drawing) share the plumbing instead of keeping two drifting copies of it.
 //
-// It is EMBEDDED by both, so the label below is what keeps their error messages
-// distinguishable in a log where the two failure modes have different fixes.
-type geminiClient struct {
-	label     string // "gemini" | "gemini critic" — which impl an error came from
-	apiKey    string
+// It is EMBEDDED by the three impls in this package, so the label below is what
+// keeps their error messages distinguishable in a log where the failure modes have
+// different fixes. The label carries the WHOLE prefix ("judge: gemini critic"),
+// not just the seam's nickname, because this transport is no longer only the
+// judge's.
+//
+// # Why this type is exported
+//
+// internal/assist needs exactly this — same endpoint, same credential handling in
+// a header rather than a URL, same retry policy, same ErrQuotaExhausted — and the
+// alternative was a second copy that would drift from this one the first time
+// Google changed anything. The honest home for it is a provider-neutral package
+// that neither judging nor assisting owns; it lives here because that move is a
+// file rename this change was not scoped to make, and because everything below is
+// transport with no judgement in it. What internal/assist must NOT take from this
+// package is a Judge, a Critic, or the §2 contract — only the wire.
+type GeminiClient struct {
+	label  string // "judge: gemini critic" | "assist: gemini" — who an error came from
+	apiKey string
+	// RetryBase is the first backoff step; it doubles per retry. Exported only so a
+	// test can shrink it to milliseconds — production has no reason to set it.
+	RetryBase time.Duration
 	endpoint  string
 	timeout   time.Duration
-	retryBase time.Duration
 	httpc     *http.Client
 }
 
-// newGeminiClient builds the shared client. model and baseURL are supplied by
-// config (which owns their defaults, so they are used as given); timeout bounds
-// ONE attempt, and a non-positive timeout means "no deadline of our own" — the
-// caller's context stays the only bound.
-func newGeminiClient(label, apiKey, model, baseURL string, timeout time.Duration) geminiClient {
-	return geminiClient{
+// NewGeminiClient builds the shared client. label prefixes every error this client
+// raises and should name the caller in full ("assist: gemini"). model and baseURL
+// are supplied by config (which owns their defaults, so they are used as given);
+// timeout bounds ONE attempt, and a non-positive timeout means "no deadline of our
+// own" — the caller's context stays the only bound.
+func NewGeminiClient(label, apiKey, model, baseURL string, timeout time.Duration) GeminiClient {
+	return GeminiClient{
 		label:  label,
 		apiKey: apiKey,
 		// {base}/models/{model}:generateContent — the ":generateContent" verb is
 		// part of the path grammar, so only the model id is escaped.
 		endpoint:  fmt.Sprintf("%s/models/%s:generateContent", strings.TrimRight(baseURL, "/"), url.PathEscape(model)),
 		timeout:   timeout,
-		retryBase: geminiRetryBase,
+		RetryBase: geminiRetryBase,
 		httpc:     &http.Client{},
 	}
 }
+
+// GeminiJSONRequest is one text-only structured-output ask.
+type GeminiJSONRequest struct {
+	// System is the instruction turn; User is the single user turn.
+	System string
+	User   string
+	// Schema pins the JSON the answer must satisfy.
+	Schema *GeminiSchema
+	// MaxOutputTokens bounds the answer. Zero leaves it to the model's own default,
+	// which is what the three impls in this package do — a verdict is a handful of
+	// scalars and could not overrun anything.
+	//
+	// A caller asking for a LIST must set it, and the reason is a silent failure
+	// rather than an obvious one: a thinking model spends the same output budget on
+	// its reasoning, and when it runs out mid-answer the API closes the JSON to keep
+	// it parseable. The caller then gets a syntactically perfect object with its last
+	// field half-written — measured live, 2026-09-20, as a rect that had "x" and "y"
+	// and no width at all. Check GeminiOutput.Finish for "MAX_TOKENS" before blaming
+	// the model's judgement.
+	MaxOutputTokens int
+}
+
+// GenerateJSON runs one TEXT-ONLY structured-output call. It is the exported shape
+// because it is the one a caller outside this package needs — the three impls here
+// all attach player-drawn rasters and build their own bodies.
+//
+// Temperature is pinned to the package's own geminiTemperature (0) rather than
+// taken as an argument: a caller that wants a different answer to the same
+// question should change the question. A retry loop built on this method must
+// therefore vary its prompt, not hope for a different sample.
+func (c *GeminiClient) GenerateJSON(ctx context.Context, req GeminiJSONRequest) (GeminiOutput, error) {
+	body, err := json.Marshal(geminiRequest{
+		SystemInstruction: &geminiContent{Parts: []geminiPart{{Text: req.System}}},
+		Contents:          []geminiContent{{Role: "user", Parts: []geminiPart{{Text: req.User}}}},
+		GenerationConfig: geminiGenerationConfig{
+			Temperature:      geminiTemperature,
+			ResponseMIMEType: "application/json",
+			ResponseSchema:   req.Schema,
+			MaxOutputTokens:  req.MaxOutputTokens,
+		},
+	})
+	if err != nil {
+		return GeminiOutput{}, fmt.Errorf("%s: encode request: %w", c.label, err)
+	}
+	return c.generate(ctx, body)
+}
+
+// GeminiFinishTruncated is the finishReason the API reports when the answer ran
+// out of output budget. Exported because it is the difference between "the model
+// gave a bad answer" and "the model gave half a good one", and those have
+// completely different fixes — the first is a prompt, the second is
+// GeminiJSONRequest.MaxOutputTokens.
+const GeminiFinishTruncated = "MAX_TOKENS"
 
 // generate posts body and returns the model's structured-output text. The body is
 // built once by the caller and replayed across attempts — the base64 rasters are
@@ -87,12 +162,12 @@ func newGeminiClient(label, apiKey, model, baseURL string, timeout time.Duration
 // timeouts and 5xx, with doubling backoff; never on a 4xx. Note that the timeout
 // is applied PER ATTEMPT — a single budget shared across attempts would make
 // "retry on timeout" dead code, since the first timeout would consume it.
-func (c *geminiClient) generate(ctx context.Context, body []byte) (geminiOutput, error) {
+func (c *GeminiClient) generate(ctx context.Context, body []byte) (GeminiOutput, error) {
 	var lastErr error
 	for attempt := 1; attempt <= geminiMaxAttempts; attempt++ {
 		if attempt > 1 {
-			if err := geminiBackoff(ctx, c.retryBase, attempt); err != nil {
-				return geminiOutput{}, fmt.Errorf("judge: %s: retry aborted: %w (last failure: %v)", c.label, err, lastErr)
+			if err := geminiBackoff(ctx, c.RetryBase, attempt); err != nil {
+				return GeminiOutput{}, fmt.Errorf("%s: retry aborted: %w (last failure: %v)", c.label, err, lastErr)
 			}
 		}
 		out, retryable, err := c.attempt(ctx, body)
@@ -101,20 +176,20 @@ func (c *geminiClient) generate(ctx context.Context, body []byte) (geminiOutput,
 		}
 		lastErr = err
 		if !retryable {
-			return geminiOutput{}, err
+			return GeminiOutput{}, err
 		}
 		// The caller giving up outranks our retry budget: a cancelled parent means
 		// nobody is waiting for this answer any more.
 		if ctx.Err() != nil {
-			return geminiOutput{}, fmt.Errorf("judge: %s: call aborted: %w (last failure: %v)", c.label, ctx.Err(), lastErr)
+			return GeminiOutput{}, fmt.Errorf("%s: call aborted: %w (last failure: %v)", c.label, ctx.Err(), lastErr)
 		}
 	}
-	return geminiOutput{}, fmt.Errorf("judge: %s: failed after %d attempts: %w", c.label, geminiMaxAttempts, lastErr)
+	return GeminiOutput{}, fmt.Errorf("%s: failed after %d attempts: %w", c.label, geminiMaxAttempts, lastErr)
 }
 
 // attempt performs one request and extracts the candidate's answer. The bool
 // reports whether the failure is worth another try; an unusable 200 is NOT.
-func (c *geminiClient) attempt(ctx context.Context, body []byte) (geminiOutput, bool, error) {
+func (c *GeminiClient) attempt(ctx context.Context, body []byte) (GeminiOutput, bool, error) {
 	if c.timeout > 0 {
 		// Layered over the caller's ctx, so whichever gives up first wins and the
 		// caller's cancellation is never swallowed.
@@ -125,7 +200,7 @@ func (c *geminiClient) attempt(ctx context.Context, body []byte) (geminiOutput, 
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return geminiOutput{}, false, fmt.Errorf("judge: %s: build request: %w", c.label, err)
+		return GeminiOutput{}, false, fmt.Errorf("%s: build request: %w", c.label, err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
@@ -135,20 +210,20 @@ func (c *geminiClient) attempt(ctx context.Context, body []byte) (geminiOutput, 
 	if err != nil {
 		// DNS, TLS, connection reset, or our own per-attempt deadline — all §7
 		// transient.
-		return geminiOutput{}, true, fmt.Errorf("judge: %s: request failed: %w", c.label, err)
+		return GeminiOutput{}, true, fmt.Errorf("%s: request failed: %w", c.label, err)
 	}
 	defer resp.Body.Close()
 
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, geminiMaxResponseBytes))
 	if err != nil {
-		return geminiOutput{}, true, fmt.Errorf("judge: %s: read response: %w", c.label, err)
+		return GeminiOutput{}, true, fmt.Errorf("%s: read response: %w", c.label, err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		// 5xx only. A 4xx means OUR request is wrong, and a 429 on a DAILY budget
 		// least of all — the quota does not refill in 250ms, so a retry is just two
 		// more log lines and a longer wait for the same failure.
-		return geminiOutput{}, resp.StatusCode >= 500, geminiStatusError(c.label, resp.StatusCode, payload)
+		return GeminiOutput{}, resp.StatusCode >= 500, geminiStatusError(c.label, resp.StatusCode, payload)
 	}
 
 	out, err := geminiCandidateOutput(c.label, payload)
@@ -156,7 +231,7 @@ func (c *geminiClient) attempt(ctx context.Context, body []byte) (geminiOutput, 
 		// A 200 we cannot read an answer out of is a contract violation, not a blip:
 		// at temperature 0 the retry buys the same answer for another slot of a
 		// scarce daily quota (§7).
-		return geminiOutput{}, false, err
+		return GeminiOutput{}, false, err
 	}
 	return out, false, nil
 }
@@ -196,12 +271,12 @@ func (c *geminiClient) attempt(ctx context.Context, body []byte) (geminiOutput, 
 // injection buys is a WRONG VERDICT in a drawing game — a stolen win, skewed
 // scores, and a silly sentence on the result screen.
 type GeminiJudge struct {
-	geminiClient
+	GeminiClient
 }
 
 // NewGeminiJudge builds the judge over the shared client.
 func NewGeminiJudge(apiKey, model, baseURL string, timeout time.Duration) *GeminiJudge {
-	return &GeminiJudge{geminiClient: newGeminiClient("gemini", apiKey, model, baseURL, timeout)}
+	return &GeminiJudge{GeminiClient: NewGeminiClient("judge: gemini", apiKey, model, baseURL, timeout)}
 }
 
 var _ Judge = (*GeminiJudge)(nil)
@@ -310,18 +385,36 @@ type geminiInlineData struct {
 type geminiGenerationConfig struct {
 	Temperature      float64       `json:"temperature"`
 	ResponseMIMEType string        `json:"responseMimeType"`
-	ResponseSchema   *geminiSchema `json:"responseSchema,omitempty"`
+	ResponseSchema   *GeminiSchema `json:"responseSchema,omitempty"`
+	// Omitted when zero, so the three impls in this package keep sending exactly
+	// what they always sent. See GeminiJSONRequest.MaxOutputTokens.
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
 }
 
-// geminiSchema is the OpenAPI subset the API accepts for structured output. Only
+// GeminiSchema is the OpenAPI subset the API accepts for structured output. Only
 // the fields we actually use are modelled — the request is rejected wholesale if
 // it carries a field the API does not know.
-type geminiSchema struct {
+//
+// # What is deliberately still missing
+//
+// minItems / maxItems. The REST Schema types them as int64 formatted AS A STRING
+// ("3", not 3), which is the kind of detail that is cheap to get wrong and costs a
+// 400 on every call until someone notices. Arity is therefore stated in a
+// Description and enforced where it is enforceable anyway — by the caller's own
+// validator, which has to run regardless, and by the retry that follows it. Add
+// them the day a live call proves the spelling, not before.
+type GeminiSchema struct {
 	Type        string                   `json:"type"`
 	Description string                   `json:"description,omitempty"`
 	Enum        []string                 `json:"enum,omitempty"`
-	Properties  map[string]*geminiSchema `json:"properties,omitempty"`
-	Required    []string                 `json:"required,omitempty"`
+	Properties  map[string]*GeminiSchema `json:"properties,omitempty"`
+	// Items describes the element of an ARRAY. Nothing in this package needs it —
+	// the three impls here answer with a fixed handful of scalars — but
+	// internal/assist asks for a LIST of shapes, which is a list however it is
+	// spelled, and faking one with numbered fields would put an arbitrary ceiling in
+	// the schema instead of in the validator that already has one.
+	Items    *GeminiSchema `json:"items,omitempty"`
+	Required []string      `json:"required,omitempty"`
 }
 
 type geminiResponse struct {
@@ -360,10 +453,10 @@ type geminiVerdict struct {
 // geminiVerdictSchema pins the response to exactly the §2 shape. The
 // descriptions repeat the system instruction at the point of generation, which
 // is where the model is actually choosing the value.
-func geminiVerdictSchema() *geminiSchema {
-	return &geminiSchema{
+func geminiVerdictSchema() *GeminiSchema {
+	return &GeminiSchema{
 		Type: "OBJECT",
-		Properties: map[string]*geminiSchema{
+		Properties: map[string]*GeminiSchema{
 			"scoreA": {Type: "NUMBER", Description: "How well the FIRST drawing depicts the prompt, from 0 to 1 inclusive."},
 			"scoreB": {Type: "NUMBER", Description: "How well the SECOND drawing depicts the prompt, from 0 to 1 inclusive."},
 			"winner": {
@@ -407,46 +500,46 @@ func geminiPNGPart(img []byte) *geminiInlineData {
 	return &geminiInlineData{MIMEType: geminiImageMIME, Data: base64.StdEncoding.EncodeToString(img)}
 }
 
-// geminiOutput is one candidate's answer: the structured-output text plus why the
+// GeminiOutput is one candidate's answer: the structured-output text plus why the
 // model stopped. The finish reason is carried alongside because it is the whole
 // difference between "the model refused" and "the JSON was cut off mid-object" —
 // two failures with entirely different fixes.
-type geminiOutput struct {
-	text   string
-	finish string
+type GeminiOutput struct {
+	Text   string
+	Finish string
 }
 
 // geminiCandidateOutput turns a 200 body into the model's answer, or explains why
 // it is not one. Shared by both impls: everything here is about the envelope, not
 // about what we asked for.
-func geminiCandidateOutput(label string, payload []byte) (geminiOutput, error) {
+func geminiCandidateOutput(label string, payload []byte) (GeminiOutput, error) {
 	var resp geminiResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
-		return geminiOutput{}, fmt.Errorf("judge: %s: decode response envelope: %w", label, err)
+		return GeminiOutput{}, fmt.Errorf("%s: decode response envelope: %w", label, err)
 	}
 	if len(resp.Candidates) == 0 {
 		// Safety filters drop the whole response rather than returning an empty
 		// candidate, and player-drawn images make that a real operational case.
 		if reason := resp.PromptFeedback.BlockReason; reason != "" {
-			return geminiOutput{}, fmt.Errorf("judge: %s: request blocked (%s)", label, reason)
+			return GeminiOutput{}, fmt.Errorf("%s: request blocked (%s)", label, reason)
 		}
-		return geminiOutput{}, fmt.Errorf("judge: %s: response carried no candidates", label)
+		return GeminiOutput{}, fmt.Errorf("%s: response carried no candidates", label)
 	}
 	candidate := resp.Candidates[0]
 	text := geminiCandidateText(candidate)
 	if text == "" {
-		return geminiOutput{}, fmt.Errorf("judge: %s: candidate carried no text (finishReason %q)", label, candidate.FinishReason)
+		return GeminiOutput{}, fmt.Errorf("%s: candidate carried no text (finishReason %q)", label, candidate.FinishReason)
 	}
-	return geminiOutput{text: text, finish: candidate.FinishReason}, nil
+	return GeminiOutput{Text: text, Finish: candidate.FinishReason}, nil
 }
 
 // parseGeminiVerdict turns the model's answer into a validated Result, or explains
 // why it is not one. Every path here is a failure, never a fallback verdict: the
 // game does not get to invent a winner because the model was unhelpful (§7).
-func parseGeminiVerdict(out geminiOutput) (Result, error) {
+func parseGeminiVerdict(out GeminiOutput) (Result, error) {
 	var v geminiVerdict
-	if err := json.Unmarshal([]byte(out.text), &v); err != nil {
-		return Result{}, fmt.Errorf("judge: gemini: output is not the JSON verdict (finishReason %q): %w", out.finish, err)
+	if err := json.Unmarshal([]byte(out.Text), &v); err != nil {
+		return Result{}, fmt.Errorf("judge: gemini: output is not the JSON verdict (finishReason %q): %w", out.Finish, err)
 	}
 	res := Result{
 		ScoreA: v.ScoreA,
@@ -525,9 +618,9 @@ func geminiStatusError(label string, status int, payload []byte) error {
 		statusLabel += " " + env.Error.Status
 	}
 	if status == http.StatusTooManyRequests {
-		return fmt.Errorf("judge: %w (%s): %s", ErrQuotaExhausted, statusLabel, detail)
+		return fmt.Errorf("%s: %w (%s): %s", label, ErrQuotaExhausted, statusLabel, detail)
 	}
-	return fmt.Errorf("judge: %s: %s: %s", label, statusLabel, detail)
+	return fmt.Errorf("%s: %s: %s", label, statusLabel, detail)
 }
 
 func geminiTruncate(s string, limit int) string {

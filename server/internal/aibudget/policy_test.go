@@ -164,6 +164,160 @@ func TestPoliciesCoversEveryKind(t *testing.T) {
 	}
 }
 
+// TestModels: one default for every kind, overridden per kind, and a typo refused
+// at boot rather than silently leaving a kind on the default.
+func TestModels(t *testing.T) {
+	const def = "gemini-3.6-flash"
+
+	tests := []struct {
+		name    string
+		perKind map[string]string
+		want    map[Kind]string
+		wantErr string
+	}{
+		{
+			name: "nothing configured: every kind on the default",
+			want: map[Kind]string{
+				KindDuel: def, KindPractice: def, KindGuess: def, KindAssist: def,
+			},
+		},
+		{
+			// The whole point of the knob: the duel's number feeds Elo, the guesser's
+			// mistakes cost nothing, so they need not be the same model.
+			name:    "an override wins for its kind and leaves the rest alone",
+			perKind: map[string]string{"duel": "gemini-3.6-pro", "guess": "gemini-3.6-flash-lite"},
+			want: map[Kind]string{
+				KindDuel: "gemini-3.6-pro", KindPractice: def,
+				KindGuess: "gemini-3.6-flash-lite", KindAssist: def,
+			},
+		},
+		{
+			name:    "every kind overridden",
+			perKind: map[string]string{"duel": "a", "practice": "b", "guess": "c", "assist": "d"},
+			want: map[Kind]string{
+				KindDuel: "a", KindPractice: "b", KindGuess: "c", KindAssist: "d",
+			},
+		},
+		{
+			// Same rule, and same reason, as the unknown kind in AI_DAILY_PER_USER: the
+			// valid set lives here and grows with the code, so config cannot check it.
+			// A typo would otherwise pin nothing while looking configured.
+			name:    "an unknown kind is a boot error naming the valid set",
+			perKind: map[string]string{"duels": "gemini-3.6-pro"},
+			wantErr: `unknown kind "duels"`,
+		},
+		{
+			// An empty model builds an endpoint with no model id in it, which earns a
+			// 404 from Google on the first call — hours after the deploy.
+			name:    "an empty model is a boot error",
+			perKind: map[string]string{"duel": "   "},
+			wantErr: "names no model",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Models(def, tt.perKind)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("Models = %+v, want an error containing %q", got, tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %q, want it to contain %q", err, tt.wantErr)
+				}
+				if got != nil {
+					t.Errorf("a refused config still returned models: %+v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Models: %v", err)
+			}
+			if !maps.Equal(got, tt.want) {
+				t.Errorf("Models =\n\t%+v\nwant\n\t%+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestProviderWithModel pins the key the global ceiling is counted on. Google
+// meters its free tier PER MODEL, so two kinds on two models are two quota pools
+// and a bare "google" counter would add them together — refusing calls against a
+// budget neither pool had spent.
+func TestProviderWithModel(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider Provider
+		model    string
+		want     Provider
+	}{
+		{
+			name:     "a metered vendor carries its model",
+			provider: ProviderGoogle,
+			model:    "gemini-3.6-flash",
+			want:     "google:gemini-3.6-flash",
+		},
+		{
+			name:     "two models are two different keys",
+			provider: ProviderGoogle,
+			model:    "gemini-3.6-pro",
+			want:     "google:gemini-3.6-pro",
+		},
+		{
+			// The collaborator's service is one service however many models sit behind
+			// it, so it is never narrowed — its ceiling would only be hidden by the split.
+			name:     "an empty model leaves the provider bare",
+			provider: ProviderCollaborator,
+			want:     ProviderCollaborator,
+		},
+		{
+			// "no provider" means unbudgeted, and that must survive a WithModel called
+			// on a mode that turned out not to call anybody.
+			name:  "no provider stays no provider",
+			model: "gemini-3.6-flash",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.provider.WithModel(tt.model); got != tt.want {
+				t.Errorf("%q.WithModel(%q) = %q, want %q", tt.provider, tt.model, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestModelScopedProviderIsABudgetedProvider pins the join between the two halves
+// of this change: a model-scoped key is not a special case anywhere in the budget.
+// It must survive Policies as an ordinary provider — enforced, not treated as the
+// empty "calls nobody" value that a tighter Provider type would have forced.
+func TestModelScopedProviderIsABudgetedProvider(t *testing.T) {
+	flash := ProviderGoogle.WithModel("gemini-3.6-flash")
+	pro := ProviderGoogle.WithModel("gemini-3.6-pro")
+
+	policies, err := Policies(map[Kind]Provider{KindDuel: pro, KindGuess: flash}, nil)
+	if err != nil {
+		t.Fatalf("Policies: %v", err)
+	}
+	if got := policies[KindDuel].Provider; got != pro {
+		t.Errorf("duel provider = %q, want %q", got, pro)
+	}
+	if got := policies[KindGuess].Provider; got != flash {
+		t.Errorf("guess provider = %q, want %q", got, flash)
+	}
+	// The two kinds must not have collapsed into one pool, which is the entire bug
+	// this change exists to prevent.
+	if policies[KindDuel].Provider == policies[KindGuess].Provider {
+		t.Error("two kinds on two models share one provider key — their quota pools would be conflated")
+	}
+	// And a model-scoped provider is still a REAL provider: nothing about it may
+	// read as unbudgeted.
+	if InertAllowances(policies, map[string]int{"duel": 5}) != nil {
+		t.Error("a model-scoped provider was treated as no provider at all")
+	}
+}
+
 // TestInertAllowances: a ceiling configured for a feature that calls nobody reads
 // exactly like an enforced one from the outside, so boot says which is which.
 func TestInertAllowances(t *testing.T) {

@@ -65,6 +65,40 @@ func TestLoad_AssistMode(t *testing.T) {
 		}
 	})
 
+	// The mode that finally makes assist real. It takes the same key and the same
+	// quota as the Gemini judge, so it takes the same fail-fast.
+	t.Run("gemini without a key is a boot error", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("ASSIST_MODE", "gemini")
+		t.Setenv("GEMINI_API_KEY", "")
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected a boot error when ASSIST_MODE=gemini without GEMINI_API_KEY")
+		}
+		if !strings.Contains(err.Error(), "GEMINI_API_KEY") {
+			t.Errorf("error %q does not mention GEMINI_API_KEY", err)
+		}
+	})
+
+	// Independent of JUDGE_MODE on purpose: a deployment may want a real assist
+	// while the duel still runs on the fake judge, and nothing about the two
+	// decisions is the same decision.
+	t.Run("gemini with a key loads, whatever the judge is doing", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("ASSIST_MODE", "gemini")
+		t.Setenv("GEMINI_API_KEY", "test-key")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AssistMode != AssistModeGemini {
+			t.Errorf("AssistMode = %q, want %q", cfg.AssistMode, AssistModeGemini)
+		}
+		if cfg.JudgeMode != JudgeModeFake {
+			t.Errorf("JudgeMode = %q, want the default %q — assist must not drag the judge along", cfg.JudgeMode, JudgeModeFake)
+		}
+	})
+
 	t.Run("unknown mode is a boot error", func(t *testing.T) {
 		requireBaseEnv(t)
 		t.Setenv("ASSIST_MODE", "bogus")
@@ -72,6 +106,110 @@ func TestLoad_AssistMode(t *testing.T) {
 			t.Fatal("expected a boot error for an unknown ASSIST_MODE")
 		}
 	})
+
+	// Assist gets its OWN deadline. Sharing JUDGE_TIMEOUT was wrong in both
+	// directions: at its 10s default every assist call times out, and raising the
+	// shared knob to fit would give the duel a retry envelope that no longer fits
+	// inside the judging pass.
+	t.Run("the assist deadline is its own, and far longer than the judge's", func(t *testing.T) {
+		requireBaseEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AssistTimeout != DefaultAssistTimeout {
+			t.Errorf("AssistTimeout = %s, want %s", cfg.AssistTimeout, DefaultAssistTimeout)
+		}
+		if cfg.AssistTimeout <= cfg.JudgeTimeout {
+			t.Errorf("AssistTimeout (%s) must exceed JudgeTimeout (%s): composing a picture is not scoring one",
+				cfg.AssistTimeout, cfg.JudgeTimeout)
+		}
+	})
+
+	t.Run("the assist deadline is overridable and must be positive", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("ASSIST_TIMEOUT", "90s")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AssistTimeout != 90*time.Second {
+			t.Errorf("AssistTimeout = %s, want 90s", cfg.AssistTimeout)
+		}
+		if cfg.JudgeTimeout != DefaultJudgeTimeout {
+			t.Errorf("ASSIST_TIMEOUT moved JudgeTimeout to %s; the two knobs are separate", cfg.JudgeTimeout)
+		}
+
+		for _, bad := range []string{"0s", "-5s", "soon"} {
+			t.Setenv("ASSIST_TIMEOUT", bad)
+			if _, err := Load(); err == nil {
+				t.Errorf("expected a boot error for ASSIST_TIMEOUT=%q", bad)
+			}
+		}
+	})
+}
+
+// TestLoad_AIModelPerKind pins the per-kind model map. It reads exactly like
+// AI_DAILY_PER_USER on purpose — one person maintains this, and two env vars about
+// the same set of kinds should not need two grammars learned.
+//
+// The kind NAMES are not checked here: the valid set lives in internal/aibudget
+// and grows with the code, so config (stdlib only, no domain imports) parses the
+// shape and the composition root rejects a typo — which is the same instant with a
+// better error.
+func TestLoad_AIModelPerKind(t *testing.T) {
+	t.Run("unset means every kind takes GEMINI_MODEL", func(t *testing.T) {
+		requireBaseEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if len(cfg.AIModelPerKind) != 0 {
+			t.Errorf("AIModelPerKind = %v, want empty", cfg.AIModelPerKind)
+		}
+		if cfg.GeminiModel != DefaultGeminiModel {
+			t.Errorf("GeminiModel = %q, want %q", cfg.GeminiModel, DefaultGeminiModel)
+		}
+	})
+
+	t.Run("entries are parsed, trimmed, and left verbatim as model ids", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("AI_MODEL_PER_KIND", "duel=gemini-3.6-pro, guess=gemini-3.6-flash-lite")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		want := map[string]string{"duel": "gemini-3.6-pro", "guess": "gemini-3.6-flash-lite"}
+		if !maps.Equal(cfg.AIModelPerKind, want) {
+			t.Errorf("AIModelPerKind = %v, want %v", cfg.AIModelPerKind, want)
+		}
+	})
+
+	// The two knobs share one parser, so they share one grammar. These are the same
+	// malformed entries AI_DAILY_PER_USER rejects, asserted against the model map so
+	// a future edit cannot quietly loosen one of them.
+	rejected := []struct {
+		name  string
+		value string
+	}{
+		{"an entry with no value", "duel"},
+		{"an entry naming no kind", "=gemini-3.6-pro"},
+		{"an entry with an empty model", "duel="},
+		{"an entry whose model is only spaces", "duel=   "},
+	}
+	for _, tc := range rejected {
+		t.Run(tc.name+" is a boot error", func(t *testing.T) {
+			requireBaseEnv(t)
+			t.Setenv("AI_MODEL_PER_KIND", tc.value)
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected a boot error for AI_MODEL_PER_KIND=%q", tc.value)
+			}
+			if !strings.Contains(err.Error(), "AI_MODEL_PER_KIND") {
+				t.Errorf("error %q does not name the knob AI_MODEL_PER_KIND", err)
+			}
+		})
+	}
 }
 
 // TestLoad_Env pins ENV as mandatory and closed-valued. It decides CookieSecure,

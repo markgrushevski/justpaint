@@ -1,6 +1,56 @@
 package aibudget
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+// Models resolves which model each AI kind runs on: one default for every kind,
+// overridden per kind by the operator's AI_MODEL_PER_KIND map (keyed by the kind's
+// wire name, exactly like AI_DAILY_PER_USER).
+//
+// It lives here, beside Policies, because the two answer the same shape of
+// question — turning a flat map an operator typed into a per-kind fact the
+// composition root can hand to a constructor — and because the valid set of kinds
+// lives in this package and grows with the code, which is why config (stdlib only,
+// no domain imports) cannot check a kind name and this must.
+//
+// The kinds differ in how hard their job is, which is the whole reason for the
+// knob. The duel judge compares two drawings and its number feeds Elo, so it is
+// the one that has to be steadiest; the practice critic scores one drawing against
+// a prompt; the guesser only names what it sees and its mistakes cost nothing.
+// Running all three on one model means paying the judge's price for the guesser or
+// accepting the guesser's steadiness for the judge.
+//
+// Two things are boot errors rather than shrugs, for the same reason they are in
+// Policies: an unknown kind name would configure a model nothing reads, and the
+// feature it was meant to pin would quietly keep running on the default and look
+// fine. An empty model would build an endpoint with no model id in it, which earns
+// a 404 from Google on the first call — hours after the deploy, and only for
+// whichever kind was misconfigured.
+//
+// A kind with no override gets defaultModel, so adding a feature never means
+// editing a deployment by hand. Every kind is present in the result.
+func Models(defaultModel string, perKind map[string]string) (map[Kind]string, error) {
+	for name, model := range perKind {
+		if _, ok := ParseKind(name); !ok {
+			return nil, fmt.Errorf("config: AI_MODEL_PER_KIND names an unknown kind %q; valid kinds are %v", name, AllKinds())
+		}
+		if strings.TrimSpace(model) == "" {
+			return nil, fmt.Errorf("config: AI_MODEL_PER_KIND names no model for kind %q", name)
+		}
+	}
+
+	models := make(map[Kind]string, len(AllKinds()))
+	for _, kind := range AllKinds() {
+		model := defaultModel
+		if override, ok := perKind[string(kind)]; ok {
+			model = override
+		}
+		models[kind] = model
+	}
+	return models, nil
+}
 
 // Policies resolves every AI kind's ceiling: WHOSE quota it spends, and how much
 // of it one player may take per rolling day.

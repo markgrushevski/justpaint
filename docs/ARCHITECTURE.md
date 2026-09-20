@@ -82,7 +82,7 @@ server/
     game/        # match lifecycle: create → both draw → submit → judge → result       [done: full loop]
     render/      # Renderer seam: StubRenderer + NodeRenderer (spawns packages/render)  [done]
     judge/       # Judge interface + FakeJudge (HTTPJudge = Phase 4)                    [done: fake]
-    assist/      # Assist interface + FakeAssist + AnthropicAssist scaffold; docs/ASSIST.md            [done: fake]
+    assist/      # Assist interface + FakeAssist + GeminiAssist (the real one); docs/ASSIST.md          [done]
     ratings/     # read-only leaderboard module (aggregate + sort over match_players); docs/API.md §11 [done]
     practice/    # single-player scoring: one prompt/drawing/score, no match; judge.Critic, not Judge  [done]
     guess/       # "what did I draw?" on /draw: judge.Guesser, no row anywhere; docs/API.md §13        [done]

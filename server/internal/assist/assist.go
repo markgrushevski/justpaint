@@ -2,9 +2,16 @@
 // a natural-language prompt goes to an LLM, which emits a batch of validated
 // document operations (the packages/document Op contract). The handler depends on
 // the Assist interface, never a concrete impl, so the deterministic FakeAssist
-// (the default in dev/CI/tests) and the real AnthropicAssist swap by config with
-// no handler change — exactly like the render (internal/render) and judge
+// (the default in dev/CI/tests) and the real GeminiAssist swap by config with no
+// handler change — exactly like the render (internal/render) and judge
 // (internal/judge) seams.
+//
+// The real impl is GeminiAssist (ASSIST_MODE=gemini). AnthropicAssist beside it is
+// the Phase A scaffold that never made a call; ASSIST.md §3.2 named Anthropic when
+// no key existed, and the answer turned out to be the same API the judge, the
+// critic and the guesser already use — one key, one quota, one client, one place
+// to fix when Google changes something. The collaborator's ML may take this seam
+// later, which is the whole reason it is an interface.
 //
 // Assist is STATELESS: no DB, no migration, no sqlc. Every request is
 // self-contained — prompt + minimal doc summary in, validated ops out.

@@ -75,10 +75,13 @@ type Config struct {
 	// served. The per-user half is what keeps one abuser from denying service to
 	// everyone.
 	//
-	// AIDailyGlobal is applied PER PROVIDER, not once across all of them: Google
-	// running dry must never refuse an Anthropic-backed feature that still has
-	// quota. Which provider backs which kind is decided at the composition root
-	// from JUDGE_MODE / ASSIST_MODE, never configured here.
+	// AIDailyGlobal is applied PER PROVIDER AND MODEL, not once across all of them:
+	// Google running dry must never refuse an Anthropic-backed feature that still
+	// has quota, and — since Google meters its free tier per MODEL — a kind pinned
+	// to one model must not be refused because a different kind emptied a different
+	// model's pool. Which provider and model back which kind is decided at the
+	// composition root from JUDGE_MODE / ASSIST_MODE and AIModelPerKind, never
+	// configured here.
 	//
 	// AIDailyPerUser maps an AI-call kind ("duel", "practice", …) to that kind's
 	// own per-player ceiling; a kind absent from the map keeps its code default.
@@ -93,6 +96,22 @@ type Config struct {
 	AIDailyGlobal  int
 	AIDailyPerUser map[string]int
 
+	// AIModelPerKind overrides, per AI-call kind ("duel", "guess", …), the model
+	// that kind runs on; GeminiModel is the default for every kind that names no
+	// override. It exists because the kinds' jobs differ in difficulty — the duel
+	// judge's number feeds Elo and has to be the steadiest, while the guesser only
+	// names what it sees and its mistakes cost nothing — so one model id for all of
+	// them is either an overpay or an underserve.
+	//
+	// It takes the SAME kind=value comma-list shape as AIDailyPerUser, on purpose:
+	// one person maintains this, and two env vars about the same set of kinds
+	// reading the same way is worth more than either being shorter.
+	//
+	// Like AIDailyPerUser, the kind NAMES are not validated here — the valid set
+	// belongs to internal/aibudget and grows with the code — so the composition root
+	// rejects an unknown one at boot, which is the same instant with a better error.
+	AIModelPerKind map[string]string
+
 	// JudgeMode selects the judge impl (docs/JUDGE.md): "fake" (default; the
 	// zero-dependency ink-coverage stand-in that never reads the prompt), "http"
 	// (the collaborator's ML over the §6 contract) or "gemini" (a vision LLM
@@ -101,29 +120,49 @@ type Config struct {
 	// JudgeBaseURL is the collaborator's service root, required for JudgeMode
 	// "http" (§7).
 	JudgeBaseURL string
-	// JudgeTimeout bounds ONE judging call, retries excluded (§7 pins 10s).
+	// JudgeTimeout bounds ONE judging call, retries excluded (§7 pins 10s). The
+	// critic and the guesser share it — all three ask a vision model one short
+	// question and get a handful of scalars back. Assist does not; see AssistTimeout.
 	JudgeTimeout time.Duration
 	// GeminiAPIKey is the server-side key for JudgeMode "gemini". Never reaches
 	// the client. Required when that mode is selected.
 	GeminiAPIKey string
-	// GeminiModel is the model id. Configurable rather than hardcoded because
-	// Google's free-tier model names and quotas move faster than our releases —
-	// a changed name must not need a code change.
+	// GeminiModel is the DEFAULT model id for every Gemini-backed kind (judge,
+	// critic, guesser, assist). Configurable rather than hardcoded because Google's
+	// free-tier model names and quotas move faster than our releases — a changed
+	// name must not need a code change. AIModelPerKind overrides it per kind.
 	GeminiModel string
 	// GeminiBaseURL is the API root, overridable for the same reason and so a
 	// test can point at an httptest server.
 	GeminiBaseURL string
 
 	// AssistMode selects the AI-assist impl (docs/ASSIST.md): "fake" (default;
-	// deterministic canned ops, zero API dependency) or "anthropic" (the real LLM
-	// impl, scaffolded in Phase A). Mirrors the RenderMode mode-switch.
+	// deterministic canned ops that ignore the prompt, zero API dependency),
+	// "gemini" (the real impl — a prompt really becomes shapes) or "anthropic" (the
+	// Phase A scaffold that never made a call and is superseded by gemini).
+	// Mirrors the RenderMode mode-switch.
 	AssistMode string
 	// AnthropicAPIKey is the server-side key for AssistMode == "anthropic" — never
 	// reaches the client (docs/ASSIST.md §1). Required when the anthropic mode is
 	// selected.
 	AnthropicAPIKey string
-	// AssistModel is the model id for the real impl (default "claude-opus-4-8").
+	// AssistModel is the model id for the ANTHROPIC impl only (default
+	// "claude-opus-4-8"). The Gemini assist takes its model from the same place
+	// every other Gemini seam does — GeminiModel, overridable by
+	// AIModelPerKind["assist"] — because that is where its quota is counted too.
 	AssistModel string
+
+	// AssistTimeout bounds ONE assist call, retries excluded. It is separate from
+	// JudgeTimeout, which every other AI seam shares, because the work is not
+	// comparable: a verdict is four scalars, while composing a picture is a list of
+	// shapes from a model that reasons first. Measured 4-9s healthy and far longer
+	// when Google is busy (2026-09-20), against a judge that answers in one or two.
+	//
+	// Folding it into JUDGE_TIMEOUT was the first attempt and it was wrong in both
+	// directions: the 10s default leaves no headroom at all for the slow case, and
+	// raising the shared knob to fit would hand the duel a retry envelope that no
+	// longer fits inside game.JudgePassBudget.
+	AssistTimeout time.Duration
 
 	// WSReadIdleTimeout evicts a socket that has gone this long without any proof
 	// of life. It must clear the client's own ping cadence (apps/web PlayView.vue
@@ -167,11 +206,29 @@ const DefaultDBMaxConns = 10
 const DefaultJudgeConcurrency = 2
 
 // DefaultAIDailyGlobal is the per-provider daily ceiling, in AI calls per rolling
-// 24h window. 200 sits under a free tier's daily request quota with headroom for
-// the odd retry, and stays reachable only by a real crowd rather than by one
-// person. The per-KIND player ceilings live in internal/aibudget beside the kinds
-// they bound, since adding a kind must not mean editing config.
-const DefaultAIDailyGlobal = 200
+// 24h window. The per-KIND player ceilings live in internal/aibudget beside the
+// kinds they bound, since adding a kind must not mean editing config.
+//
+// It used to be 200, chosen against an UNVERIFIED belief about the free tier. On
+// 2026-09-20 the API answered the question itself, in a 429 body:
+//
+//	"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+//	"quotaDimensions": {"model": "gemini-3.6-flash"},
+//	"quotaValue": "20"
+//
+// Twenty requests a day, per project, PER MODEL — which is also why the provider
+// key carries the model (aibudget.Provider.WithModel): the two numbers are only
+// comparable when they count the same thing.
+//
+// So 15, and be honest about what it does and does not buy. On a free key it is
+// not the ceiling that binds; Google's is, and it arrives as ErrQuotaExhausted,
+// which every synchronous handler now turns into the same calm refusal our own
+// ceiling produces. Nor is 15 "safe": the ledger records one row per judging
+// PASS, while a pass may retry up to geminiMaxAttempts times inside the seam, so
+// 15 rows can be anywhere from 15 to 45 real requests. The honest reading is that
+// this number keeps ONE player from spending the day's quota in a burst, and that
+// the operator is expected to raise it the moment the key is not a free one.
+const DefaultAIDailyGlobal = 15
 
 // WebSocket hardening defaults. The idle timeout clears the client's 25s ping
 // with margin; the heartbeat sits well under the timeout so a quiet-but-healthy
@@ -196,6 +253,7 @@ const (
 	JudgeModeGemini = "gemini"
 
 	AssistModeFake      = "fake"
+	AssistModeGemini    = "gemini"
 	AssistModeAnthropic = "anthropic"
 )
 
@@ -206,6 +264,17 @@ const DefaultAssistModel = "claude-opus-4-8"
 // DefaultJudgeTimeout bounds one judging call (docs/JUDGE.md §7). ML inference
 // and a vision LLM are both slow; JUDGE_TIMEOUT overrides it.
 const DefaultJudgeTimeout = 10 * time.Second
+
+// DefaultAssistTimeout bounds one assist call. Six times the judge's, because the
+// work is: a verdict is four scalars, a drawing is a list of shapes composed by a
+// model that thinks first.
+//
+// A healthy call measured 4-9s live (2026-09-20, gemini-3.1-flash-lite), so this is
+// deliberately loose rather than tuned. The cost of loose is a wedged call holding
+// a request goroutine for a minute; the cost of tight is a feature that fails
+// whenever Google is slow, which is the failure nobody can diagnose from the
+// outside. ASSIST_TIMEOUT overrides it.
+const DefaultAssistTimeout = 60 * time.Second
 
 // DefaultGeminiModel is a PINNED version, deliberately, not the floating
 // "gemini-flash-latest" alias. A judge decides ratings, so a model that changes
@@ -384,8 +453,26 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: JUDGE_MODE must be %q, %q or %q", JudgeModeFake, JudgeModeHTTP, JudgeModeGemini)
 	}
 
+	assistTimeout, err := getenvDuration("ASSIST_TIMEOUT", DefaultAssistTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	if assistTimeout <= 0 {
+		return Config{}, fmt.Errorf("config: ASSIST_TIMEOUT must be > 0, got %s", assistTimeout)
+	}
+	cfg.AssistTimeout = assistTimeout
+
 	switch cfg.AssistMode {
 	case AssistModeFake:
+	case AssistModeGemini:
+		// Same key, same quota and same API as the Gemini judge — deliberately, since
+		// they meter together — so the same fail-fast applies. Note that this is
+		// INDEPENDENT of JUDGE_MODE: a deployment may want a real assist while the
+		// duel still runs on the fake judge, and nothing about the two decisions is
+		// the same decision.
+		if cfg.GeminiAPIKey == "" {
+			return Config{}, fmt.Errorf("config: GEMINI_API_KEY is required when ASSIST_MODE=%s", AssistModeGemini)
+		}
 	case AssistModeAnthropic:
 		// The real impl needs a server-side key; guessing/defaulting it is worse than
 		// failing fast (a keyless anthropic mode would 500 on every request, out of
@@ -394,7 +481,7 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: ANTHROPIC_API_KEY is required when ASSIST_MODE=anthropic")
 		}
 	default:
-		return Config{}, fmt.Errorf("config: ASSIST_MODE must be %q or %q", AssistModeFake, AssistModeAnthropic)
+		return Config{}, fmt.Errorf("config: ASSIST_MODE must be %q, %q or %q", AssistModeFake, AssistModeGemini, AssistModeAnthropic)
 	}
 
 	return cfg, nil
@@ -495,28 +582,67 @@ func loadAIBudget(cfg *Config) error {
 		perUser["duel"] = v
 		perUser["practice"] = v
 	}
-	for _, entry := range splitList(os.Getenv("AI_DAILY_PER_USER")) {
-		kind, raw, found := strings.Cut(entry, "=")
-		if !found {
-			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be of the form kind=number, e.g. %q", entry, "duel=20,guess=2")
-		}
-		kind, raw = strings.TrimSpace(kind), strings.TrimSpace(raw)
-		if kind == "" {
-			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q names no kind", entry)
-		}
+	rawPerUser, err := parseKindList("AI_DAILY_PER_USER", "duel=20,guess=2")
+	if err != nil {
+		return err
+	}
+	for kind, raw := range rawPerUser {
 		v, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be of the form kind=number, got %q: %w", entry, raw, err)
+			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be of the form kind=number, got %q: %w", kind+"="+raw, raw, err)
 		}
 		if v < 1 {
-			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be >= 1, got %d (0 would refuse every call of that kind; there is no unlimited setting — set a large number if you mean effectively none)", entry, v)
+			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be >= 1, got %d (0 would refuse every call of that kind; there is no unlimited setting — set a large number if you mean effectively none)", kind+"="+raw, v)
 		}
 		perUser[kind] = v
 	}
 
+	// The per-kind MODEL map, in the same shape for the same reason the ceilings are
+	// per kind: the kinds' jobs differ in difficulty, so pinning them all to one
+	// model is either an overpay for the cheap ones or an underserve for the duel,
+	// whose number feeds Elo. Values are model ids and are used verbatim — the kind
+	// names are checked at the composition root, where the valid set lives.
+	perKindModel, err := parseKindList("AI_MODEL_PER_KIND", "duel=gemini-3.6-pro,guess=gemini-3.6-flash-lite")
+	if err != nil {
+		return err
+	}
+
 	cfg.AIDailyGlobal = global
 	cfg.AIDailyPerUser = perUser
+	cfg.AIModelPerKind = perKindModel
 	return nil
+}
+
+// parseKindList reads a "kind=value" comma-separated env var into a map, which is
+// the shape BOTH per-kind knobs use (AI_DAILY_PER_USER, AI_MODEL_PER_KIND). One
+// parser rather than two so the two variables cannot diverge on whitespace,
+// duplicate keys or what counts as an empty entry — a single maintainer should
+// have to learn the form once.
+//
+// It only produces strings. What a value MEANS is the caller's business: one wants
+// an integer in a range, the other a model id used verbatim, and folding either
+// meaning in here would make the parser answer a question it cannot see.
+//
+// example is shown in the syntax error, so the message names the variable the
+// operator actually set and shows a line that would have worked. Duplicate keys
+// resolve last-wins, matching how an operator reads a list left to right.
+func parseKindList(key, example string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, entry := range splitList(os.Getenv(key)) {
+		kind, value, found := strings.Cut(entry, "=")
+		if !found {
+			return nil, fmt.Errorf("config: %s entry %q must be of the form kind=value, e.g. %q", key, entry, example)
+		}
+		kind, value = strings.TrimSpace(kind), strings.TrimSpace(value)
+		if kind == "" {
+			return nil, fmt.Errorf("config: %s entry %q names no kind", key, entry)
+		}
+		if value == "" {
+			return nil, fmt.Errorf("config: %s entry %q names no value for kind %q", key, entry, kind)
+		}
+		out[kind] = value
+	}
+	return out, nil
 }
 
 // getenvIntAliased reads an integer that answers to two names, one current and

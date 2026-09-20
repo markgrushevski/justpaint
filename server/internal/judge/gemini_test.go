@@ -79,7 +79,7 @@ func newGeminiTestJudge(t *testing.T, reply func(call int, w http.ResponseWriter
 	srv := httptest.NewServer(stub)
 	t.Cleanup(srv.Close)
 	j := NewGeminiJudge(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
-	j.retryBase = time.Millisecond
+	j.RetryBase = time.Millisecond
 	return j, stub
 }
 
@@ -593,7 +593,7 @@ func TestGeminiJudge_Score_PerAttemptTimeout(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	j := NewGeminiJudge(geminiTestKey, geminiTestModel, srv.URL, 50*time.Millisecond)
-	j.retryBase = time.Millisecond
+	j.RetryBase = time.Millisecond
 
 	res, err := j.Score(context.Background(), geminiTestRequest(t))
 	if err != nil {

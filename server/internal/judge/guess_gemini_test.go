@@ -24,7 +24,7 @@ func newGeminiTestGuesser(t *testing.T, reply func(call int, w http.ResponseWrit
 	srv := httptest.NewServer(stub)
 	t.Cleanup(srv.Close)
 	g := NewGeminiGuesser(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
-	g.retryBase = time.Millisecond
+	g.RetryBase = time.Millisecond
 	return g, stub
 }
 

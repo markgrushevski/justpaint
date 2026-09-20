@@ -10,6 +10,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/document"
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 )
 
@@ -170,6 +171,17 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrInvalidBatch) {
 			web.Error(w, http.StatusBadRequest, web.CodeValidationFailed,
 				"could not generate a valid drawing for that prompt")
+			return
+		}
+		// The provider ran out before our own ceiling did — the same news for the
+		// user, from the other end. Answering it as a 500 invites a retry that cannot
+		// succeed until the provider's own window rolls, so it gets the refusal the
+		// global ceiling would have written. The cause still reaches the log, where it
+		// is an operator's problem and a real one. Practice and guess do exactly this;
+		// assist could not until it had an impl that reached a provider at all.
+		if errors.Is(err, judge.ErrQuotaExhausted) {
+			h.logger.Error("assist: provider quota exhausted — every drawing request fails until it resets", "err", err)
+			aibudget.WriteRefusal(w, aibudget.ErrGlobalSpent)
 			return
 		}
 		h.logger.Error("assist generate", "err", err)

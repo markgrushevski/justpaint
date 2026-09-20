@@ -3,7 +3,7 @@ package assist
 import (
 	"context"
 	"encoding/json"
-	"github.com/markgrushevski/justpaint/server/internal/aibudget"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,8 +13,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/document"
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
 // testSecret signs the test session cookies; the same secret builds the auth
@@ -183,6 +185,19 @@ func TestGenerateOps(t *testing.T) {
 			body:       validBody,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "validation_failed",
+		},
+		{
+			// The provider ran out before our own ceiling did. A 500 would invite a
+			// retry that cannot succeed until the provider's window rolls, so it gets
+			// the refusal the global ceiling would have written — exactly as practice
+			// and guess do. Assist could not answer this way until it had an impl that
+			// reached a provider at all.
+			name:       "429 when the provider's own quota is spent",
+			impl:       errAssist{err: fmt.Errorf("assist: gemini: %w (429)", judge.ErrQuotaExhausted)},
+			withCookie: true,
+			body:       validBody,
+			wantStatus: http.StatusTooManyRequests,
+			wantCode:   "rate_limited",
 		},
 	}
 

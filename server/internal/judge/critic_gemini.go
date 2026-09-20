@@ -11,7 +11,7 @@ import (
 
 // GeminiCritic is the real critic behind single-player practice: ONE
 // generateContent call, one authoritative raster, and the model's structured JSON
-// as a Critique. It shares geminiClient with GeminiJudge — same endpoint, same
+// as a Critique. It shares GeminiClient with GeminiJudge — same endpoint, same
 // credential handling, same §7 retry policy, same ErrQuotaExhausted — so a
 // practice run and a duel fail the same way and are fixed the same way.
 //
@@ -34,14 +34,14 @@ import (
 // no opponent. The worst a successful injection buys is a flattering number and a
 // silly sentence on the player's own screen.
 type GeminiCritic struct {
-	geminiClient
+	GeminiClient
 }
 
 // NewGeminiCritic builds the critic over the shared client. The arguments are the
 // judge's, from the same config: practice deliberately does not get its own model
 // or key knob — it is the same quota, spent on the same API.
 func NewGeminiCritic(apiKey, model, baseURL string, timeout time.Duration) *GeminiCritic {
-	return &GeminiCritic{geminiClient: newGeminiClient("gemini critic", apiKey, model, baseURL, timeout)}
+	return &GeminiCritic{GeminiClient: NewGeminiClient("judge: gemini critic", apiKey, model, baseURL, timeout)}
 }
 
 var _ Critic = (*GeminiCritic)(nil)
@@ -96,10 +96,10 @@ type geminiCritiqueOutput struct {
 // geminiCritiqueSchema pins the response to exactly the Critique shape. The
 // descriptions repeat the instruction at the point of generation, which is where
 // the model is actually choosing the value.
-func geminiCritiqueSchema() *geminiSchema {
-	return &geminiSchema{
+func geminiCritiqueSchema() *GeminiSchema {
+	return &GeminiSchema{
 		Type: "OBJECT",
-		Properties: map[string]*geminiSchema{
+		Properties: map[string]*GeminiSchema{
 			"score":    {Type: "NUMBER", Description: "How well the drawing depicts the prompt, from 0 to 1 inclusive."},
 			"feedback": {Type: "STRING", Description: `One or two plain sentences, at most 400 characters, addressed to the player as "you".`},
 		},
@@ -135,10 +135,10 @@ func buildGeminiCritiqueBody(req CritiqueRequest) ([]byte, error) {
 // explains why it is not one. Every path here is a failure, never a fallback
 // score: an invented number is worse than an honest error, because the player
 // cannot tell the two apart.
-func parseGeminiCritique(out geminiOutput) (Critique, error) {
+func parseGeminiCritique(out GeminiOutput) (Critique, error) {
 	var v geminiCritiqueOutput
-	if err := json.Unmarshal([]byte(out.text), &v); err != nil {
-		return Critique{}, fmt.Errorf("judge: gemini critic: output is not the JSON critique (finishReason %q): %w", out.finish, err)
+	if err := json.Unmarshal([]byte(out.Text), &v); err != nil {
+		return Critique{}, fmt.Errorf("judge: gemini critic: output is not the JSON critique (finishReason %q): %w", out.Finish, err)
 	}
 	c := Critique{
 		Score: v.Score,
