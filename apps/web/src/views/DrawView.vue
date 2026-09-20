@@ -42,17 +42,21 @@ import {
     copyImage,
     copyText,
     isAuthError,
+    isRateLimited,
     toApiError,
     useAssist,
     useAuthGate,
+    useGuess,
     useLoadLatestDrawing,
     useSaveDrawing,
     useSessionStore,
     useThemeStore
 } from '@core'
+import type { Guess } from '@core'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import EmptyState from '../components/EmptyState.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
+import GuessResult from '../components/GuessResult.vue'
 import LayersPanel from '../components/LayersPanel.vue'
 import ShortcutsDialog from '../components/ShortcutsDialog.vue'
 import SideMenu from '../components/SideMenu.vue'
@@ -101,6 +105,26 @@ const assistOpen = ref(false)
 const assistPrompt = ref('')
 const pendingOps = ref<Op[] | null>(null)
 const assistNote = ref<string | null>(null)
+
+/* --- AI guess (the AI reads the canvas back to you) ------------------- */
+
+// The whole feature is one card in the shell's #overlay: the wait, the answer and
+// every failure render there. `guessOpen` is what mounts it — the mutation's own
+// `isPending` can't be, because the card has to OUTLIVE the request to show the
+// answer it came back with.
+const guessMutation = useGuess()
+const guessPending = computed(() => guessMutation.isPending.value)
+const guessOpen = ref(false)
+const guessResult = ref<Guess | null>(null)
+// A failure lives in the card too, not in a toast — see `onGuessError`.
+const guessError = ref('')
+const guessExhausted = ref(false)
+// Set when the DOCUMENT is replaced (New / Load) while a guess is in flight: the
+// answer that lands afterwards describes a drawing nobody can see any more, so it
+// is dropped rather than shown against the new canvas. Dismissing the card
+// deliberately does NOT set it — that call is still about the canvas in front of
+// you, and it has already been paid for.
+let guessStale = false
 
 const ui = reactive({
     activeTool: 'pen' as ToolId,
@@ -496,8 +520,10 @@ function fitView() {
 function clearCanvas(w?: number, h?: number) {
     if (!editor) return
     // A pending AI proposal references the outgoing document — drop the ghost
-    // before the fresh blank doc replaces it.
+    // before the fresh blank doc replaces it, and the AI's guess with it (it
+    // describes the drawing that is about to be thrown away).
     clearAssistProposal()
+    invalidateGuess()
     // Validate the freshly built blank doc before loading (loadDocument does
     // not validate). parseDocument throws DocumentValidationError on bad input.
     editor.loadDocument(parseDocument(blankDocument(w, h)))
@@ -661,8 +687,10 @@ async function load() {
             // full.document is already validated by drawings.get (parseDocument).
             editor?.loadDocument(full.document)
             // A pending AI proposal references the OLD document's layers — drop the
-            // ghost before the incoming doc replaces it.
+            // ghost before the incoming doc replaces it, and the guess with it (it
+            // describes the drawing that was just replaced).
             clearAssistProposal()
+            invalidateGuess()
             currentId.value = full.id
             drawingName.value = full.name
             toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST_SUCCESS })
@@ -736,6 +764,103 @@ function rejectAssist() {
     pendingOps.value = null
     assistNote.value = null
 }
+
+/* --- AI guess handlers ------------------------------------------------ */
+
+/** Close the card and forget the answer, so the next ask starts clean. Also the
+ *  doc-swap teardown below, which additionally marks any in-flight call stale. */
+function dismissGuess() {
+    guessOpen.value = false
+    guessResult.value = null
+    guessError.value = ''
+    guessExhausted.value = false
+}
+
+/** A guess describes the document it was asked about — drop it (and disown any
+ *  call still in flight) whenever that document is replaced. Called alongside
+ *  `clearAssistProposal`, for the same reason the ghost goes: it is about a
+ *  canvas that no longer exists. */
+function invalidateGuess() {
+    guessStale = true
+    dismissGuess()
+}
+
+/**
+ * A failed guess stays INSIDE the card — deliberately NOT `reportError`'s red
+ * toast. Two guesses a day is the whole budget, so "that was your last one" is an
+ * ordinary, expected outcome, and a toast identical to the one a crashed server
+ * gets would read it as a failure on the visitor's part. `isRateLimited` is what
+ * separates the two; the card then swaps its headline and drops the retry, which
+ * could not succeed again today anyway.
+ *
+ * A lapsed session is the one thing that does not belong in the card: it is not a
+ * verdict about the drawing at all. It goes back to the shared `reportError`,
+ * which raises the ONE sign-in gate and deliberately does not re-fire the request
+ * (minutes can pass behind that modal, and re-asking would silently spend another
+ * of the two). The card closes rather than sitting there pending behind a dialog.
+ */
+function onGuessError(err: unknown) {
+    if (guessStale) return
+    if (isAuthError(err)) {
+        dismissGuess()
+        reportError(err, 'guess your drawing')
+        return
+    }
+    guessExhausted.value = isRateLimited(err)
+    guessError.value = toApiError(err)?.message ?? 'The AI could not be reached. Try again.'
+}
+
+/**
+ * Ask the AI what is on the canvas. Unlike assist this sends the WHOLE document
+ * (the server has to render it before it can look at it), and unlike save it is
+ * capped at a couple of calls a day — so every guard here exists to stop one of
+ * those being spent on nothing: a blank canvas, a double click while a call is in
+ * flight, or a view that went away behind the sign-in modal.
+ */
+async function requestGuess() {
+    if (!editor || guessPending.value) return
+    // Mirrors the trigger's own `disabled` — the card's "Guess again" can also
+    // reach here, and the canvas may have been erased since the card opened.
+    if (isEmpty.value) return
+    if (!(await gated('Sign in to have the AI guess your drawing.'))) return
+    // Re-check across the await: the modal can stay up for minutes, and browser
+    // Back unmounts this view and nulls `editor` underneath us (as in `save()`).
+    if (!editor) return
+    guessStale = false
+    // Open the card BEFORE firing, so the several-second wait has somewhere to live.
+    guessOpen.value = true
+    guessResult.value = null
+    guessError.value = ''
+    guessExhausted.value = false
+    guessMutation.mutate(editor.getDocument(), {
+        onSuccess: (result) => {
+            if (guessStale) return
+            guessResult.value = result
+        },
+        onError: onGuessError
+    })
+}
+
+/**
+ * The island trigger is a TOGGLE, not a fire button: with the card already up a
+ * second click hides it instead of spending another of the day's calls. Re-asking
+ * is the card's own "Guess again", where the cost is in front of you.
+ */
+function toggleGuess() {
+    if (guessOpen.value) {
+        dismissGuess()
+        return
+    }
+    // Closed with a call still running, or with an answer that landed after it was
+    // closed: that call is already spent, so re-open onto it rather than paying
+    // for a second. `dismissGuess` clears both, so this can only be true for a
+    // guess nobody has actually read yet.
+    if (guessPending.value || guessResult.value || guessError.value) {
+        guessOpen.value = true
+        return
+    }
+    void requestGuess()
+}
 </script>
 
 <template>
@@ -767,6 +892,25 @@ function rejectAssist() {
                     placement="bottom"
                     :pressed="assistOpen"
                     @click="toggleAssist"
+                />
+                <!-- The mirror of assist: assist draws what you say, this says what
+                     you drew. It lives in THIS island rather than the top-center
+                     strip because the assist panel already owns that slot (and drops
+                     to its own row <=1050px), so a second panel would fight it; the
+                     answer lands in the overlay card instead. Disabled on a blank
+                     canvas — asking what an empty page depicts would burn one of a
+                     very small daily allowance to be told nothing. -->
+                <IconButton
+                    icon="guess"
+                    :label="
+                        isEmpty
+                            ? 'Draw something first, then the AI can guess it'
+                            : 'Guess my drawing — ask the AI what it sees'
+                    "
+                    placement="bottom"
+                    :pressed="guessOpen"
+                    :disabled="isEmpty"
+                    @click="toggleGuess"
                 />
                 <!-- Which layer new strokes / the eraser land on — shown only when the
                      panel is closed (open, the panel highlights the active row itself).
@@ -891,6 +1035,26 @@ function rejectAssist() {
                     @dismiss="dismissHint"
                     @sign-in="void gated('Sign in to save and load your drawings.')"
                     @shortcuts="shortcutsOpen = true"
+                />
+            </Transition>
+
+            <!-- The AI's reading of the canvas. Mounted on demand and only ever over
+                 a NON-empty canvas (the trigger is disabled otherwise), which is
+                 also why it can never share the overlay with the empty-state card
+                 above — `showHint` requires the opposite. -->
+            <Transition name="jp-pop">
+                <GuessResult
+                    v-if="guessOpen"
+                    class="draw__guess"
+                    :pending="guessPending"
+                    :label="guessResult?.label ?? null"
+                    :confidence="guessResult?.confidence ?? 0"
+                    :alternatives="guessResult?.alternatives ?? []"
+                    :error="guessError"
+                    :exhausted="guessExhausted"
+                    :can-retry="!isEmpty"
+                    @again="requestGuess"
+                    @dismiss="dismissGuess"
                 />
             </Transition>
 
@@ -1093,6 +1257,9 @@ function rejectAssist() {
     pointer-events: auto;
 }
 
+/* The AI-guess card owns its own box (width, scroll, pointer-events) — what is
+   /draw's business is WHERE it sits, which is the phone rule below. */
+
 /* The card fades + settles in place (a straight fade/scale — NOT the toast's
    horizontal slide, which reads wrong on a centered welcome card). */
 .jp-pop-enter-active,
@@ -1248,6 +1415,15 @@ function rejectAssist() {
        panel drops one row further to clear it. */
     .draw__assist {
         top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3.125rem * 2);
+    }
+
+    /* The overlay CENTERS its children and the toolbar owns the bottom ~4rem of a
+       phone, so a centered card can reach it. Lift the guess card clear: the
+       margin is part of the centered box, so 5rem here buys a ~2.5rem rise — the
+       tools stay tappable while the answer is up, which matters because the whole
+       point is to go back and draw more. */
+    .draw__guess {
+        margin-bottom: 5rem;
     }
 
     .draw__layers-scrim {

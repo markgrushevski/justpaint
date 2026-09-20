@@ -11,6 +11,8 @@ import { leaderboard } from './leaderboard'
 import type { LeaderboardPage } from './leaderboard'
 import { assist } from './assist'
 import type { AssistOpsRequest, AssistOpsResponse } from './assist'
+import { guess } from './guess'
+import type { Guess } from './guess'
 
 /**
  * TanStack Query bindings for the drawings API (ROADMAP Phase 2 "state" pass:
@@ -150,5 +152,18 @@ export function useSubmitPractice() {
 export function useAssist() {
     return useMutation({
         mutationFn: (req: AssistOpsRequest): Promise<AssistOpsResponse> => assist.ops(req)
+    })
+}
+
+/**
+ * Ask the AI what the current drawing is. Same store-free mutation shape as
+ * `useAssist` — a button action whose answer is read once and thrown away, so
+ * there is no cache to own and nothing to invalidate. Slow by nature (the server
+ * renders the raster and calls a vision model in-request), so the caller shows a
+ * pending card for the several seconds this takes rather than a frozen button.
+ */
+export function useGuess() {
+    return useMutation({
+        mutationFn: (doc: Document): Promise<Guess> => guess.ask(doc)
     })
 }

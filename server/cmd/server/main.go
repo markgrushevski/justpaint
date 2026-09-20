@@ -21,6 +21,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/drawings"
 	"github.com/markgrushevski/justpaint/server/internal/game"
+	"github.com/markgrushevski/justpaint/server/internal/guess"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/platform/config"
 	"github.com/markgrushevski/justpaint/server/internal/platform/logging"
@@ -182,6 +183,33 @@ func run() error {
 		practice.NewService(queries, renderer, critic,
 			practice.BudgetCheck(practiceCheck), practice.BudgetSpend(practiceSpend), logger), logger)
 
+	// "What did I draw?" on /draw — the third vision seam off JUDGE_MODE, beside the
+	// judge (two images, comparative) and the critic (one image against a prompt).
+	// This one has no prompt at all: nobody supplied an answer, so there is nothing
+	// to score and the model is simply asked what it sees.
+	//
+	// It follows JUDGE_MODE for the same reason practice does, and is unavailable
+	// under http for the same reason: the collaborator's service answers one frozen
+	// comparative question and has no endpoint for this. A nil guesser refuses
+	// honestly rather than quietly answering with the fake, whose "guess" is a
+	// canned string — a made-up answer presented as the AI's is a lie the player
+	// cannot detect.
+	var guesser judge.Guesser
+	switch cfg.JudgeMode {
+	case config.JudgeModeGemini:
+		guesser = judge.NewGeminiGuesser(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		logger.Info("guess: gemini vision (names what one drawing depicts)", "model", cfg.GeminiModel)
+	case config.JudgeModeHTTP:
+		logger.Warn("guess: DISABLED — JUDGE_MODE=http has no endpoint for it (docs/JUDGE.md §2 is a two-image contract); /api/guess answers 500 until JUDGE_MODE is fake or gemini")
+	default:
+		guesser = judge.NewFakeGuesser()
+		logger.Info("guess: fake (a canned answer that never looks at the drawing; set JUDGE_MODE=gemini for a real one)")
+	}
+	guessCheck, guessSpend := aiBudget.For(aibudget.KindGuess)
+	guessHandler := guess.NewHandler(
+		guess.NewService(renderer, guesser,
+			guess.BudgetCheck(guessCheck), guess.BudgetSpend(guessSpend), logger), logger)
+
 	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic
 	// FakeAssist runs the whole client flow with zero API dependency, and the real
 	// AnthropicAssist swaps in by ASSIST_MODE with no handler change. The endpoint is
@@ -296,6 +324,7 @@ func run() error {
 	assistHandler.Routes(mux, authHandler.RequireAuth)
 	ratingsHandler.Routes(mux, authHandler.RequireAuth)
 	practiceHandler.Routes(mux, authHandler.RequireAuth)
+	guessHandler.Routes(mux, authHandler.RequireAuth)
 	wsHandler.Routes(mux, authHandler.RequireAuth)
 
 	// Abuse protection, keyed by client IP (docs/DECISIONS.md, docs/IDEAS.md: due
@@ -321,6 +350,14 @@ func run() error {
 		// tier, not the generous default. GET /api/practice/prompt is a cheap read and
 		// is left to the catch-all: this row matches POST only.
 		{Name: "practice-write", Match: web.MethodPrefix("/api/practice", http.MethodPost), Limiter: writeLimiter},
+		// A guess costs a render too, so it belongs in the same tier for the same
+		// reason. The daily budget is NOT a substitute here: under JUDGE_MODE=fake
+		// guess has no provider and is therefore unbudgeted by design, which would
+		// leave the catch-all tier as the only thing between an authenticated caller
+		// and 5 renders a second — and under RENDER_MODE=node each of those forks a
+		// node-canvas subprocess. The ceiling guards a provider's quota; this guards
+		// our own machine.
+		{Name: "guess-write", Match: web.MethodPrefix("/api/guess", http.MethodPost), Limiter: writeLimiter},
 		{Name: "default", Match: func(*http.Request) bool { return true }, Limiter: defaultLimiter},
 	}
 	if !cfg.TrustProxy {
@@ -409,8 +446,9 @@ func aiPolicies(cfg config.Config) (map[aibudget.Kind]aibudget.Policy, error) {
 
 	// A judge-family provider. The fake spends nothing; the collaborator's ML is
 	// his service and his quota, still worth a ceiling so a bug here cannot hammer
-	// it. Practice is the exception: JUDGE_MODE=http leaves it with no critic at
-	// all (the §2 contract is two-image), so it makes no calls and owes no quota.
+	// it. The duel is the ONLY kind he can serve: under JUDGE_MODE=http practice and
+	// guess have no impl at all (the §2 contract is two-image), so they make no
+	// calls and owe no quota.
 	judgeProvider := func(kind aibudget.Kind) aibudget.Provider {
 		switch cfg.JudgeMode {
 		case config.JudgeModeGemini:
@@ -432,6 +470,7 @@ func aiPolicies(cfg config.Config) (map[aibudget.Kind]aibudget.Policy, error) {
 	providers := map[aibudget.Kind]aibudget.Provider{
 		aibudget.KindDuel:     judgeProvider(aibudget.KindDuel),
 		aibudget.KindPractice: judgeProvider(aibudget.KindPractice),
+		aibudget.KindGuess:    judgeProvider(aibudget.KindGuess),
 		aibudget.KindAssist:   assistProvider,
 	}
 	policies := make(map[aibudget.Kind]aibudget.Policy, len(providers))

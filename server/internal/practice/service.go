@@ -161,7 +161,8 @@ func (s *Service) Prompt(ctx context.Context) (PromptView, error) {
 //     refuse before the call, not after;
 //  2. the prompt, which must be a live one (a foreign/retired id is a 404);
 //  3. the ATTEMPT row, written BEFORE the critic is called;
-//  4. render, then critique;
+//  4. render, then the BILL, then critique — the bill sits between them because
+//     the render spends nobody's quota and the critique spends the provider's;
 //  5. the verdict, stamped onto the row from (3).
 //
 // Steps 3 and 5 are separate statements and NOT one transaction, deliberately. A
@@ -191,15 +192,6 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 	if err != nil {
 		return RunView{}, fmt.Errorf("practice: record attempt: %w", err)
 	}
-	// Billed here, beside the attempt row and for the same reason: BEFORE the
-	// critic is called, and outside any transaction. A call recorded only on
-	// success is a call the budget stops seeing exactly when a broken critic is
-	// draining it — the failure that costs nothing is the one that costs the most.
-	if s.spend != nil {
-		if err := s.spend(ctx, userID); err != nil {
-			return RunView{}, fmt.Errorf("practice: bill run: %w", err)
-		}
-	}
 
 	// Bound the expensive half only. The budget check and the attempt row are
 	// already committed, so a timeout here leaves exactly the state we want: a
@@ -212,6 +204,19 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 	img, err := s.renderer.Render(workCtx, doc)
 	if err != nil {
 		return RunView{}, fmt.Errorf("practice: render: %w", err)
+	}
+
+	// Billed between the render and the critique, which is the narrowest correct
+	// window. Never AFTER the call: a critique that failed still spent the
+	// provider's quota, and a failure the budget cannot see is exactly what a
+	// broken critic drains it through. But not before the render either — the
+	// render is our own subprocess and spends nobody's quota, so a renderer that
+	// fell over must not cost the player a scored drawing. Same rule, same words,
+	// in internal/guess.
+	if s.spend != nil {
+		if err := s.spend(ctx, userID); err != nil {
+			return RunView{}, fmt.Errorf("practice: bill run: %w", err)
+		}
 	}
 
 	startedAt := time.Now()
