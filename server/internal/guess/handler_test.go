@@ -284,3 +284,30 @@ func TestGuess_BudgetRefusalsAre429(t *testing.T) {
 		})
 	}
 }
+
+// TestGuess_ProviderQuotaIs429 covers the third way to run out: not our own
+// ceiling, but the provider's, learned from a 429 on the wire.
+//
+// It is the same news to the player — "not today" — so it reads the same. As a
+// 500 it read as a fault and the UI offered a retry that could not possibly
+// succeed until the provider's own window rolled. internal/game already
+// special-cases this error in its judging pass for the same reason; the two
+// inline endpoints were the ones still answering 500.
+func TestGuess_ProviderQuotaIs429(t *testing.T) {
+	renderer := &stubRenderer{png: tinyPNG(t)}
+	guesser := &stubGuesser{err: fmt.Errorf("judge: %w (429): daily limit", judge.ErrQuotaExhausted)}
+	mux := muxFor(t, NewService(renderer, guesser, nil, nil, slog.New(slog.DiscardHandler)))
+
+	rec := post(t, mux, `{"document":`+docOfSize(800, 600)+`}`, true)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 (body %s)", rec.Code, rec.Body.String())
+	}
+	if code := errorCode(t, rec); code != "rate_limited" {
+		t.Errorf("code = %q, want rate_limited", code)
+	}
+	// The same sentence the global half of our own ceiling writes — one decision
+	// about what a refusal discloses, made once in aibudget.
+	if !strings.Contains(rec.Body.String(), "resumes tomorrow") {
+		t.Errorf("body %s should read like the budget's own global refusal", rec.Body.String())
+	}
+}

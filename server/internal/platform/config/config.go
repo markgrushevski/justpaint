@@ -54,10 +54,17 @@ type Config struct {
 	RenderCLI string
 	// RenderNodeBin is the node executable (default "node").
 	RenderNodeBin string
-	// JudgeConcurrency bounds how many judging passes (authoritative render +
-	// judge call) run at once. Under RenderMode "node" each pass spawns two OS
-	// child processes rasterizing a 1024² canvas, so an unbounded backlog drain
-	// is a fork bomb on a small instance.
+	// JudgeConcurrency bounds two things, and the second one was added after a
+	// review found the first was not enough.
+	//
+	// It bounds how many judging passes (authoritative render + judge call) run at
+	// once — under RenderMode "node" each pass spawns OS child processes rasterizing
+	// a 1024² canvas, so an unbounded backlog drain is a fork bomb on a small
+	// instance. It ALSO sizes the semaphore inside the node renderer itself
+	// (internal/render), which is what bounds the SYNCHRONOUS renders on
+	// /api/guess and /api/practice: those two render inside the request and have no
+	// pass-level limiter of their own, so without it one client's request burst is
+	// one subprocess per request.
 	JudgeConcurrency int
 
 	// AIDailyGlobal and AIDailyPerUser cap how many AI calls a rolling 24h window
@@ -529,9 +536,26 @@ func getenvIntAliased(current, legacy string, fallback int) (value int, from str
 	case cur == "":
 		v, err := getenvInt(legacy, fallback)
 		return v, legacy, err
-	case old == "", cur == old:
+	case old == "":
 		v, err := getenvInt(current, fallback)
 		return v, current, err
+	}
+
+	// Both set. "The same value" is a question about the NUMBERS, not about the
+	// spelling: 100 and 0100 are the same bound, and refusing to boot over a
+	// leading zero would be a fault report about nothing. Each is parsed through
+	// the same helper as the single-name cases, so a non-integer is still named
+	// after the variable that carries it.
+	curVal, err := getenvInt(current, fallback)
+	if err != nil {
+		return 0, current, err
+	}
+	oldVal, err := getenvInt(legacy, fallback)
+	if err != nil {
+		return 0, legacy, err
+	}
+	if curVal == oldVal {
+		return curVal, current, nil
 	}
 	return 0, current, fmt.Errorf("config: %s=%q and %s=%q disagree — %s is the current name and %s is kept only for already-deployed environments; set one, or set both to the same value", current, cur, legacy, old, current, legacy)
 }

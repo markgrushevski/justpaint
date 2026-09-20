@@ -31,6 +31,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/document"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/render"
@@ -98,18 +99,20 @@ var (
 	ErrRasterTooLarge = errors.New("guess: rendered raster is too large to send")
 )
 
-// BudgetCheck asks whether this player may spend an AI call right now, and
-// BudgetSpend records the one they just spent. Both are plain funcs — the
-// narrowest possible ports — bound to aibudget.KindGuess at the composition root,
-// so this package never learns its own kind's name or the budget's shape. Same
-// pattern as internal/practice and internal/assist.
+// The two budget ports are aibudget's own func types, bound to aibudget.KindGuess
+// at the composition root: aibudget.Check asks whether this player may spend an
+// AI call right now, aibudget.Spend records the one they just spent (and refuses,
+// with the same error Check returns, if the ledger finds them at their cap by the
+// time it writes).
+//
+// They used to be re-declared here as local BudgetCheck/BudgetSpend types, on the
+// stated grounds that this package then never imported aibudget. That was not
+// true — the handler has always imported it for WriteRefusal — so the copies
+// bought a second name for one contract and a conversion at the wiring site, and
+// nothing else. internal/game holds aibudget's types directly for the same reason.
 //
 // Nil means unbudgeted, which is what every test and every fake-configured
 // deployment gets.
-type (
-	BudgetCheck func(ctx context.Context, userID string) error
-	BudgetSpend func(ctx context.Context, userIDs ...string) error
-)
 
 // Service runs the guess loop: render, then ask. It holds no database handle,
 // because a guess is not written down (see the package comment).
@@ -118,15 +121,15 @@ type Service struct {
 	// guesser is the seam (judge.Guesser — ours, not the collaborator's frozen
 	// Judge). Nil means the feature is not configured; see ErrNotConfigured.
 	guesser judge.Guesser
-	budget  BudgetCheck
-	spend   BudgetSpend
+	budget  aibudget.Check
+	spend   aibudget.Spend
 	logger  *slog.Logger
 }
 
 // NewService builds the guess service. A nil guesser is a legitimate, deliberate
 // state — the endpoint then refuses honestly instead of inventing an answer — so
 // it is not an error here; main.go logs it at boot.
-func NewService(renderer render.Renderer, guesser judge.Guesser, budget BudgetCheck, spend BudgetSpend, logger *slog.Logger) *Service {
+func NewService(renderer render.Renderer, guesser judge.Guesser, budget aibudget.Check, spend aibudget.Spend, logger *slog.Logger) *Service {
 	return &Service{renderer: renderer, guesser: guesser, budget: budget, spend: spend, logger: logger}
 }
 
@@ -150,7 +153,9 @@ type GuessView struct {
 //  2. the budget, before any expensive work — the point of a ceiling is to refuse
 //     before the call, not after;
 //  3. render, then the size guard, both of which are ours and cost no quota;
-//  4. the ledger, immediately before the call;
+//  4. the ledger, immediately before the call — and it may refuse too, with the
+//     same error (2) returns, because it writes under the cap as it stands at
+//     that instant rather than as (2) read it a render ago;
 //  5. the call, and its answer re-checked against the contract.
 func (s *Service) Guess(ctx context.Context, userID string, doc document.Document) (GuessView, error) {
 	if s.guesser == nil {
@@ -199,6 +204,12 @@ func (s *Service) Guess(ctx context.Context, userID string, doc document.Documen
 	// the render and the call is the narrowest correct window, and internal/practice
 	// bills at exactly the same point for exactly the same reason. Everything above
 	// this line is free to re-run; nothing below it is.
+	//
+	// It is also the second and tighter of the two per-user gates: the check above
+	// read a count a whole render ago, while this write refuses on the count as it
+	// stands at the instant of writing — which matters most here, where the cap is
+	// two. Its refusal is the same *KindSpentError the check returns, so the wrap
+	// below still reaches the handler's 429 branch and needs no case of its own.
 	if s.spend != nil {
 		if err := s.spend(ctx, userID); err != nil {
 			return GuessView{}, fmt.Errorf("guess: bill call: %w", err)

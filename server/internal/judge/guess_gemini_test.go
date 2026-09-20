@@ -209,6 +209,17 @@ func TestGeminiGuesser_Guess_Alternatives(t *testing.T) {
 			output: `{"label":"a cat","confidence":0.6,"alternative1":"a fox","alternative2":" a fox "}`,
 			want:   []string{"a fox"},
 		},
+		{
+			// A restatement of the label the player SEES, which is the clamped one. The
+			// dedupe used to run against the raw label, so an over-long label survived as
+			// its own runner-up — the one shape where the list really did read as the
+			// same thing twice. The label here is 100 unbroken runes, so clampText cuts
+			// at 79 and appends the ellipsis, deterministically.
+			name: "a restatement of the CLAMPED label is dropped",
+			output: `{"label":"` + strings.Repeat("a", 100) + `","confidence":0.6,` +
+				`"alternative1":"` + strings.Repeat("a", 79) + `…","alternative2":"a fox"}`,
+			want: []string{"a fox"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

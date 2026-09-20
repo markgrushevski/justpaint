@@ -54,9 +54,13 @@ type spendRecorder struct {
 	err   error
 }
 
-func (s *spendRecorder) spend(_ context.Context, userIDs ...string) error {
+// spend matches aibudget.Spend, which takes ONE user: the conditional insert
+// behind it weighs the call against one allowance, and the kind that bills two
+// players for a single request (the duel) does not spend its halves at the same
+// moment anyway — it holds aibudget.BillPlayers instead.
+func (s *spendRecorder) spend(_ context.Context, userID string) error {
 	s.calls++
-	s.users = append(s.users, userIDs...)
+	s.users = append(s.users, userID)
 	return s.err
 }
 

@@ -173,15 +173,22 @@ func parseGeminiGuess(out geminiOutput) (Guess, error) {
 	if err := json.Unmarshal([]byte(out.text), &v); err != nil {
 		return Guess{}, fmt.Errorf("judge: gemini guesser: output is not the JSON guess (finishReason %q): %w", out.finish, err)
 	}
+	// Display text, so trimming stray whitespace is cosmetic; the overrun clamp is
+	// the same deliberate normalization the duel's reason and the critic's feedback
+	// get (clampText). The instruction asks for 70 characters against a cap of 80,
+	// so a clamp here means the model ran over its own brief, not that we mis-sized
+	// the field.
+	//
+	// Clamped ONCE, and the clamped form is what the alternatives are deduped
+	// against: an alternative is a restatement of the label the player will SEE, not
+	// of the label the model sent. Passing the raw one let an over-long label survive
+	// as its own runner-up, which is the one case where the list would have read as
+	// "a cat" twice.
+	label := clampText(strings.TrimSpace(v.Label), maxGuessLabelLen)
 	g := Guess{
-		// Display text, so trimming stray whitespace is cosmetic; the overrun clamp is
-		// the same deliberate normalization the duel's reason and the critic's feedback
-		// get (clampText). The instruction asks for 70 characters against a cap of 80,
-		// so a clamp here means the model ran over its own brief, not that we mis-sized
-		// the field.
-		Label:        clampText(strings.TrimSpace(v.Label), maxGuessLabelLen),
+		Label:        label,
 		Confidence:   v.Confidence,
-		Alternatives: gatherGuessAlternatives(v.Label, v.Alternative1, v.Alternative2),
+		Alternatives: gatherGuessAlternatives(label, v.Alternative1, v.Alternative2),
 	}
 	if err := g.Validate(); err != nil {
 		return Guess{}, fmt.Errorf("judge: gemini guesser: %w", err)

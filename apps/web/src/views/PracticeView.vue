@@ -29,7 +29,16 @@ import { DEFAULT_STYLE, Editor, newId, TOOLS } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
 import { DOC_VERSION, parseDocument } from '@justpaint/document'
-import { icons, isAuthError, isRateLimited, toApiError, useAuthGate, usePracticePrompt, useSubmitPractice } from '@core'
+import {
+    icons,
+    isAuthError,
+    isBudgetExhausted,
+    isRateLimited,
+    toApiError,
+    useAuthGate,
+    usePracticePrompt,
+    useSubmitPractice
+} from '@core'
 import type { PracticePrompt, PracticeRun } from '@core'
 import EditorShell from '../components/shell/EditorShell.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
@@ -134,9 +143,18 @@ const loadError = ref('')
  * live `drawing` phase instead of an error screen that throws the work away.
  */
 const submitError = ref('')
-/** The refusal the player cannot retry their way out of: a spent daily budget,
- *  theirs or the service's. The notice drops "Try again" for it, because inviting
- *  a retry that is guaranteed to fail until tomorrow is worse than saying so. */
+/**
+ * The refusal the player cannot retry their way out of: a spent DAILY budget,
+ * theirs or the service's. The notice drops "Try again" for it, because inviting
+ * a retry that is guaranteed to fail until tomorrow is worse than saying so.
+ *
+ * Narrower than "a 429": the per-IP write tier answers 429 too (docs/API.md §3.1,
+ * shared with saves and duels, burst 30 at one token per 2s — trivial to trip from
+ * behind a NAT), and that one clears in SECONDS. Telling that player their day is
+ * over, and taking the retry away with it, was the bug. `isBudgetExhausted` splits
+ * them on the header the server already sets for one and deliberately withholds
+ * from the other.
+ */
 const submitExhausted = ref(false)
 
 /** Object URL of the advisory raster captured at submit — revoked on reset/unmount. */
@@ -212,8 +230,18 @@ function handleSubmitError(err: unknown): void {
         })()
         return
     }
-    submitExhausted.value = isRateLimited(err)
-    submitError.value = toApiError(err)?.message ?? 'The judge could not be reached. Try again.'
+    const api = toApiError(err)
+    submitExhausted.value = isBudgetExhausted(err)
+    if (submitExhausted.value) {
+        submitError.value = api?.message ?? 'That is every scored drawing you get today.'
+        return
+    }
+    // A transient throttle keeps its retry and says something true about it. The
+    // server's own sentence for one is just "too many requests"; that waiting
+    // works is the part the player needs, and only this side knows to say it.
+    submitError.value = isRateLimited(err)
+        ? `${api?.message ?? 'Too many requests just now'} — try again in a moment.`
+        : (api?.message ?? 'The judge could not be reached. Try again.')
 }
 
 /** Fetch something to draw and open the round. */

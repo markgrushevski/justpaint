@@ -168,12 +168,17 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	view, err := h.svc.CreateOrJoin(r.Context(), uid)
 	if err != nil {
-		switch {
 		// Both budget refusals are 429s, but they are not the same news — and the
-		// copy for both now lives in one place (aibudget.WriteRefusal), because
-		// deciding what a refusal discloses is one decision, not one per feature.
-		case aibudget.WriteRefusal(w, err):
-			// handled — the response is already written
+		// copy for both lives in one place (aibudget.WriteRefusal), because deciding
+		// what a refusal discloses is one decision, not one per feature.
+		//
+		// It writes the response as a side effect, so it is tested and branched on
+		// here rather than from inside a switch predicate, where a reader has to know
+		// that evaluating a case can answer the request.
+		if aibudget.WriteRefusal(w, err) {
+			return
+		}
+		switch {
 		case errors.Is(err, ErrNoPrompts):
 			h.logger.Error("create match: no active prompts — run the seed migration (00002)")
 			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")

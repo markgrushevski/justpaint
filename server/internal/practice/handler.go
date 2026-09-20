@@ -12,6 +12,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/document"
 	"github.com/markgrushevski/justpaint/server/internal/game"
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 )
 
@@ -125,15 +126,28 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 
 	view, err := h.svc.Run(r.Context(), uid, req.PromptID, doc)
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrPromptNotFound):
-			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
 		// Both budget refusals are 429s and neither is the player's fault in the same
 		// way; the copy for both lives in one place now (aibudget.WriteRefusal),
 		// because deciding what a refusal discloses is one decision, not one per
 		// feature.
-		case aibudget.WriteRefusal(w, err):
-			// handled — the response is already written
+		//
+		// It writes the response as a side effect, so it is tested and branched on
+		// here rather than from inside a switch predicate, where a reader has to know
+		// that evaluating a case can answer the request.
+		if aibudget.WriteRefusal(w, err) {
+			return
+		}
+		switch {
+		case errors.Is(err, ErrPromptNotFound):
+			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
+		// The provider ran out before our own ceiling did — the same news for the
+		// player, from the other end. Answering it as a 500 invites a retry that
+		// cannot succeed until the provider's own window rolls, so it gets the refusal
+		// the global ceiling would have written. The cause still reaches the log,
+		// where it is an operator's problem and a real one.
+		case errors.Is(err, judge.ErrQuotaExhausted):
+			h.logger.Error("practice: provider quota exhausted — every run fails until it resets", "err", err)
+			aibudget.WriteRefusal(w, aibudget.ErrGlobalSpent)
 		default:
 			h.fail(w, "practice run", err)
 		}

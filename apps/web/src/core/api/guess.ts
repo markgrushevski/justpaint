@@ -23,14 +23,19 @@ export interface Guess {
     /** How sure it is, 0..1. Meant to be shown as a phrase, never as a raw number. */
     confidence: number
     /**
-     * 0–2 runner-up guesses. Always an array here even though the wire may omit
-     * it: a Go nil slice marshals to `null`, and one normalization at the edge is
-     * cheaper than every consumer remembering to null-check the fun part.
+     * 0–2 runner-up guesses. Always an array, and the server already promises
+     * that: the handler normalizes its nil slice to `[]` before marshalling
+     * (`internal/guess/handler.go`), because an absent list and an empty one are
+     * the same fact and the client should not have to know two spellings of it
+     * (docs/API.md §13). The `?? []` below is belt-and-braces against a future
+     * handler that forgets — one normalization at the edge is cheaper than every
+     * consumer null-checking the fun part.
      */
     alternatives: string[]
 }
 
-/** The response body. `alternatives` is optional on the wire; {@link Guess} is not. */
+/** The response body. Typed to tolerate an `alternatives` the server promises never
+ *  to send (see above); {@link Guess} makes no such allowance. */
 interface GuessEnvelope {
     guess: Omit<Guess, 'alternatives'> & { alternatives?: string[] | null }
 }

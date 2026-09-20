@@ -104,6 +104,14 @@ small practical gotchas go here.
   JSON on stdin → **base64** PNG on stdout (base64 dodges binary-stdout/newline munging on Windows). It
   re-marshals the validated `document.Document` to JSON (unknown fields don't affect rendering). Needs
   `node` on PATH + the built bundle + `RENDER_CLI` pointing at it (fail-fast at boot if unset).
+  **How many of those processes may run at once is bounded INSIDE the renderer** — a `chan struct{}`
+  semaphore sized by `JUDGE_CONCURRENCY` — and not at a caller, because a caller-side bound misses the
+  inline ones: `internal/game` limits its judging passes, but `/api/guess` and `/api/practice` render on
+  the request goroutine, so one IP's burst under the write tier (30 in 2s) was thirty node-canvas
+  processes, each tens of MB resident, on a 512 MB host. It **blocks** rather than refusing (every caller
+  already came through a bound of its own, and a slower render beats a lost duel); the wait ends with the
+  caller's own context (`game.JudgePassBudget`, practice/guess `RunBudget`) and the error names the wait,
+  so it is not mistaken for a worker fault.
 - **`RENDER_MODE` defaults to `stub`** so the Go server runs with zero Node/canvas present (dev, CI, `go
   test`). Only `RENDER_MODE=node` requires the worker. Don't flip the default without owning the native-dep
   cost for everyone running the server.
@@ -747,3 +755,108 @@ Get-NetTCPConnection -LocalPort 8080 -State Listen | ForEach-Object { Get-Proces
 
 and stop that pid, not the shell job. `go build -o` plus running the binary directly avoids the whole
 class of problem when you expect to restart often.
+
+## One status code, two ceilings: `429` alone cannot tell you to come back tomorrow
+
+Found by four reviewers independently, 2026-09-20.
+
+`POST /api/guess`, `/api/practice`, `/api/matches` and `/api/drawings` all sit behind **two**
+unrelated limiters that answer with the same `429 rate_limited`:
+
+- the per-IP **write tier** (`internal/platform/web/ratelimit.go`) — burst 30, one token per 2s,
+  **shared across all four routes**, and trivially tripped from behind a NAT or a proxy. It clears
+  in seconds.
+- the daily **AI-call budget** (`internal/aibudget`) — clears tomorrow.
+
+The client was deriving "you have used your allowance for today" from the status alone, so a
+transient tier 429 produced a screen that said the day was over *and removed the retry button* —
+the one action that would have worked a moment later.
+
+**The discriminator was already on the wire and was being thrown away.** The rate tier always sets
+`Retry-After`; the budget refusal deliberately never does, because its window rolls continuously and
+there is no honest reset instant to name (`docs/API.md` §3.1). `ApiError` now carries `retryAfter`
+and `isBudgetExhausted()` is `429 && retryAfter === null`. `isRateLimited()` still means "some
+ceiling refused this" and is the wrong question for "is this permanent".
+
+Two constraints that come with it: `Retry-After` is **not** CORS-safelisted, so this works only
+while the API stays same-origin (it does — the Go service serves the SPA); and the parser accepts
+the RFC 9110 HTTP-date form as well as seconds, so a platform edge answering its own 429 that way
+is not misfiled as a spent day.
+
+**The general lesson:** when two independent mechanisms share a status code, do not infer which one
+fired from the status. Find the field that already differs, or add one — and if neither exists, that
+is a contract gap, not a client problem.
+
+## A disabled `OriButton` cannot explain why it is disabled
+
+`.ori-button:disabled` sets `pointer-events: none`, and a disabled `<button>` takes no focus — so
+oriui's tooltip, which needs `:hover` (inside `@media (hover: hover)`) or `:focus-within`, can never
+open. On a phone a disabled icon button is a dimmed glyph with no reachable explanation, measured at
+2.65:1.
+
+So: an icon button whose disabled reason is **not self-evident** must carry that reason somewhere
+other than its `label`. For the AI-guess trigger the answer was to stop disabling it — the button
+stays live, the guard stays in the handler, and the result card (already the single home for every
+other outcome) says "draw something first". Undo/redo are the counter-example: nobody needs to be
+told why undo is off on a fresh canvas.
+
+## A ledger must record the event it bills for, not the event that is convenient to hook
+
+The AI-call ledger first billed a duel at `open → drawing`, because that is where the
+matchmaking transaction already was. Two reviewers, arriving from different directions,
+measured what that actually bought:
+
+- a **forfeited or abandoned** duel never reaches the judge — `deadline.go` resolves both
+  without a call — yet it wrote a provider row. Over-billed.
+- a **stuck-judging re-fire** runs up to `maxJudgeAttempts = 3` passes, each retrying up to
+  3 times inside the Gemini client, and all of it wrote **one** row. Under-billed by up to 9×.
+
+So the ledger was neither an upper nor a lower bound on real provider spend, while the
+migration's header claimed "ONE row per provider request".
+
+The fix was not a bigger comment. The two halves of a ledger row are two different facts —
+"this player was granted a round" and "one request is about to be made" — and they happen at
+two different moments for a duel. Player rows stayed at round start; the provider row moved
+into `Service.enterJudging`, which now wraps **every** `SetMatchJudging` call site, so
+one-row-per-pass is structural rather than a convention three files have to remember.
+
+**The general lesson:** when a billing site is chosen because a transaction is already open
+there, check whether the thing being billed for actually happens at that point — and whether
+it can happen more than once afterwards.
+
+## A rolling-window cap read without a lock is not a cap under concurrency
+
+`check` was two unlocked counting reads. Measured: a per-user cap of **2** with 25 genuinely
+simultaneous requests served **24** of them — every caller read zero. At that rate one IP,
+inside the per-IP burst of 30, drains a 200/day provider budget in under seven minutes and
+takes every AI feature offline for everyone until the window rolls.
+
+Two things closed most of it, and neither is a lock:
+
+1. **The insert enforces the cap.** `RecordAICallUnderCap` is one statement whose `WHERE`
+   counts the window, writing 2 rows or 0; zero is the refusal. Because the `WHERE` does not
+   reference the inserted rows, it holds for both or neither, so there is no "billed the
+   player, lost the provider row" state and no transaction is needed.
+2. **The burst it has to survive got smaller** — `/api/guess` joined the `write` tier, and
+   `NodeRenderer` now holds a `JUDGE_CONCURRENCY`-sized semaphore so a burst cannot fork a
+   subprocess per request.
+
+Re-measured after: the same 25 simultaneous requests → **5 served, 20 refused**.
+
+It is still **not exact**, and the code says so: under READ COMMITTED two concurrent statements
+can each see the same pre-insert count. What shrank is the window — from "an advisory read,
+then a render, then a provider call" to "one statement". Exactness needs SERIALIZABLE or a
+per-user lock, which is not worth serializing every AI call for a ceiling that already sits
+below the provider's own.
+
+The advisory `check` stays, and still earns its place: it refuses *before* the render.
+
+## The provider has its own ceiling, and hitting it must not look like a crash
+
+While measuring the above, the burst hit Google's own per-minute quota and came back
+`HTTP 429 RESOURCE_EXHAUSTED`. `judge.ErrQuotaExhausted` existed for exactly this but was
+special-cased only in `internal/game`, so on `/api/guess` and `/api/practice` it fell through
+to an opaque `500` — and the UI then offered a retry that could not succeed, spending one of
+a player's two daily guesses on it. Both inline handlers now map it to the same refusal the
+service's own exhausted budget produces. Our ceiling is set below the provider's, but "below"
+is not "never".

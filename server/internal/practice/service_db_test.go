@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +26,15 @@ import (
 // assertions below. The constant itself is unexported in internal/aibudget and
 // deliberately so — the budget's rules live with the budget.
 const budgetWindowSecs = int32(24 * 60 * 60)
+
+// quotaCritic is the provider saying the thing our own ceiling says: its daily
+// budget is gone. Wrapped the way judge's Gemini client wraps it, because the
+// handler's mapping is an errors.Is through a service wrap and a client wrap.
+type quotaCritic struct{}
+
+func (quotaCritic) Critique(context.Context, judge.CritiqueRequest) (judge.Critique, error) {
+	return judge.Critique{}, fmt.Errorf("judge: %w (429): daily limit", judge.ErrQuotaExhausted)
+}
 
 // failingCritic is a critic that always fails, for the case the ledger comment
 // is actually about: a judge call that was spent and produced nothing.
@@ -140,13 +152,15 @@ func TestPracticeRun_DB(t *testing.T) {
 	// Practice holds them as plain funcs and never learns its own kind's name — the
 	// port used to be game.Service.CheckJudgeBudget, which made the game module the
 	// owner of solo mode's quota.
-	// The two conversions are the composition root's own (main.go): the ports are
-	// structurally identical and deliberately NOT the same named type, so this
-	// package keeps a port it owns rather than an import of the budget's shape.
+	//
+	// The ports pass straight through now. They used to be converted to local
+	// BudgetCheck/BudgetSpend types on the grounds that this package then never
+	// imported aibudget — which was never true, since the handler imports it for
+	// WriteRefusal, so the copies bought a second name for one contract and nothing
+	// else.
 	newService := func(critic judge.Critic, b *aibudget.Budget) *Service {
 		check, spend := b.For(aibudget.KindPractice)
-		return NewService(q, render.NewStubRenderer(), critic,
-			BudgetCheck(check), BudgetSpend(spend), logger)
+		return NewService(q, render.NewStubRenderer(), critic, check, spend, logger)
 	}
 	// practiceBudget is the production policy shape for one subtest: its own
 	// provider, its own per-kind allowance.
@@ -386,8 +400,7 @@ func TestPracticeRun_DB(t *testing.T) {
 		// a feature that cannot run.
 		b := practiceBudget(mkProvider("unconfigured"), 20, 200)
 		check, spend := b.For(aibudget.KindPractice)
-		svc := NewService(q, render.NewStubRenderer(), nil,
-			BudgetCheck(check), BudgetSpend(spend), logger)
+		svc := NewService(q, render.NewStubRenderer(), nil, check, spend, logger)
 
 		if _, err := svc.Run(ctx, uid, prompt.ID, doc); !errors.Is(err, ErrNotConfigured) {
 			t.Errorf("Run: err = %v, want %v", err, ErrNotConfigured)
@@ -397,6 +410,50 @@ func TestPracticeRun_DB(t *testing.T) {
 		}
 		if n := ledgerRows(uid); n != 0 {
 			t.Errorf("a refused run cost the player %d ledger rows, want 0", n)
+		}
+	})
+
+	// --- (f) the provider's own refusal reads like ours --------------------
+	t.Run("a provider that is out of quota answers 429, not 500", func(t *testing.T) {
+		// Two ceilings can refuse a run: ours, which knows the player's allowance, and
+		// the provider's, which we only learn about from a 429 on the wire. They are
+		// the same news to the player — "not today" — so they must read the same. As a
+		// 500 this offered a retry that could not possibly succeed until the
+		// provider's own window rolled.
+		//
+		// Driven through the HTTP handler, because the mapping IS the handler's: the
+		// service only wraps the error, and what matters is that the wrap survives to
+		// the branch.
+		uid := mkUser("provider-quota")
+		svc := newService(quotaCritic{}, practiceBudget(mkProvider("provider-quota"), 20, 200))
+
+		mux := http.NewServeMux()
+		NewHandler(svc, logger).Routes(mux, authMiddleware(t))
+
+		body := `{"promptId":"` + prompt.ID + `","document":` +
+			docOfSize(game.GameCanvasSize, game.GameCanvasSize) + `}`
+		req := httptest.NewRequest(http.MethodPost, "/api/practice", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(mintCookie(t, uid))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("status = %d, want 429 (body %s)", rec.Code, rec.Body.String())
+		}
+		if code := errorCode(t, rec); code != "rate_limited" {
+			t.Errorf("code = %q, want rate_limited", code)
+		}
+		// The same sentence the global half of our own ceiling writes — one decision
+		// about what a refusal discloses, in aibudget.
+		if !strings.Contains(rec.Body.String(), "resumes tomorrow") {
+			t.Errorf("body %s should read like the budget's own global refusal", rec.Body.String())
+		}
+		// And the call really was billed: it reached the provider, which is what spent
+		// the quota. Billing only on success is how a broken impl drains a budget that
+		// cannot see it.
+		if n := ledgerRows(uid); n != 1 {
+			t.Errorf("player ledger rows = %d, want 1 — the request was made", n)
 		}
 	})
 

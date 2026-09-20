@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,9 +31,41 @@ import (
 const budgetWindow = 24 * time.Hour
 
 // statusDrawing is game's own status string for a started round. Unexported over
-// there; a duel is billed at open→drawing, so the suite has to be able to say
-// that the round really started.
+// there; a duel's players are billed at open→drawing, so the suite has to be able
+// to say that the round really started.
 const statusDrawing = "drawing"
+
+// matchmakingLockID guards the seed-an-open-match-then-join window against the
+// OTHER DB suites that drive CreateOrJoin, which `go test ./...` runs
+// concurrently against this same database (internal/game's budget_db_test.go
+// holds the same id, and the two must stay equal to be worth anything).
+//
+// It has to exist because matchmaking is global by design: FindOpenMatchToJoin
+// takes the OLDEST open async match the caller is not in, anywhere in the table.
+// Two suites that each seed a backdated open match and then join it will
+// therefore steal each other's — not flakily, but whenever their windows overlap.
+const matchmakingLockID int64 = 20260920
+
+// withMatchmaking runs fn holding matchmakingLockID. The lock is session-scoped,
+// so it is taken and released on ONE pooled connection; a t.Fatal inside fn still
+// releases it, because Goexit runs deferred calls.
+func withMatchmaking(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fn func()) {
+	t.Helper()
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire a connection for the matchmaking lock: %v", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "select pg_advisory_lock($1)", matchmakingLockID); err != nil {
+		t.Fatalf("take the matchmaking lock: %v", err)
+	}
+	defer func() {
+		if _, err := conn.Exec(ctx, "select pg_advisory_unlock($1)", matchmakingLockID); err != nil {
+			t.Errorf("release the matchmaking lock: %v", err)
+		}
+	}()
+	fn()
+}
 
 // TestAIBudget_DB proves the daily AI-call budget against a real Postgres: both
 // counts are SQL over the ai_calls ledger (migration 00007), so only a database
@@ -184,12 +217,13 @@ func TestAIBudget_DB(t *testing.T) {
 
 	// useBudget installs a budget into the game service and hands it back, so a
 	// subtest that also needs another kind's ports can ask the same instance. It is
-	// the same post-construction wiring main.go does — check and the TRANSACTIONAL
-	// spend, both bound to KindDuel once.
+	// the same post-construction wiring main.go does — the check plus the two
+	// TRANSACTIONAL billing ports, all bound to KindDuel once.
 	useBudget := func(global int, policies map[aibudget.Kind]aibudget.Policy) *aibudget.Budget {
 		b := aibudget.New(q, policies, global, logger)
 		check, _ := b.For(aibudget.KindDuel)
-		svc.SetBudget(check, b.ForTx(aibudget.KindDuel))
+		billPlayers, billProvider := b.ForSplit(aibudget.KindDuel)
+		svc.SetBudget(check, billPlayers, billProvider)
 		return b
 	}
 	// duelOnly is the common case: one kind, one provider, one per-user cap.
@@ -251,22 +285,36 @@ func TestAIBudget_DB(t *testing.T) {
 	}
 
 	// playDuel puts uid through the real entry point against a waiting partner
-	// match. open→drawing, inside the matchmaking transaction, is now the ONLY site
-	// that bills a duel, so a duel that counts has to be a duel that actually
-	// started — there is no lifecycle column left to backdate one into existence.
+	// match. open→drawing, inside the matchmaking transaction, is the ONLY site that
+	// grants a duel to its players, so a duel that counts against a player has to be
+	// a duel that actually started — there is no lifecycle column left to backdate
+	// one into existence.
+	//
+	// It writes no PROVIDER row: starting a round is not a request to the judge (see
+	// aibudget.BillProvider, and internal/game's TestDuelBudgetBilling_DB, which owns
+	// the where-is-each-row-written question). The subtests below that need the
+	// global half full therefore bill it explicitly through the port the judging
+	// sites use.
 	playDuel := func(t *testing.T, uid string) game.MatchView {
 		t.Helper()
-		want := joinableMatch(partner)
-		view, err := svc.CreateOrJoin(ctx, uid)
-		if err != nil {
-			t.Fatalf("CreateOrJoin: %v", err)
-		}
-		track(view.ID)
-		if view.ID != want {
-			t.Fatalf("joined match %s, want the seeded %s", view.ID, want)
-		}
+		var view game.MatchView
+		// Seed and join under the lock: between those two statements this match is the
+		// oldest open one in the whole table, which is exactly what another suite's
+		// joiner would take.
+		withMatchmaking(t, ctx, pool, func() {
+			want := joinableMatch(partner)
+			var err error
+			view, err = svc.CreateOrJoin(ctx, uid)
+			if err != nil {
+				t.Fatalf("CreateOrJoin: %v", err)
+			}
+			track(view.ID)
+			if view.ID != want {
+				t.Fatalf("joined match %s, want the seeded %s", view.ID, want)
+			}
+		})
 		if view.Status != statusDrawing {
-			t.Fatalf("status = %q, want %q — no round, no judge call, nothing billed", view.Status, statusDrawing)
+			t.Fatalf("status = %q, want %q — no round, nothing granted", view.Status, statusDrawing)
 		}
 		return view
 	}
@@ -274,12 +322,25 @@ func TestAIBudget_DB(t *testing.T) {
 	// --- (a) under the cap, a duel starts ---------------------------------
 	t.Run("a player under their cap starts a duel", func(t *testing.T) {
 		prov := mkProvider("under")
-		useBudget(100, duelOnly(prov, 2))
+		b := useBudget(100, duelOnly(prov, 2))
 		joiner := mkUser("under-joiner")
 
 		view := playDuel(t, joiner)
 		if len(view.Players) != 2 {
 			t.Fatalf("roster has %d players, want 2", len(view.Players))
+		}
+
+		// Starting the round bills the players and NOBODY else: the request to the
+		// judge has not happened and may never happen (an abandoned or forfeited round
+		// reaches no judge at all).
+		if n := providerSpent(prov); n != 0 {
+			t.Errorf("provider rows = %d after a round started, want 0 — no request has been made yet", n)
+		}
+		// And the request, when it does happen, is billed through the port the judging
+		// sites call — one row, naming no player.
+		_, billProvider := b.ForSplit(aibudget.KindDuel)
+		if err := billProvider(ctx, q); err != nil {
+			t.Fatalf("bill the provider: %v", err)
 		}
 
 		// The row shape the two counts depend on (migration 00007): ONE provider row
@@ -296,7 +357,7 @@ func TestAIBudget_DB(t *testing.T) {
 			t.Fatalf("read the provider rows: %v", err)
 		}
 		if billsNobody != 1 {
-			t.Errorf("provider rows = %d, want exactly 1 — one duel is one request", billsNobody)
+			t.Errorf("provider rows = %d, want exactly 1 — one judging pass is one request", billsNobody)
 		}
 		if billsSomebody != 0 {
 			t.Errorf("%d provider rows also name a player — the global count would then charge a duel twice", billsSomebody)
@@ -403,14 +464,20 @@ func TestAIBudget_DB(t *testing.T) {
 	t.Run("the global budget refuses everyone once reached", func(t *testing.T) {
 		prov := mkProvider("global")
 
-		// Spend one call on this provider, the honest way. The count is exact rather
-		// than a delta against the rest of the suite because the provider is ours
-		// alone — the global half is per provider now, so isolation is a name.
-		useBudget(1000, duelOnly(prov, 1000))
+		// Spend one call on this provider, the honest way: a round that starts and
+		// then reaches judging, which is the only thing that bills a provider. The
+		// count is exact rather than a delta against the rest of the suite because the
+		// provider is ours alone — the global half is per provider, so isolation is a
+		// name.
+		b := useBudget(1000, duelOnly(prov, 1000))
 		playDuel(t, mkUser("global-first"))
+		_, billProvider := b.ForSplit(aibudget.KindDuel)
+		if err := billProvider(ctx, q); err != nil {
+			t.Fatalf("bill the provider: %v", err)
+		}
 		spent := providerSpent(prov)
 		if spent != 1 {
-			t.Fatalf("one duel wrote %d provider rows, want 1", spent)
+			t.Fatalf("one judging pass wrote %d provider rows, want 1", spent)
 		}
 
 		// Fresh players, each miles under any per-player cap: only the global half can
@@ -426,8 +493,8 @@ func TestAIBudget_DB(t *testing.T) {
 
 		// Headroom and the same players are welcome again — the boundary is `>=`, not
 		// `>`, pinned by the refusal above.
-		b := useBudget(int(spent)+10, duelOnly(prov, 1000))
-		check, _ := b.For(aibudget.KindDuel)
+		roomy := useBudget(int(spent)+10, duelOnly(prov, 1000))
+		check, _ := roomy.For(aibudget.KindDuel)
 		if err := check(ctx, mkUser("bystander-3")); err != nil {
 			t.Errorf("with budget left the duel was still refused: %v", err)
 		}
@@ -438,9 +505,15 @@ func TestAIBudget_DB(t *testing.T) {
 		prov := mkProvider("fake")
 		joiner := mkUser("fake-joiner")
 
-		// One real duel first, so the player is already over the cap installed below.
-		useBudget(1000, duelOnly(prov, 1000))
+		// One real duel first, so the player is already over the cap installed below,
+		// and one real judging pass so the provider has a row of its own to compare
+		// against.
+		b := useBudget(1000, duelOnly(prov, 1000))
 		playDuel(t, joiner)
+		_, billProvider := b.ForSplit(aibudget.KindDuel)
+		if err := billProvider(ctx, q); err != nil {
+			t.Fatalf("bill the provider: %v", err)
+		}
 		before := ledgerRows(joiner)
 
 		// Caps that would refuse every duel on earth — the missing Provider is the
@@ -448,9 +521,15 @@ func TestAIBudget_DB(t *testing.T) {
 		// JUDGE_MODE=fake story: no external quota, so no ceiling, and nothing worth
 		// recording either. The absence of a provider IS the off switch; there is no
 		// separate `enforced` flag to get out of step with it.
-		useBudget(0, map[aibudget.Kind]aibudget.Policy{aibudget.KindDuel: {PerUser: 0}})
+		fake := useBudget(0, map[aibudget.Kind]aibudget.Policy{aibudget.KindDuel: {PerUser: 0}})
 
 		playDuel(t, joiner)
+		// Both halves are off, not just the player one: an unbudgeted judging pass
+		// must not write a provider row either.
+		_, billFakeProvider := fake.ForSplit(aibudget.KindDuel)
+		if err := billFakeProvider(ctx, q); err != nil {
+			t.Fatalf("an unbudgeted provider bill errored: %v", err)
+		}
 
 		// And a fake impl's calls must not count against a real provider's ceiling the
 		// day one is configured.
@@ -458,7 +537,7 @@ func TestAIBudget_DB(t *testing.T) {
 			t.Errorf("an unbudgeted duel wrote %d ledger rows, want none", after-before)
 		}
 		if n := providerSpent(prov); n != 1 {
-			t.Errorf("provider rows = %d, want 1 — only the budgeted duel may be there", n)
+			t.Errorf("provider rows = %d, want 1 — only the budgeted pass may be there", n)
 		}
 	})
 
@@ -485,6 +564,10 @@ func TestAIBudget_DB(t *testing.T) {
 
 		// And the global half rolls on the same clock. This provider is private to
 		// this subtest, so backdating every one of its rows moves nothing else.
+		_, billProvider := b.ForSplit(aibudget.KindDuel)
+		if err := billProvider(ctx, q); err != nil {
+			t.Fatalf("bill the provider: %v", err)
+		}
 		if n := providerSpent(prov); n != 1 {
 			t.Fatalf("provider rows inside the window = %d, want 1", n)
 		}
@@ -564,6 +647,138 @@ func TestAIBudget_DB(t *testing.T) {
 		}
 		if n := providerSpent(anthropic); n != 0 {
 			t.Errorf("the other provider was charged %d calls for a duel it never served", n)
+		}
+	})
+
+	// --- (i) the INSERT enforces the cap, not just the check ----------------
+	t.Run("the ledger refuses at the cap even after the check passed", func(t *testing.T) {
+		// The measured bug: Check is two unlocked reads taken BEFORE the expensive
+		// work, so under a burst every caller read the same zero and every caller
+		// passed — a per-user cap of 2 billed 24 of 25 simultaneous requests. The cap
+		// now also lives in the INSERT, which sees the count as it stands at the
+		// moment of writing rather than a render and a round trip earlier.
+		const cap = 2
+		prov := mkProvider("insert-cap")
+		uid := mkUser("insert-cap")
+		b := aibudget.New(q, map[aibudget.Kind]aibudget.Policy{
+			aibudget.KindGuess: {Provider: prov, PerUser: cap},
+		}, 1000, logger)
+		check, spend := b.For(aibudget.KindGuess)
+
+		// The check this caller passed, at zero — which is exactly the state every one
+		// of those 25 callers was in.
+		if err := check(ctx, uid); err != nil {
+			t.Fatalf("check at zero: %v", err)
+		}
+
+		// …and now the ledger fills while they render. Simulated by their own earlier
+		// calls landing, which is what a burst is.
+		for i := 0; i < cap; i++ {
+			if err := spend(ctx, uid); err != nil {
+				t.Fatalf("spend %d of %d: %v", i+1, cap, err)
+			}
+		}
+		// One spend is TWO rows, written by one statement: the player's and the
+		// provider's. That is the atomicity the single statement buys — there is no
+		// interleaving that can leave a provider row billing a request the refusal
+		// means nobody will make.
+		if got := mineSpent(uid, aibudget.KindGuess); got != cap {
+			t.Fatalf("player rows = %d, want %d", got, cap)
+		}
+		if got := providerSpent(prov); got != cap {
+			t.Fatalf("provider rows = %d, want %d — each spend writes exactly one of each", got, cap)
+		}
+
+		// The write refuses, though the check that preceded it did not.
+		err := spend(ctx, uid)
+		var refusal *aibudget.KindSpentError
+		if !errors.As(err, &refusal) {
+			t.Fatalf("spend at the cap: err = %v, want a *KindSpentError", err)
+		}
+		if refusal.Kind != aibudget.KindGuess || refusal.Cap != cap {
+			t.Errorf("refusal named %q/%d, want %q/%d", refusal.Kind, refusal.Cap, aibudget.KindGuess, cap)
+		}
+		// It is the same error Check returns, so every caller's existing 429 branch
+		// already handles it — the point of returning this rather than a new one.
+		if !errors.Is(err, aibudget.ErrPerUserSpent) {
+			t.Errorf("the insert's refusal does not satisfy errors.Is(err, ErrPerUserSpent)")
+		}
+		// And a refused spend writes NOTHING — not the player row it refused, and not
+		// a provider row for a request that will not be made.
+		if got := mineSpent(uid, aibudget.KindGuess); got != cap {
+			t.Errorf("player rows = %d after a refusal, want %d", got, cap)
+		}
+		if got := providerSpent(prov); got != cap {
+			t.Errorf("provider rows = %d after a refusal, want %d — a refusal must not bill a request", got, cap)
+		}
+	})
+
+	// --- (j) …and it holds when they all arrive at once ---------------------
+	t.Run("simultaneous spends at the cap all refuse and bill nothing", func(t *testing.T) {
+		// The burst, with the ledger already at the cap. Deterministic on purpose:
+		// every statement here reads a count that is already >= cap from COMMITTED
+		// rows, and no concurrent statement can lower it, so all 25 must refuse.
+		//
+		// What this does NOT claim, and the code does not either: exactness. Two
+		// statements that overlap from BELOW the cap can each still see the same
+		// pre-insert count under READ COMMITTED and each insert. The window for that
+		// shrank from "a check, a render and a provider round trip" to "one
+		// statement", which is the whole of the improvement — a smaller window, not a
+		// closed one. Closing it would take SERIALIZABLE or a per-user lock on every
+		// AI call, for a ceiling that already sits below the provider's own.
+		const (
+			cap     = 2
+			callers = 25
+		)
+		prov := mkProvider("burst")
+		uid := mkUser("burst")
+		b := aibudget.New(q, map[aibudget.Kind]aibudget.Policy{
+			aibudget.KindGuess: {Provider: prov, PerUser: cap},
+		}, 1000, logger)
+		check, spend := b.For(aibudget.KindGuess)
+
+		for i := 0; i < cap; i++ {
+			if err := spend(ctx, uid); err != nil {
+				t.Fatalf("seed spend %d: %v", i+1, err)
+			}
+		}
+
+		var wg sync.WaitGroup
+		errs := make([]error, callers)
+		start := make(chan struct{})
+		for i := range callers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				// check first, exactly as every caller does — and it may well pass,
+				// because it is a read with no lock. The insert is what must hold.
+				_ = check(ctx, uid)
+				errs[i] = spend(ctx, uid)
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		billed := 0
+		for i, err := range errs {
+			if err == nil {
+				billed++
+				continue
+			}
+			var refusal *aibudget.KindSpentError
+			if !errors.As(err, &refusal) {
+				t.Errorf("caller %d: err = %v, want a *KindSpentError", i, err)
+			}
+		}
+		if billed != 0 {
+			t.Errorf("%d of %d simultaneous callers were billed past the cap of %d", billed, callers, cap)
+		}
+		if got := mineSpent(uid, aibudget.KindGuess); got != cap {
+			t.Errorf("player rows = %d, want %d", got, cap)
+		}
+		if got := providerSpent(prov); got != cap {
+			t.Errorf("provider rows = %d, want %d — a refused burst must bill no requests", got, cap)
 		}
 	})
 }

@@ -17,6 +17,56 @@ this file at once. Reviewers read it first: a defect already recorded here is no
 
 ---
 
+## JP-I-06 — `/api/guess` degrades image laundering rather than preventing it
+
+`accepted` · severity `low` · source: reproduced in the 2026-09-20 adversarial review
+
+- **The claim that was too strong:** the guess route renders its raster server-side from the
+  validated vector document, and we said that meant a caller could not use it to send an
+  arbitrary image to Google under our API key.
+- **What actually happens:** `document.ParseAndValidate` allows **5000 strokes**
+  (`packages/document` / `server/internal/document`), each a `rect` with its own `fill`. A
+  reviewer built a **70×70 = 4900-rect colour mosaic** (625 KB, well under the 8 MiB body cap),
+  posted it to `/api/guess`, and it passed validation, rendered through the real node worker in
+  **2075 ms**, and reached the model. The standalone render confirms the mosaic reproduces
+  faithfully at 1024². Any picture downsampled to 70×70 is trivially identifiable by a vision
+  model.
+- **What still holds:** the trust boundary holds in *form* — the only bytes that leave are our
+  own renderer's output of a document our own validator accepted. What does not hold is the
+  *purpose* argument: laundering is **degraded in resolution, not prevented**, at the same cost
+  per call.
+- **Why `accepted` rather than `fixing`:** every plausible block is worse than the problem. A
+  stroke-count cap for this route alone would reject legitimately detailed drawings — exactly
+  the ones the feature exists for — and any threshold low enough to stop a mosaic is low enough
+  to stop real art. The residual risk is small: the result is never stored, scores nothing,
+  gates nothing, and an authenticated caller gets **2 a day** when a provider is configured.
+- **Recorded so the claim is not re-made.** `docs/JUDGE.md` §8.3 states the honest version;
+  `docs/DECISIONS.md` 2026-09-20 carries the amendment. Revisit if the per-day cap ever rises
+  or the feature starts persisting anything.
+
+---
+
+## JP-I-05 — The zoom island overlaps the floating toolbar across the whole tablet band
+
+`confirmed` · severity `nice-to-fix` · source: measured in a headless browser during the 2026-09-20 design
+review, at eleven viewports
+
+- **Where:** `apps/web/src/components/shell/EditorShell.vue` — `.shell__region--bottom-right` (the zoom
+  island) and `.shell__region--bottom-center` (`FloatingToolbar`).
+- **What:** the shell lifts the zoom island to `bottom: 4.25rem` only at `width <= 600px`, but the toolbar
+  stays near-full-width well past that. Between roughly **601px and 1180px** the two overlap. Measured
+  intersection: **9600px²** at 768×1024 and at 667×375 landscape, 8250px² at 840×700, 3650px² at
+  1024×768, and 0 at ≤600px and ≥1200px. So every tablet, and every phone held sideways, gets zoom
+  buttons sitting on top of the tool buttons.
+- **Why it survived:** both breakpoints were chosen against a phone and a desktop, and the band between
+  them was never measured. Nothing in CI looks at geometry.
+- **Not caused by** the 2026-09-20 guess feature — that card was measured clear of both at all eleven
+  sizes — but found while measuring it.
+- **Fix shape:** the lift is keyed on the wrong axis and the wrong threshold. Raise the breakpoint to
+  where the toolbar actually stops being full-width, and gate on available height as well as width.
+
+---
+
 ## JP-I-04 — The sign-in form is rendered twice, into both tab panels
 
 `confirmed` · severity `nice-to-fix` · source: live DOM inspection while building the auth modal, 2026-09-18

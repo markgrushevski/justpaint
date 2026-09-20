@@ -16,18 +16,19 @@ import (
 // one is "you have had your turn", the other is "the service has had its turn"
 // and nothing the player does today will change it. The second: the global
 // message says nothing about how large the budget is or how much of it is left.
-// That is operator information. The per-kind messages are free to name a cap
-// where it is the player's OWN and small enough that they could have counted it
-// themselves, which is why guess names its number and the others do not.
+// That is operator information. A per-kind message is free to name its cap,
+// because that number is the player's OWN: they could have counted it themselves,
+// and being told "all 2 of your AI guesses" rather than "all of them" is the
+// difference between a limit and a shrug.
 const (
-	msgDuelSpent     = "you have used all of your duels for today — new ones unlock as the day rolls over"
-	msgPracticeSpent = "you have used all of your scored drawings for today — new ones unlock as the day rolls over"
-	msgGuessSpentFmt = "you have used all %d of your AI guesses for today — new ones unlock as the day rolls over"
-	msgAssistSpent   = "you have used all of your AI drawing requests for today — new ones unlock as the day rolls over"
-	// msgAnySpent covers a kind with no copy of its own. A future feature that ships
-	// its Kind before its sentence should still refuse a player in plain language
-	// rather than fall through to a 500 — the ceiling worked, only the wording is
-	// missing.
+	// msgKindSpentFmt takes the cap and the kind's noun (Kind.Noun). ONE template
+	// rather than one constant per kind: the sentence never varied, only the noun
+	// did, and one constant per kind meant one chance per kind for it to drift — which is how
+	// `guess` ended up the only kind that named its own number.
+	msgKindSpentFmt = "you have used all %d of your %s for today — new ones unlock as the day rolls over"
+	// msgAnySpent is the refusal with no kind attached, so no cap to name either.
+	// Check never returns that bare sentinel, but a caller that re-created it still
+	// deserves plain language rather than a blank where a number should be.
 	msgAnySpent    = "you have used all of your AI requests for today — new ones unlock as the day rolls over"
 	msgGlobalSpent = "the AI budget for today is spent — this feature resumes tomorrow"
 )
@@ -46,7 +47,7 @@ func WriteRefusal(w http.ResponseWriter, err error) bool {
 	var spent *KindSpentError
 	switch {
 	case errors.As(err, &spent):
-		web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited, perKindMessage(spent.Kind, spent.Cap))
+		web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited, perKindMessage(spent))
 	case errors.Is(err, ErrPerUserSpent):
 		// The sentinel without its kind. Check never returns this bare, but a caller
 		// that wrapped or re-created it still deserves the right status rather than a
@@ -60,20 +61,13 @@ func WriteRefusal(w http.ResponseWriter, err error) bool {
 	return true
 }
 
-// perKindMessage picks the sentence for the feature that ran out. Go cannot make
-// this switch exhaustive, so the default is written to be true of any AI feature
-// rather than to be unreachable.
-func perKindMessage(k Kind, perUserCap int) string {
-	switch k {
-	case KindDuel:
-		return msgDuelSpent
-	case KindPractice:
-		return msgPracticeSpent
-	case KindGuess:
-		return fmt.Sprintf(msgGuessSpentFmt, perUserCap)
-	case KindAssist:
-		return msgAssistSpent
-	default:
-		return msgAnySpent
+// perKindMessage fills the one template. The noun comes from the policy when the
+// composition root set one and from Kind.Noun otherwise — the same table either
+// way, so a hand-built Policy reads exactly like a configured one.
+func perKindMessage(e *KindSpentError) string {
+	noun := e.Noun
+	if noun == "" {
+		noun = e.Kind.Noun()
 	}
+	return fmt.Sprintf(msgKindSpentFmt, e.Cap, noun)
 }

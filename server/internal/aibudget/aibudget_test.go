@@ -66,6 +66,12 @@ func TestAllKindsIsComplete(t *testing.T) {
 		if n, ok := DefaultPerUser[k]; !ok || n < 1 {
 			t.Errorf("DefaultPerUser[%q] = %d, %v — want a default of at least 1", k, n, ok)
 		}
+		// A kind with no noun of its own refuses in the generic sentence, which is a
+		// worse message than the one it could have had. One template means the noun is
+		// the ONLY per-kind word left, so it is the only one that can go missing.
+		if noun := k.Noun(); noun == fallbackNoun {
+			t.Errorf("Kind(%q).Noun() falls back to %q — every shipped kind should name itself", k, fallbackNoun)
+		}
 	}
 	if len(DefaultPerUser) != len(kinds) {
 		t.Errorf("DefaultPerUser has %d entries, AllKinds has %d — one names a kind the other does not",
@@ -125,43 +131,53 @@ func TestWriteRefusal(t *testing.T) {
 		wantMsg     string
 	}{
 		{
-			name:        "duel per-user",
-			err:         &KindSpentError{Kind: KindDuel, Cap: 20},
+			// Every kind now names its own cap: one template, one noun per kind, and no
+			// feature that is told "all of your duels" while another is told "all 2".
+			// The number is the player's OWN and they could have counted it themselves.
+			name:        "duel per-user names the cap",
+			err:         &KindSpentError{Kind: KindDuel, Cap: 20, Noun: KindDuel.Noun()},
 			wantHandled: true,
-			wantMsg:     "you have used all of your duels for today — new ones unlock as the day rolls over",
+			wantMsg:     "you have used all 20 of your duels for today — new ones unlock as the day rolls over",
 		},
 		{
-			name:        "practice per-user",
-			err:         &KindSpentError{Kind: KindPractice, Cap: 20},
+			name:        "practice per-user names the cap",
+			err:         &KindSpentError{Kind: KindPractice, Cap: 20, Noun: KindPractice.Noun()},
 			wantHandled: true,
-			wantMsg:     "you have used all of your scored drawings for today — new ones unlock as the day rolls over",
+			wantMsg:     "you have used all 20 of your scored drawings for today — new ones unlock as the day rolls over",
 		},
 		{
-			// The one message that names a number: it is the player's own cap and they
-			// could have counted it themselves.
 			name:        "guess per-user names the cap",
+			err:         &KindSpentError{Kind: KindGuess, Cap: 2, Noun: KindGuess.Noun()},
+			wantHandled: true,
+			wantMsg:     "you have used all 2 of your AI guesses for today — new ones unlock as the day rolls over",
+		},
+		{
+			name:        "assist per-user names the cap",
+			err:         &KindSpentError{Kind: KindAssist, Cap: 40, Noun: KindAssist.Noun()},
+			wantHandled: true,
+			wantMsg:     "you have used all 40 of your AI drawing requests for today — new ones unlock as the day rolls over",
+		},
+		{
+			// A Policy built by hand carries no noun (only Policies fills it), and the
+			// message must still read like the configured one: http.go falls back to the
+			// same table.
+			name:        "no noun falls back to the kind's own word",
 			err:         &KindSpentError{Kind: KindGuess, Cap: 2},
 			wantHandled: true,
 			wantMsg:     "you have used all 2 of your AI guesses for today — new ones unlock as the day rolls over",
 		},
 		{
-			name:        "assist per-user",
-			err:         &KindSpentError{Kind: KindAssist, Cap: 40},
-			wantHandled: true,
-			wantMsg:     "you have used all of your AI drawing requests for today — new ones unlock as the day rolls over",
-		},
-		{
-			// A kind that shipped before its copy still refuses in plain language.
+			// A kind that shipped before its word still refuses in plain language.
 			name:        "unknown kind falls back",
 			err:         &KindSpentError{Kind: "inpaint", Cap: 3},
 			wantHandled: true,
-			wantMsg:     "you have used all of your AI requests for today — new ones unlock as the day rolls over",
+			wantMsg:     "you have used all 3 of your AI requests for today — new ones unlock as the day rolls over",
 		},
 		{
 			name:        "wrapped per-user refusal",
-			err:         fmt.Errorf("game: create: %w", &KindSpentError{Kind: KindDuel, Cap: 20}),
+			err:         fmt.Errorf("game: create: %w", &KindSpentError{Kind: KindDuel, Cap: 20, Noun: KindDuel.Noun()}),
 			wantHandled: true,
-			wantMsg:     "you have used all of your duels for today — new ones unlock as the day rolls over",
+			wantMsg:     "you have used all 20 of your duels for today — new ones unlock as the day rolls over",
 		},
 		{
 			name:        "bare per-user sentinel",
@@ -259,12 +275,17 @@ func TestUnbudgetedKindIsNeverCounted(t *testing.T) {
 			if err := spend(ctx, "11111111-1111-1111-1111-111111111111"); err != nil {
 				t.Errorf("Spend = %v, want nil", err)
 			}
-			// The duel's shape: two players billed for one provider request, inside a
-			// transaction the caller owns.
-			if err := b.ForTx(tt.kind)(ctx, nil,
+			// The duel's shape: two players granted a round in a transaction the caller
+			// owns, and a provider billed separately at each entry into judging. Both
+			// ports must skip an unbudgeted kind, or a fake judge would fill the ledger.
+			billPlayers, billProvider := b.ForSplit(tt.kind)
+			if err := billPlayers(ctx, nil,
 				"11111111-1111-1111-1111-111111111111",
 				"22222222-2222-2222-2222-222222222222"); err != nil {
-				t.Errorf("SpendTx = %v, want nil", err)
+				t.Errorf("BillPlayers = %v, want nil", err)
+			}
+			if err := billProvider(ctx, nil); err != nil {
+				t.Errorf("BillProvider = %v, want nil", err)
 			}
 		})
 	}

@@ -34,6 +34,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/document"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
@@ -72,26 +73,27 @@ var (
 	ErrNotConfigured = errors.New("practice: no critic configured")
 )
 
-// BudgetCheck asks whether this player may spend an AI call right now, and
-// BudgetSpend records the one they just spent. Both are plain funcs — the
-// narrowest possible ports — bound to aibudget.KindPractice at the composition
-// root, so this package never learns its own kind's name or the budget's shape.
+// The two budget ports are aibudget's own func types, bound to
+// aibudget.KindPractice at the composition root: aibudget.Check asks whether this
+// player may spend an AI call right now, aibudget.Spend records the one they just
+// spent (and refuses, with the same error Check returns, if the ledger finds them
+// at their cap by the time it writes).
 //
-// Practice has its OWN per-player allowance now, separate from the duel's; what
-// it still shares with every other feature is the provider's global ceiling, and
-// that is counted by ONE rule for all of them rather than by per-feature copies
-// that drift (docs/GAME.md §4.3). Before the ledger this port was literally
+// They used to be re-declared here as local BudgetCheck/BudgetSpend types, on the
+// stated grounds that this package then never imported aibudget. That was not
+// true — the handler has always imported it for WriteRefusal — so the copies
+// bought a second name for one contract and a conversion at the wiring site, and
+// nothing else. internal/game holds aibudget's types directly for the same reason.
+//
+// Practice has its OWN per-player allowance, separate from the duel's; what it
+// shares with every other feature is the provider's global ceiling, counted by
+// ONE rule for all of them rather than by per-feature copies that drift
+// (docs/GAME.md §4.3). Before the ledger this port was literally
 // game.Service.CheckJudgeBudget, which made the game module the owner of solo
 // mode's quota — a dependency practice no longer has.
 //
 // Nil means unbudgeted, which is what every test and every fake-configured
 // deployment gets.
-type BudgetCheck func(ctx context.Context, userID string) error
-
-// BudgetSpend records one spent AI call against the caller's allowance. See
-// BudgetCheck; it is a separate port because refusing and billing are separate
-// decisions made at separate moments.
-type BudgetSpend func(ctx context.Context, userIDs ...string) error
 
 // Service runs the practice loop. It takes *db.Queries and no pool: the two writes
 // here must NOT share a transaction (see Run).
@@ -101,15 +103,15 @@ type Service struct {
 	// critic is the seam (judge.Critic — ours, not the collaborator's frozen Judge).
 	// Nil means practice is not configured; see ErrNotConfigured.
 	critic judge.Critic
-	budget BudgetCheck
-	spend  BudgetSpend
+	budget aibudget.Check
+	spend  aibudget.Spend
 	logger *slog.Logger
 }
 
 // NewService builds the practice service. A nil critic is a legitimate,
 // deliberate state — the endpoints then refuse honestly instead of inventing
 // scores — so it is not an error here; main.go logs it at boot.
-func NewService(q *db.Queries, renderer render.Renderer, critic judge.Critic, budget BudgetCheck, spend BudgetSpend, logger *slog.Logger) *Service {
+func NewService(q *db.Queries, renderer render.Renderer, critic judge.Critic, budget aibudget.Check, spend aibudget.Spend, logger *slog.Logger) *Service {
 	return &Service{q: q, renderer: renderer, critic: critic, budget: budget, spend: spend, logger: logger}
 }
 
@@ -162,7 +164,10 @@ func (s *Service) Prompt(ctx context.Context) (PromptView, error) {
 //  2. the prompt, which must be a live one (a foreign/retired id is a 404);
 //  3. the ATTEMPT row, written BEFORE the critic is called;
 //  4. render, then the BILL, then critique — the bill sits between them because
-//     the render spends nobody's quota and the critique spends the provider's;
+//     the render spends nobody's quota and the critique spends the provider's.
+//     The bill can itself refuse, with the same error the check in (1) returns:
+//     it writes under the cap as it stands at that instant, where (1) only read a
+//     count before the render;
 //  5. the verdict, stamped onto the row from (3).
 //
 // Steps 3 and 5 are separate statements and NOT one transaction, deliberately. A
@@ -213,6 +218,12 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 	// render is our own subprocess and spends nobody's quota, so a renderer that
 	// fell over must not cost the player a scored drawing. Same rule, same words,
 	// in internal/guess.
+	//
+	// This is also the second and tighter of the two per-user gates: the check at
+	// the top of Run read a count a whole render ago, while this write refuses on
+	// the count as it stands at the instant of writing. Its refusal is the same
+	// *KindSpentError the check returns, so the wrap below still reaches the
+	// handler's 429 branch and needs no case of its own.
 	if s.spend != nil {
 		if err := s.spend(ctx, userID); err != nil {
 			return RunView{}, fmt.Errorf("practice: bill run: %w", err)

@@ -1,7 +1,6 @@
 package assist
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -24,9 +23,46 @@ const maxAssistBodyBytes = 64 << 10 // 64 KiB
 // LLM impl — every assist call can cost real API money (docs/ASSIST.md §3.4).
 const maxPromptBytes = 8 << 10 // 8 KiB
 
-// BudgetCheck and BudgetSpend are assist's two questions to the daily AI-call
-// ceiling (internal/aibudget), held as plain funcs so this package never learns
-// its own kind's name or the budget's shape. Nil means unbudgeted.
+// ProviderCaller is implemented by an Assist impl whose GenerateOps really
+// reaches an external provider and so really spends a quota.
+//
+// It exists because "which impl was asked for" and "does that impl call anybody"
+// are different facts, and the composition root used to derive the second from
+// the first: ASSIST_MODE=anthropic was read as "bill Anthropic", while
+// AnthropicAssist.GenerateOps is a scaffold that returns an error without any
+// network I/O (anthropic.go). Every request then wrote ledger rows for a call
+// that never happened and answered 500. The impl is the only thing that knows,
+// so the impl is what gets asked.
+type ProviderCaller interface {
+	// CallsProvider reports whether GenerateOps performs external API calls.
+	CallsProvider() bool
+}
+
+// CallsProvider reports whether this impl spends a provider's quota, and so
+// whether the composition root should give assist a budget provider at all.
+//
+// An impl that does not implement ProviderCaller counts as making no external
+// call. That default is the safe one for the impls that exist — FakeAssist is
+// deterministic and offline — and the cost of the opposite mistake is asymmetric:
+// a real impl that forgets to say so under-counts a ceiling that already sits
+// below the provider's own quota, while billing an impl that makes no calls
+// charges players for nothing and empties a budget no provider ever saw.
+func CallsProvider(a Assist) bool {
+	pc, ok := a.(ProviderCaller)
+	return ok && pc.CallsProvider()
+}
+
+// The two budget ports are aibudget's own func types, bound to
+// aibudget.KindAssist at the composition root: aibudget.Check asks whether this
+// player may spend an AI call right now, aibudget.Spend records the one they just
+// spent (and refuses, with the same error Check returns, if the ledger finds them
+// at their cap by the time it writes). Nil means unbudgeted.
+//
+// They used to be re-declared here as local BudgetCheck/BudgetSpend types, on the
+// stated grounds that this package then never imported aibudget. That was not
+// true — this file has always imported it for WriteRefusal — so the copies bought
+// a second name for one contract and a conversion at the wiring site, and nothing
+// else.
 //
 // They answer a DIFFERENT question from the limiter beside them. The token bucket
 // bounds the RATE — how fast one user may ask — and lives in this process, so the
@@ -35,23 +71,19 @@ const maxPromptBytes = 8 << 10 // 8 KiB
 // only the first since Phase A, which means its ceiling has never survived a
 // restart; layering both on one endpoint is the pattern docs/API.md §3.1 already
 // documents for POST /api/matches.
-type (
-	BudgetCheck func(ctx context.Context, userID string) error
-	BudgetSpend func(ctx context.Context, userIDs ...string) error
-)
 
 // Handler is the HTTP layer for AI assist (docs/ASSIST.md §3, docs/API.md).
 type Handler struct {
 	assist  Assist
 	limiter *RateLimiter
-	budget  BudgetCheck
-	spend   BudgetSpend
+	budget  aibudget.Check
+	spend   aibudget.Spend
 	logger  *slog.Logger
 }
 
 // NewHandler builds the assist HTTP handler over an Assist impl, a per-user rate
 // limiter and the daily AI-call budget ports.
-func NewHandler(a Assist, limiter *RateLimiter, budget BudgetCheck, spend BudgetSpend, logger *slog.Logger) *Handler {
+func NewHandler(a Assist, limiter *RateLimiter, budget aibudget.Check, spend aibudget.Spend, logger *slog.Logger) *Handler {
 	return &Handler{assist: a, limiter: limiter, budget: budget, spend: spend, logger: logger}
 }
 
@@ -115,8 +147,16 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 	// Recorded BEFORE the call, never after it: a call that fails still spent the
 	// provider's quota, and a failure the budget cannot see is exactly what a
 	// broken impl drains it through (the rule practice states in full).
+	//
+	// The write is also the tighter of the two per-user gates — it refuses on the
+	// count as it stands at the instant of writing, where the check above read one
+	// before the body was even decoded — and it refuses with the same error the
+	// check does, so the same branch answers both.
 	if h.spend != nil {
 		if err := h.spend(r.Context(), uid); err != nil {
+			if aibudget.WriteRefusal(w, err) {
+				return
+			}
 			h.logger.Error("assist budget spend", "err", err)
 			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
 			return

@@ -515,6 +515,35 @@ func TestLoad_AIBudget(t *testing.T) {
 		}
 	})
 
+	// "The same value" is a question about the NUMBERS, not the spelling. The
+	// comparison used to be on the raw strings, so an operator mid-migration who
+	// wrote a padded or signed form of the number they already had got a boot error
+	// reporting a disagreement that does not exist.
+	t.Run("the global aliases agree when the numbers agree, however written", func(t *testing.T) {
+		for _, tt := range []struct {
+			name           string
+			current, alias string
+			want           int
+		}{
+			{name: "a leading zero", current: "100", alias: "0100", want: 100},
+			{name: "an explicit sign", current: "+7", alias: "7", want: 7},
+			{name: "surrounding space", current: "42", alias: "  42 ", want: 42},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				requireBaseEnv(t)
+				t.Setenv("AI_DAILY_GLOBAL", tt.current)
+				t.Setenv("JUDGE_DAILY_BUDGET", tt.alias)
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("Load: %v", err)
+				}
+				if cfg.AIDailyGlobal != tt.want {
+					t.Errorf("AIDailyGlobal = %d, want %d", cfg.AIDailyGlobal, tt.want)
+				}
+			})
+		}
+	})
+
 	// Guessing which one the operator meant is how a ceiling ends up at a number
 	// nobody chose, so a disagreement is fatal and the error names both.
 	t.Run("the global aliases disagreeing is a boot error naming both", func(t *testing.T) {
