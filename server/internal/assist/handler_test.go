@@ -341,8 +341,8 @@ func TestGenerateOps_SpendRefusalIs429(t *testing.T) {
 }
 
 // TestCallsProvider is the fix for a bug that lived in the composition root: it
-// read ASSIST_MODE=anthropic as "bill Anthropic", while the impl that mode
-// selects is a scaffold that returns an error without any network I/O. Every
+// read the assist mode env as the answer to "who do we bill", while the impl that
+// mode selected was a scaffold returning an error without any network I/O. Every
 // request then wrote ledger rows for a call nobody made and answered 500.
 //
 // Whether an impl calls out is a fact about the impl, so the impl is asked.
@@ -356,11 +356,6 @@ func TestCallsProvider(t *testing.T) {
 			// Deterministic and offline: it never leaves the process.
 			name: "the fake calls nobody",
 			impl: NewFakeAssist(),
-		},
-		{
-			// Flip this to true in the same change that wires the SDK (anthropic.go).
-			name: "the anthropic scaffold calls nobody yet",
-			impl: NewAnthropicAssist("test-key", "test-model"),
 		},
 		{
 			// An impl that says nothing counts as calling nobody: fakes and scaffolds

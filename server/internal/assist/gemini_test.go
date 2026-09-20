@@ -700,16 +700,13 @@ func TestGeminiAssist_IDsAvoidTheSummary(t *testing.T) {
 
 // TestGeminiAssist_CallsProvider: this is what finally gives assist a real daily
 // ceiling. The composition root asks the IMPL, never the mode (docs/ASSIST.md
-// §3.4), and the scaffold beside it still answers false.
+// §3.4), and the fake beside it still answers false.
 func TestGeminiAssist_CallsProvider(t *testing.T) {
 	if !CallsProvider(NewGeminiAssist("k", "m", "http://127.0.0.1:1", time.Second)) {
 		t.Error("GeminiAssist reaches Google on every request; it must say so or its quota is spent uncounted")
 	}
 	if CallsProvider(NewFakeAssist()) {
 		t.Error("FakeAssist is offline by construction and must never be billed")
-	}
-	if CallsProvider(NewAnthropicAssist("k", "m")) {
-		t.Error("the anthropic scaffold makes no network call and must never be billed")
 	}
 }
 

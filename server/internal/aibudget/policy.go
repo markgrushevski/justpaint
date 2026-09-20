@@ -59,10 +59,11 @@ func Models(defaultModel string, perKind map[string]string) (map[Kind]string, er
 // the meeting can be tested. providers is what the composition root RESOLVED from
 // the impls it actually built — not a second reading of the mode envs. That
 // distinction is the whole point: a mode switch says which impl was asked for, an
-// impl says whether it really calls anybody, and the two can disagree (an
-// ASSIST_MODE=anthropic scaffold that returns an error without any network I/O
-// used to be billed for calls it never made). An empty provider is how the budget
-// says "never enforced, never recorded".
+// impl says whether it really calls anybody, and the two can disagree. They did:
+// an assist scaffold that returned an error without any network I/O was billed
+// for calls it never made, because a second switch over the same env had named it
+// a provider. An empty provider is how the budget says "never enforced, never
+// recorded".
 //
 // perUser is the operator's AI_DAILY_PER_USER map, keyed by the kind's wire name;
 // a kind they did not name falls back to DefaultPerUser, so adding a feature

@@ -29,11 +29,10 @@ const maxPromptBytes = 8 << 10 // 8 KiB
 //
 // It exists because "which impl was asked for" and "does that impl call anybody"
 // are different facts, and the composition root used to derive the second from
-// the first: ASSIST_MODE=anthropic was read as "bill Anthropic", while
-// AnthropicAssist.GenerateOps is a scaffold that returns an error without any
-// network I/O (anthropic.go). Every request then wrote ledger rows for a call
-// that never happened and answered 500. The impl is the only thing that knows,
-// so the impl is what gets asked.
+// the first. It was wrong: the mode then selected a scaffold whose GenerateOps
+// returned an error without any network I/O, and the mode switch billed it anyway
+// — every request wrote ledger rows for a call that never happened and answered
+// 500. The impl is the only thing that knows, so the impl is what gets asked.
 type ProviderCaller interface {
 	// CallsProvider reports whether GenerateOps performs external API calls.
 	CallsProvider() bool

@@ -9,8 +9,8 @@ import (
 
 // TestPolicies is the table this function was moved here to get. It used to be
 // `aiPolicies` in package main, where the only way to exercise it was to boot a
-// server — which is how it came to hand ASSIST_MODE=anthropic a provider for an
-// impl that makes no network call at all.
+// server — which is how it came to hand an assist mode a provider for an impl
+// that makes no network call at all.
 //
 // The cases are the deployments that exist, plus the three that must not boot.
 func TestPolicies(t *testing.T) {
@@ -337,8 +337,8 @@ func TestInertAllowances(t *testing.T) {
 			perUser:   map[string]int{"duel": 5},
 		},
 		{
-			// The ASSIST_MODE=anthropic-scaffold deployment: the operator set a number
-			// and nothing will ever read it.
+			// The ASSIST_MODE=fake deployment: the operator set a number and nothing
+			// will ever read it, because the impl that was built calls nobody.
 			name:      "an allowance for a kind with no provider is inert",
 			providers: map[Kind]Provider{KindDuel: ProviderGoogle},
 			perUser:   map[string]int{"duel": 5, "assist": 40},

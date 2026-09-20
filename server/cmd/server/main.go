@@ -119,9 +119,9 @@ func run() error {
 	// Every impl below is chosen and, in the same breath, says whose quota it
 	// spends. The pairing is deliberate and it is the fix for a real bug: the
 	// provider map used to be a SECOND switch over the same mode envs, four
-	// independent switches that had to agree by hand, and they did not — an
-	// ASSIST_MODE=anthropic scaffold that makes no network call at all was still
-	// handed a provider, so every assist request wrote ledger rows and then 500'd.
+	// independent switches that had to agree by hand, and they did not — an assist
+	// mode whose impl was a scaffold making no network call at all was still handed
+	// a provider, so every assist request wrote ledger rows and then 500'd.
 	// A provider is now a fact about the impl that was actually built: it is set
 	// beside the constructor that built it, travels in a local, and is read exactly
 	// once, by aibudget.Policies below. An empty provider means "this impl calls
@@ -253,13 +253,6 @@ func run() error {
 		assistImpl = assist.NewGeminiAssist(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.AssistTimeout)
 		assistVendor = aibudget.ProviderGoogle.WithModel(model)
 		logger.Info("assist: gemini (a prompt really becomes shapes)", "model", model, "timeout", cfg.AssistTimeout)
-	case config.AssistModeAnthropic:
-		assistImpl = assist.NewAnthropicAssist(cfg.AnthropicAPIKey, cfg.AssistModel)
-		assistVendor = aibudget.ProviderAnthropic
-		// Not "real LLM": the impl behind this mode is still the Phase A scaffold, and
-		// the line right after CallsProvider below says so. A boot log that promises a
-		// working feature is how a scaffold reaches production unnoticed.
-		logger.Info("assist: anthropic", "model", cfg.AssistModel)
 	default:
 		assistImpl = assist.NewFakeAssist()
 		// Worth naming what the fake actually is. It returns the same canned house
@@ -268,11 +261,16 @@ func run() error {
 		logger.Info("assist: fake (the same canned ops for every prompt; set ASSIST_MODE=gemini for a real one)")
 	}
 	// The impl is ASKED whether it calls anybody rather than inferred from the mode
-	// (assist.CallsProvider). The anthropic impl is still a scaffold that returns an
-	// error without any network I/O, so ASSIST_MODE=anthropic bills nothing — which
-	// is the truth, and which the boot line below says out loud instead of writing
-	// ledger rows for calls that never happen. The gemini impl answers true, which is
-	// what finally gives assist a real daily ceiling.
+	// (assist.CallsProvider). Gemini answers true, which is what gives assist a real
+	// daily ceiling; the fake answers false and stays unbudgeted, which is the truth
+	// about an impl that never leaves the process.
+	//
+	// No impl trips the Warn below today — every mode either calls out or names no
+	// provider. It stays because it is the one place the two facts can be seen to
+	// disagree, and they have: a scaffold that returned an error with no network I/O
+	// was once handed a provider by a mode switch and billed for calls nobody made.
+	// The seam is an interface precisely so another impl can arrive (the
+	// collaborator's ML), and the next one to arrive may be a scaffold first too.
 	var assistProvider aibudget.Provider
 	if assist.CallsProvider(assistImpl) {
 		assistProvider = assistVendor

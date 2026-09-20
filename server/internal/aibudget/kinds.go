@@ -57,8 +57,10 @@ func (k Kind) Noun() string {
 
 // Provider names whose free tier a call spends — the ledger's `provider` column.
 // The global half of the ceiling is counted PER PROVIDER, never service-wide:
-// Google running dry must not throttle an Anthropic-backed feature that still has
-// quota, or the reverse (migration 00007).
+// Google running dry must not throttle a duel judged by the collaborator's own
+// service, whose quota is a different quota entirely, or the reverse. Narrowed by
+// WithModel, the same rule holds one level down — one `google:<model>` pool
+// emptying must not refuse a kind pinned to a different model (migration 00007).
 //
 // A provider is an opaque key, not a closed set: the constants below are the
 // vendors we know, but WithModel narrows one of them to a single model and the
@@ -70,9 +72,6 @@ const (
 	// ProviderGoogle backs every Gemini seam (JUDGE_MODE=gemini, ASSIST_MODE=gemini).
 	// It is almost never used bare — see WithModel.
 	ProviderGoogle Provider = "google"
-	// ProviderAnthropic backs AI assist under ASSIST_MODE=anthropic, which is still
-	// the Phase A scaffold and therefore still bills nothing (docs/ASSIST.md §3.4).
-	ProviderAnthropic Provider = "anthropic"
 	// ProviderCollaborator is the ML collaborator's own service (JUDGE_MODE=http).
 	// Its quota is not ours and we cannot see it, which is exactly why we keep a
 	// ceiling under it rather than waiting to be told we exceeded one.

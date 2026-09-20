@@ -86,7 +86,7 @@ func withMatchmaking(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fn f
 //	(g) two KINDS do not share a per-user cap — a player out of duels can still
 //	    practice;
 //	(h) two PROVIDERS do not share the global cap — Google running dry must not
-//	    throttle an Anthropic-backed kind.
+//	    throttle a kind backed by the collaborator's own service.
 //
 // (g) and (h) are the two behaviours the ledger bought. Before it, per-user was
 // one pot across every AI feature and the global count was service-wide, so both
@@ -622,13 +622,13 @@ func TestAIBudget_DB(t *testing.T) {
 	// --- (h) global is per PROVIDER ---------------------------------------
 	t.Run("two providers do not share the global cap", func(t *testing.T) {
 		// The second thing the ledger bought. One global pot meant an exhausted
-		// Google quota refused an Anthropic-backed feature that still had plenty —
+		// Google quota refused a feature on another provider that still had plenty —
 		// and the reverse — for no reason other than that they were counted together.
 		google := mkProvider("google-ish")
-		anthropic := mkProvider("anthropic-ish")
+		other := mkProvider("collaborator-ish")
 		b := aibudget.New(q, map[aibudget.Kind]aibudget.Policy{
 			aibudget.KindDuel:     {Provider: google, PerUser: 1000},
-			aibudget.KindPractice: {Provider: anthropic, PerUser: 1000},
+			aibudget.KindPractice: {Provider: other, PerUser: 1000},
 		}, 1, logger)
 		uid := mkUser("two-providers")
 
@@ -645,7 +645,7 @@ func TestAIBudget_DB(t *testing.T) {
 		if err := practiceCheck(ctx, uid); err != nil {
 			t.Errorf("a kind on a different provider was refused too (%v) — one free tier running dry must not throttle another", err)
 		}
-		if n := providerSpent(anthropic); n != 0 {
+		if n := providerSpent(other); n != 0 {
 			t.Errorf("the other provider was charged %d calls for a duel it never served", n)
 		}
 	})

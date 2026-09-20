@@ -32,8 +32,8 @@ where user_id = sqlc.arg('user_id')::uuid
 -- How much of ONE provider's daily quota this service has spent inside the
 -- rolling window, across every kind. The global half of the ceiling.
 --
--- Scoped by provider, not global-global: Google's exhaustion must not refuse an
--- Anthropic-backed feature that still has quota (migration 00007).
+-- Scoped by provider, not global-global: Google's exhaustion must not refuse a
+-- feature served by another provider that still has quota (migration 00007).
 select count(*)::bigint as calls
 from ai_calls
 where provider = sqlc.arg('provider')::text

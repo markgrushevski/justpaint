@@ -76,12 +76,12 @@ type Config struct {
 	// everyone.
 	//
 	// AIDailyGlobal is applied PER PROVIDER AND MODEL, not once across all of them:
-	// Google running dry must never refuse an Anthropic-backed feature that still
-	// has quota, and — since Google meters its free tier per MODEL — a kind pinned
-	// to one model must not be refused because a different kind emptied a different
-	// model's pool. Which provider and model back which kind is decided at the
-	// composition root from JUDGE_MODE / ASSIST_MODE and AIModelPerKind, never
-	// configured here.
+	// Google running dry must never refuse a feature served by the collaborator's
+	// own service, which has its own quota entirely, and — since Google meters its
+	// free tier per MODEL — a kind pinned to one model must not be refused because
+	// a different kind emptied a different model's pool. Which provider and model
+	// back which kind is decided at the composition root from JUDGE_MODE /
+	// ASSIST_MODE and AIModelPerKind, never configured here.
 	//
 	// AIDailyPerUser maps an AI-call kind ("duel", "practice", …) to that kind's
 	// own per-player ceiling; a kind absent from the map keeps its code default.
@@ -137,20 +137,16 @@ type Config struct {
 	GeminiBaseURL string
 
 	// AssistMode selects the AI-assist impl (docs/ASSIST.md): "fake" (default;
-	// deterministic canned ops that ignore the prompt, zero API dependency),
-	// "gemini" (the real impl — a prompt really becomes shapes) or "anthropic" (the
-	// Phase A scaffold that never made a call and is superseded by gemini).
-	// Mirrors the RenderMode mode-switch.
+	// deterministic canned ops that ignore the prompt, zero API dependency) or
+	// "gemini" (the real impl — a prompt really becomes shapes). Mirrors the
+	// RenderMode mode-switch.
+	//
+	// Assist deliberately has no model knob of its own. It takes its model from
+	// the same place every other Gemini seam does — GeminiModel, overridden for
+	// this kind alone by AIModelPerKind["assist"] — because that is also where its
+	// quota is counted (per provider AND model), and a second knob could only ever
+	// disagree with the budget key.
 	AssistMode string
-	// AnthropicAPIKey is the server-side key for AssistMode == "anthropic" — never
-	// reaches the client (docs/ASSIST.md §1). Required when the anthropic mode is
-	// selected.
-	AnthropicAPIKey string
-	// AssistModel is the model id for the ANTHROPIC impl only (default
-	// "claude-opus-4-8"). The Gemini assist takes its model from the same place
-	// every other Gemini seam does — GeminiModel, overridable by
-	// AIModelPerKind["assist"] — because that is where its quota is counted too.
-	AssistModel string
 
 	// AssistTimeout bounds ONE assist call, retries excluded. It is separate from
 	// JudgeTimeout, which every other AI seam shares, because the work is not
@@ -252,14 +248,16 @@ const (
 	JudgeModeHTTP   = "http"
 	JudgeModeGemini = "gemini"
 
-	AssistModeFake      = "fake"
-	AssistModeGemini    = "gemini"
-	AssistModeAnthropic = "anthropic"
+	AssistModeFake   = "fake"
+	AssistModeGemini = "gemini"
 )
 
-// DefaultAssistModel is the model id used by the real assist impl unless
-// ASSIST_MODEL overrides it (docs/ASSIST.md §3.2).
-const DefaultAssistModel = "claude-opus-4-8"
+// assistModeRetiredAnthropic is the one ASSIST_MODE value that used to boot and
+// no longer does (docs/DECISIONS.md 2026-09-20). It sits apart from the modes
+// above on purpose: it is not a mode, it is a wire value kept only so the switch
+// below can refuse it BY NAME. Drop it once no deployment can plausibly still
+// carry it.
+const assistModeRetiredAnthropic = "anthropic"
 
 // DefaultJudgeTimeout bounds one judging call (docs/JUDGE.md §7). ML inference
 // and a vision LLM are both slow; JUDGE_TIMEOUT overrides it.
@@ -310,19 +308,17 @@ func Load() (Config, error) {
 		Env:         env,
 		// Secure cookies are dropped by browsers over plain http://localhost,
 		// so relax the flag in dev; require it everywhere else.
-		CookieSecure:    env != EnvDev,
-		StaticDir:       strings.TrimSpace(os.Getenv("STATIC_DIR")),
-		RenderMode:      strings.ToLower(getenv("RENDER_MODE", RenderModeStub)),
-		RenderCLI:       os.Getenv("RENDER_CLI"),
-		RenderNodeBin:   getenv("RENDER_NODE_BIN", "node"),
-		JudgeMode:       strings.ToLower(getenv("JUDGE_MODE", JudgeModeFake)),
-		JudgeBaseURL:    strings.TrimRight(os.Getenv("JUDGE_BASE_URL"), "/"),
-		GeminiAPIKey:    os.Getenv("GEMINI_API_KEY"),
-		GeminiModel:     getenv("GEMINI_MODEL", DefaultGeminiModel),
-		GeminiBaseURL:   strings.TrimRight(getenv("GEMINI_BASE_URL", DefaultGeminiBaseURL), "/"),
-		AssistMode:      strings.ToLower(getenv("ASSIST_MODE", AssistModeFake)),
-		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
-		AssistModel:     getenv("ASSIST_MODEL", DefaultAssistModel),
+		CookieSecure:  env != EnvDev,
+		StaticDir:     strings.TrimSpace(os.Getenv("STATIC_DIR")),
+		RenderMode:    strings.ToLower(getenv("RENDER_MODE", RenderModeStub)),
+		RenderCLI:     os.Getenv("RENDER_CLI"),
+		RenderNodeBin: getenv("RENDER_NODE_BIN", "node"),
+		JudgeMode:     strings.ToLower(getenv("JUDGE_MODE", JudgeModeFake)),
+		JudgeBaseURL:  strings.TrimRight(os.Getenv("JUDGE_BASE_URL"), "/"),
+		GeminiAPIKey:  os.Getenv("GEMINI_API_KEY"),
+		GeminiModel:   getenv("GEMINI_MODEL", DefaultGeminiModel),
+		GeminiBaseURL: strings.TrimRight(getenv("GEMINI_BASE_URL", DefaultGeminiBaseURL), "/"),
+		AssistMode:    strings.ToLower(getenv("ASSIST_MODE", AssistModeFake)),
 	}
 
 	// WS origins: explicit env wins; otherwise dev allows the local Vite proxy origin
@@ -436,9 +432,9 @@ func Load() (Config, error) {
 	}
 	cfg.JudgeTimeout = judgeTimeout
 
-	// Same fail-fast shape as RENDER_CLI and ANTHROPIC_API_KEY: a judge mode whose
-	// dependency is missing would fail out of band on the first duel, long after
-	// the deploy that broke it. A boot error names the cause.
+	// Same fail-fast shape as RENDER_CLI and the assist switch below: a judge mode
+	// whose dependency is missing would fail out of band on the first duel, long
+	// after the deploy that broke it. A boot error names the cause.
 	switch cfg.JudgeMode {
 	case JudgeModeFake:
 	case JudgeModeHTTP:
@@ -473,15 +469,18 @@ func Load() (Config, error) {
 		if cfg.GeminiAPIKey == "" {
 			return Config{}, fmt.Errorf("config: GEMINI_API_KEY is required when ASSIST_MODE=%s", AssistModeGemini)
 		}
-	case AssistModeAnthropic:
-		// The real impl needs a server-side key; guessing/defaulting it is worse than
-		// failing fast (a keyless anthropic mode would 500 on every request, out of
-		// band — a boot error is the honest signal). Mirrors the RENDER_CLI fail-fast.
-		if cfg.AnthropicAPIKey == "" {
-			return Config{}, fmt.Errorf("config: ANTHROPIC_API_KEY is required when ASSIST_MODE=anthropic")
-		}
+	case assistModeRetiredAnthropic:
+		// Refused BY NAME rather than left to the generic error below, because this is
+		// the one value that used to boot: a deployment still carrying it is not a
+		// typo, it is out of date, and naming the valid set does not tell such an
+		// operator WHICH of the two they meant. Silently falling back to the default
+		// would be worse than either — "fake" boots green and then answers every
+		// prompt with the same canned house, which is a dead feature wearing a live
+		// one's face.
+		return Config{}, fmt.Errorf("config: ASSIST_MODE=%s was removed — the real assist impl is Gemini; set ASSIST_MODE=%s (with GEMINI_API_KEY) or %s, and drop ANTHROPIC_API_KEY/ASSIST_MODEL",
+			assistModeRetiredAnthropic, AssistModeGemini, AssistModeFake)
 	default:
-		return Config{}, fmt.Errorf("config: ASSIST_MODE must be %q, %q or %q", AssistModeFake, AssistModeGemini, AssistModeAnthropic)
+		return Config{}, fmt.Errorf("config: ASSIST_MODE must be %q or %q", AssistModeFake, AssistModeGemini)
 	}
 
 	return cfg, nil

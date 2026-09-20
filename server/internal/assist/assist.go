@@ -6,12 +6,12 @@
 // handler change — exactly like the render (internal/render) and judge
 // (internal/judge) seams.
 //
-// The real impl is GeminiAssist (ASSIST_MODE=gemini). AnthropicAssist beside it is
-// the Phase A scaffold that never made a call; ASSIST.md §3.2 named Anthropic when
-// no key existed, and the answer turned out to be the same API the judge, the
-// critic and the guesser already use — one key, one quota, one client, one place
-// to fix when Google changes something. The collaborator's ML may take this seam
-// later, which is the whole reason it is an interface.
+// The real impl is GeminiAssist (ASSIST_MODE=gemini). Phase A planned a second
+// vendor for this seam and scaffolded one, but the answer turned out to be the
+// same API the judge, the critic and the guesser already use — one key, one quota,
+// one client, one place to fix when Google changes something — so the scaffold was
+// dropped rather than finished (docs/DECISIONS.md 2026-09-20). The collaborator's
+// ML may still take this seam later, which is the whole reason it is an interface.
 //
 // Assist is STATELESS: no DB, no migration, no sqlc. Every request is
 // self-contained — prompt + minimal doc summary in, validated ops out.

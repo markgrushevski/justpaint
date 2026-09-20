@@ -9,6 +9,16 @@
 > `docs/ASSIST.md` still owns the canonical Op contract; this brief owns the build plan +
 > the three resolutions below. Where the two disagree, this brief wins until ASSIST.md is
 > amended to match (same rule ASSIST.md itself states for `DOCUMENT-FORMAT.md`).
+>
+> **Superseded in one respect, 2026-09-20 — the vendor.** The real impl is `GeminiAssist`,
+> not an Anthropic one: the service already holds one AI key, one quota and one HTTP client
+> for the judge, the critic and the guesser, so a second vendor would have bought a second
+> of each for the same job. The `anthropic-sdk-go` module §1 says not to add *in Phase A* was
+> never added at all, and the scaffold this brief specifies — `AnthropicAssist`,
+> `ASSIST_MODE=anthropic`, `ANTHROPIC_API_KEY`, `ASSIST_MODEL` — was **deleted** that same
+> day; `ASSIST_MODE=anthropic` is now a boot error naming `gemini`. Everything else here
+> shipped and stands. Read the body as the design record it is; `ASSIST.md` §3.2/§3.4 has
+> what actually runs.
 
 ## 1. Three locked resolutions
 
