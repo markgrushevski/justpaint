@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
 
         <!-- Top-right: the one accent action. -->
         <template #top-right>
-            <SubmitButton :disabled="!canSubmit" :loading="submitting" @submit="submit" />
+            <SubmitButton solo :disabled="!canSubmit" :loading="submitting" @submit="submit" />
         </template>
 
         <!-- Bottom-center: the SAME floating toolbar as /draw and /play. -->

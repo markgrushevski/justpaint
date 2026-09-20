@@ -278,6 +278,54 @@ function onKeydown(e: KeyboardEvent) {
                 </div>
             </section>
 
+            <!-- Play — the way OUT of /draw into the game. It sits here, above the
+                 fold and outside the profile block, because the drawer is the only
+                 durable route to the game: the /draw welcome card carries the same
+                 links but disappears on the first stroke and never returns, so a
+                 visitor who drew one line used to lose the product's main mode.
+                 Duel and practice are open to anonymous visitors (both views gate
+                 on mount, so the sign-in prompt arrives with a reason attached);
+                 the ladder is not, because GET /api/leaderboard requires a session
+                 and an anonymous click would only earn a 401. -->
+            <section class="menu__section" aria-label="Play">
+                <h2 class="menu__section-title">Play</h2>
+                <div class="menu__stack">
+                    <!-- RouterLinks render <a>: the drawer unmounts with /draw on
+                         navigation, so none of these needs an explicit close. -->
+                    <OriButton
+                        :as="RouterLink"
+                        to="/play"
+                        text="Play a duel"
+                        variant="outline"
+                        radius="md"
+                        fluid
+                        :icon="icons.mdiSwordCross"
+                        icon-position="left"
+                    />
+                    <OriButton
+                        :as="RouterLink"
+                        to="/practice"
+                        text="Practice solo"
+                        variant="outline"
+                        radius="md"
+                        fluid
+                        :icon="icons.target"
+                        icon-position="left"
+                    />
+                    <OriButton
+                        v-if="session.isLoggedIn"
+                        :as="RouterLink"
+                        to="/leaderboard"
+                        text="Leaderboard"
+                        variant="outline"
+                        radius="md"
+                        fluid
+                        :icon="icons.podium"
+                        icon-position="left"
+                    />
+                </div>
+            </section>
+
             <!-- Canvas settings -->
             <section class="menu__section" aria-label="Canvas">
                 <h2 class="menu__section-title">Canvas</h2>
@@ -315,29 +363,9 @@ function onKeydown(e: KeyboardEvent) {
                 <div class="menu__rating">
                     Rating <b>{{ session.user?.rating }}</b>
                 </div>
-                <!-- Solo practice — the same RouterLink shape as the ladder below.
-                     This is the only way back to it once the /draw welcome card has
-                     been dismissed, which is every visit after the first. -->
-                <OriButton
-                    :as="RouterLink"
-                    to="/practice"
-                    text="Practice"
-                    variant="outline"
-                    radius="md"
-                    :icon="icons.target"
-                    icon-position="left"
-                />
-                <!-- The ranked ladder — a RouterLink (renders an <a>); the drawer
-                     unmounts with /draw on navigation, so no explicit close. -->
-                <OriButton
-                    :as="RouterLink"
-                    to="/leaderboard"
-                    text="Leaderboard"
-                    variant="outline"
-                    radius="md"
-                    :icon="icons.podium"
-                    icon-position="left"
-                />
+                <!-- Navigation used to live here, which is why an anonymous visitor
+                     saw no game at all. It moved to the Play section above; this
+                     block is now only who-you-are and how-to-leave. -->
                 <OriButton text="Log out" variant="outline" radius="md" :icon="icons.mdiLogout" @click="logout" />
             </section>
 
