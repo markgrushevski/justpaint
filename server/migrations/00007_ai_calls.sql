@@ -23,18 +23,31 @@
 --
 -- # Shape
 --
--- Every spend writes ONE row per provider request plus ONE row per billed player,
--- with no special cases:
+-- A row records ONE of two facts, and which one it is says so in its own columns:
 --
---   practice/guess/assist → 2 rows: (null, provider) + (user, null)
---   duel                  → 3 rows: (null, provider) + (userA, null) + (userB, null)
+--   (user, null)     this player was granted a call of this kind — spends THEIR day
+--   (null, provider) one request to this provider is about to be made — spends OURS
 --
--- The split exists because a duel costs the provider ONE request but costs TWO
--- players a day's allowance each. Rolling both facts into per-player rows would
--- make the global count charge a duel twice, halving the real ceiling for the
--- product's main mode; rolling them into one row would undercount the player who
--- is not named on it. Two nullable columns and one check keep both counts exact
--- with no DISTINCT, no divisor and no join.
+-- The two are separate columns rather than one row because they are separate
+-- facts that do not always happen together, and for a duel they do not even
+-- happen at the same moment:
+--
+--   practice/guess/assist → 2 rows, written together in one statement
+--   duel                  → 2 player rows when the roster fills and the round
+--                           starts, then 1 provider row per judging pass
+--
+-- That timing is the whole point. A duel that ends in a forfeit or is abandoned
+-- never reaches the judge, so it writes no provider row at all; a duel whose
+-- judging gets stuck and is re-fired writes one per pass while still costing its
+-- two players a single round. An earlier version of this file billed all of it at
+-- round start and claimed "ONE row per provider request" — which over-billed every
+-- forfeit and under-billed every retry, both measured. (Still uncounted, and
+-- deliberately: the judge client's own retries inside ONE pass. Billing those would
+-- give the frozen Judge contract a database dependency.)
+--
+-- Keeping the facts apart is also what keeps both counts exact with no DISTINCT,
+-- no divisor and no join: one duel costs the provider one request but costs two
+-- players a day's allowance each, and no single-row encoding states both.
 create table ai_calls (
     id         uuid        primary key default gen_random_uuid(),
     -- Null means this row bills no player: it is the provider-side row of a call.

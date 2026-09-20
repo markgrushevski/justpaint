@@ -13,9 +13,11 @@ const (
 	// is, on a free tier with a small disk.
 	retention = 7 * 24 * time.Hour
 	// DefaultSweepInterval is the cadence the composition root should use: hourly.
-	// The work is one indexed DELETE of rows nobody can reach, so the only thing a
-	// faster tick would buy is more queries, and a slower one costs at most a few
-	// hours of rows that were going to be deleted anyway.
+	// The work is one DELETE of rows nobody can reach — a sequential scan, since
+	// both indexes on the table are partial and lead on user_id/provider rather
+	// than created_at — over a table that holds a week at the hard ceiling, which
+	// is a few thousand rows. A faster tick would only buy more scans; a slower one
+	// costs at most a few hours of rows that were going to be deleted anyway.
 	DefaultSweepInterval = time.Hour
 )
 
@@ -24,13 +26,16 @@ const (
 // aibudget.DefaultSweepInterval)`. A non-positive interval is clamped to
 // DefaultSweepInterval, so a misconfigured zero cannot spin the loop.
 //
-// It mirrors ratelimit.Limiter.RunSweeper — a bare ticker — rather than
-// game.Service.RunSweeper, which opens with a boot drain. The drain is there
-// because a missed match deadline leaves two players waiting on a round that will
-// never resolve, so the backlog must be cleared before the first tick. Nothing
-// waits on a retention sweep: a week-old row deleted an hour late, or a day late
-// after a weekend of downtime, costs exactly nothing, and the next tick collects
-// it along with everything else.
+// It opens with ONE pass before the ticker, the way game.Service.RunSweeper opens
+// with its drain. Not because anybody is waiting on it — nobody is, and a
+// week-old row deleted an hour late costs exactly nothing — but because of the
+// host: a free-tier instance sleeps when idle and restarts on the next request,
+// regularly more often than once an hour, and a sweep whose first pass is always
+// an hour away would then never run at all. The tick is the steady state; the
+// boot pass is what makes the tick reachable.
+//
+// One pass, not game's drain-to-empty loop: the DELETE is unpaged, so a single
+// pass already removes everything past the horizon.
 //
 // It runs even when every kind is unbudgeted: rows may survive a config change
 // that turned a real provider back into a fake one, and they should still age out.
@@ -38,6 +43,8 @@ func (b *Budget) RunSweeper(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = DefaultSweepInterval
 	}
+	b.sweep(ctx)
+
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {

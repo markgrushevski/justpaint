@@ -14,6 +14,34 @@ const BANDS: { min: number; text: string }[] = [
     { min: 0.35, text: 'Not too sure, though.' },
     { min: 0, text: 'Honestly, that’s a wild guess.' }
 ]
+
+/**
+ * What the card is showing — ONE discriminant, the precedent PracticeView's
+ * `Phase` sets. It replaced a set of independent booleans whose only guarantee
+ * that they stayed consistent was that every call site remembered to clear the
+ * other three; the body below switches on this and can therefore never render the
+ * empty card that "all of them falsy" used to produce.
+ *
+ * `idle` is the card open with nothing asked yet — today that is the blank-canvas
+ * case, and it is the card (not a disabled button that cannot speak on touch)
+ * that says so. The qualifier `exhausted` stays BESIDE this rather than folded in:
+ * it is orthogonal to `error`, exactly as PracticeView keeps `submitExhausted`
+ * beside its phase.
+ */
+export type GuessStatus = 'idle' | 'pending' | 'answered' | 'error'
+
+/**
+ * The action's label, one line per status. A `Record` over the union rather than
+ * a chain of truthiness tests, so adding a status is a compile error here instead
+ * of a silently blank button — and, unlike a `switch`, it needs no unreachable
+ * default to satisfy `vue/return-in-computed-property`.
+ */
+const ACTION_TEXT: Record<GuessStatus, string> = {
+    idle: 'Guess my drawing',
+    pending: 'Thinking…',
+    answered: 'Guess again',
+    error: 'Try again'
+}
 </script>
 
 <script lang="ts" setup>
@@ -39,28 +67,30 @@ import IconButton from './ui/IconButton.vue'
 
 const props = withDefaults(
     defineProps<{
-        /** True while the server renders the drawing and asks the model (seconds). */
-        pending?: boolean
-        /** The AI's best reading, or null while pending / after a failure. */
+        /** Which of the four things this card is showing — the discriminant. */
+        status?: GuessStatus
+        /** The AI's best reading; read only while `status === 'answered'`. */
         label?: string | null
         /** Its certainty, 0..1 — rendered as a phrase, never as the number. */
         confidence?: number
         /** 0–2 runner-up guesses; the "or maybe" line. */
         alternatives?: string[]
-        /** A failure message, in the SERVER's own words, or '' when there is none. */
+        /** A failure message, in the SERVER's own words; read only on `error`. */
         error?: string
         /**
-         * The failure was a spent daily cap rather than a fault. An ordinary,
-         * expected outcome — two guesses a day is the whole budget — so the card
-         * says so plainly and drops the retry, which could not succeed today.
+         * The failure was the spent DAILY cap rather than a fault or the per-IP
+         * tier that clears in seconds. An ordinary, expected outcome — two guesses
+         * a day is the whole budget — so the card says so plainly and drops the
+         * retry, which could not succeed today. Qualifies `error`; never stands
+         * on its own.
          */
         exhausted?: boolean
-        /** False when there is nothing to ask about (an emptied canvas), which
-         *  disables the retry rather than spending a call on a blank page. */
+        /** False when there is nothing to ask about (a blank canvas), which
+         *  disables the action rather than spending a call on an empty page. */
         canRetry?: boolean
     }>(),
     {
-        pending: false,
+        status: 'idle',
         label: null,
         confidence: 0,
         alternatives: () => [],
@@ -80,12 +110,12 @@ const confidenceText = computed(() => (BANDS.find((b) => clamped.value >= b.min)
  * The action doubles as the pending indicator, exactly as the assist panel's Draw
  * button does: `loading` gives it oriui's spinner plus `aria-busy` and disables
  * it, so the several-second wait shows up on the control that caused it instead
- * of nowhere at all.
+ * of nowhere at all. Its wording comes from the exhaustive {@link ACTION_TEXT}.
  */
-const actionText = computed(() => {
-    if (props.pending) return 'Thinking…'
-    return props.label ? 'Guess again' : 'Try again'
-})
+const actionText = computed(() => ACTION_TEXT[props.status])
+
+/** `loading` + `disabled` both key off the wait; naming it keeps the template honest. */
+const pending = computed(() => props.status === 'pending')
 </script>
 
 <template>
@@ -101,13 +131,16 @@ const actionText = computed(() => {
         <!-- The answer lands seconds after the click, long after focus has moved on,
              so a screen reader has to be told it arrived (role=status is an
              implicit polite live region). -->
+        <!-- One arm per `GuessStatus`, and the last is a bare v-else so the chain
+             is exhaustive by construction: there is no combination of props that
+             leaves this body empty. -->
         <div class="guess__body" role="status">
-            <template v-if="pending">
+            <template v-if="status === 'pending'">
                 <p class="guess__lead">Looking at your drawing…</p>
                 <p class="guess__quiet">It gets redrawn on the server first, so this takes a few seconds.</p>
             </template>
 
-            <template v-else-if="error">
+            <template v-else-if="status === 'error'">
                 <p class="guess__lead">{{ exhausted ? 'That’s your guessing for today' : 'The AI didn’t answer' }}</p>
                 <!-- The server's own wording, verbatim: it is the only side that
                      knows whether the visitor spent their guesses or the service
@@ -116,7 +149,7 @@ const actionText = computed(() => {
                 <p class="guess__msg">{{ error }}</p>
             </template>
 
-            <template v-else-if="label">
+            <template v-else-if="status === 'answered'">
                 <p class="guess__lead">
                     I think this is <strong class="guess__label">{{ label }}</strong>
                 </p>
@@ -125,19 +158,33 @@ const actionText = computed(() => {
                      aside to the headline guess — quiet, lower-case, one line. -->
                 <p v-if="alternatives.length > 0" class="guess__alts">or maybe: {{ alternatives.join(', ') }}</p>
             </template>
+
+            <!-- idle: nothing has been asked. The blank-canvas reason lives HERE
+                 rather than in the trigger's tooltip — a disabled button takes no
+                 focus and oriui's tooltip needs hover or focus-within, so on a
+                 phone the trigger could only be a dimmed glyph with no stated
+                 reason. The card is already the single home for every outcome. -->
+            <template v-else>
+                <p class="guess__lead">Draw something first</p>
+                <p class="guess__quiet">Then I can tell you what I think it is.</p>
+            </template>
         </div>
 
-        <!-- A spent cap drops the retry entirely (PracticeView's `submitExhausted`
+        <!-- Subordinate to the answer above it, so it wears the same secondary
+             treatment PracticeResult gives its non-primary action and sizes to its
+             own text: a full-bleed primary bar would be the loudest thing on the
+             screen while spending 1 of only 2 daily calls.
+
+             A spent cap drops it entirely (PracticeView's `submitExhausted`
              precedent): inviting a click that is guaranteed to fail until tomorrow
              is worse than saying so. Closing, and the canvas behind, stay usable. -->
         <OriButton
             v-if="!exhausted"
             class="guess__action"
             :text="actionText"
-            variant="fill"
-            color="primary"
+            variant="outline"
+            color="surface"
             radius="md"
-            fluid
             :loading="pending"
             :disabled="pending || !canRetry"
             @click="emit('again')"
@@ -237,7 +284,11 @@ const actionText = computed(() => {
     overflow-wrap: anywhere;
 }
 
+/* The card is a column flex, whose default `stretch` would re-create the
+   full-bleed bar `fluid` was dropped to avoid — so the action sizes to its own
+   text and sits under the start of the sentence it follows. */
 .guess__action {
+    align-self: flex-start;
     margin-top: var(--ori-size-gap_xs, 0.125rem);
 }
 </style>

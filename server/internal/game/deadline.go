@@ -117,8 +117,13 @@ func (s *Service) resolveExpiry(ctx context.Context, qtx *db.Queries, row db.Get
 	case outcomeJudging:
 		s.logger.Warn("resolveExpiry: expired drawing round with both submitted — flipping to judging",
 			"matchID", row.ID)
-		if _, err := qtx.SetMatchJudging(ctx, row.ID); err != nil {
-			return outcomeNone, fmt.Errorf("game: to judging: %w", err)
+		// enterJudging, not a bare SetMatchJudging: this is one of the three sites
+		// that cause a judge request, so it is one of the three that bill the
+		// provider for it. The two branches above — abandoned and forfeit — reach no
+		// judge and therefore bill nothing, which is the whole reason the provider
+		// row is written here and not back at open→drawing.
+		if err := s.enterJudging(ctx, qtx, row.ID); err != nil {
+			return outcomeNone, err
 		}
 	}
 	return outcome, nil

@@ -86,6 +86,26 @@ Still open after the bump: JP-O-04, JP-O-05, JP-O-06 and JP-O-09, below.
   [DECISIONS.md](DECISIONS.md) 2026-09-18. No workaround needed beyond keeping our own token, and there is
   no longer a naming collision to track either: ours already lives under its own `--jp-*` prefix.
 
+## JP-O-10 — `OriButton` applies the *disabled* dim to the *loading* state, dropping a busy label to 1.68:1
+
+`confirmed` · upstream `ORI-I-??` (not yet reported) · found 2026-09-20 while reviewing the AI-guess card
+
+- **What:** `loading` sets the native `disabled` attribute, so `.ori-button:disabled { opacity: .45 }`
+  applies to a *busy* button too. Measured on our fill-primary: the "Thinking…" label lands at
+  **1.68:1** in light and **2.30:1** in dark — effectively decorative, on exactly the control whose job
+  at that moment is to say the app is working.
+- **Why it is a defect and not a token problem:** WCAG exempts an *inactive* UI component from contrast.
+  A busy control is not inactive — it is the one telling you to wait — so the exemption does not
+  obviously cover it, and the dim is doing the opposite of what the state needs.
+- **Suggested upstream behaviour:** skip the `.45` dim when `aria-busy="true"`, keeping `pointer-events:
+  none` and the native `disabled` for input blocking. That leaves the disabled case untouched.
+- **Local workaround (named, do not delete):** never let a `loading` button be the only carrier of the
+  pending message. `apps/web/src/components/GuessResult.vue` states the wait in full-ink body copy
+  ("It gets redrawn on the server first, so this takes a few seconds") and treats the button's own
+  label as decoration.
+
+---
+
 ## JP-O-09 — `OriDialog` dims its whole body, dropping the primary button and hints below AA
 
 `confirmed` · upstream: accepted, fixed on oriui `main`, not yet released · measured 2026-09-18 against

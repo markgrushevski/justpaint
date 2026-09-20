@@ -300,8 +300,12 @@ func (s *Service) refireJudging(ctx context.Context, matchID string) (bool, erro
 	if row.JudgeAttempts >= maxJudgeAttempts {
 		return false, nil
 	}
-	if _, err := qtx.SetMatchJudging(ctx, matchID); err != nil {
-		return false, fmt.Errorf("game: re-stamp judging: %w", err)
+	// enterJudging, not a bare SetMatchJudging: a re-fire is a SECOND request to the
+	// judge, so it bills the provider a second time. The two players are not billed
+	// again — they were granted one round when the match started, and a judge that
+	// hung is not a round they got twice.
+	if err := s.enterJudging(ctx, qtx, matchID); err != nil {
+		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("game: commit tx: %w", err)

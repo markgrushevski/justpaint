@@ -31,3 +31,16 @@ var _ Assist = (*AnthropicAssist)(nil)
 func (a *AnthropicAssist) GenerateOps(_ context.Context, _ Request) (Result, error) {
 	return Result{}, errors.New("assist: anthropic impl not built")
 }
+
+var _ ProviderCaller = (*AnthropicAssist)(nil)
+
+// CallsProvider reports false while GenerateOps above is a scaffold: it returns an
+// error without any network I/O, so no quota is spent and nothing should be
+// billed. The composition root reads this instead of re-deriving a provider from
+// ASSIST_MODE, which is how every assist request under ASSIST_MODE=anthropic came
+// to write ledger rows for a call that never happened and then answer 500.
+//
+// Flip it to true in the same change that wires the SDK. That is the whole cost
+// of keeping the ledger honest, and it sits here, in the file that has to change
+// anyway, rather than in a switch three packages away.
+func (a *AnthropicAssist) CallsProvider() bool { return false }

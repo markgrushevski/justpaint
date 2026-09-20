@@ -21,12 +21,31 @@
 // that — rather than being told about the service's global state, which is none
 // of their business.
 //
-// # Advisory, not transactional
+// # A row is two facts, at two moments
 //
-// The counts are reads with no lock: two simultaneous callers can both read a
-// count one below the ceiling and both pass. That is deliberate — serializing
-// every match creation on a budget row would cost more than the handful of calls
-// a burst can overshoot by, and the ceilings are set BELOW the external quota
+// A ledger row is either a PLAYER row ("this player was granted a round of this
+// kind") or a PROVIDER row ("one request to the provider is about to be made").
+// For practice, guess and assist those two facts are simultaneous, so one
+// statement writes both. For a duel they are not: the players are granted their
+// round when the second seat fills, and the request is made when the match enters
+// judging — which may be minutes later, may happen more than once (the
+// stuck-judging re-fire), and may never happen at all (an abandoned or forfeited
+// round makes no provider call). Each half is therefore written where it is true.
+// That is what ForSplit is for.
+//
+// # How exact the two halves are
+//
+// The per-user half is enforced by the INSERT itself (RecordAICallUnderCap): the
+// row is written only while the count is under the cap, so the ceiling no longer
+// depends on a read taken a render and a network round trip earlier. It is still
+// not exact — under READ COMMITTED two overlapping statements can each see the
+// same pre-insert count — but the window shrank from seconds to the duration of
+// one statement.
+//
+// The global half is deliberately advisory: it is read at Check and never gates
+// a write. By the time a call is billed the expensive, human part has already
+// happened (a duel's round has been played), and a refusal there would strand
+// work rather than prevent it. The ceilings sit BELOW the provider's own quota
 // precisely so a small overshoot stays inside it.
 //
 // # The escape hatch
@@ -37,7 +56,7 @@
 // never hit a ceiling. It is expressed as the absence of a provider rather than a
 // separate "enforced" flag because the two facts are the same fact — you cannot
 // spend a quota you have no provider for — and the decision is then made once, at
-// the composition root, where the impl is actually chosen.
+// the composition root, where the impl is actually chosen (see Policies).
 package aibudget
 
 import (
@@ -45,6 +64,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"time"
 
 	"github.com/markgrushevski/justpaint/server/internal/db"
@@ -63,23 +83,45 @@ import (
 // clock and the DB clock disagree.
 const window = 24 * time.Hour
 
+// writeTimeout bounds one ledger write.
+//
+// Every billing site runs on a caller context that nothing else will cut short in
+// time: practice and guess run inside a request, and http.Server.WriteTimeout
+// does not cancel the request context — it only stops the response being written.
+// Their own RunBudget (25s) covers the render and the provider call, deliberately
+// NOT the ledger write, which must not be lost to a nearly-spent work budget. A
+// stalled insert would therefore sit past the 30s write timeout with a player
+// watching a dead socket. Seconds are generous for a single-row insert on the
+// same database the request already used; anything slower is a fault, not a wait.
+const writeTimeout = 5 * time.Second
+
+// windowSecs is the rolling window in the unit the queries take.
+func windowSecs() int32 { return int32(window / time.Second) }
+
 // Policy is one kind's ceiling.
 //
 // Provider is load-bearing twice over: it says WHOSE quota this kind spends (the
-// global count is per provider) and, when empty, that this kind's impl is a fake
-// — never enforced, never recorded. See the package comment.
+// global count is per provider) and, when empty, that this kind's impl makes no
+// external calls — never enforced, never recorded. See the package comment.
 //
-// PerUser is expected to be >= 1 when a Provider is set (config rejects less at
+// PerUser is expected to be >= 1 when a Provider is set (Policies rejects less at
 // boot). A zero reaching here alongside a real provider would refuse every call,
 // which is a programming error at the wiring site, not an operator mistake.
+//
+// Noun is what this kind is called in the sentence a refused player reads
+// ("duels", "AI guesses"). It lives on the policy so the composition root decides
+// player-facing copy in one place; Policies fills it from Kind.Noun, which is the
+// one table of those words. An empty Noun still reads correctly — http.go falls
+// back to the same table — so a hand-built Policy needs no ceremony.
 type Policy struct {
 	Provider Provider
 	PerUser  int
+	Noun     string
 }
 
 // Budget counts and records AI calls against the per-kind and per-provider
-// ceilings. One instance serves every feature; each consumer holds only the two
-// funcs For hands it, never this type.
+// ceilings. One instance serves every feature; each consumer holds only the funcs
+// For or ForSplit hands it, never this type.
 type Budget struct {
 	q        *db.Queries
 	policies map[Kind]Policy
@@ -91,7 +133,8 @@ type Budget struct {
 }
 
 // New builds the budget from the policies the composition root resolved. A kind
-// absent from policies is unbudgeted, which is the same thing as a fake impl.
+// absent from policies is unbudgeted, which is the same thing as an impl that
+// makes no external calls.
 //
 // The map is copied: the ceiling is decided at boot and a caller that kept a
 // reference should not be able to move it afterwards.
@@ -106,63 +149,79 @@ func New(q *db.Queries, policies map[Kind]Policy, global int, logger *slog.Logge
 
 // Check asks whether this user may spend a call of some kind right now. It is a
 // plain func — the narrowest possible port — so a consumer module holds a field
-// of this type and never imports the budget's own shape or its kinds (the pattern
-// internal/practice already uses for BudgetCheck).
+// of this type and never imports the budget's own shape or its kinds.
 //
-// A nil Check means unbudgeted, matching what a fake-configured kind returns
+// A nil Check means unbudgeted, matching what a kind with no provider returns
 // anyway, so a caller may hold nil and skip the call.
 type Check func(ctx context.Context, userID string) error
 
-// Spend records a call that was made: one ledger row for the provider request
-// plus one for each billed player (migration 00007).
+// Spend records a call that one user is about to make: their player row and the
+// provider row, in one statement that writes both or neither.
 //
-// It is variadic because the duel is the one kind that bills two players for a
-// single provider request — rolling both facts into per-player rows would make
-// the global count charge a duel twice, halving the real ceiling for the
-// product's main mode.
+// It takes ONE user, not a list, because the conditional insert behind it has one
+// allowance to weigh the call against. The kind that bills two players for a
+// single request — the duel — does not spend its two halves at the same moment
+// anyway, and uses ForSplit instead.
 //
-// Spend is NOT transactional on its own, and deliberately does not decide whether
-// it should be: the duel spends inside its matchmaking transaction (see SpendTx),
-// while practice spends outside one on purpose, because a transaction would roll
-// the record back when the provider call failed — which is exactly backwards.
-// That call was made, that quota was spent, and a failure that costs nothing is a
-// failure the budget cannot see, precisely when a broken provider is draining it.
-type Spend func(ctx context.Context, userIDs ...string) error
+// It returns the same *KindSpentError Check returns when the insert finds the
+// caller already at their cap, so a caller needs no second branch: the refusal it
+// already maps to a 429 is the refusal it gets.
+//
+// Spend is NOT transactional, deliberately: a transaction would roll the record
+// back when the provider call failed, which is exactly backwards. That call was
+// made, that quota was spent, and a failure that costs nothing is a failure the
+// budget cannot see — precisely when a broken provider is draining it.
+type Spend func(ctx context.Context, userID string) error
 
-// SpendTx is Spend for a caller that already has a transaction open: it writes
-// the ledger rows through the caller's own tx-scoped *db.Queries (q.WithTx(tx)),
-// so the rows commit or roll back with the work that spent them.
+// BillPlayers records that these users were granted a round of some kind, through
+// the caller's own tx-scoped *db.Queries (q.WithTx(tx)), so the rows commit or
+// roll back with the work that granted the round.
 //
-// It exists as a second port rather than as a *Budget clone (a WithTx(q) *Budget)
-// because the kind is bound ONCE, at the composition root: a clone would have to
-// be re-asked for its kind at the call site, deep inside the transaction, which is
-// the one place the consumer module should not have to know its own kind's name.
-// A consumer that spends inside a transaction holds a SpendTx field exactly the
-// way practice holds a Spend field — same shape, one extra argument.
-type SpendTx func(ctx context.Context, q *db.Queries, userIDs ...string) error
+// It writes no provider row: see BillProvider for why those are separate.
+type BillPlayers func(ctx context.Context, q *db.Queries, userIDs ...string) error
+
+// BillProvider records that one request to the provider is about to be made,
+// through the caller's own tx-scoped *db.Queries.
+//
+// It writes no player row. A caller holding both ports calls them at different
+// moments and a different number of times: a duel's players are billed once, when
+// their round starts, while the provider is billed at each entry into judging —
+// including a stuck-judging re-fire, which really is another request, and
+// including never, for a round that is abandoned or forfeited and so never
+// reaches a judge at all.
+//
+// The residual, stated plainly: this is one row per judging PASS, and the retries
+// a judge impl makes INSIDE one Score call are not counted — three attempts, by
+// docs/JUDGE.md §7. The only way to count them would be to hand the frozen Judge
+// contract a database dependency (docs/JUDGE.md §2), which is not a trade worth
+// making for a number that is already an exact count of passes and sits under a
+// ceiling set below the provider's own.
+type BillProvider func(ctx context.Context, q *db.Queries) error
 
 // For binds a kind once, at the composition root, and returns the two
-// one-question ports a consumer module holds as plain func fields. The consumer
-// then cannot ask about another feature's budget, cannot mis-name its own kind,
-// and needs no import of this package at all.
+// one-question ports a single-actor consumer holds as plain func fields. The
+// consumer then cannot ask about another feature's budget, cannot mis-name its
+// own kind, and needs no import of this package at all.
 func (b *Budget) For(k Kind) (Check, Spend) {
 	return func(ctx context.Context, userID string) error {
 			return b.check(ctx, k, userID)
-		}, func(ctx context.Context, userIDs ...string) error {
-			return b.record(ctx, b.q, k, userIDs)
+		}, func(ctx context.Context, userID string) error {
+			return b.spend(ctx, k, userID)
 		}
 }
 
-// ForTx binds a kind to the transactional spend port. Used alongside For by a
-// consumer whose spend belongs inside its own transaction — the duel, whose call
-// is decided by the same commit that starts the round.
-func (b *Budget) ForTx(k Kind) SpendTx {
+// ForSplit binds a kind whose two halves happen apart, and in a transaction the
+// caller owns. Used with For's Check by the duel, the only kind where "the player
+// got a round" and "a request is being made" are separate events.
+func (b *Budget) ForSplit(k Kind) (BillPlayers, BillProvider) {
 	return func(ctx context.Context, q *db.Queries, userIDs ...string) error {
-		return b.record(ctx, q, k, userIDs)
-	}
+			return b.billPlayers(ctx, q, k, userIDs)
+		}, func(ctx context.Context, q *db.Queries) error {
+			return b.billProvider(ctx, q, k)
+		}
 }
 
-// check is the whole rule; For's Check closure is a binding of it.
+// check is the advisory half of the rule; For's Check closure is a binding of it.
 //
 // For a duel this runs at match CREATION, which is the only humane place for it:
 // a player told "you are out of duels" before they pick up the brush has lost
@@ -170,26 +229,28 @@ func (b *Budget) ForTx(k Kind) SpendTx {
 // be worse than the bug it guards against. Every other kind checks before the
 // expensive work for the same reason — the point of a ceiling is to refuse before
 // the call, not after.
+//
+// It still earns its place beside the conditional insert that now enforces the
+// per-user half: this refuses before the render, the insert refuses after it.
 func (b *Budget) check(ctx context.Context, k Kind, userID string) error {
 	p, ok := b.policies[k]
 	if !ok || p.Provider == "" {
 		return nil // unbudgeted — see the package comment
 	}
-	windowSecs := int32(window / time.Second)
 
 	// Per-user first, and per KIND: this player's duels do not eat their assists.
 	mine, err := b.q.CountUserKindCallsInWindow(ctx, db.CountUserKindCallsInWindowParams{
-		UserID: userID, Kind: string(k), WindowSecs: windowSecs,
+		UserID: userID, Kind: string(k), WindowSecs: windowSecs(),
 	})
 	if err != nil {
 		return fmt.Errorf("aibudget: count %s calls for user in window: %w", k, err)
 	}
 	if mine >= int64(p.PerUser) {
-		return &KindSpentError{Kind: k, Cap: p.PerUser}
+		return &KindSpentError{Kind: k, Cap: p.PerUser, Noun: p.Noun}
 	}
 
 	spent, err := b.q.CountProviderCallsInWindow(ctx, db.CountProviderCallsInWindowParams{
-		Provider: string(p.Provider), WindowSecs: windowSecs,
+		Provider: string(p.Provider), WindowSecs: windowSecs(),
 	})
 	if err != nil {
 		return fmt.Errorf("aibudget: count %s calls in window: %w", p.Provider, err)
@@ -206,32 +267,72 @@ func (b *Budget) check(ctx context.Context, k Kind, userID string) error {
 	return nil
 }
 
-// record writes one call's ledger rows through q. Both spend ports are bindings
-// of it; q is the only thing that differs between them.
-func (b *Budget) record(ctx context.Context, q *db.Queries, k Kind, userIDs []string) error {
+// spend writes both halves of one single-actor call, under the per-user cap.
+func (b *Budget) spend(ctx context.Context, k Kind, userID string) error {
 	p, ok := b.policies[k]
 	if !ok || p.Provider == "" {
-		return nil // unbudgeted: a fake impl's calls must not count against a real
-		// provider's ceiling the day one is configured.
+		return nil // unbudgeted: an impl that makes no external call must not count
+		// against a real provider's ceiling the day one is configured.
 	}
-	if q == nil {
-		// A backstop, not an interface: every caller passes either its own tx-scoped
-		// Queries or (via For) the budget's. A nil here means a wiring slip, and a
-		// row written outside the intended transaction is far better than a panic in
-		// a path whose entire job is to be unobtrusive.
-		q = b.q
-	}
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
 
-	// The provider row first, and unconditionally: the request was made and that
-	// cost is real even when there is no player to attribute it to.
-	provider := string(p.Provider)
-	if err := q.RecordAICall(ctx, db.RecordAICallParams{Kind: string(k), Provider: &provider}); err != nil {
-		return fmt.Errorf("aibudget: record %s provider call: %w", k, err)
+	// The query takes int32. An allowance beyond that is absurd — an operator who
+	// typed extra zeros — but letting it wrap negative would make this refuse EVERY
+	// call, silently and in the exact opposite direction from what they asked for.
+	allowance := int32(math.MaxInt32)
+	if int64(p.PerUser) < math.MaxInt32 {
+		allowance = int32(p.PerUser)
 	}
-	for _, uid := range userIDs {
-		if err := q.RecordAICall(ctx, db.RecordAICallParams{UserID: &uid, Kind: string(k)}); err != nil {
-			return fmt.Errorf("aibudget: record %s call for player: %w", k, err)
-		}
+	rows, err := b.q.RecordAICallUnderCap(ctx, db.RecordAICallUnderCapParams{
+		UserID: userID, Kind: string(k), Provider: string(p.Provider),
+		WindowSecs: windowSecs(), Cap: allowance,
+	})
+	if err != nil {
+		return fmt.Errorf("aibudget: record %s call: %w", k, err)
+	}
+	if rows == 0 {
+		// The ledger refused: this caller was at their cap when the insert ran, which
+		// the advisory check a render ago could not have known. Same error the check
+		// returns, so the caller's existing 429 branch handles it.
+		return &KindSpentError{Kind: k, Cap: p.PerUser, Noun: p.Noun}
+	}
+	return nil
+}
+
+// billPlayers writes the player half only, through the caller's queries.
+func (b *Budget) billPlayers(ctx context.Context, q *db.Queries, k Kind, userIDs []string) error {
+	p, ok := b.policies[k]
+	if !ok || p.Provider == "" {
+		return nil // unbudgeted — see spend
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+
+	if err := q.RecordPlayerAICalls(ctx, db.RecordPlayerAICallsParams{
+		UserIds: userIDs, Kind: string(k),
+	}); err != nil {
+		return fmt.Errorf("aibudget: record %s calls for players: %w", k, err)
+	}
+	return nil
+}
+
+// billProvider writes the provider half only, through the caller's queries.
+func (b *Budget) billProvider(ctx context.Context, q *db.Queries, k Kind) error {
+	p, ok := b.policies[k]
+	if !ok || p.Provider == "" {
+		return nil // unbudgeted — see spend
+	}
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+
+	if err := q.RecordProviderAICall(ctx, db.RecordProviderAICallParams{
+		Kind: string(k), Provider: string(p.Provider),
+	}); err != nil {
+		return fmt.Errorf("aibudget: record %s provider call: %w", k, err)
 	}
 	return nil
 }

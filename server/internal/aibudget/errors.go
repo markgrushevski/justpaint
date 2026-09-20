@@ -26,16 +26,21 @@ var (
 	ErrGlobalSpent = errors.New("aibudget: daily budget spent")
 )
 
-// KindSpentError is the per-user refusal, carrying WHICH feature ran out and the
-// cap it ran out against. The kind is what lets one HTTP helper write four
-// different sentences without four sentinels (a player out of duels is not told
-// about "AI requests"), and the cap is what lets a message name the number where
-// naming it is safe — see http.go.
+// KindSpentError is the per-user refusal, carrying WHICH feature ran out, the
+// cap it ran out against, and the word for that feature in a player's language.
+// Together they let ONE sentence in http.go serve every kind: a player out of
+// duels is told about duels and not about "AI requests", and the number they are
+// told is their own cap, which is theirs to know.
+//
+// Noun may be empty — a Policy built by hand rather than by Policies carries no
+// noun — and http.go then falls back to Kind.Noun, which is the same table
+// Policies fills it from.
 //
 // It is returned as a pointer so `errors.As` has a single obvious target type.
 type KindSpentError struct {
 	Kind Kind
 	Cap  int
+	Noun string
 }
 
 // Error renders the operator-facing form. It is not the text a player sees:

@@ -34,7 +34,14 @@ export const icons = {
     // paths, but @mdi/js isn't installed, this metaphor is simple enough to draw
     // by hand, and the real upstream mdiPodium is a differently-shaped glyph — so
     // this hand-authored one must not borrow that name.
-    podium: 'M3,13H9V21H3V13M9.5,8H14.5V21H9.5V8M15,16H21V21H15V16Z',
+    //
+    // Drawn to the SET's optical size, which is what an mdi glyph assumes and
+    // what nothing enforces: 2..22 on both axes (20 of 24 units), matching
+    // `target` exactly and `mdiSwordCross`'s ~20.7. The first draft spanned 13
+    // units tall and read visibly smaller than its two neighbours stacked beside
+    // it in the drawer's Play section. Three 6-wide blocks with 1-unit gaps, all
+    // on the y=22 baseline; heights 20/12/8 keep the 1st-2nd-3rd proportions.
+    podium: 'M2,10H8V22H2V10M9,2H15V22H9V2M16,14H22V22H16V14Z',
     // Self-authored bullseye for practice — five concentric circles with
     // alternating sweep flags, so the default nonzero fill-rule punches the gaps
     // out and leaves two rings plus a centre dot. Hand-drawn for the same reason

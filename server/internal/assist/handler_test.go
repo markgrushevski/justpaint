@@ -280,7 +280,7 @@ func TestGenerateOps_DailyBudget(t *testing.T) {
 	t.Run("a served request is recorded before the call", func(t *testing.T) {
 		var order []string
 		impl := callCountingAssist{onCall: func() { order = append(order, "call") }}
-		spend := func(context.Context, ...string) error {
+		spend := func(context.Context, string) error {
 			order = append(order, "spend")
 			return nil
 		}
@@ -294,6 +294,73 @@ func TestGenerateOps_DailyBudget(t *testing.T) {
 			t.Errorf("order = %v, want [spend call]", order)
 		}
 	})
+}
+
+// TestGenerateOps_SpendRefusalIs429 covers the refusal that arrives LATE: the
+// ledger's conditional insert enforces the per-user cap at the moment it writes,
+// so a caller whose check passed can still be refused by the write. It returns
+// the same *KindSpentError the check does, precisely so this needs no branch of
+// its own — and this test is what pins that it does not quietly become a 500.
+func TestGenerateOps_SpendRefusalIs429(t *testing.T) {
+	called := false
+	impl := callCountingAssist{onCall: func() { called = true }}
+	refuse := func(context.Context, string) error {
+		return &aibudget.KindSpentError{Kind: aibudget.KindAssist, Cap: 40, Noun: aibudget.KindAssist.Noun()}
+	}
+	h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute),
+		func(context.Context, string) error { return nil }, refuse, slog.New(slog.DiscardHandler))
+
+	rec := serve(t, h, mintCookie(t, "u1"), validBody)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429; body: %s", rec.Code, rec.Body)
+	}
+	if got := errorCode(t, rec); got != "rate_limited" {
+		t.Errorf("code = %q, want rate_limited", got)
+	}
+	if !strings.Contains(rec.Body.String(), "all 40 of your AI drawing requests") {
+		t.Errorf("the refusal should name assist and its cap, got: %s", rec.Body)
+	}
+	if called {
+		t.Error("the impl was called after the ledger refused to bill it")
+	}
+}
+
+// TestCallsProvider is the fix for a bug that lived in the composition root: it
+// read ASSIST_MODE=anthropic as "bill Anthropic", while the impl that mode
+// selects is a scaffold that returns an error without any network I/O. Every
+// request then wrote ledger rows for a call nobody made and answered 500.
+//
+// Whether an impl calls out is a fact about the impl, so the impl is asked.
+func TestCallsProvider(t *testing.T) {
+	tests := []struct {
+		name string
+		impl Assist
+		want bool
+	}{
+		{
+			// Deterministic and offline: it never leaves the process.
+			name: "the fake calls nobody",
+			impl: NewFakeAssist(),
+		},
+		{
+			// Flip this to true in the same change that wires the SDK (anthropic.go).
+			name: "the anthropic scaffold calls nobody yet",
+			impl: NewAnthropicAssist("test-key", "test-model"),
+		},
+		{
+			// An impl that says nothing counts as calling nobody: fakes and scaffolds
+			// are the default, and the one impl that bills has to say so out loud.
+			name: "an impl that does not answer the question is not billed",
+			impl: callCountingAssist{onCall: func() {}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CallsProvider(tt.impl); got != tt.want {
+				t.Errorf("CallsProvider = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 // callCountingAssist is FakeAssist with a hook, so a test can tell whether the

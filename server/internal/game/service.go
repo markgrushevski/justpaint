@@ -138,17 +138,30 @@ type Service struct {
 	// judging bounds concurrent judging passes across BOTH dispatch paths (the last
 	// submit and the sweeper). Never nil — both constructors build it.
 	judging *judgeLimiter
-	// checkBudget and spendDuel are the duel's two questions to the daily AI-call
-	// ceiling (internal/aibudget), held as plain funcs so this package never learns
-	// its own kind's name, the other features' quotas, or the budget's shape. Nil
-	// means unbudgeted, which is what every test and the fake judge get; main.go
-	// binds both once, to aibudget.KindDuel.
+	// checkBudget, billPlayers and billProvider are the duel's three questions to
+	// the daily AI-call ceiling (internal/aibudget), held as plain funcs so this
+	// package never learns its own kind's name, the other features' quotas, or the
+	// budget's shape. Nil means unbudgeted, which is what every test and the fake
+	// judge get; main.go binds all three once, to aibudget.KindDuel.
 	//
-	// They are separate because they happen in different places: the check is an
-	// advisory read ahead of the matchmaking transaction, the spend is a write
-	// INSIDE it — so the spend takes the tx-scoped queries and the check does not.
-	checkBudget aibudget.Check
-	spendDuel   aibudget.SpendTx
+	// There are three and not two because the duel's two ledger facts happen at
+	// different moments, and each is written where it is true:
+	//
+	//	checkBudget  — an advisory read ahead of the matchmaking transaction, so a
+	//	               player over their cap is told before they pick up the brush;
+	//	billPlayers  — "these two were granted a round", inside the transaction that
+	//	               starts the round (open→drawing), so no round means no grant;
+	//	billProvider — "a request to the judge is about to be made", at every site
+	//	               that enters judging and nowhere else. A round that is
+	//	               abandoned or forfeited never reaches one and so bills no
+	//	               provider; a stuck-judging re-fire reaches one again and bills
+	//	               again, while the players keep the single round they were
+	//	               granted.
+	//
+	// The two billing ports take the caller's tx-scoped queries; the check does not.
+	checkBudget  aibudget.Check
+	billPlayers  aibudget.BillPlayers
+	billProvider aibudget.BillProvider
 }
 
 // NewService builds the service with defaultJudgeConcurrency judging passes in
@@ -238,26 +251,34 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 	if err != nil {
 		return MatchView{}, err // already wrapped by assemble
 	}
-	// Bill the judge call at the ONE site that causes one: open→drawing, the join
-	// branch, inside the same transaction that starts the round. "No round, no
-	// judge call" is the atomicity we want, and one insert into an unrelated table
-	// adds no contention to locks we are already holding.
+	// Grant the round to both players at the ONE site that starts one: open→drawing,
+	// the join branch, inside the same transaction that starts it. "No round, no
+	// grant" is the atomicity we want, and one insert into an unrelated table adds
+	// no contention to locks we are already holding.
 	//
-	// BOTH players are billed for the single provider request, from the roster
-	// assemble just read. That is not a tax on being joined: nobody is drawn into a
-	// duel passively — both sides pressed play — and both get the round.
+	// BOTH seats are billed for the one round, from the roster assemble just read.
+	// That is not a tax on being joined: nobody is drawn into a duel passively —
+	// both sides pressed play — and both get the round.
+	//
+	// What is NOT billed here is the provider. A round that starts is not a request
+	// to the judge: it becomes one only if both players submit (or the deadline
+	// finds them both in), and an abandoned or forfeited round never makes one at
+	// all. That row is written at the judging sites instead — Submit's last
+	// submission, resolveExpiry's both-submitted branch, and the stuck-judging
+	// re-fire — which is also why a re-fire bills the provider a second time and
+	// these two players exactly once.
 	//
 	// The branches that do NOT start a round bill nothing, which is how "a match
 	// nobody ever joined costs the player nothing" survives the move off the old
 	// drawing_deadline predicate: now it is true by construction rather than by a
 	// query's choice of anchor column.
-	if joined && s.spendDuel != nil {
+	if joined && s.billPlayers != nil {
 		ids := make([]string, 0, len(view.Players))
 		for _, p := range view.Players {
 			ids = append(ids, p.UserID)
 		}
-		if err := s.spendDuel(ctx, qtx, ids...); err != nil {
-			return MatchView{}, fmt.Errorf("game: bill duel: %w", err)
+		if err := s.billPlayers(ctx, qtx, ids...); err != nil {
+			return MatchView{}, fmt.Errorf("game: bill duel players: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -462,11 +483,8 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 	status := statusDrawing
 	triggerJudging := false
 	if remaining == 0 {
-		// SetMatchJudging (not the generic status flip) stamps judging_started_at +
-		// the attempt counter, so the stuck-judging watchdog measures staleness per
-		// attempt (docs/DESIGN-PHASE3-LIVE.md §2.3, §2.6).
-		if _, err = qtx.SetMatchJudging(ctx, matchID); err != nil {
-			return SubmitResult{}, fmt.Errorf("game: to judging: %w", err)
+		if err := s.enterJudging(ctx, qtx, matchID); err != nil {
+			return SubmitResult{}, err
 		}
 		status = statusJudging
 		triggerJudging = true
@@ -489,6 +507,43 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		s.dispatchJudging(matchID)
 	}
 	return SubmitResult{Status: status, DrawingID: d.ID, Deadline: m.DrawingDeadline}, nil
+}
+
+// enterJudging flips a locked match into judging INSIDE the caller's transaction
+// and bills the provider for the request that flip is about to cause. Every site
+// that enters judging goes through here — the last submit, the deadline's
+// both-submitted branch, and the stuck-judging re-fire — and those are the only
+// three, which is what makes "one provider row per judging pass" a property of
+// the code rather than a hope.
+//
+// SetMatchJudging (not the generic status flip) stamps judging_started_at + the
+// attempt counter, so the stuck-judging watchdog measures staleness per attempt
+// (docs/DESIGN-PHASE3-LIVE.md §2.3, §2.6).
+//
+// The ledger row commits with the flip: a pass that never became a pass is never
+// billed, and a re-fire — which really does make another request — is billed
+// again while the two players keep the single round they were granted at
+// open→drawing. What the row does NOT cover is the retries inside the judge seam
+// itself (docs/JUDGE.md §7 pins 3), because counting those would mean handing the
+// frozen Judge contract a database dependency; the row is one per PASS and says
+// so in aibudget.BillProvider.
+//
+// A ledger failure fails the transition. That is deliberate and it is the cheap
+// direction: the ledger lives in the same database as the match row, so an insert
+// that fails has almost certainly taken the surrounding transaction with it
+// already, and a duel that stays in `drawing` for another sweep tick is a far
+// smaller problem than a provider ceiling that silently stops counting.
+func (s *Service) enterJudging(ctx context.Context, qtx *db.Queries, matchID string) error {
+	if _, err := qtx.SetMatchJudging(ctx, matchID); err != nil {
+		return fmt.Errorf("game: to judging: %w", err)
+	}
+	if s.billProvider == nil {
+		return nil // unbudgeted (a fake judge spends no external quota)
+	}
+	if err := s.billProvider(ctx, qtx); err != nil {
+		return fmt.Errorf("game: bill duel judge call: %w", err)
+	}
+	return nil
 }
 
 // dispatchJudging starts a judging pass for a match that just entered judging, if
@@ -855,15 +910,16 @@ func rowsContain(rows []db.ListMatchPlayersRow, userID string) bool {
 	return false
 }
 
-// SetBudget installs the duel's two ports into the daily AI-call ceiling, the
+// SetBudget installs the duel's three ports into the daily AI-call ceiling, the
 // same post-construction wiring shape as SetPublisher: NewService's signature
 // stays put, every existing test keeps an unbudgeted service, and main.go opts in
-// once with the pair aibudget bound to KindDuel.
+// once with the trio aibudget bound to KindDuel.
 //
-// Either may be nil, and nil means unbudgeted rather than a panic — an
+// Any of them may be nil, and nil means unbudgeted rather than a panic — an
 // unconfigured ceiling must fail open. It is the composition root, not this
 // method, that decides whether a real provider is configured at all.
-func (s *Service) SetBudget(check aibudget.Check, spend aibudget.SpendTx) {
+func (s *Service) SetBudget(check aibudget.Check, billPlayers aibudget.BillPlayers, billProvider aibudget.BillProvider) {
 	s.checkBudget = check
-	s.spendDuel = spend
+	s.billPlayers = billPlayers
+	s.billProvider = billProvider
 }

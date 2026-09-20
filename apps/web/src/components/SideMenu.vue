@@ -286,7 +286,14 @@ function onKeydown(e: KeyboardEvent) {
                  Duel and practice are open to anonymous visitors (both views gate
                  on mount, so the sign-in prompt arrives with a reason attached);
                  the ladder is not, because GET /api/leaderboard requires a session
-                 and an anonymous click would only earn a 401. -->
+                 and an anonymous click would only earn a 401.
+
+                 `tonal`, not `outline`: outline with no colour resolves to the same
+                 maroon hairline as Load/New/Export three rows above, so the
+                 product's MAIN mode read as "File, part two". DESIGN-SYSTEM §2
+                 keeps tonal for grouped mid-emphasis, which is exactly what a
+                 navigation trio is — distinct from the file actions without
+                 stealing the single `fill` that belongs to Save. -->
             <section class="menu__section" aria-label="Play">
                 <h2 class="menu__section-title">Play</h2>
                 <div class="menu__stack">
@@ -296,7 +303,7 @@ function onKeydown(e: KeyboardEvent) {
                         :as="RouterLink"
                         to="/play"
                         text="Play a duel"
-                        variant="outline"
+                        variant="tonal"
                         radius="md"
                         fluid
                         :icon="icons.mdiSwordCross"
@@ -306,7 +313,7 @@ function onKeydown(e: KeyboardEvent) {
                         :as="RouterLink"
                         to="/practice"
                         text="Practice solo"
-                        variant="outline"
+                        variant="tonal"
                         radius="md"
                         fluid
                         :icon="icons.target"
@@ -317,7 +324,7 @@ function onKeydown(e: KeyboardEvent) {
                         :as="RouterLink"
                         to="/leaderboard"
                         text="Leaderboard"
-                        variant="outline"
+                        variant="tonal"
                         radius="md"
                         fluid
                         :icon="icons.podium"

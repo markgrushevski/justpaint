@@ -37,7 +37,7 @@ import {
     matches,
     icons,
     isAuthError,
-    isRateLimited,
+    isBudgetExhausted,
     toApiError,
     openMatchSocket,
     leaderboardKeys
@@ -363,7 +363,14 @@ function handleError(err: unknown): void {
     // The server's own wording is the right wording here: it is the only side that
     // knows whether the player spent THEIR duels or the service spent its budget,
     // and it deliberately tells them the first without exposing the second.
-    toError(toApiError(err)?.message ?? 'Something went wrong. Try again.', isRateLimited(err))
+    //
+    // `isBudgetExhausted`, not `isRateLimited`: the per-IP write tier answers 429
+    // too (docs/API.md §3.1 — shared with saves, practice and guesses, burst 30 at
+    // one token per 2s, trivial to trip from behind a NAT), and that one clears in
+    // SECONDS. Treating it as a spent day told the player their duels were over and
+    // took the retry away with it. The two are split on the Retry-After header the
+    // server sets for one and deliberately withholds from the other.
+    toError(toApiError(err)?.message ?? 'Something went wrong. Try again.', isBudgetExhausted(err))
 }
 
 /** True once a terminal phase (`done`, or abandoned/error) has been reached for

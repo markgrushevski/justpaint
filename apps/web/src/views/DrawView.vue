@@ -42,6 +42,7 @@ import {
     copyImage,
     copyText,
     isAuthError,
+    isBudgetExhausted,
     isRateLimited,
     toApiError,
     useAssist,
@@ -56,7 +57,7 @@ import type { Guess } from '@core'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import EmptyState from '../components/EmptyState.vue'
 import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
-import GuessResult from '../components/GuessResult.vue'
+import GuessResult, { type GuessStatus } from '../components/GuessResult.vue'
 import LayersPanel from '../components/LayersPanel.vue'
 import ShortcutsDialog from '../components/ShortcutsDialog.vue'
 import SideMenu from '../components/SideMenu.vue'
@@ -113,8 +114,21 @@ const assistNote = ref<string | null>(null)
 // `isPending` can't be, because the card has to OUTLIVE the request to show the
 // answer it came back with.
 const guessMutation = useGuess()
-const guessPending = computed(() => guessMutation.isPending.value)
 const guessOpen = ref(false)
+/**
+ * What the card shows, as ONE discriminant (PracticeView's `Phase` precedent).
+ * `guessResult` / `guessError` are its payloads and `guessExhausted` its
+ * orthogonal qualifier; `setGuessStatus` is the only thing that moves them, so a
+ * status can never be read against a payload left over from the answer before it.
+ *
+ * It is NOT the same fact as `guessPending` below. That one is the transport's —
+ * is a call in flight — and it is what guards SPENDING; this one is the card's.
+ * They part company for exactly one window: the card dismissed mid-call, where
+ * the status stays `pending` (the guess is already paid for, so re-opening lands
+ * back on the wait) while nothing is mounted to show it.
+ */
+const guessStatus = ref<GuessStatus>('idle')
+const guessPending = computed(() => guessMutation.isPending.value)
 const guessResult = ref<Guess | null>(null)
 // A failure lives in the card too, not in a toast — see `onGuessError`.
 const guessError = ref('')
@@ -193,8 +207,12 @@ const isEmpty = computed(() => layers.value.every((l) => l.strokeCount === 0))
 const HINT_KEY = 'jp.hintDismissed'
 const hintDismissed = ref(false)
 // Show only on an empty canvas for users who haven't dismissed it; the first
-// stroke flips isEmpty false and the hint disappears on its own.
-const showHint = computed(() => !hintDismissed.value && isEmpty.value)
+// stroke flips isEmpty false and the hint disappears on its own. It also stands
+// down while the guess card is up: both are centred in the same `#overlay` slot,
+// and now that the guess trigger works on a blank canvas (to say so in words)
+// they can want that slot at the same moment. The card was asked for; the hint
+// was not, so the hint yields.
+const showHint = computed(() => !hintDismissed.value && isEmpty.value && !guessOpen.value)
 function dismissHint() {
     hintDismissed.value = true
     try {
@@ -445,10 +463,14 @@ function onKeydown(e: KeyboardEvent) {
     }
     if (e.altKey) return
     // Esc: the menu first — it's non-modal, so focus may still sit on the
-    // canvas where its own panel-scoped Esc never fires — then the cheat-sheet.
+    // canvas where its own panel-scoped Esc never fires — then the cheat-sheet,
+    // then the guess card. The card comes last because it is the least insistent
+    // of the three (no backdrop, no focus trap, and the canvas stays live under
+    // it), but it IS floating chrome over the drawing, so Esc has to reach it.
     if (e.key === 'Escape') {
         if (menuOpen.value) menuOpen.value = false
         else if (shortcutsOpen.value) shortcutsOpen.value = false
+        else if (guessOpen.value) dismissGuess()
         return
     }
     // "?" toggles the cheat-sheet — desktop only (the chip is hidden <=600px).
@@ -767,13 +789,24 @@ function rejectAssist() {
 
 /* --- AI guess handlers ------------------------------------------------ */
 
-/** Close the card and forget the answer, so the next ask starts clean. Also the
- *  doc-swap teardown below, which additionally marks any in-flight call stale. */
-function dismissGuess() {
-    guessOpen.value = false
+/** Move the card to `status` and drop every payload with it — the ONE place the
+ *  four pieces of card state change together. */
+function setGuessStatus(status: GuessStatus) {
+    guessStatus.value = status
     guessResult.value = null
     guessError.value = ''
     guessExhausted.value = false
+}
+
+/** Close the card and forget the answer, so the next ask starts clean. The
+ *  document-swap teardown is `invalidateGuess` below, which goes further. */
+function dismissGuess() {
+    guessOpen.value = false
+    // A call still in flight keeps its `pending` status: the card goes away, but
+    // the guess is already paid for, so re-opening must land back on the wait
+    // rather than on a blank `idle` (and `onSuccess` still has somewhere to put
+    // the answer). Everything else resets.
+    if (!guessPending.value) setGuessStatus('idle')
 }
 
 /** A guess describes the document it was asked about — drop it (and disown any
@@ -782,16 +815,42 @@ function dismissGuess() {
  *  canvas that no longer exists. */
 function invalidateGuess() {
     guessStale = true
-    dismissGuess()
+    guessOpen.value = false
+    // Unlike a plain dismiss this resets an IN-FLIGHT call's status too: the
+    // answer it is about to return has just been disowned, so leaving `pending`
+    // behind would let the trigger re-open onto a wait that can never resolve.
+    setGuessStatus('idle')
 }
+
+/**
+ * The canvas emptying under the card is a document swap in everything but name.
+ * `requestGuess` only checks `isEmpty` when it FIRES, so undoing back to a blank
+ * page used to leave an answer about a drawing that no longer exists — and it
+ * would have let `EmptyState`'s first-run hint share the `#overlay` slot with it,
+ * the collision the template below asserts is impossible.
+ *
+ * It disowns rather than merely closes, because with the trigger now always
+ * enabled a lingering answer would re-open on a blank canvas instead of saying
+ * "draw something first". A redo that brings the strokes back costs a new guess,
+ * which is the same price a dismiss has always carried.
+ */
+watch(isEmpty, (empty) => {
+    if (empty) invalidateGuess()
+})
 
 /**
  * A failed guess stays INSIDE the card — deliberately NOT `reportError`'s red
  * toast. Two guesses a day is the whole budget, so "that was your last one" is an
  * ordinary, expected outcome, and a toast identical to the one a crashed server
- * gets would read it as a failure on the visitor's part. `isRateLimited` is what
- * separates the two; the card then swaps its headline and drops the retry, which
- * could not succeed again today anyway.
+ * gets would read it as a failure on the visitor's part.
+ *
+ * Which refusal it is decides whether the retry survives, and `429 rate_limited`
+ * is TWO refusals wearing one code (docs/API.md §3.1). `isBudgetExhausted` — a
+ * 429 with no `Retry-After` — is the daily cap, and only that one drops the
+ * retry. The per-IP write tier (burst 30, one token per 2s, shared with saves and
+ * matches, and easy to trip from behind a NAT) also answers 429, but it clears in
+ * seconds, so it keeps its retry and says so; calling that one "your allowance
+ * for today" took away the single action that would have worked.
  *
  * A lapsed session is the one thing that does not belong in the card: it is not a
  * verdict about the drawing at all. It goes back to the shared `reportError`,
@@ -806,8 +865,21 @@ function onGuessError(err: unknown) {
         reportError(err, 'guess your drawing')
         return
     }
-    guessExhausted.value = isRateLimited(err)
-    guessError.value = toApiError(err)?.message ?? 'The AI could not be reached. Try again.'
+    // Status first: it clears whatever the card was holding, then the payload for
+    // this failure goes in beside it.
+    setGuessStatus('error')
+    const api = toApiError(err)
+    if (isBudgetExhausted(err)) {
+        guessExhausted.value = true
+        guessError.value = api?.message ?? 'That is every AI guess you get today.'
+        return
+    }
+    // The server's own sentence for a throttle is just "too many requests"; the
+    // part that matters to the visitor is that waiting works, which only this
+    // side knows to say (the header gives seconds, not a promise worth printing).
+    guessError.value = isRateLimited(err)
+        ? `${api?.message ?? 'Too many requests just now'} — try again in a moment.`
+        : (api?.message ?? 'The AI could not be reached. Try again.')
 }
 
 /**
@@ -819,22 +891,27 @@ function onGuessError(err: unknown) {
  */
 async function requestGuess() {
     if (!editor || guessPending.value) return
-    // Mirrors the trigger's own `disabled` — the card's "Guess again" can also
-    // reach here, and the canvas may have been erased since the card opened.
-    if (isEmpty.value) return
+    // The empty-canvas guard still stops the call; what changed is that it now
+    // ANSWERS. The trigger used to carry the reason in a disabled button's
+    // tooltip, which a phone cannot show and a keyboard cannot reach, so the card
+    // — already the single home for every outcome — says it instead.
+    if (isEmpty.value) {
+        setGuessStatus('idle')
+        guessOpen.value = true
+        return
+    }
     if (!(await gated('Sign in to have the AI guess your drawing.'))) return
     // Re-check across the await: the modal can stay up for minutes, and browser
     // Back unmounts this view and nulls `editor` underneath us (as in `save()`).
     if (!editor) return
     guessStale = false
     // Open the card BEFORE firing, so the several-second wait has somewhere to live.
+    setGuessStatus('pending')
     guessOpen.value = true
-    guessResult.value = null
-    guessError.value = ''
-    guessExhausted.value = false
     guessMutation.mutate(editor.getDocument(), {
         onSuccess: (result) => {
             if (guessStale) return
+            setGuessStatus('answered')
             guessResult.value = result
         },
         onError: onGuessError
@@ -853,9 +930,9 @@ function toggleGuess() {
     }
     // Closed with a call still running, or with an answer that landed after it was
     // closed: that call is already spent, so re-open onto it rather than paying
-    // for a second. `dismissGuess` clears both, so this can only be true for a
-    // guess nobody has actually read yet.
-    if (guessPending.value || guessResult.value || guessError.value) {
+    // for a second. A read guess resets the status on dismiss, so anything but
+    // `idle` here is a guess nobody has actually seen yet.
+    if (guessStatus.value !== 'idle') {
         guessOpen.value = true
         return
     }
@@ -897,19 +974,19 @@ function toggleGuess() {
                      you drew. It lives in THIS island rather than the top-center
                      strip because the assist panel already owns that slot (and drops
                      to its own row <=1050px), so a second panel would fight it; the
-                     answer lands in the overlay card instead. Disabled on a blank
-                     canvas — asking what an empty page depicts would burn one of a
-                     very small daily allowance to be told nothing. -->
+                     answer lands in the overlay card instead.
+
+                     Deliberately NOT disabled on a blank canvas. A disabled button
+                     takes no focus, and oriui's tooltip needs hover or focus-within,
+                     so on a phone the reason for the dimming had nowhere to appear —
+                     it was a faint eye that would not respond and would not explain.
+                     The guard is still there (`requestGuess` spends nothing on an
+                     empty page); it just answers in the card now. -->
                 <IconButton
                     icon="guess"
-                    :label="
-                        isEmpty
-                            ? 'Draw something first, then the AI can guess it'
-                            : 'Guess my drawing — ask the AI what it sees'
-                    "
+                    label="Guess my drawing — ask the AI what it sees"
                     placement="bottom"
                     :pressed="guessOpen"
-                    :disabled="isEmpty"
                     @click="toggleGuess"
                 />
                 <!-- Which layer new strokes / the eraser land on — shown only when the
@@ -1038,15 +1115,16 @@ function toggleGuess() {
                 />
             </Transition>
 
-            <!-- The AI's reading of the canvas. Mounted on demand and only ever over
-                 a NON-empty canvas (the trigger is disabled otherwise), which is
-                 also why it can never share the overlay with the empty-state card
-                 above — `showHint` requires the opposite. -->
+            <!-- The AI's reading of the canvas — mounted on demand, and the one
+                 surface the whole feature has: the wait, the answer, every failure
+                 and "draw something first" all land here. It can never share the
+                 overlay with the empty-state card above, because `showHint` stands
+                 down for exactly as long as this is open. -->
             <Transition name="jp-pop">
                 <GuessResult
                     v-if="guessOpen"
                     class="draw__guess"
-                    :pending="guessPending"
+                    :status="guessStatus"
                     :label="guessResult?.label ?? null"
                     :confidence="guessResult?.confidence ?? 0"
                     :alternatives="guessResult?.alternatives ?? []"
@@ -1258,7 +1336,17 @@ function toggleGuess() {
 }
 
 /* The AI-guess card owns its own box (width, scroll, pointer-events) — what is
-   /draw's business is WHERE it sits, which is the phone rule below. */
+   /draw's business is WHERE it sits, which is the small-screen rule below.
+
+   The lift is declared here and applied there so the number has a name at the
+   point it is explained: the overlay CENTERS its children and the toolbar owns
+   the bottom ~4rem of a small screen, so a centred card can reach it. The margin
+   is part of the centred box, so this 5rem buys a ~2.5rem rise — enough that the
+   tools stay tappable while the answer is up, which matters because the whole
+   point is to go back and draw more. */
+.draw__guess {
+    --jp-guess-lift: 5rem;
+}
 
 /* The card fades + settles in place (a straight fade/scale — NOT the toast's
    horizontal slide, which reads wrong on a centered welcome card). */
@@ -1410,20 +1498,25 @@ function toggleGuess() {
     }
 }
 
+/* The guess card's lift, keyed on BOTH axes because the constraint it solves is
+   VERTICAL — the toolbar sits at the bottom edge and the card is centred above it.
+   A width-only rule missed the case that needs it most: at 667x375 (a phone in
+   landscape) the width query never fires, and a full answer there (label +
+   certainty + two runner-ups, the tallest this card gets) leaves single-digit
+   pixels above the toolbar. Measured with the lift on: the card ends at 231 and
+   the bar starts at 309. 500px of height is where a centred card and the toolbar
+   begin competing for the same screen. */
+@media (width <= 600px), (height <= 500px) {
+    .draw__guess {
+        margin-bottom: var(--jp-guess-lift);
+    }
+}
+
 @media (width <= 600px) {
     /* The mobile history island claims that second row (top-left), so the assist
        panel drops one row further to clear it. */
     .draw__assist {
         top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3.125rem * 2);
-    }
-
-    /* The overlay CENTERS its children and the toolbar owns the bottom ~4rem of a
-       phone, so a centered card can reach it. Lift the guess card clear: the
-       margin is part of the centered box, so 5rem here buys a ~2.5rem rise — the
-       tools stay tappable while the answer is up, which matters because the whole
-       point is to go back and draw more. */
-    .draw__guess {
-        margin-bottom: 5rem;
     }
 
     .draw__layers-scrim {

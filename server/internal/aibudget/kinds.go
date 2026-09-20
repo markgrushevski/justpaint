@@ -26,6 +26,35 @@ const (
 	KindAssist Kind = "assist"
 )
 
+// kindNouns is what each kind is called in the one sentence a refused player
+// reads. Player-facing words, not the ledger's: "duel" is the column value,
+// "duels" is what somebody out of them has run out of.
+//
+// It is a table rather than one message constant per kind because the sentence around it
+// never differed — only the noun did — and four constants meant four chances for
+// one of them to drift out of the shape the others share. See http.go.
+var kindNouns = map[Kind]string{
+	KindDuel:     "duels",
+	KindPractice: "scored drawings",
+	KindGuess:    "AI guesses",
+	KindAssist:   "AI drawing requests",
+}
+
+// fallbackNoun names a kind that has none of its own. A future feature that ships
+// its Kind before its word should still refuse a player in plain language rather
+// than in a blank.
+const fallbackNoun = "AI requests"
+
+// Noun is this kind in the player's words, for the refusal message. Every kind
+// has one (pinned by TestAllKindsIsComplete); an unknown one reads as a generic
+// AI request rather than as an empty string.
+func (k Kind) Noun() string {
+	if n, ok := kindNouns[k]; ok {
+		return n
+	}
+	return fallbackNoun
+}
+
 // Provider names whose free tier a call spends — the ledger's `provider` column.
 // The global half of the ceiling is counted PER PROVIDER, never service-wide:
 // Google running dry must not throttle an Anthropic-backed feature that still has
