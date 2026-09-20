@@ -68,6 +68,7 @@ docs/                specs — the source of truth
 | --- | --- |
 | [`CLAUDE.md`](CLAUDE.md) | **Source of truth** — scope, stack, commands, rules |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | branch / commit / merge workflow |
+| [`docs/ORIENTATION.md`](docs/ORIENTATION.md) | the owner's reading path + operator's manual (Russian); load-bearing files, hidden invariants, runbook, symptom→where-to-look |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | phases + durable status (the real status source) |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | key decisions + rationale |
 | [`docs/DOCUMENT-FORMAT.md`](docs/DOCUMENT-FORMAT.md) | the keystone vector-doc schema (v1) |

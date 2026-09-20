@@ -45,7 +45,7 @@ Phase 0 (specs), **Phase 1 (Go backend + minimal editor), Phase 2 (real vector e
 - **The document contract lives in two validators** (`packages/document` TS + `server/internal/document` Go) that must stay 1:1 — every invariant on both sides, DoS caps identical to `docs/API.md`, test tables mirrored. A format change lands in the spec AND both validators AND both test tables together.
 - **Dependency direction** (ARCHITECTURE §3): `document` imports nothing; `editor` imports only `document` + Konva + perfect-freehand (never Vue/router/API); app logic stays in `apps/web`.
 - **Trust boundary**: client PNGs/thumbnails are advisory; anything judged or persisted is derived server-side from the vector document. Ownership is scoped in every query — a foreign row answers **404**, never 403.
-- **Consume oriui, don't re-implement it** (`docs/DESIGN-SYSTEM.md`): colors are set **once** at the root (`main.css`) — components never re-mix a brand role (`color-mix(--ori-color-primary …)` is banned); drive button state with **props** (`variant`/`active`/`disabled`/`loading`), never a hand-rolled `--active` class or `opacity` disable; icon actions are `OriButton`/`IconButton` (icon mode + `radius`), not raw `<button>`; content → `OriCard`, floating chrome → `JpFloat`.
+- **Consume oriui, don't re-implement it** (`docs/DESIGN-SYSTEM.md`): colors are set **once** at the root (`main.css`) — components never re-mix a brand role (`color-mix(--ori-color-primary …)` is banned); drive button state with **props** (`variant`/`pressed`/`disabled`/`loading`), never a hand-rolled `--active` class or `opacity` disable; icon actions are `OriButton`/`IconButton` (icon mode + `radius`), not raw `<button>`; content → `OriCard`, floating chrome → `OriSurface` used directly (`JpFloat` was deleted at the rc.18 bump — DESIGN-SYSTEM §4).
 - Keep `/draw` focused but **polished** — the 2026-07-04 UX-first pass (ROADMAP Phase 3) gates the `/play` UI. Product energy goes to the game; avoid the two-products trap. The line is no longer "editor + save/load only": the AI-in-product features (`DECISIONS.md` 2026-07-04) need a canvas with no opponent and no deadline, so `/draw` is where they land — assist 2026-07-13, guess 2026-09-20. **The test is not "is it editing?" but "does it make the drawing better or the drawing more fun, without becoming a second product?"** Anything with a score, a ladder or an opponent belongs in the game, not here.
 - The authoritative judged raster is rendered **off the client** (`packages/render`, `RENDER_MODE=node`) from the validated vector document via the editor's own `renderToStage` — never a Go rasterizer (would diverge from the pinned `FREEHAND_VERSION`), never a client PNG.
 
@@ -65,6 +65,7 @@ Phase 0 (specs), **Phase 1 (Go backend + minimal editor), Phase 2 (real vector e
 
 ## Docs map
 Source of truth lives in `docs/` (each doc owns one thing and cross-references the rest):
+- `docs/ORIENTATION.md` — **written for the owner, in Russian**: an ordered reading path, the load-bearing files, the invariants that aren't visible locally, the run/deploy runbook, and a symptom → where-to-look table. Owns none of the contracts; it points at the docs that do.
 - `docs/ROADMAP.md` — phases & current status (durable tracker; the real status source).
 - `docs/DECISIONS.md` — decision log (the "why").
 - `docs/DOCUMENT-FORMAT.md` — the keystone vector-doc schema (v1).
@@ -74,7 +75,7 @@ Source of truth lives in `docs/` (each doc owns one thing and cross-references t
 - `docs/GAME.md` — match lifecycle, canvas, ratings.
 - `docs/ASSIST.md` — AI-assist Op contract, the `internal/assist` seam, doc-summary shape, ghost-preview UX.
 - `docs/REVIEW.md` — the per-change review bar (contract parity, security, scope).
-- `docs/DESIGN-SYSTEM.md` — how the UI consumes oriui (colors at root only, drive state with props, `JpFloat`/`IconButton`, `OriCard` for content) — the frontend chrome contract.
+- `docs/DESIGN-SYSTEM.md` — how the UI consumes oriui (colors at root only, drive state with props, `OriSurface`/`IconButton`, `OriCard` for content) — the frontend chrome contract.
 - `docs/NOTES.md` — non-obvious implementation gotchas (read first; append what you learn).
 - `docs/IDEAS.md` — non-blocking backlog (deferred hardening & good-ideas-later).
 - `docs/ISSUES-INNER.md` — known problems **we** fix here (confirmed and unconfirmed, with evidence).

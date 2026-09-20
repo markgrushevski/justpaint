@@ -111,7 +111,7 @@ backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`clos
 - [ ] No raw `<button>` for an action → `OriButton`/`IconButton`.
 - [ ] No `color-mix()` of a **brand** role in a component `<style>`; no `--active`/`--accent` class → `active` prop.
 - [ ] No `opacity` disabled override → `disabled` prop.
-- [ ] One icon component per cluster (`OriIcon`).
+- [ ] One icon component per cluster — `ToolIcon` is the app's set (§3); `OriIcon` only where a path prop is passed.
 - [ ] Floating chrome → `OriSurface`; content card → `OriCard`.
 - [ ] `npm run lint:all` (incl. contrast) + `npm run test:a11y` still green.
 

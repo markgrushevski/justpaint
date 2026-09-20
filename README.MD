@@ -83,8 +83,11 @@ docs/                specs and decisions — the source of truth
 | `document` | the Go half of the vector-document validator (mirrors `packages/document`) |
 | `game` | match lifecycle — create/join, submit, judging, result, round deadline, forfeit/abandon |
 | `render` | the `Renderer` seam — `StubRenderer` and `NodeRenderer` (spawns `packages/render`) |
-| `judge` | the `Judge` interface + `FakeJudge` |
+| `practice` | single-player mode — one prompt, one drawing, one score, no opponent |
+| `guess` | "what did I draw?" on `/draw` — one image in, a guess out, nothing persisted |
+| `judge` | three vision seams: the collaborator's frozen `Judge`, plus our own `Critic` (practice) and `Guesser` (guess); `Fake*`/`HTTP*`/`Gemini*` impls |
 | `assist` | the `Assist` interface + `FakeAssist` + a scaffolded `AnthropicAssist` |
+| `aibudget` | the daily AI-call ceiling over the `ai_calls` ledger — per kind per player, per provider globally |
 | `ratings` | the read-only leaderboard (Elo aggregate + sort over match players) |
 | `ws` | the `coder/websocket` hub pushing match-room state in realtime |
 | `db` | sqlc-generated typed queries |

@@ -46,7 +46,8 @@ Fixed upstream and removed (released, upgraded, entry deleted — per the rule a
   text sits 2px off the card's centre (a leading icon) — against the visible skew the owner raised
   2026-09-18. Nothing local to remove here: this one was `accepted`, never overridden.
 
-Still open after the bump: JP-O-04, JP-O-05, JP-O-06 and JP-O-09, below.
+Still open: JP-O-05, JP-O-06, JP-O-09 and JP-O-10, below. (JP-O-04 is listed too, but its own entry retracts it —
+it was never a defect. JP-O-10 was found after the bump, on 2026-09-20.)
 
 ## JP-O-04 — `OriTooltip`'s `aria-describedby`: entry retracted, not a defect
 
