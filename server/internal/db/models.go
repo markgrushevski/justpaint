@@ -9,6 +9,14 @@ import (
 	"time"
 )
 
+type AiCall struct {
+	ID        string
+	UserID    *string
+	Kind      string
+	Provider  *string
+	CreatedAt time.Time
+}
+
 type Drawing struct {
 	ID           string
 	OwnerID      string

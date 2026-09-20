@@ -97,7 +97,11 @@ The server **validates every op** against the Go document validator before retur
 
 ### 3.4 Rate limiting
 
-A **per-user token bucket** on `/api/assist/ops` ships *with* this feature (not deferred like the general 429 work in `DECISIONS.md` 2026-06-20) — the app will be a public demo and each request costs real API money. Simple in-process bucket, keyed by user id; the general per-IP/per-login limiter can absorb it later. Exceeding it returns `429 rate_limited` with a `Retry-After` header (seconds).
+**Two limits, answering two different questions.** A **per-user token bucket** on `/api/assist/ops` ships *with* this feature (not deferred like the general 429 work in `DECISIONS.md` 2026-06-20) — the app will be a public demo and each request costs real API money. Simple in-process bucket, keyed by user id; the general per-IP/per-login limiter can absorb it later. Exceeding it returns `429 rate_limited` with a `Retry-After` header (seconds).
+
+The bucket bounds the **rate** — how fast one user may ask — and it lives *in this process*, so the host resets it on every deploy and every wake from idle. That means it was never a ceiling at all: it could be emptied, and then handed back in full, as often as the instance restarted. Since **2026-09-20** assist therefore also sits under the **daily AI-call budget** (`docs/GAME.md` §4.3, `server/internal/aibudget`), which bounds the daily **quota**, lives in Postgres, and so actually holds: kind `assist`, default **40 calls per player per rolling 24h**, plus the per-provider global ceiling that every AI feature shares. It is enforced only when a real impl is configured (`ASSIST_MODE=anthropic` → provider `anthropic`); under `FakeAssist` there is no external quota to protect, so it is never checked and never recorded.
+
+Order in the handler: the bucket first, before the body is even decoded; then the body/prompt guards; then the daily ceiling, last of the guards and immediately before the one line that costs money — the point of a quota is to refuse *before* the call, never after paying for it. The spend is recorded **before** the impl is invoked, never after: a call that fails still spent the provider's quota. The budget's two refusals are also `429 rate_limited` but carry **no** `Retry-After` (the window rolls continuously, so there is no fixed reset to name); exact messages and status map: `docs/API.md` §10.
 
 ## 4. The doc summary (token thrift)
 

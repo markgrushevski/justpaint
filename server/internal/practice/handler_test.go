@@ -66,7 +66,7 @@ func mintCookie(t *testing.T, userID string) *http.Cookie {
 // *db.Queries here is never touched: that is the point of validating at the edge.
 func unconfiguredMux(t *testing.T) *http.ServeMux {
 	t.Helper()
-	svc := NewService(nil, nil, nil, nil, slog.New(slog.DiscardHandler))
+	svc := NewService(nil, nil, nil, nil, nil, slog.New(slog.DiscardHandler))
 	mux := http.NewServeMux()
 	NewHandler(svc, slog.New(slog.DiscardHandler)).Routes(mux, authMiddleware(t))
 	return mux

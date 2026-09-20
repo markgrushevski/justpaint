@@ -81,11 +81,12 @@ chosen by the first matching rule, and each tier has its own independent budget.
 A throttled request gets **`429 rate_limited`** in the standard envelope plus a
 **`Retry-After`** header (seconds). `POST /api/assist/ops` keeps its own
 *per-user* bucket on top of this (§10) — that one guards API spend, not abuse.
-`POST /api/matches` **and** `POST /api/practice` (§12) each layer on a third,
-unrelated `429 rate_limited`: a **daily judge-call budget** (`GAME.md` §4.3),
-global and per-player, guarding a resource this per-IP bucket cannot see at
-all — a free-tier quota measured in requests per **day**, not per second,
-spent alike by a duel entering judging and by a practice run being critiqued.
+`POST /api/matches`, `POST /api/practice` (§12) **and** `POST /api/assist/ops`
+(§10) each layer on a third, unrelated `429 rate_limited`: a **daily AI-call
+budget** (`GAME.md` §4.3), per-user-per-kind and per-provider, guarding a
+resource this per-IP bucket cannot see at all — a free-tier quota measured in
+requests per **day**, not per second, spent alike by a duel starting its
+round, a practice run being critiqued and an assist prompt reaching the model.
 Unlike the tiers above it carries **no `Retry-After`** header: the window
 rolls continuously, so there is no fixed reset to name. (`GET
 /api/practice/prompt` is a cheap read and sits in the generous `default` tier,
@@ -294,7 +295,7 @@ Success `201 Created` (the caller opened a new match and is waiting — or was r
 > `canvas` echoes the canonical **1080×1080** game canvas (owned by `GAME.md`) so the client configures the editor without guessing. The submitted document's `width`/`height` MUST match it (enforced at submit, §8.3).
 > `drawingDeadline` is `null` while `status: "open"`; once the roster fills and the match flips to `drawing` it becomes an absolute RFC3339Nano UTC instant (`now() + 90s`, the server's clock — `GAME.md` §4.1). `serverTime` is the response-build instant, always present, in the same format, so the client reconciles clock skew instead of trusting its own clock for the countdown.
 
-Errors: `400 validation_failed` (bad `mode`), `401 unauthorized`, `429 rate_limited` — two distinct causes, same code and status, checked in order: the caller's own daily duel allowance is spent (message `"you have used all of your duels for today — new ones unlock as the day rolls over"`), or — only once they've cleared that check — the service's whole daily judge budget is spent (message `"the daily judging budget is spent — duels resume tomorrow"`). Neither response discloses the budget's size, and unlike §3.1's tiers, neither carries a `Retry-After` header. Full rule: `GAME.md` §4.3; why: `DECISIONS.md` 2026-09-19.
+Errors: `400 validation_failed` (bad `mode`), `401 unauthorized`, `429 rate_limited` — two distinct causes, same code and status, checked in order: the caller's own daily **duel** allowance is spent (message `"you have used all of your duels for today — new ones unlock as the day rolls over"`), or — only once they've cleared that check — the whole daily budget of the provider backing the judge is spent (message `"the AI budget for today is spent — this feature resumes tomorrow"`). The **global** refusal discloses nothing about the budget's size; a per-kind refusal may name the caller's own cap where it is small enough to have been counted (this one does not — `GAME.md` §4.3). Unlike §3.1's tiers, neither carries a `Retry-After` header. Full rule: `GAME.md` §4.3; why: `DECISIONS.md` 2026-09-19, 2026-09-20.
 
 ### `GET /api/matches/{id}`
 Fetch match state. **Auth: required**; caller must be a player ⇒ otherwise `404 not_found` (hidden). **Opponent's drawing is redacted until `status: "done"`** (visibility rule, `GAME.md`).
@@ -457,7 +458,7 @@ The socket is additive, never a replacement for §8's poll loop (`GET /matches/{
 Turns a natural-language prompt into a validated batch of document operations (**Ops**) the client applies as one composite editor command. **`docs/ASSIST.md` is the contract owner** — the Op schema (§2), the `internal/assist` seam (§3), the doc-summary shape (§4), and the ghost-preview/accept UX (§5) are defined there; this entry carries only the HTTP edge.
 
 ### `POST /api/assist/ops`
-**Auth: required** (session cookie, like every write route). Rate-limited per user — each call can cost real API money (`docs/ASSIST.md` §3.4).
+**Auth: required** (session cookie, like every write route). Rate-limited per user **twice over** — an in-process token bucket on the request *rate*, plus the durable daily AI-call ceiling on the *quota* behind it — because each call can cost real API money (`docs/ASSIST.md` §3.4, `GAME.md` §4.3).
 
 Request:
 ```json
@@ -481,7 +482,7 @@ Success `200 OK`:
 Errors:
 - `400 validation_failed` — malformed/oversized request body, the handler's defense-in-depth re-validation of the impl's output, **or** (once `AnthropicAssist` is wired to a live SDK call — still a config-gated scaffold in Phase A, `docs/ASSIST.md` §3.2/§3.3) the model's output still failing validation after the retry budget. All fold into the same code/status — never `422` (§3 reserves it unused in v1).
 - `401 unauthorized` — no/expired/invalid `jp_session`.
-- `429 rate_limited` — the per-user token bucket is exceeded; the response carries a **`Retry-After`** header (seconds) alongside the standard error envelope.
+- `429 rate_limited` — **two distinct limits**, same code/status. First, the per-user **token bucket** (`docs/ASSIST.md` §3.4), checked before the body is even decoded and the only one of the two that carries a **`Retry-After`** header (seconds). Then the **daily AI-call budget** (`GAME.md` §4.3), checked last of the guards and immediately before the model call — itself two causes in order: the caller's own `assist` allowance is spent (message *"you have used all of your AI drawing requests for today — new ones unlock as the day rolls over"*), or, only once they've cleared that, the whole daily budget of the provider behind assist is spent (message *"the AI budget for today is spent — this feature resumes tomorrow"*). Neither budget refusal carries a `Retry-After`: the window rolls continuously, so there is no fixed reset to name (§3.1).
 
 ## 11. Ratings — the leaderboard
 
@@ -511,7 +512,7 @@ Errors:
 
 ## 12. Practice — single-player scoring
 
-All under `/api/practice`. **Auth: required** on both routes — a run is recorded against a user and spends their share of the judge budget (§3.1, `GAME.md` §4.3), so there is no anonymous path. Practice is the async duel's (§8) solo sibling: one player, one prompt, the SAME real judge infrastructure and the SAME 1080×1080 canvas — but no match, no roster, no deadline, and the verdict comes back **synchronously**, in the response that submits the drawing. Full rules (why it isn't a `matches` row, why it isn't rated): `docs/GAME.md`'s practice section. The scoring seam (`Critic`, explicitly not the `Judge` contract): `docs/JUDGE.md` §8.2. The "why": `docs/DECISIONS.md` 2026-09-20.
+All under `/api/practice`. **Auth: required** on both routes — a run is recorded against a user and spends their own `practice` share of the daily AI-call budget (§3.1, `GAME.md` §4.3), so there is no anonymous path. Practice is the async duel's (§8) solo sibling: one player, one prompt, the SAME real judge infrastructure and the SAME 1080×1080 canvas — but no match, no roster, no deadline, and the verdict comes back **synchronously**, in the response that submits the drawing. Full rules (why it isn't a `matches` row, why it isn't rated): `docs/GAME.md`'s practice section. The scoring seam (`Critic`, explicitly not the `Judge` contract): `docs/JUDGE.md` §8.2. The "why": `docs/DECISIONS.md` 2026-09-20.
 
 ### `GET /api/practice/prompt`
 Fetch one prompt to draw. **Auth: required.**
@@ -552,6 +553,6 @@ Errors:
 - `400 validation_failed` — invalid document, or the wrong canvas size.
 - `413 document_too_large` — over 8 MB.
 - `404 not_found` — `promptId` is not a valid UUID, or names no *active* prompt. A retired prompt answers exactly like a made-up one (§1 ownership-hiding, applied here to "does this prompt still exist" rather than ownership) — deactivation is not detectable by trying to draw for it.
-- `429 rate_limited` — the **same daily judge-call budget** a duel draws on (`GAME.md` §4.3), two distinct causes, same code/status, checked in order: the caller's own daily allowance is spent (message *"you have used all of your scored drawings for today — new ones unlock as the day rolls over"*), or — only once they've cleared that check — the service's whole daily judging budget is spent (message *"the daily judging budget is spent — scoring resumes tomorrow"*). Neither response discloses the budget's size, and neither carries a `Retry-After` header (same posture as `POST /api/matches`, §8).
+- `429 rate_limited` — the **same daily AI-call budget** a duel draws on (`GAME.md` §4.3), two distinct causes, same code/status, checked in order: the caller's own daily **practice** allowance is spent (message *"you have used all of your scored drawings for today — new ones unlock as the day rolls over"*), or — only once they've cleared that check — the whole daily budget of the provider behind the critic is spent (message *"the AI budget for today is spent — this feature resumes tomorrow"*). The **global** refusal discloses nothing about the budget's size; a per-kind refusal may name the caller's own cap where it is small enough to have been counted (this one does not). Neither carries a `Retry-After` header (same posture as `POST /api/matches`, §8).
 - `500 internal` — **practice is not configured on this server.** Under `JUDGE_MODE=http` there is no `Critic` (the collaborator's service has no critique endpoint and was never asked to build one — `JUDGE.md` §8.2), so every call refuses rather than silently scoring with the fake critic. This is the **one `500` in this API whose message names its cause** — *"practice is not available on this server: the configured judge cannot score a single drawing"* — instead of the usual opaque `"internal error"` (§3): a misconfigured `JUDGE_MODE` is a deployment fact worth surfacing, not a secret, and an opaque message here would let the mistake go unnoticed for a long time.
 - `401 unauthorized`.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -408,27 +409,49 @@ func TestLoad_JudgeMode(t *testing.T) {
 	})
 }
 
-// TestLoad_JudgeBudget pins the two daily judge-call caps. They guard a resource no
-// rate limiter can see — a free tier's per-DAY quota, one call per duel — so a
+// TestLoad_AIBudget pins the daily AI-call ceilings. They guard a resource no
+// rate limiter can see — a free tier's per-DAY quota, one call per request — so a
 // mistyped or zeroed knob must be a boot error, not a budget quietly nobody set.
-// There is deliberately no "unlimited" sentinel: 0 reads as "off" to an operator and
-// would behave as "refuse every duel" in the code.
-func TestLoad_JudgeBudget(t *testing.T) {
+// There is deliberately no "unlimited" sentinel: 0 reads as "off" to an operator
+// and would behave as "refuse everything" in the code.
+func TestLoad_AIBudget(t *testing.T) {
 	t.Run("defaults", func(t *testing.T) {
 		requireBaseEnv(t)
 		cfg, err := Load()
 		if err != nil {
 			t.Fatalf("Load: %v", err)
 		}
-		if cfg.JudgeDailyBudget != DefaultJudgeDailyBudget {
-			t.Errorf("JudgeDailyBudget = %d, want %d", cfg.JudgeDailyBudget, DefaultJudgeDailyBudget)
+		if cfg.AIDailyGlobal != DefaultAIDailyGlobal {
+			t.Errorf("AIDailyGlobal = %d, want %d", cfg.AIDailyGlobal, DefaultAIDailyGlobal)
 		}
-		if cfg.JudgeDailyPerUser != DefaultJudgeDailyPerUser {
-			t.Errorf("JudgeDailyPerUser = %d, want %d", cfg.JudgeDailyPerUser, DefaultJudgeDailyPerUser)
+		// Empty, not populated: the per-kind ceilings live beside the kinds in
+		// internal/aibudget, so an unconfigured server carries no opinion here.
+		if len(cfg.AIDailyPerUser) != 0 {
+			t.Errorf("AIDailyPerUser = %v, want empty", cfg.AIDailyPerUser)
 		}
 	})
 
-	t.Run("both are overridable, and a per-user cap above the global one is allowed", func(t *testing.T) {
+	t.Run("the new names set both halves", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("AI_DAILY_GLOBAL", "77")
+		t.Setenv("AI_DAILY_PER_USER", "duel=5, guess=2")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AIDailyGlobal != 77 {
+			t.Errorf("AIDailyGlobal = %d, want 77", cfg.AIDailyGlobal)
+		}
+		want := map[string]int{"duel": 5, "guess": 2}
+		if !maps.Equal(cfg.AIDailyPerUser, want) {
+			t.Errorf("AIDailyPerUser = %v, want %v", cfg.AIDailyPerUser, want)
+		}
+	})
+
+	// The compatibility guarantee that makes this deployable without touching a
+	// live environment by hand: the pre-per-kind names keep working and keep
+	// meaning what they meant.
+	t.Run("the legacy names still work, and a per-user cap above the global one is allowed", func(t *testing.T) {
 		requireBaseEnv(t)
 		t.Setenv("JUDGE_DAILY_BUDGET", "50")
 		// Above the global budget on purpose: that is how an operator says "no
@@ -438,8 +461,74 @@ func TestLoad_JudgeBudget(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load: %v", err)
 		}
-		if cfg.JudgeDailyBudget != 50 || cfg.JudgeDailyPerUser != 500 {
-			t.Errorf("got budget=%d per-user=%d, want 50/500", cfg.JudgeDailyBudget, cfg.JudgeDailyPerUser)
+		if cfg.AIDailyGlobal != 50 {
+			t.Errorf("AIDailyGlobal = %d, want 50", cfg.AIDailyGlobal)
+		}
+		want := map[string]int{"duel": 500, "practice": 500}
+		if !maps.Equal(cfg.AIDailyPerUser, want) {
+			t.Errorf("AIDailyPerUser = %v, want %v", cfg.AIDailyPerUser, want)
+		}
+	})
+
+	// The whole point of splitting the ceiling per kind. An operator who set
+	// JUDGE_DAILY_PER_USER=20 back when it governed duels and practice was not
+	// consenting to 20 daily calls of a kind that did not exist yet — so the
+	// legacy name must not reach one.
+	t.Run("the legacy per-user cap does not leak into kinds invented later", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_DAILY_PER_USER", "20")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		for _, kind := range []string{"guess", "assist"} {
+			if v, ok := cfg.AIDailyPerUser[kind]; ok {
+				t.Errorf("legacy JUDGE_DAILY_PER_USER seeded %q with %d; it must keep its own default", kind, v)
+			}
+		}
+	})
+
+	t.Run("a per-kind entry beats the legacy seed for that kind only", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_DAILY_PER_USER", "20")
+		t.Setenv("AI_DAILY_PER_USER", "duel=3")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		want := map[string]int{"duel": 3, "practice": 20}
+		if !maps.Equal(cfg.AIDailyPerUser, want) {
+			t.Errorf("AIDailyPerUser = %v, want %v", cfg.AIDailyPerUser, want)
+		}
+	})
+
+	t.Run("the global aliases may both be set to the same value", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("AI_DAILY_GLOBAL", "42")
+		t.Setenv("JUDGE_DAILY_BUDGET", "42")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AIDailyGlobal != 42 {
+			t.Errorf("AIDailyGlobal = %d, want 42", cfg.AIDailyGlobal)
+		}
+	})
+
+	// Guessing which one the operator meant is how a ceiling ends up at a number
+	// nobody chose, so a disagreement is fatal and the error names both.
+	t.Run("the global aliases disagreeing is a boot error naming both", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("AI_DAILY_GLOBAL", "42")
+		t.Setenv("JUDGE_DAILY_BUDGET", "50")
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected a boot error when the two names disagree")
+		}
+		for _, name := range []string{"AI_DAILY_GLOBAL", "JUDGE_DAILY_BUDGET"} {
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("error %q does not name %s", err, name)
+			}
 		}
 	})
 
@@ -448,12 +537,19 @@ func TestLoad_JudgeBudget(t *testing.T) {
 		key   string
 		value string
 	}{
-		{"a zero global budget", "JUDGE_DAILY_BUDGET", "0"},
-		{"a negative global budget", "JUDGE_DAILY_BUDGET", "-1"},
-		{"a non-integer global budget", "JUDGE_DAILY_BUDGET", "lots"},
-		{"a zero per-user cap", "JUDGE_DAILY_PER_USER", "0"},
-		{"a negative per-user cap", "JUDGE_DAILY_PER_USER", "-5"},
-		{"a non-integer per-user cap", "JUDGE_DAILY_PER_USER", "some"},
+		{"a zero global budget", "AI_DAILY_GLOBAL", "0"},
+		{"a negative global budget", "AI_DAILY_GLOBAL", "-1"},
+		{"a non-integer global budget", "AI_DAILY_GLOBAL", "lots"},
+		{"a zero legacy global budget", "JUDGE_DAILY_BUDGET", "0"},
+		{"a non-integer legacy global budget", "JUDGE_DAILY_BUDGET", "lots"},
+		{"a zero legacy per-user cap", "JUDGE_DAILY_PER_USER", "0"},
+		{"a negative legacy per-user cap", "JUDGE_DAILY_PER_USER", "-5"},
+		{"a non-integer legacy per-user cap", "JUDGE_DAILY_PER_USER", "some"},
+		{"a per-kind entry with no number", "AI_DAILY_PER_USER", "duel"},
+		{"a per-kind entry naming no kind", "AI_DAILY_PER_USER", "=20"},
+		{"a per-kind entry with a non-integer", "AI_DAILY_PER_USER", "duel=plenty"},
+		{"a zero per-kind entry", "AI_DAILY_PER_USER", "duel=0"},
+		{"a negative per-kind entry", "AI_DAILY_PER_USER", "guess=-2"},
 	}
 	for _, tc := range rejected {
 		t.Run(tc.name+" is a boot error", func(t *testing.T) {
