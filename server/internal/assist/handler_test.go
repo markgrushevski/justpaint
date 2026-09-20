@@ -3,6 +3,7 @@ package assist
 import (
 	"context"
 	"encoding/json"
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -187,7 +188,7 @@ func TestGenerateOps(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			h := NewHandler(tc.impl, NewRateLimiter(DefaultBurst, time.Minute), slog.New(slog.DiscardHandler))
+			h := NewHandler(tc.impl, NewRateLimiter(DefaultBurst, time.Minute), nil, nil, slog.New(slog.DiscardHandler))
 			var cookie *http.Cookie
 			if tc.withCookie {
 				cookie = mintCookie(t, "u1")
@@ -223,7 +224,7 @@ func TestGenerateOps(t *testing.T) {
 // request is throttled with 429 rate_limited AND a Retry-After header (set before
 // web.Error, per the ordering gotcha).
 func TestGenerateOps_RateLimited(t *testing.T) {
-	h := NewHandler(NewFakeAssist(), NewRateLimiter(1, time.Minute), slog.New(slog.DiscardHandler))
+	h := NewHandler(NewFakeAssist(), NewRateLimiter(1, time.Minute), nil, nil, slog.New(slog.DiscardHandler))
 	cookie := mintCookie(t, "u1")
 
 	if rec := serve(t, h, cookie, validBody); rec.Code != http.StatusOK {
@@ -240,4 +241,66 @@ func TestGenerateOps_RateLimited(t *testing.T) {
 	if ra := rec.Header().Get("Retry-After"); ra == "" {
 		t.Error("missing Retry-After header on 429")
 	}
+}
+
+// TestGenerateOps_DailyBudget drives the OTHER ceiling on this endpoint — the
+// durable daily one, as opposed to the in-process token bucket above. The two
+// answer different questions (a rate versus a day's quota) and both land as 429
+// rate_limited, which is the layering docs/API.md §3.1 already documents for
+// POST /api/matches.
+//
+// The order matters and is asserted here: the budget is consulted AFTER the cheap
+// request guards and BEFORE the call that costs money, and the call is RECORDED
+// before it is made — a provider request that fails still spent the quota, and a
+// failure the budget cannot see is what a broken impl drains it through.
+func TestGenerateOps_DailyBudget(t *testing.T) {
+	t.Run("a refusal is a 429 naming assist, and no call is made", func(t *testing.T) {
+		called := false
+		impl := callCountingAssist{onCall: func() { called = true }}
+		refuse := func(context.Context, string) error {
+			return &aibudget.KindSpentError{Kind: aibudget.KindAssist, Cap: 40}
+		}
+		h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute), refuse, nil, slog.New(slog.DiscardHandler))
+
+		rec := serve(t, h, mintCookie(t, "u1"), validBody)
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("status = %d, want 429; body: %s", rec.Code, rec.Body)
+		}
+		if got := errorCode(t, rec); got != "rate_limited" {
+			t.Errorf("code = %q, want rate_limited", got)
+		}
+		if !strings.Contains(rec.Body.String(), "AI drawing requests") {
+			t.Errorf("the refusal should name assist, got: %s", rec.Body)
+		}
+		if called {
+			t.Error("the impl was called despite the budget refusing — the whole point is to refuse BEFORE paying")
+		}
+	})
+
+	t.Run("a served request is recorded before the call", func(t *testing.T) {
+		var order []string
+		impl := callCountingAssist{onCall: func() { order = append(order, "call") }}
+		spend := func(context.Context, ...string) error {
+			order = append(order, "spend")
+			return nil
+		}
+		h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute),
+			func(context.Context, string) error { return nil }, spend, slog.New(slog.DiscardHandler))
+
+		if rec := serve(t, h, mintCookie(t, "u1"), validBody); rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body)
+		}
+		if len(order) != 2 || order[0] != "spend" || order[1] != "call" {
+			t.Errorf("order = %v, want [spend call]", order)
+		}
+	})
+}
+
+// callCountingAssist is FakeAssist with a hook, so a test can tell whether the
+// expensive half ran at all.
+type callCountingAssist struct{ onCall func() }
+
+func (c callCountingAssist) GenerateOps(ctx context.Context, req Request) (Result, error) {
+	c.onCall()
+	return NewFakeAssist().GenerateOps(ctx, req)
 }

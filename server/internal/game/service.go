@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/document"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
@@ -93,16 +94,6 @@ var (
 	// late submission is NOT stamped; the match is resolved (forfeit/abandoned)
 	// instead → 409 (docs/DESIGN-PHASE3-LIVE.md §2.4).
 	ErrRoundExpired = errors.New("game: round deadline passed")
-	// ErrDailyDuelsSpent: this player has spent their allowance of judge calls
-	// inside the rolling budget window → 429. Their problem alone; everyone else
-	// still plays (budget.go). The allowance is SHARED with practice — one player,
-	// one quota, whether they spend it on an opponent or alone.
-	ErrDailyDuelsSpent = errors.New("game: player daily duel allowance spent")
-	// ErrJudgeBudgetSpent: the service's whole daily judging budget is gone, so
-	// nothing new can be scored until the window rolls → 429. Distinct from
-	// ErrDailyDuelsSpent because the player did nothing wrong and the message they
-	// deserve is a different one.
-	ErrJudgeBudgetSpent = errors.New("game: daily judge budget spent")
 )
 
 // PlayerRow is one roster slot, decoupled from the generated row type so the
@@ -147,10 +138,17 @@ type Service struct {
 	// judging bounds concurrent judging passes across BOTH dispatch paths (the last
 	// submit and the sweeper). Never nil — both constructors build it.
 	judging *judgeLimiter
-	// budget is the daily ceiling on judge calls (budget.go). Its zero value means
-	// "unbudgeted", which is what the fake judge and every test get; main.go installs
-	// a real one via SetJudgeBudget when a real judge is configured.
-	budget JudgeBudget
+	// checkBudget and spendDuel are the duel's two questions to the daily AI-call
+	// ceiling (internal/aibudget), held as plain funcs so this package never learns
+	// its own kind's name, the other features' quotas, or the budget's shape. Nil
+	// means unbudgeted, which is what every test and the fake judge get; main.go
+	// binds both once, to aibudget.KindDuel.
+	//
+	// They are separate because they happen in different places: the check is an
+	// advisory read ahead of the matchmaking transaction, the spend is a write
+	// INSIDE it — so the spend takes the tx-scoped queries and the check does not.
+	checkBudget aibudget.Check
+	spendDuel   aibudget.SpendTx
 }
 
 // NewService builds the service with defaultJudgeConcurrency judging passes in
@@ -183,8 +181,8 @@ func NewServiceWithConcurrency(pool *pgxpool.Pool, q *db.Queries, renderer rende
 //  3. failing that, creates a fresh open match with one random active prompt
 //     pinned, and seats the caller as the first player.
 //
-// It refuses with ErrDailyDuelsSpent / ErrJudgeBudgetSpent (→ 429) when the daily
-// judge budget is out (budget.go).
+// It refuses with an aibudget refusal (→ 429) when the daily AI-call budget is
+// out (internal/aibudget).
 func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, error) {
 	// Ahead of the matchmaking tx, and ahead of all three branches: branch (1) starts
 	// a round on the spot, and a match created in branch (3) starts one the moment
@@ -192,8 +190,10 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 	// caller. Guarding only the join would let a player over their cap queue up and
 	// duel anyway. Outside the tx because these are advisory reads and the tx below
 	// holds row locks worth keeping short.
-	if err := s.CheckJudgeBudget(ctx, userID); err != nil {
-		return MatchView{}, err
+	if s.checkBudget != nil {
+		if err := s.checkBudget(ctx, userID); err != nil {
+			return MatchView{}, err // an aibudget refusal; the handler maps it
+		}
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -237,6 +237,28 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 	view, err := s.assemble(ctx, qtx, m)
 	if err != nil {
 		return MatchView{}, err // already wrapped by assemble
+	}
+	// Bill the judge call at the ONE site that causes one: open→drawing, the join
+	// branch, inside the same transaction that starts the round. "No round, no
+	// judge call" is the atomicity we want, and one insert into an unrelated table
+	// adds no contention to locks we are already holding.
+	//
+	// BOTH players are billed for the single provider request, from the roster
+	// assemble just read. That is not a tax on being joined: nobody is drawn into a
+	// duel passively — both sides pressed play — and both get the round.
+	//
+	// The branches that do NOT start a round bill nothing, which is how "a match
+	// nobody ever joined costs the player nothing" survives the move off the old
+	// drawing_deadline predicate: now it is true by construction rather than by a
+	// query's choice of anchor column.
+	if joined && s.spendDuel != nil {
+		ids := make([]string, 0, len(view.Players))
+		for _, p := range view.Players {
+			ids = append(ids, p.UserID)
+		}
+		if err := s.spendDuel(ctx, qtx, ids...); err != nil {
+			return MatchView{}, fmt.Errorf("game: bill duel: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return MatchView{}, fmt.Errorf("game: commit tx: %w", err)
@@ -831,4 +853,17 @@ func rowsContain(rows []db.ListMatchPlayersRow, userID string) bool {
 		}
 	}
 	return false
+}
+
+// SetBudget installs the duel's two ports into the daily AI-call ceiling, the
+// same post-construction wiring shape as SetPublisher: NewService's signature
+// stays put, every existing test keeps an unbudgeted service, and main.go opts in
+// once with the pair aibudget bound to KindDuel.
+//
+// Either may be nil, and nil means unbudgeted rather than a panic — an
+// unconfigured ceiling must fail open. It is the composition root, not this
+// method, that decides whether a real provider is configured at all.
+func (s *Service) SetBudget(check aibudget.Check, spend aibudget.SpendTx) {
+	s.checkBudget = check
+	s.spendDuel = spend
 }

@@ -72,15 +72,26 @@ var (
 	ErrNotConfigured = errors.New("practice: no critic configured")
 )
 
-// BudgetCheck asks whether this player may spend a judge call right now. It is a
-// plain func — the narrowest possible port — and in production it is
-// game.Service.CheckJudgeBudget: a practice run spends the same quota from the
-// same provider as a duel, so both must be counted by ONE rule, not two that drift
-// (docs/GAME.md §4.3). It returns game.ErrDailyDuelsSpent or
-// game.ErrJudgeBudgetSpent, which the handler distinguishes.
+// BudgetCheck asks whether this player may spend an AI call right now, and
+// BudgetSpend records the one they just spent. Both are plain funcs — the
+// narrowest possible ports — bound to aibudget.KindPractice at the composition
+// root, so this package never learns its own kind's name or the budget's shape.
 //
-// Nil means unbudgeted, matching the zero-value JudgeBudget every game test gets.
+// Practice has its OWN per-player allowance now, separate from the duel's; what
+// it still shares with every other feature is the provider's global ceiling, and
+// that is counted by ONE rule for all of them rather than by per-feature copies
+// that drift (docs/GAME.md §4.3). Before the ledger this port was literally
+// game.Service.CheckJudgeBudget, which made the game module the owner of solo
+// mode's quota — a dependency practice no longer has.
+//
+// Nil means unbudgeted, which is what every test and every fake-configured
+// deployment gets.
 type BudgetCheck func(ctx context.Context, userID string) error
+
+// BudgetSpend records one spent AI call against the caller's allowance. See
+// BudgetCheck; it is a separate port because refusing and billing are separate
+// decisions made at separate moments.
+type BudgetSpend func(ctx context.Context, userIDs ...string) error
 
 // Service runs the practice loop. It takes *db.Queries and no pool: the two writes
 // here must NOT share a transaction (see Run).
@@ -91,14 +102,15 @@ type Service struct {
 	// Nil means practice is not configured; see ErrNotConfigured.
 	critic judge.Critic
 	budget BudgetCheck
+	spend  BudgetSpend
 	logger *slog.Logger
 }
 
 // NewService builds the practice service. A nil critic is a legitimate,
 // deliberate state — the endpoints then refuse honestly instead of inventing
 // scores — so it is not an error here; main.go logs it at boot.
-func NewService(q *db.Queries, renderer render.Renderer, critic judge.Critic, budget BudgetCheck, logger *slog.Logger) *Service {
-	return &Service{q: q, renderer: renderer, critic: critic, budget: budget, logger: logger}
+func NewService(q *db.Queries, renderer render.Renderer, critic judge.Critic, budget BudgetCheck, spend BudgetSpend, logger *slog.Logger) *Service {
+	return &Service{q: q, renderer: renderer, critic: critic, budget: budget, spend: spend, logger: logger}
 }
 
 // PromptView is one prompt offered for a practice run.
@@ -163,7 +175,7 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 	}
 	if s.budget != nil {
 		if err := s.budget(ctx, userID); err != nil {
-			return RunView{}, err // a game budget sentinel; the handler maps it
+			return RunView{}, err // an aibudget refusal; the handler maps it
 		}
 	}
 
@@ -178,6 +190,15 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 	run, err := s.q.CreatePracticeRun(ctx, db.CreatePracticeRunParams{UserID: userID, PromptID: prompt.ID})
 	if err != nil {
 		return RunView{}, fmt.Errorf("practice: record attempt: %w", err)
+	}
+	// Billed here, beside the attempt row and for the same reason: BEFORE the
+	// critic is called, and outside any transaction. A call recorded only on
+	// success is a call the budget stops seeing exactly when a broken critic is
+	// draining it — the failure that costs nothing is the one that costs the most.
+	if s.spend != nil {
+		if err := s.spend(ctx, userID); err != nil {
+			return RunView{}, fmt.Errorf("practice: bill run: %w", err)
+		}
 	}
 
 	// Bound the expensive half only. The budget check and the attempt row are

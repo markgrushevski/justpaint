@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/document"
 	"github.com/markgrushevski/justpaint/server/internal/game"
@@ -128,14 +129,11 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrPromptNotFound):
 			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
 		// Both budget refusals are 429s and neither is the player's fault in the same
-		// way. The global one deliberately says nothing about how large the budget is
-		// or how much is left — operator information, not player information.
-		case errors.Is(err, game.ErrDailyDuelsSpent):
-			web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited,
-				"you have used all of your scored drawings for today — new ones unlock as the day rolls over")
-		case errors.Is(err, game.ErrJudgeBudgetSpent):
-			web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited,
-				"the daily judging budget is spent — scoring resumes tomorrow")
+		// way; the copy for both lives in one place now (aibudget.WriteRefusal),
+		// because deciding what a refusal discloses is one decision, not one per
+		// feature.
+		case aibudget.WriteRefusal(w, err):
+			// handled — the response is already written
 		default:
 			h.fail(w, "practice run", err)
 		}

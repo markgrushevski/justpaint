@@ -1,12 +1,14 @@
 package assist
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/document"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
@@ -22,17 +24,35 @@ const maxAssistBodyBytes = 64 << 10 // 64 KiB
 // LLM impl — every assist call can cost real API money (docs/ASSIST.md §3.4).
 const maxPromptBytes = 8 << 10 // 8 KiB
 
+// BudgetCheck and BudgetSpend are assist's two questions to the daily AI-call
+// ceiling (internal/aibudget), held as plain funcs so this package never learns
+// its own kind's name or the budget's shape. Nil means unbudgeted.
+//
+// They answer a DIFFERENT question from the limiter beside them. The token bucket
+// bounds the RATE — how fast one user may ask — and lives in this process, so the
+// host resets it on every deploy and every wake from idle. The budget bounds the
+// daily QUOTA, lives in Postgres, and therefore actually holds. Assist has had
+// only the first since Phase A, which means its ceiling has never survived a
+// restart; layering both on one endpoint is the pattern docs/API.md §3.1 already
+// documents for POST /api/matches.
+type (
+	BudgetCheck func(ctx context.Context, userID string) error
+	BudgetSpend func(ctx context.Context, userIDs ...string) error
+)
+
 // Handler is the HTTP layer for AI assist (docs/ASSIST.md §3, docs/API.md).
 type Handler struct {
 	assist  Assist
 	limiter *RateLimiter
+	budget  BudgetCheck
+	spend   BudgetSpend
 	logger  *slog.Logger
 }
 
-// NewHandler builds the assist HTTP handler over an Assist impl and a per-user
-// rate limiter.
-func NewHandler(a Assist, limiter *RateLimiter, logger *slog.Logger) *Handler {
-	return &Handler{assist: a, limiter: limiter, logger: logger}
+// NewHandler builds the assist HTTP handler over an Assist impl, a per-user rate
+// limiter and the daily AI-call budget ports.
+func NewHandler(a Assist, limiter *RateLimiter, budget BudgetCheck, spend BudgetSpend, logger *slog.Logger) *Handler {
+	return &Handler{assist: a, limiter: limiter, budget: budget, spend: spend, logger: logger}
 }
 
 // Routes registers the assist route; protect is the auth middleware — the route
@@ -77,6 +97,30 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 	if len(req.Prompt) > maxPromptBytes {
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "prompt is too long")
 		return
+	}
+
+	// The daily ceiling, last of the guards and immediately before the only
+	// expensive line: everything above is free to re-run, and the whole point of a
+	// quota is to refuse BEFORE the call, never after paying for it.
+	if h.budget != nil {
+		if err := h.budget(r.Context(), uid); err != nil {
+			if aibudget.WriteRefusal(w, err) {
+				return
+			}
+			h.logger.Error("assist budget check", "err", err)
+			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
+			return
+		}
+	}
+	// Recorded BEFORE the call, never after it: a call that fails still spent the
+	// provider's quota, and a failure the budget cannot see is exactly what a
+	// broken impl drains it through (the rule practice states in full).
+	if h.spend != nil {
+		if err := h.spend(r.Context(), uid); err != nil {
+			h.logger.Error("assist budget spend", "err", err)
+			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
+			return
+		}
 	}
 
 	res, err := h.assist.GenerateOps(r.Context(), req)

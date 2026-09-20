@@ -60,19 +60,31 @@ type Config struct {
 	// is a fork bomb on a small instance.
 	JudgeConcurrency int
 
-	// JudgeDailyBudget and JudgeDailyPerUser cap how many judge calls a rolling
-	// 24h window may spend, globally and per player. They guard a resource the
-	// per-IP rate limiter cannot see: the free tier's binding limit is requests
-	// per DAY, one duel costs exactly one call, and a duel is only ~4 write
-	// requests — so a single IP inside the write limiter can burn a daily quota
-	// in the hundreds within minutes, after which NOBODY's duels get judged. The
-	// per-user half is what keeps one abuser from denying service to everyone.
+	// AIDailyGlobal and AIDailyPerUser cap how many AI calls a rolling 24h window
+	// may spend. They guard a resource the per-IP rate limiter cannot see: a free
+	// tier's binding limit is requests per DAY, one call is one request, and a
+	// duel is only ~4 write requests — so a single IP inside the write limiter can
+	// burn a daily quota in the hundreds within minutes, after which NOBODY gets
+	// served. The per-user half is what keeps one abuser from denying service to
+	// everyone.
 	//
-	// There is deliberately no "unlimited" sentinel: a judge always has a budget,
-	// and an operator who wants effectively none sets a large number. Both are
-	// rejected below 1 at boot.
-	JudgeDailyBudget  int
-	JudgeDailyPerUser int
+	// AIDailyGlobal is applied PER PROVIDER, not once across all of them: Google
+	// running dry must never refuse an Anthropic-backed feature that still has
+	// quota. Which provider backs which kind is decided at the composition root
+	// from JUDGE_MODE / ASSIST_MODE, never configured here.
+	//
+	// AIDailyPerUser maps an AI-call kind ("duel", "practice", …) to that kind's
+	// own per-player ceiling; a kind absent from the map keeps its code default.
+	// The kind NAMES are not validated here — the valid set belongs to
+	// internal/aibudget and grows with the code, and config must stay free of
+	// domain imports — so the composition root rejects an unknown one at boot,
+	// which is the same instant with a better error.
+	//
+	// There is deliberately no "unlimited" sentinel: an AI call always has a
+	// budget, and an operator who wants effectively none sets a large number.
+	// Every value is rejected below 1 at boot.
+	AIDailyGlobal  int
+	AIDailyPerUser map[string]int
 
 	// JudgeMode selects the judge impl (docs/JUDGE.md): "fake" (default; the
 	// zero-dependency ink-coverage stand-in that never reads the prompt), "http"
@@ -147,14 +159,12 @@ const DefaultDBMaxConns = 10
 // forks two node-canvas processes and the target instance is memory-poor.
 const DefaultJudgeConcurrency = 2
 
-// Judge-budget defaults, in judge calls per rolling 24h window. 200 global sits
-// under a free tier's daily request quota with headroom for the odd retry; 20 per
-// player is a generous evening of duelling and still leaves the global budget
-// reachable only by a real crowd, never by one person.
-const (
-	DefaultJudgeDailyBudget  = 200
-	DefaultJudgeDailyPerUser = 20
-)
+// DefaultAIDailyGlobal is the per-provider daily ceiling, in AI calls per rolling
+// 24h window. 200 sits under a free tier's daily request quota with headroom for
+// the odd retry, and stays reachable only by a real crowd rather than by one
+// person. The per-KIND player ceilings live in internal/aibudget beside the kinds
+// they bound, since adding a kind must not mean editing config.
+const DefaultAIDailyGlobal = 200
 
 // WebSocket hardening defaults. The idle timeout clears the client's 25s ping
 // with margin; the heartbeat sits well under the timeout so a quiet-but-healthy
@@ -277,7 +287,7 @@ func Load() (Config, error) {
 	}
 	cfg.JudgeConcurrency = judgeConcurrency
 
-	if err := loadJudgeBudget(&cfg); err != nil {
+	if err := loadAIBudget(&cfg); err != nil {
 		return Config{}, err
 	}
 
@@ -422,33 +432,108 @@ func firstRunes(s string, n int) string {
 	return string(r[:n])
 }
 
-// loadJudgeBudget reads the two daily judge-call caps. Zero or negative is a boot
-// error rather than a synonym for "off": a 0 here would read as "no budget" to an
-// operator and behave as "refuse every duel" to the code, and the mode where the
-// budget genuinely does not apply is JUDGE_MODE=fake, which needs no sentinel
-// because there is no external quota to protect. Same fail-fast shape, and the same
-// reasoning, as JUDGE_CONCURRENCY.
+// loadAIBudget reads the daily AI-call ceilings: one global number applied per
+// provider, plus an optional per-kind map of player ceilings.
+//
+// Zero or negative is a boot error rather than a synonym for "off": a 0 here
+// would read as "no budget" to an operator and behave as "refuse everything" to
+// the code, and the mode where the budget genuinely does not apply is a fake impl
+// (JUDGE_MODE=fake, ASSIST_MODE=fake), which needs no sentinel because there is
+// no external quota to protect. Same fail-fast shape, and the same reasoning, as
+// JUDGE_CONCURRENCY.
 //
 // A per-user cap ABOVE the global one is allowed on purpose: that is how you say
 // "effectively no per-player limit, the global budget is the only ceiling".
-func loadJudgeBudget(cfg *Config) error {
-	global, err := getenvInt("JUDGE_DAILY_BUDGET", DefaultJudgeDailyBudget)
+//
+// # The legacy names
+//
+// JUDGE_DAILY_BUDGET and JUDGE_DAILY_PER_USER predate the per-kind budget and are
+// live in deployed environments that are edited BY HAND. They keep working, and
+// they keep meaning exactly what they meant, so the deploy that lands this changes
+// no behaviour until an operator opts in:
+//
+//   - JUDGE_DAILY_BUDGET is a straight alias of AI_DAILY_GLOBAL. Both set to
+//     DIFFERENT values is a boot error naming both — the two cannot be reconciled
+//     and guessing which was meant is how a ceiling ends up at a number nobody
+//     chose.
+//   - JUDGE_DAILY_PER_USER seeds the player ceiling for "duel" and "practice"
+//     ONLY — the two kinds that existed when it was named, which shared one number.
+//     It deliberately does NOT reach kinds invented later: an operator who set it
+//     to 20 was not consenting to 20 AI guesses a day for a feature that did not
+//     exist, and a new kind quietly inheriting an old number is the failure this
+//     whole per-kind split exists to prevent. Newer kinds take their code default
+//     until AI_DAILY_PER_USER names them.
+func loadAIBudget(cfg *Config) error {
+	global, from, err := getenvIntAliased("AI_DAILY_GLOBAL", "JUDGE_DAILY_BUDGET", DefaultAIDailyGlobal)
 	if err != nil {
 		return err
 	}
 	if global < 1 {
-		return fmt.Errorf("config: JUDGE_DAILY_BUDGET must be >= 1, got %d (0 would refuse every duel; there is no unlimited setting — set a large number if you mean effectively none)", global)
+		// Named after the variable the operator actually set, not after the
+		// current name: being told to fix AI_DAILY_GLOBAL when you set
+		// JUDGE_DAILY_BUDGET sends you looking for a variable you never wrote.
+		return fmt.Errorf("config: %s must be >= 1, got %d (0 would refuse every AI call; there is no unlimited setting — set a large number if you mean effectively none)", from, global)
 	}
-	perUser, err := getenvInt("JUDGE_DAILY_PER_USER", DefaultJudgeDailyPerUser)
-	if err != nil {
-		return err
+
+	perUser := map[string]int{}
+	// The legacy single number first, so an explicit per-kind entry below wins.
+	if legacy := strings.TrimSpace(os.Getenv("JUDGE_DAILY_PER_USER")); legacy != "" {
+		v, err := strconv.Atoi(legacy)
+		if err != nil {
+			return fmt.Errorf("config: JUDGE_DAILY_PER_USER must be an integer, got %q: %w", legacy, err)
+		}
+		if v < 1 {
+			return fmt.Errorf("config: JUDGE_DAILY_PER_USER must be >= 1, got %d (0 would refuse every duel; there is no unlimited setting — set a large number if you mean effectively none)", v)
+		}
+		perUser["duel"] = v
+		perUser["practice"] = v
 	}
-	if perUser < 1 {
-		return fmt.Errorf("config: JUDGE_DAILY_PER_USER must be >= 1, got %d (0 would refuse every duel; there is no unlimited setting — set a large number if you mean effectively none)", perUser)
+	for _, entry := range splitList(os.Getenv("AI_DAILY_PER_USER")) {
+		kind, raw, found := strings.Cut(entry, "=")
+		if !found {
+			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be of the form kind=number, e.g. %q", entry, "duel=20,guess=2")
+		}
+		kind, raw = strings.TrimSpace(kind), strings.TrimSpace(raw)
+		if kind == "" {
+			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q names no kind", entry)
+		}
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be of the form kind=number, got %q: %w", entry, raw, err)
+		}
+		if v < 1 {
+			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be >= 1, got %d (0 would refuse every call of that kind; there is no unlimited setting — set a large number if you mean effectively none)", entry, v)
+		}
+		perUser[kind] = v
 	}
-	cfg.JudgeDailyBudget = global
-	cfg.JudgeDailyPerUser = perUser
+
+	cfg.AIDailyGlobal = global
+	cfg.AIDailyPerUser = perUser
 	return nil
+}
+
+// getenvIntAliased reads an integer that answers to two names, one current and
+// one kept alive for already-deployed environments. Both set to the SAME value is
+// fine (an operator mid-migration); both set to different values is a boot error,
+// because silently preferring one would put a bound at a number nobody chose.
+//
+// It also returns WHICH name supplied the value, so a later range check can blame
+// the variable the operator actually wrote. When neither is set that is the
+// current name, since a default out of range would be our bug, not theirs.
+func getenvIntAliased(current, legacy string, fallback int) (value int, from string, err error) {
+	cur := strings.TrimSpace(os.Getenv(current))
+	old := strings.TrimSpace(os.Getenv(legacy))
+	switch {
+	case cur == "" && old == "":
+		return fallback, current, nil
+	case cur == "":
+		v, err := getenvInt(legacy, fallback)
+		return v, legacy, err
+	case old == "", cur == old:
+		v, err := getenvInt(current, fallback)
+		return v, current, err
+	}
+	return 0, current, fmt.Errorf("config: %s=%q and %s=%q disagree — %s is the current name and %s is kept only for already-deployed environments; set one, or set both to the same value", current, cur, legacy, old, current, legacy)
 }
 
 // loadWSLimits reads the WebSocket hardening knobs and rejects a combination

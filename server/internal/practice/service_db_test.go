@@ -10,21 +10,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/game"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/render"
 )
 
-// budgetWindowSecs mirrors the game's rolling window (24h) for the count assertions
-// below. The constant itself is unexported over there and deliberately so — the
-// budget's rules live with the budget.
+// budgetWindowSecs mirrors the budget's rolling window (24h) for the count
+// assertions below. The constant itself is unexported in internal/aibudget and
+// deliberately so — the budget's rules live with the budget.
 const budgetWindowSecs = int32(24 * 60 * 60)
 
-// failingCritic is a critic that always fails, for the case the migration comment
+// failingCritic is a critic that always fails, for the case the ledger comment
 // is actually about: a judge call that was spent and produced nothing.
 type failingCritic struct{}
 
@@ -34,21 +34,22 @@ func (failingCritic) Critique(context.Context, judge.CritiqueRequest) (judge.Cri
 
 // TestPracticeRun_DB drives the whole practice loop against a real Postgres,
 // because everything interesting about it is SQL: which rows count against the
-// judge budget, whether an attempt survives a failed critique, and whether a
+// daily AI budget, whether an attempt survives a failed critique, and whether a
 // retired prompt is reachable.
 //
 //	(a) the happy path end to end, through the fake critic;
-//	(b) an unknown or deactivated promptId is a 404-shaped refusal;
-//	(c) a practice run counts against BOTH halves of the daily judge budget, and
-//	    both halves refuse when they are out;
+//	(b) an unknown or deactivated promptId is a 404-shaped refusal, and costs
+//	    nothing — the budget check runs before it, the spend after it;
+//	(c) a practice run writes BOTH ledger rows — the player's and the provider's —
+//	    and both halves of the ceiling refuse when they are out;
 //	(d) an attempt that failed in the critic is still recorded, and still counts —
 //	    a failure that costs nothing is a failure the budget cannot see;
 //	(e) an unconfigured critic (JUDGE_MODE=http) refuses without touching anything.
 //
-// Needs a migrated + seeded DATABASE_URL (docker compose up + goose up); skips
-// otherwise, matching budget_db_test.go — including its pool-close-via-t.Cleanup
-// ordering so no fixture leaks (Cleanup is LIFO: the pool.Close registered FIRST
-// runs LAST).
+// Needs a migrated + seeded DATABASE_URL (docker compose up + goose up, including
+// migration 00007); skips otherwise, matching aibudget's budget_db_test.go —
+// including its pool-close-via-t.Cleanup ordering so no fixture leaks (Cleanup is
+// LIFO: the pool.Close registered FIRST runs LAST).
 func TestPracticeRun_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -69,11 +70,19 @@ func TestPracticeRun_DB(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 
 	// --- fixtures ---------------------------------------------------------
-	var userIDs, promptIDs []string
+	var userIDs, promptIDs, providers []string
 	t.Cleanup(func() {
 		for _, uid := range userIDs {
+			// The ledger rows come out BEFORE the users they reference
+			// (ai_calls.user_id is a FK).
+			_, _ = pool.Exec(ctx, "delete from ai_calls where user_id = $1", uid)
 			_, _ = pool.Exec(ctx, "delete from practice_runs where user_id = $1", uid)
 			_, _ = pool.Exec(ctx, "delete from users where id = $1", uid)
+		}
+		// The provider-side rows name no user at all, so they are swept by the
+		// test-private provider names instead.
+		for _, p := range providers {
+			_, _ = pool.Exec(ctx, "delete from ai_calls where provider = $1", p)
 		}
 		for _, pid := range promptIDs {
 			_, _ = pool.Exec(ctx, "delete from practice_runs where prompt_id = $1", pid)
@@ -96,6 +105,23 @@ func TestPracticeRun_DB(t *testing.T) {
 		return u.ID
 	}
 
+	// mkProvider hands out a provider name nothing else in the world spends.
+	//
+	// This is how the old suite's flakiness stays fixed. `go test ./...` runs
+	// packages in parallel, and internal/aibudget's DB suite spends AI calls into
+	// the same rolling window, so the global count was never safe to assert as an
+	// absolute — the old file worked around that by reading the total and its two
+	// halves in one repeatable-read snapshot and asserting the identity between
+	// them. The ledger has no halves to add up any more; what it has instead is a
+	// global count scoped PER PROVIDER, so a name nothing else spends scopes every
+	// assertion below to rows this test created, which is stronger than a delta and
+	// deterministic besides.
+	mkProvider := func(tag string) aibudget.Provider {
+		p := aibudget.Provider(fmt.Sprintf("test-practice-%s-%d", tag, ns))
+		providers = append(providers, string(p))
+		return p
+	}
+
 	prompt, err := q.PickRandomActivePrompt(ctx)
 	if err != nil {
 		t.Fatalf("pick prompt (is the DB migrated + seeded? migration 00002): %v", err)
@@ -110,52 +136,56 @@ func TestPracticeRun_DB(t *testing.T) {
 	}
 
 	// newService wires the production shape: the stub renderer (the loop, not the
-	// art), a critic, and the game's own budget check — practice must spend from the
-	// same ceiling through the same code.
-	newService := func(critic judge.Critic, budget game.JudgeBudget) *Service {
-		gameSvc := game.NewService(pool, q, nil, nil, logger)
-		gameSvc.SetJudgeBudget(budget)
-		return NewService(q, render.NewStubRenderer(), critic, gameSvc.CheckJudgeBudget, logger)
+	// art), a critic, and the two budget ports bound ONCE to aibudget.KindPractice.
+	// Practice holds them as plain funcs and never learns its own kind's name — the
+	// port used to be game.Service.CheckJudgeBudget, which made the game module the
+	// owner of solo mode's quota.
+	// The two conversions are the composition root's own (main.go): the ports are
+	// structurally identical and deliberately NOT the same named type, so this
+	// package keeps a port it owns rather than an import of the budget's shape.
+	newService := func(critic judge.Critic, b *aibudget.Budget) *Service {
+		check, spend := b.For(aibudget.KindPractice)
+		return NewService(q, render.NewStubRenderer(), critic,
+			BudgetCheck(check), BudgetSpend(spend), logger)
 	}
-	unbudgeted := game.JudgeBudget{}
+	// practiceBudget is the production policy shape for one subtest: its own
+	// provider, its own per-kind allowance.
+	practiceBudget := func(p aibudget.Provider, perUser, global int) *aibudget.Budget {
+		return aibudget.New(q, map[aibudget.Kind]aibudget.Policy{
+			aibudget.KindPractice: {Provider: p, PerUser: perUser},
+		}, global, logger)
+	}
+	// unbudgeted is the fake-impl case: no policy at all, so nothing is checked and
+	// nothing is recorded (aibudget's escape hatch).
+	unbudgeted := aibudget.New(q, nil, 0, logger)
 
-	globalSpent := func() int64 {
-		n, err := q.CountJudgeCallsInWindow(ctx, budgetWindowSecs)
+	// providerSpent is the global half, read the way the budget reads it.
+	providerSpent := func(p aibudget.Provider) int64 {
+		n, err := q.CountProviderCallsInWindow(ctx, db.CountProviderCallsInWindowParams{
+			Provider: string(p), WindowSecs: budgetWindowSecs,
+		})
 		if err != nil {
-			t.Fatalf("count judge calls: %v", err)
+			t.Fatalf("count %s calls: %v", p, err)
 		}
 		return n
 	}
-	// judgeCalls reads the global count together with its two halves in ONE
-	// repeatable-read snapshot. The total is global state and `go test ./...` runs
-	// packages in parallel — internal/game's DB tests flip matches into judging
-	// while this one runs — so a before/after delta on it is not deterministic. The
-	// identity `total == duels + practice` under one snapshot is, and it is the
-	// actual claim being made: the ceiling counts practice runs too.
-	judgeCalls := func() (total, duels, practice int64) {
-		t.Helper()
-		tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
-		if err != nil {
-			t.Fatalf("begin snapshot: %v", err)
-		}
-		defer tx.Rollback(ctx)
-		if total, err = q.WithTx(tx).CountJudgeCallsInWindow(ctx, budgetWindowSecs); err != nil {
-			t.Fatalf("count judge calls: %v", err)
-		}
-		if err = tx.QueryRow(ctx, `select
-			(select count(*) from matches where judging_started_at > now() - make_interval(secs => $1::int)),
-			(select count(*) from practice_runs where created_at > now() - make_interval(secs => $1::int))`,
-			budgetWindowSecs).Scan(&duels, &practice); err != nil {
-			t.Fatalf("count the halves: %v", err)
-		}
-		return total, duels, practice
-	}
+	// mineSpent is the per-user half — per KIND, which is the change practice cares
+	// about most: a player's duels no longer eat their practice runs.
 	mineSpent := func(uid string) int64 {
-		n, err := q.CountPlayerJudgeCallsInWindow(ctx, db.CountPlayerJudgeCallsInWindowParams{
-			UserID: uid, WindowSecs: budgetWindowSecs,
+		n, err := q.CountUserKindCallsInWindow(ctx, db.CountUserKindCallsInWindowParams{
+			UserID: uid, Kind: string(aibudget.KindPractice), WindowSecs: budgetWindowSecs,
 		})
 		if err != nil {
-			t.Fatalf("count player judge calls: %v", err)
+			t.Fatalf("count practice calls for user: %v", err)
+		}
+		return n
+	}
+	// ledgerRows is every row the ledger holds for one player, of any kind — what
+	// "this run cost the player nothing" actually means.
+	ledgerRows := func(uid string) int64 {
+		var n int64
+		if err := pool.QueryRow(ctx, "select count(*) from ai_calls where user_id = $1", uid).Scan(&n); err != nil {
+			t.Fatalf("count ledger rows: %v", err)
 		}
 		return n
 	}
@@ -208,7 +238,12 @@ func TestPracticeRun_DB(t *testing.T) {
 	// --- (b) the prompt must be a live one ---------------------------------
 	t.Run("an unknown or retired prompt is not found", func(t *testing.T) {
 		uid := mkUser("prompt")
-		svc := newService(judge.NewFakeCritic(), unbudgeted)
+		// Budgeted on purpose: only then is "a refused run cost the player nothing" a
+		// claim about the ORDER of the loop — the budget check clears first, the
+		// prompt lookup then fails, and the spend site a few lines further down is
+		// never reached. Against an unbudgeted service it would be true of a service
+		// that bills nobody for anything.
+		svc := newService(judge.NewFakeCritic(), practiceBudget(mkProvider("prompt"), 20, 200))
 
 		// A deactivated prompt must answer exactly like a made-up one, so retiring a
 		// prompt is not detectable by trying to draw for it.
@@ -236,41 +271,56 @@ func TestPracticeRun_DB(t *testing.T) {
 		}
 
 		// And nothing was recorded for a run that never happened.
-		if n := mineSpent(uid); n != 0 {
-			t.Errorf("a refused run cost the player %d judge calls, want 0", n)
+		if n := ledgerRows(uid); n != 0 {
+			t.Errorf("a refused run cost the player %d ledger rows, want 0", n)
 		}
 	})
 
-	// --- (c) practice spends the daily judge budget ------------------------
-	t.Run("a practice run counts against both halves of the judge budget", func(t *testing.T) {
+	// --- (c) practice spends the daily AI budget ---------------------------
+	t.Run("a practice run bills the player and the provider", func(t *testing.T) {
+		prov := mkProvider("budget")
 		uid := mkUser("budget")
-		beforeMine := mineSpent(uid)
-		_, _, beforePractice := judgeCalls()
 
-		svc := newService(judge.NewFakeCritic(), game.JudgeBudget{
-			Enforced: true, Global: int(globalSpent()) + 10, PerUser: int(beforeMine) + 1,
-		})
+		svc := newService(judge.NewFakeCritic(), practiceBudget(prov, 1, 200))
 		if _, err := svc.Run(ctx, uid, prompt.ID, doc); err != nil {
 			t.Fatalf("Run under the cap: %v", err)
 		}
 
-		// The extension this whole feature turns on: a practice run is a judge call,
-		// on both counts. Without it the ceiling would be no ceiling at all — practice
-		// is one cheap request per judge call, with no opponent to wait for.
-		total, duels, practice := judgeCalls()
-		if practice != beforePractice+1 {
-			t.Errorf("practice half = %d, want %d — the run must be counted", practice, beforePractice+1)
+		// The extension this whole feature turns on, now read off the ledger rather
+		// than off a union of whichever tables a feature happened to write: one run is
+		// TWO rows — the player's allowance and the provider's quota. Without the
+		// provider row the global ceiling would be no ceiling at all for practice,
+		// which is one cheap request per call with no opponent to wait for; without
+		// the player row the per-user cap would never bind.
+		var mine, theirs int64
+		if err := pool.QueryRow(ctx, `select
+			(select count(*) from ai_calls where user_id = $1 and provider is null),
+			(select count(*) from ai_calls where provider = $2 and user_id is null)`,
+			uid, string(prov),
+		).Scan(&mine, &theirs); err != nil {
+			t.Fatalf("read the ledger rows: %v", err)
 		}
-		if total != duels+practice {
-			t.Errorf("global count = %d, want %d (%d duels + %d practice runs) — the global ceiling must see practice", total, duels+practice, duels, practice)
+		if mine != 1 {
+			t.Errorf("player rows = %d, want 1 — a practice run must count against its player", mine)
 		}
-		if got := mineSpent(uid); got != beforeMine+1 {
-			t.Errorf("per-player count = %d, want %d — a practice run must count", got, beforeMine+1)
+		if theirs != 1 {
+			t.Errorf("provider rows = %d, want 1 — the global ceiling must see practice", theirs)
+		}
+		if got := mineSpent(uid); got != 1 {
+			t.Errorf("per-player count = %d, want 1", got)
 		}
 
-		// Now at their own cap: refused, and told it is THEIR allowance.
-		if _, err := svc.Run(ctx, uid, prompt.ID, doc); !errors.Is(err, game.ErrDailyDuelsSpent) {
-			t.Errorf("at the per-player cap: err = %v, want %v", err, game.ErrDailyDuelsSpent)
+		// Now at their own cap: refused, and told it is THEIR allowance — and told
+		// which one, so the message names scored drawings rather than "AI requests".
+		_, err := svc.Run(ctx, uid, prompt.ID, doc)
+		if !errors.Is(err, aibudget.ErrPerUserSpent) {
+			t.Errorf("at the per-player cap: err = %v, want %v", err, aibudget.ErrPerUserSpent)
+		}
+		var spent *aibudget.KindSpentError
+		if !errors.As(err, &spent) {
+			t.Errorf("refusal %v does not carry a *KindSpentError", err)
+		} else if spent.Kind != aibudget.KindPractice {
+			t.Errorf("refusal named %q, want %q", spent.Kind, aibudget.KindPractice)
 		}
 		// The property that makes a per-player half worth having: one heavy user must
 		// not deny service to everyone else.
@@ -279,21 +329,21 @@ func TestPracticeRun_DB(t *testing.T) {
 			t.Errorf("a different player was refused too (%v) — one player's cap is not everyone's", err)
 		}
 
-		// The global half, with a per-player cap nowhere near binding.
-		spent := globalSpent()
-		strapped := newService(judge.NewFakeCritic(), game.JudgeBudget{
-			Enforced: true, Global: int(spent), PerUser: 1000,
-		})
-		bystander := mkUser("budget-bystander")
-		if _, err := strapped.Run(ctx, bystander, prompt.ID, doc); !errors.Is(err, game.ErrJudgeBudgetSpent) {
-			t.Errorf("with the global budget spent: err = %v, want %v", err, game.ErrJudgeBudgetSpent)
+		// The global half, with a per-player cap nowhere near binding. The count is
+		// exact rather than a delta against the rest of the suite because the provider
+		// is this subtest's alone.
+		spentNow := providerSpent(prov)
+		if spentNow != 2 {
+			t.Fatalf("two runs wrote %d provider rows, want 2", spentNow)
 		}
-		// Headroom and the same player is welcome again. Deliberately more than one
-		// call of it: the boundary (`>=`, not `>`) is pinned by the refusal above, and
-		// a parallel test package can legitimately spend a slot in between.
-		relaxed := newService(judge.NewFakeCritic(), game.JudgeBudget{
-			Enforced: true, Global: int(globalSpent()) + 10, PerUser: 1000,
-		})
+		strapped := newService(judge.NewFakeCritic(), practiceBudget(prov, 1000, int(spentNow)))
+		bystander := mkUser("budget-bystander")
+		if _, err := strapped.Run(ctx, bystander, prompt.ID, doc); !errors.Is(err, aibudget.ErrGlobalSpent) {
+			t.Errorf("with the global budget spent: err = %v, want %v", err, aibudget.ErrGlobalSpent)
+		}
+		// Headroom and the same player is welcome again — the boundary is `>=`, not
+		// `>`, pinned by the refusal above.
+		relaxed := newService(judge.NewFakeCritic(), practiceBudget(prov, 1000, int(spentNow)+10))
 		if _, err := relaxed.Run(ctx, bystander, prompt.ID, doc); err != nil {
 			t.Errorf("with budget left the run was still refused: %v", err)
 		}
@@ -302,19 +352,20 @@ func TestPracticeRun_DB(t *testing.T) {
 	// --- (d) a failed critique still spent a judge call --------------------
 	t.Run("an attempt that failed in the critic is recorded and counted", func(t *testing.T) {
 		uid := mkUser("failing")
-		before := mineSpent(uid)
-
-		svc := newService(failingCritic{}, unbudgeted)
+		// Budgeted, because the ledger row is the thing being asserted and an
+		// unbudgeted kind writes none: no provider, no external quota, nothing to
+		// record.
+		svc := newService(failingCritic{}, practiceBudget(mkProvider("failing"), 20, 200))
 		if _, err := svc.Run(ctx, uid, prompt.ID, doc); err == nil {
 			t.Fatal("expected the critic's failure to surface, got a score")
 		}
 
-		// The migration comment's own reasoning: the row is written BEFORE the critic
-		// is called, so a failure cannot be free. A transaction around the two writes
-		// would have rolled this away — which is exactly when a broken critic is
-		// draining the quota fastest.
-		if got := mineSpent(uid); got != before+1 {
-			t.Errorf("per-player count = %d, want %d — a spent-and-failed call must still count", got, before+1)
+		// The ledger's own reasoning, unchanged by the move: the attempt row AND the
+		// ledger row are written BEFORE the critic is called, so a failure cannot be
+		// free. A transaction around them would have rolled both away — which is
+		// exactly when a broken critic is draining the quota fastest.
+		if got := mineSpent(uid); got != 1 {
+			t.Errorf("per-player count = %d, want 1 — a spent-and-failed call must still count", got)
 		}
 		var score *float64
 		if err := pool.QueryRow(ctx,
@@ -330,7 +381,13 @@ func TestPracticeRun_DB(t *testing.T) {
 	// --- (e) an unconfigured critic refuses --------------------------------
 	t.Run("an unconfigured critic refuses without recording anything", func(t *testing.T) {
 		uid := mkUser("unconfigured")
-		svc := NewService(q, render.NewStubRenderer(), nil, nil, logger)
+		// Real budget ports, nil critic: the claim is that the not-configured guard
+		// runs before either of them, so the player is neither billed nor recorded for
+		// a feature that cannot run.
+		b := practiceBudget(mkProvider("unconfigured"), 20, 200)
+		check, spend := b.For(aibudget.KindPractice)
+		svc := NewService(q, render.NewStubRenderer(), nil,
+			BudgetCheck(check), BudgetSpend(spend), logger)
 
 		if _, err := svc.Run(ctx, uid, prompt.ID, doc); !errors.Is(err, ErrNotConfigured) {
 			t.Errorf("Run: err = %v, want %v", err, ErrNotConfigured)
@@ -338,8 +395,8 @@ func TestPracticeRun_DB(t *testing.T) {
 		if _, err := svc.Prompt(ctx); !errors.Is(err, ErrNotConfigured) {
 			t.Errorf("Prompt: err = %v, want %v", err, ErrNotConfigured)
 		}
-		if n := mineSpent(uid); n != 0 {
-			t.Errorf("a refused run cost the player %d judge calls, want 0", n)
+		if n := ledgerRows(uid); n != 0 {
+			t.Errorf("a refused run cost the player %d ledger rows, want 0", n)
 		}
 	})
 

@@ -85,12 +85,14 @@ server/
     assist/      # Assist interface + FakeAssist + AnthropicAssist scaffold; docs/ASSIST.md            [done: fake]
     ratings/     # read-only leaderboard module (aggregate + sort over match_players); docs/API.md §11 [done]
     practice/    # single-player scoring: one prompt/drawing/score, no match; judge.Critic, not Judge  [done]
+    aibudget/    # the daily AI-call ceiling, over ONE ledger table (ai_calls); docs/GAME.md §4.3      [done]
     ws/          # coder/websocket hub for the game (coder/websocket hub — shipped; async-first)       [Phase 3]
   migrations/    # goose (00001_initial_schema.sql, 00002_seed_prompts.sql)
 ```
 
 Module rules:
 - **Modules talk through narrow Go interfaces**, not by reaching into each other's internals. `game` depends on a `judge.Judge` interface and a `drawings` read port; it does not know the judge is HTTP or that drawings live in jsonb.
+- **A shared ceiling belongs in its own module, not in whichever module needed it first.** The daily AI-call budget used to live in `game` and be derived from the tables each feature wrote, which made `game` the owner of every other feature's quota — `practice` imported it for exactly one function. It is now `aibudget`, counting one ledger table (`ai_calls`, migration `00007`), and the direction it created is gone: **`practice` no longer imports `game` for the budget** (only for `game.ValidateSubmission`, the one write-edge validator both modes share), and `assist` gains a durable ceiling without importing `game` at all. Consumers hold plain funcs — `aibudget.Check` / `Spend` / `SpendTx`, bound to a kind once in `main` — so a module never learns its own kind's name, another feature's quota, or the budget's shape. Full rule: `docs/GAME.md` §4.3.
 - **`platform` is the only shared-infra dependency.** It owns the pgx pool, router, config, and logger so modules don't each re-wire infrastructure.
 - **Persistence:** pgx v5 + sqlc (typed queries) + goose (migrations). The `document` column is `jsonb`, bound as `json.RawMessage` (opaque to SQL); queryable fields are promoted to columns (§7, and `docs/DOCUMENT-FORMAT.md` §7).
 - **One process, clean seams** means a module can later become its own binary by lifting it out behind its existing interface — but only when a trigger in §9 fires.

@@ -6,13 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/assist"
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/db"
@@ -129,21 +132,21 @@ func run() error {
 			"timeout", cfg.JudgeTimeout, "retry_envelope", envelope, "pass_budget", game.JudgePassBudget)
 	}
 	gameSvc := game.NewServiceWithConcurrency(pool, queries, renderer, arbiter, logger, cfg.JudgeConcurrency)
-	// The daily judge budget. The per-IP write limiter bounds the request RATE; this
-	// bounds the scarce thing BEHIND the requests — a free tier's per-DAY quota, one
-	// call per duel. Enforced only against a real judge: the fake has no quota to
-	// protect, and a ceiling on the local dev loop would be a bug, not a guard.
-	judgeBudget := game.JudgeBudget{
-		Enforced: cfg.JudgeMode != config.JudgeModeFake,
-		Global:   cfg.JudgeDailyBudget,
-		PerUser:  cfg.JudgeDailyPerUser,
+
+	// The daily AI-call budget (internal/aibudget). The per-IP write limiter bounds
+	// the request RATE; this bounds the scarce thing BEHIND the requests — a free
+	// tier's per-DAY quota, one call per request. This is the ONE place that knows
+	// which provider backs which feature; every consumer below gets two anonymous
+	// funcs and never learns its own kind's name.
+	aiPolicyByKind, err := aiPolicies(cfg)
+	if err != nil {
+		return err
 	}
-	gameSvc.SetJudgeBudget(judgeBudget)
-	if judgeBudget.Enforced {
-		logger.Info("judge budget: per rolling 24h", "global", judgeBudget.Global, "per_user", judgeBudget.PerUser)
-	} else {
-		logger.Info("judge budget: not enforced (JUDGE_MODE=fake has no external quota to protect)")
-	}
+	aiBudget := aibudget.New(queries, aiPolicyByKind, cfg.AIDailyGlobal, logger)
+	logAIBudget(logger, aiPolicyByKind, cfg.AIDailyGlobal)
+
+	duelCheck, _ := aiBudget.For(aibudget.KindDuel)
+	gameSvc.SetBudget(duelCheck, aiBudget.ForTx(aibudget.KindDuel))
 	gameHandler := game.NewHandler(gameSvc, logger)
 
 	// Single-player practice (internal/practice). It exists because a duel needs two
@@ -170,11 +173,14 @@ func run() error {
 		critic = judge.NewFakeCritic()
 		logger.Info("practice: fake critic (ink coverage — it never reads the prompt; set JUDGE_MODE=gemini for a real critique)")
 	}
-	// The SAME budget as a duel, through the same code: a practice run spends one
-	// judge call from one provider's quota, so it is counted by one rule (budget.go,
-	// docs/GAME.md §4.3).
+	// Its own per-player allowance, the same provider ceiling: a practice run spends
+	// one call from the same quota a duel does, counted by one rule for both
+	// (internal/aibudget, docs/GAME.md §4.3). Practice no longer reaches into the
+	// game module to ask — solo mode owed the duel nothing but that one function.
+	practiceCheck, practiceSpend := aiBudget.For(aibudget.KindPractice)
 	practiceHandler := practice.NewHandler(
-		practice.NewService(queries, renderer, critic, gameSvc.CheckJudgeBudget, logger), logger)
+		practice.NewService(queries, renderer, critic,
+			practice.BudgetCheck(practiceCheck), practice.BudgetSpend(practiceSpend), logger), logger)
 
 	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic
 	// FakeAssist runs the whole client flow with zero API dependency, and the real
@@ -189,7 +195,13 @@ func run() error {
 		assistImpl = assist.NewFakeAssist()
 		logger.Info("assist: fake (deterministic canned ops; set ASSIST_MODE=anthropic for the real LLM)")
 	}
-	assistHandler := assist.NewHandler(assistImpl, assistLimiter, logger)
+	// Assist gains the durable half of its ceiling. Its token bucket bounds the
+	// RATE and lives in this process, so the host has been resetting it on every
+	// deploy and every wake from idle; the daily quota lives in Postgres and
+	// therefore actually holds.
+	assistCheck, assistSpend := aiBudget.For(aibudget.KindAssist)
+	assistHandler := assist.NewHandler(assistImpl, assistLimiter,
+		assist.BudgetCheck(assistCheck), assist.BudgetSpend(assistSpend), logger)
 
 	// The leaderboard is a read-only Phase 4 slice (docs/API.md §11): a small
 	// single-route module over the shared queries, like assist — a global top-N
@@ -227,6 +239,11 @@ func run() error {
 	// even if no client is polling (docs/DESIGN-PHASE3-LIVE.md §2.4). Boot-drains the
 	// backlog, then ticks every 3s; returns when ctx is cancelled.
 	background.Go(func() { gameSvc.RunSweeper(ctx, 3*time.Second) })
+
+	// Ledger retention. Nothing is READ past the rolling 24h window; rows are kept
+	// a week so "why was I refused last Tuesday" has an answer, and swept after so
+	// the two partial indexes stay at working-set size.
+	background.Go(func() { aiBudget.RunSweeper(ctx, aibudget.DefaultSweepInterval) })
 
 	mux := http.NewServeMux()
 	// Liveness: is the process up? Deliberately dependency-free — a DB blip must
@@ -368,4 +385,89 @@ func run() error {
 
 	logger.Info("stopped")
 	return nil
+}
+
+// aiPolicies resolves every AI kind's ceiling: WHOSE quota it spends, and how
+// much of it one player may take per rolling day.
+//
+// This is the only place the two facts meet. The provider comes from the mode
+// switches config already validated — so a kind whose impl is a fake gets no
+// provider, which is exactly how the budget says "never enforced, never
+// recorded". The allowance comes from AI_DAILY_PER_USER when the operator named
+// this kind, and otherwise from the defaults that live beside the kinds, so
+// adding a feature never means editing a deployment by hand.
+//
+// An unknown kind name is a boot error rather than a shrug: the valid set lives
+// in internal/aibudget and grows with the code, which is why config (stdlib only,
+// no domain imports) cannot check it and the composition root must.
+func aiPolicies(cfg config.Config) (map[aibudget.Kind]aibudget.Policy, error) {
+	for name := range cfg.AIDailyPerUser {
+		if _, ok := aibudget.ParseKind(name); !ok {
+			return nil, fmt.Errorf("config: AI_DAILY_PER_USER names an unknown kind %q; valid kinds are %v", name, aibudget.AllKinds())
+		}
+	}
+
+	// A judge-family provider. The fake spends nothing; the collaborator's ML is
+	// his service and his quota, still worth a ceiling so a bug here cannot hammer
+	// it. Practice is the exception: JUDGE_MODE=http leaves it with no critic at
+	// all (the §2 contract is two-image), so it makes no calls and owes no quota.
+	judgeProvider := func(kind aibudget.Kind) aibudget.Provider {
+		switch cfg.JudgeMode {
+		case config.JudgeModeGemini:
+			return aibudget.ProviderGoogle
+		case config.JudgeModeHTTP:
+			if kind == aibudget.KindDuel {
+				return aibudget.ProviderCollaborator
+			}
+			return ""
+		default:
+			return ""
+		}
+	}
+	assistProvider := aibudget.Provider("")
+	if cfg.AssistMode == config.AssistModeAnthropic {
+		assistProvider = aibudget.ProviderAnthropic
+	}
+
+	providers := map[aibudget.Kind]aibudget.Provider{
+		aibudget.KindDuel:     judgeProvider(aibudget.KindDuel),
+		aibudget.KindPractice: judgeProvider(aibudget.KindPractice),
+		aibudget.KindAssist:   assistProvider,
+	}
+	policies := make(map[aibudget.Kind]aibudget.Policy, len(providers))
+	for kind, provider := range providers {
+		perUser, ok := cfg.AIDailyPerUser[string(kind)]
+		if !ok {
+			perUser = aibudget.DefaultPerUser[kind]
+		}
+		policies[kind] = aibudget.Policy{Provider: provider, PerUser: perUser}
+	}
+	return policies, nil
+}
+
+// logAIBudget states the ceiling at boot, per kind, because an unenforced budget
+// and an enforced one look identical from the outside until the day the quota
+// runs out. Kinds are listed in a stable order so two boots are diffable.
+func logAIBudget(logger *slog.Logger, policies map[aibudget.Kind]aibudget.Policy, global int) {
+	enforced := make([]any, 0, 2*len(policies))
+	var fake []string
+	for _, kind := range aibudget.AllKinds() {
+		p, ok := policies[kind]
+		if !ok {
+			continue // a kind with no feature wired yet
+		}
+		if p.Provider == "" {
+			fake = append(fake, string(kind))
+			continue
+		}
+		enforced = append(enforced, string(kind), fmt.Sprintf("%d/day via %s", p.PerUser, p.Provider))
+	}
+	if len(enforced) == 0 {
+		logger.Info("ai budget: nothing enforced (every AI impl is a fake, so there is no external quota to protect)")
+		return
+	}
+	logger.Info("ai budget: per rolling 24h", append([]any{"global_per_provider", global}, enforced...)...)
+	if len(fake) > 0 {
+		logger.Info("ai budget: not enforced for fake impls", "kinds", strings.Join(fake, ","))
+	}
 }
