@@ -949,3 +949,29 @@ not a validation layer, it is the **grammar the decoder walks**. Ask of every fi
 repetitive or degenerate continuation is representable in it, because if it is, one day it
 will be the likeliest one — and the symptom will arrive as a truncated answer that blames
 the model.
+
+## Absolute positioning has no gate: only a rendered browser has a pixel
+
+Closing JP-I-05 (the zoom island overlapping the bottom toolbar) meant admitting that nothing else
+in the stack could have caught it. vue-tsc sees types. Vitest renders into happy-dom, which has no
+layout at all. stylelint reads declarations, never computed boxes. axe reads the accessibility tree,
+not pixel geometry. None of them has a pixel, so absolutely-positioned chrome can be painted on top
+of itself with every one of those gates green — which is exactly how this survived. Measured in a
+real browser before the fix: the island and toolbar's content boxes overlapped by 9580px² at
+601×900, 667×375 and 768×1024; 8205px² at 840×700; 3605px² at 1024×768, and 0 both at <=600px and
+from 1169px up. The new guard, `apps/web/tests/layout/chrome-overlap.spec.ts`
+(`npm run test:layout -w @justpaint/web`) fills that blind spot with a rendered-DOM Playwright pass at eleven viewports,
+asserting no two of the shell's three bottom regions have intersecting content boxes — like
+`test:a11y`, it needs a dev server, so it's a local gate, not a CI one.
+
+The second half of the lesson is about the breakpoint itself, not just the guard: **a breakpoint
+keyed to a device class instead of the condition it is responding to is wrong wherever the two
+disagree.** The lift lived inside `@media (width <= 600px)`, alongside the phone gutter tweaks —
+"phones" standing in for the real condition, which is the shrink-to-fit bottom toolbar (769px
+intrinsic width, measured on `/draw`) growing wide enough to reach the zoom island (192px, anchored
+8px off the right edge): they stop touching only once `(vw + 769) / 2 <= vw - (192 + 8)`, i.e.
+`vw >= 1169`. "Phones" and "wide enough to reach the island" happen to agree at very narrow widths
+and disagree across a 569px-wide band, 601px to 1169px, that contains every tablet. The lift now has
+its own query, `@media (width <= 1200px)` (1200 rather than 1169, to leave the toolbar room to
+grow), derived from that arithmetic and written into a comment above it; `<= 600px` keeps only what
+it actually governs, the phone gutter/gap tweaks.

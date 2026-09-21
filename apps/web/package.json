@@ -15,7 +15,8 @@
         "lint:styles": "node scripts/check-styles.mjs",
         "lint:all": "npm run lint:prettier && npm run lint:stylelint && npm run lint:eslint && npm run lint:contrast && npm run lint:styles",
         "lint:ci": "npx stylelint \"**/*.{vue,css}\" && npx eslint \"**/*.{vue,js,ts}\" && npm run lint:contrast && npm run lint:styles",
-        "test:a11y": "playwright test"
+        "test:a11y": "playwright test tests/a11y",
+        "test:layout": "playwright test tests/layout"
     },
     "dependencies": {
         "@justpaint/document": "*",
