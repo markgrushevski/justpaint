@@ -8,9 +8,14 @@ import { defineConfig, devices } from '@playwright/test'
  * happy-dom unit tests structurally can't see. It is deliberately NOT wired
  * into `lint:all`: a headless browser run is heavy, so it stays its own
  * command (`npm run test:a11y`). See `tests/a11y/draw.spec.ts`.
+ *
+ * `tests/layout/` rides the same harness for a different blind spot: rendered
+ * GEOMETRY. Absolutely-positioned chrome can be painted on top of itself with
+ * every other gate green (JP-I-05), and only a real browser has the pixels to
+ * say so. Its own command (`npm run test:layout`) — same reason.
  */
 export default defineConfig({
-    testDir: 'tests/a11y',
+    testDir: 'tests',
     // A single audited route today (/draw); serial keeps the shared dev server
     // and the output readable.
     fullyParallel: false,

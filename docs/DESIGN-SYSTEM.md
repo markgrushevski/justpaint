@@ -116,7 +116,7 @@ backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`clos
 - [ ] No `opacity` disabled override → `disabled` prop.
 - [ ] One icon component per cluster — `ToolIcon` is the app's set (§3); `OriIcon` only where a path prop is passed.
 - [ ] Floating chrome → `OriSurface`; content card → `OriCard`.
-- [ ] `npm run lint:all` (incl. contrast) + `npm run test:a11y` still green.
+- [ ] `npm run lint:all` (incl. contrast) + `npm run test:a11y` + `npm run test:layout` still green — the last one whenever the change touches floating/absolute chrome.
 
 ## 6. oriui capability map — read the source, don't assume gaps
 

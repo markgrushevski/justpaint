@@ -16,13 +16,17 @@ import (
 // Everything else in this package asserts what we SEND, against a local
 // stand-in. That proves our request is the one we meant to build; it cannot
 // prove Google accepts it. The wire types were written from documentation, and
-// three choices in them are reconstructions (field-name casing, where
-// systemInstruction sits, the schema enum spelling) — see ISSUES-INNER JP-I-05.
-// This is the test that settles them.
+// three choices in them were reconstructions (field-name casing, where
+// systemInstruction sits, the schema enum spelling). This is the test that
+// settled them, and it has been run: against the real API with a live key, the
+// request shape is confirmed. (This used to cite an ISSUES-INNER id for those
+// three reconstructions. The id was recycled for an unrelated defect and the
+// entry is now closed, so the pointer is dropped rather than repaired.)
 //
 // Opt-in on purpose, and NOT merely gated on the key being present: a key that
-// happens to be in the environment must never quietly spend a daily quota that
-// only allows a few hundred duels. Run it deliberately:
+// happens to be in the environment must never quietly spend a daily quota the
+// free tier caps at 20 requests per model (measured from a 429 body — see
+// internal/platform/config). Run it deliberately:
 //
 //	GEMINI_LIVE=1 GEMINI_API_KEY=… go test ./internal/judge/ -run Live -v
 //

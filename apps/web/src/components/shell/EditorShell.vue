@@ -198,16 +198,41 @@ defineExpose({ canvasEl })
 
 /* --- small screens ----------------------------------------------------------- */
 
+/* The zoom island and the toolbar share the bottom row, and the island has to
+   move ABOVE the toolbar for every width where the toolbar is wide enough to
+   reach it — which is far more than "phones".
+
+   The toolbar is centered and shrink-to-fits; its intrinsic width on /draw
+   measures 769px. The island is 192px wide, anchored `--ori-size-gap_md` (8px)
+   from the right edge. They stop touching when the toolbar's right edge clears
+   the island's left edge:
+
+       (vw + 769) / 2  <=  vw - (192 + 8)      =>   vw >= 1169
+
+   Keying the lift on the phone breakpoint instead left the whole 601-1169px
+   band overlapping — every tablet, and every phone held sideways (JP-I-05:
+   measured 9580px^2 at 768x1024 and at 667x375, 3605px^2 at 1024x768). 1200
+   rather than 1169 leaves the toolbar ~31px of room to grow before the number
+   is wrong again; `tests/layout/chrome-overlap.spec.ts` is what notices if it
+   ever does, because nothing else in this repo looks at geometry. */
+@media (width <= 1200px) {
+    /* Clears the toolbar's own bottom offset plus its height (54px at full
+       size, 45px in the compact phone form) with enough left over that the two
+       read as separate islands rather than one stack. */
+    .shell__region--bottom-right {
+        bottom: 5rem;
+    }
+}
+
 @media (width <= 600px) {
     .shell__region--bottom-center {
         bottom: var(--ori-size-gap_sm, 0.25rem);
     }
 
-    /* Zoom tucks into the bottom-right above the one-row toolbar; the top corners
-       stay free for the history island (left) and the actions row (right). */
+    /* Phone gutters tighten so the top corners keep their space for the history
+       island (left) and the actions row (right). */
     .shell__region--bottom-right {
         right: var(--ori-size-gap_sm, 0.25rem);
-        bottom: 4.25rem;
     }
 }
 </style>
