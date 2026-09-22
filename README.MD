@@ -65,7 +65,7 @@ Concretely shipped:
 
 - **Frontend** — Vue 3 + Vite + Pinia + TanStack Query; canvas rendering on **Konva** with
   **perfect-freehand** for brush quality; components from **oriui** (the owner's own library,
-  `@oriui/vue` + `@oriui/css` + `@oriui/headless`, installed from npm in lockstep). No hand-written
+  `@oriui/vue` + `@oriui/css` + `@oriui/headless`, installed from npm in lockstep). No handwritten
   render engine.
 - **Backend** — **Go 1.26**, stdlib `net/http` (no framework) + `pgx/v5` + `sqlc` + `golang-jwt/v5`
   + `bcrypt` + `slog`, plus `coder/websocket` for realtime. One binary, one Postgres.
@@ -221,7 +221,7 @@ string you copied:
 | Probe | Answers |
 |---|---|
 | `GET /healthz` | liveness — dependency-free, always 200 while the process is up |
-| `GET /readyz` | readiness — 503 when Postgres is unreachable **or** unmigrated (`{"dependency":"database"|"schema"}`) |
+| `GET /readyz` | readiness — 503 when Postgres is unreachable **or** unmigrated (`{"dependency":"database"\|"schema"}`) |
 
 [`render.yaml`](render.yaml) is a thin adapter for [Render](https://render.com);
 the image is host-agnostic and runs the same on Fly, a VPS or plain Docker. Two
@@ -235,7 +235,6 @@ pinger against `/readyz`.
 
 | Doc | Owns |
 |---|---|
-| [`docs/ORIENTATION.md`](docs/ORIENTATION.md) | the owner's reading path and runbook (Russian) — where to re-enter the code |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | phases and durable status — the real status source |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | the decision log — the "why" behind each call |
 | [`docs/DOCUMENT-FORMAT.md`](docs/DOCUMENT-FORMAT.md) | the keystone vector-document schema (v1) |

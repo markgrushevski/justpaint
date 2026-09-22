@@ -65,7 +65,6 @@ Phase 0 (specs), **Phase 1 (Go backend + minimal editor), Phase 2 (real vector e
 
 ## Docs map
 Source of truth lives in `docs/` (each doc owns one thing and cross-references the rest):
-- `docs/ORIENTATION.md` — **written for the owner, in Russian**: an ordered reading path, the load-bearing files, the invariants that aren't visible locally, the run/deploy runbook, and a symptom → where-to-look table. Owns none of the contracts; it points at the docs that do.
 - `docs/ROADMAP.md` — phases & current status (durable tracker; the real status source).
 - `docs/DECISIONS.md` — decision log (the "why").
 - `docs/DOCUMENT-FORMAT.md` — the keystone vector-doc schema (v1).
