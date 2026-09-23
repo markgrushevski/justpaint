@@ -14,7 +14,7 @@
  * before {@link isBudgetExhausted} silently starts calling every 429 a spent day.
  */
 
-const BASE = import.meta.env.VITE_URL_API
+const BASE = import.meta.env.VITE_URL_API ?? '/api'
 
 /** Closed v1 error-code set from web.go, plus a client-only `network` code. */
 export type ApiErrorCode =

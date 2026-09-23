@@ -11,6 +11,7 @@
         "node": ">=24"
     },
     "scripts": {
+        "dev": "cd server && npx dotenv run -- go run ./cmd/server",
         "build": "npm run build --workspaces --if-present",
         "types": "npm run types --workspaces --if-present",
         "test": "npm run test --workspaces --if-present",
