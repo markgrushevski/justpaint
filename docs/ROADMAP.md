@@ -35,6 +35,7 @@ ships.
   breakpoint (`npm run test:layout` guards overlaps).
 
 **Dependencies**
-- **Next oriui release.** It renames the API vocabulary (`fill` → `solid`, `text` → `label`, …), so
-  migrate the call sites first and bump second — the reverse leaves buttons silently unstyled. The
-  bump closes JP-O-09, JP-O-10 and JP-O-11 ([ISSUES-OUTER.md](ISSUES-OUTER.md)).
+- **Next oriui release.** It renames the API vocabulary (`fill` → `solid`, `text` → `label`, …) with no
+  aliases, so the bump and the call-site migration are one change: either half alone leaves buttons
+  silently unstyled. Migration table: oriui's `.changeset/api-vocabulary-rename.md`. The bump closes
+  JP-O-09, JP-O-10 and JP-O-11 ([ISSUES-OUTER.md](ISSUES-OUTER.md)).

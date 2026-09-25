@@ -14,7 +14,7 @@ Status: `confirmed` · `mitigated` (a local workaround exists) · `fixed upstrea
 note which, then bump and delete).
 
 **All three open entries are fixed on oriui `main` and close with its next release.** That release
-renames the component API vocabulary, so migrate the call sites before bumping
+renames the component API vocabulary with no aliases, so bump and migrate the call sites in one change
 ([ROADMAP.md](ROADMAP.md), "Dependencies").
 
 ---
