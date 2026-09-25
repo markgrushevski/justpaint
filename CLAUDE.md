@@ -43,7 +43,8 @@ docs                contracts and decisions
 - **The judge is external.** Code the interface and fakes; never block on the ML service.
 - **oriui is consumed, not restyled** (`docs/DESIGN-SYSTEM.md`): colors are set once in `main.css`;
   button state goes through props (`variant`, `pressed`, `disabled`, `loading`); icon actions are
-  `OriButton`/`IconButton`; floating chrome is `OriSurface`, content is `OriCard`. Never style `.ori-*`.
+  `OriButton`/`IconButton`; floating chrome is `OriSurface`, content is `OriCard`. Never override `.ori-*`
+  rules; setting a public oriui token (`--ori-color`, `--ori-size-action`) on an element is the escape hatch.
 - **`/draw` stays focused.** A feature belongs there if it makes drawing better or more fun; anything
   with a score, a ladder or an opponent belongs to the game.
 
