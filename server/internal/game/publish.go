@@ -10,7 +10,7 @@ import (
 // Publisher is the seam internal/game calls to push a just-committed transition to
 // the realtime layer. It is defined HERE (game owns the interface it calls) and
 // implemented by internal/ws.Hub, so the dependency runs one way — ws imports game,
-// never the reverse — and there is no import cycle (docs/DESIGN-PHASE3-LIVE.md §3.2).
+// never the reverse — and there is no import cycle.
 //
 // Every method takes ONLY ids: no ws types, no DTOs cross this boundary. The hub
 // rebuilds any per-viewer payload itself via MatchStateJSON / ResultJSON, so runtime
@@ -26,8 +26,7 @@ type Publisher interface {
 
 // NopPublisher is the default publisher: every method is a no-op. It is what
 // NewService installs, so the game service (and the whole round-deadline suite) runs
-// unchanged with no realtime layer wired — the hub is strictly additive
-// (docs/DESIGN-PHASE3-LIVE.md §3.2, §4.1).
+// unchanged with no realtime layer wired — the hub is strictly additive.
 type NopPublisher struct{}
 
 func (NopPublisher) MatchChanged(string)            {}
@@ -51,7 +50,7 @@ func (s *Service) SetPublisher(p Publisher) {
 // publishOutcome is the uniform post-commit tail every resolveExpiry caller runs, so a
 // resolution is published no matter which path (the Submit late-expiry 409 or the
 // sweeper) triggered it — this is what notifies the WINNING opponent the instant the
-// loser's own late submit forfeits the round (docs/DESIGN-PHASE3-LIVE.md §2.4, §3.2).
+// loser's own late submit forfeits the round (docs/API.md §9.2).
 // It maps the committed outcome to the matching frame; outcomeNone is a no-op.
 func (s *Service) publishOutcome(matchID string, outcome resolveOutcome) {
 	switch outcome {
@@ -69,7 +68,7 @@ func (s *Service) publishOutcome(matchID string, outcome resolveOutcome) {
 // bytes. Returns ErrNotFound when the viewer is not a player (reusing Get), so the hub
 // can never emit a frame to a non-member. The hub calls this ONCE PER DISTINCT userID
 // in a room, so each recipient gets their own bytes: A's frame carries A's drawingId
-// and never B's mid-round (docs/DESIGN-PHASE3-LIVE.md §3.3, §3.6, docs/GAME.md §4.2).
+// and never B's mid-round (docs/GAME.md §4.2).
 func (s *Service) MatchStateJSON(ctx context.Context, viewerID, matchID string) (json.RawMessage, error) {
 	view, err := s.Get(ctx, viewerID, matchID)
 	if err != nil {
@@ -85,7 +84,7 @@ func (s *Service) MatchStateJSON(ctx context.Context, viewerID, matchID string) 
 // ResultJSON builds the per-viewer result payload for one viewer (the same
 // buildResultDTO the REST result handler returns), or ErrNotFound if they are not a
 // player (reusing Result). Marshals the {status,ready:false} pending shape or the full
-// resultDone verdict, whichever Result yields (docs/DESIGN-PHASE3-LIVE.md §3.5).
+// resultDone verdict, whichever Result yields (docs/API.md §9.2).
 func (s *Service) ResultJSON(ctx context.Context, viewerID, matchID string) (json.RawMessage, error) {
 	view, err := s.Result(ctx, viewerID, matchID)
 	if err != nil {

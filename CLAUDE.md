@@ -1,88 +1,86 @@
-# justpaint — Claude Code guide
+# justpaint — agent guide
 
-> Auto-loaded each session. Keep concise; deep detail lives in `docs/`. When this disagrees with
-> `docs/ROADMAP.md` (the durable status tracker) or the code, the code wins — fix this file.
+Loaded every session. Keep it short; detail lives in `docs/`. When this file and the code disagree, the
+code wins — fix this file.
 
 ## What this is
-justpaint is a web drawing app. The **north star is a game**: an AI-judged drawing duel — two players draw the same prompt, an ML "judge" scores similarity to the prompt and picks a winner (ratings, later teams/tournaments). A free-draw editor is a supporting mode.
 
-Greenfield — no production data to preserve; schema/format may be redesigned freely.
-
-## North star & scope
-- **Primary:** the game (`/play`) — async duel first (create → both draw → submit → judge → result), live realtime on top (Go WS hub). **Phase 3 is done:** the async-duel loop runs end-to-end — the backend **and** the navigable `/play` page (live against `/api/matches`: create/auto-join → submit → result + Elo), a server-authoritative round deadline with forfeit/abandon, and live WS realtime, behind swappable render/judge seams; the authoritative Node render worker is wired (`RENDER_MODE=node`). The opponent-canvas reveal is a membership-gated endpoint, not object storage (superseded — see `docs/ROADMAP.md`).
-- **Supporting:** free-draw editor (`/draw`) — editor + save/load, kept deliberately minimal, **plus the AI-in-product surfaces** (assist, and "guess what I drew"), which live here because `/draw` is the only screen with a canvas and no clock. The same editor powers both modes. **Live today.**
-- **External:** the ML judge is built by a collaborator (his own ML). We define the contract + a fake impl; we do NOT build it.
-- **Planned:** AI **inside the product** (text drawing commands, AI inpainting, canvas co-author) — the product differentiator; see `docs/IDEAS.md` "AI inside the product" + `DECISIONS.md` 2026-07-04.
+A web drawing app built around an **AI-judged drawing duel** (`/play`): two players draw one prompt, a
+judge scores both, and Elo feeds a leaderboard. `/practice` is the single-player mode. `/draw` is the
+free editor and hosts the AI features that need a canvas without a clock (assist, "what did I draw?").
+The ML judge is an external service: this repo owns the `Judge` contract and its impls (`fake`, `http`,
+`gemini`), never the model.
 
 ## Stack
-- **Frontend:** Vue 3 + Vite + Pinia + TanStack Query. Rendering on **Konva** (+ `perfect-freehand` for brush quality). We do NOT hand-write a render engine. Component lib: **oriui** — the owner's own library, installed from npm (`@oriui/{vue,css,headless}` `1.0.0-alpha.13`, the three in lockstep); in use on `/draw` (replaced `vueinjar`).
-- **Backend:** **Go 1.26** — net/http (stdlib, no framework) + pgx/v5 + sqlc + golang-jwt/v5 + bcrypt + slog. One Postgres. sqlc is an **external CLI** (not a Go dep); goose is **both** — the CLI for local work, and a library dependency because the server embeds `server/migrations/` and applies them at boot (`AUTO_MIGRATE`, on by default; the deploy host has no shell). `coder/websocket` powers the live WS realtime hub (`internal/ws`, Phase 3, shipped).
-- **Storage:** drawings as a **vector document (jsonb)**; rendered PNGs (judge/thumbnails) to object storage later.
 
-## Monorepo (this now exists)
+- **Frontend:** Vue 3, Vite, Pinia, TanStack Query; Konva + perfect-freehand; oriui
+  (`@oriui/{vue,css,headless}`, pinned to one exact version, all three in lockstep).
+- **Backend:** Go 1.26 — stdlib `net/http`, pgx/v5, sqlc, golang-jwt/v5, bcrypt, slog, coder/websocket.
+  One Postgres; goose migrations are embedded and applied at boot.
+- **Render worker:** `packages/render`, Node, reusing the editor's `renderToStage`.
+
 ```
-packages/document/   # vector doc schema + (de)serialize + validate + fit + freehand pins  (the contract)
-packages/editor/     # Konva + perfect-freehand: pure tools, toKonva, renderToStage/PNG, Editor controller
-packages/render/     # headless Node render worker (reuses editor renderToStage; node-canvas; esbuild-bundled) — the authoritative judged raster
-apps/web/            # Vue app: /draw (free) + /play (the duel).
-server/              # Go modular monolith: auth + drawings + judge/render seams + game (full async duel: create/join/submit/judge/result) + WS realtime hub (internal/ws)
-docs/                # specs & agreements (source of truth)
+packages/document   the vector document contract (TS)
+packages/editor     Konva editor — imports only document, Konva, perfect-freehand
+packages/render     headless worker that renders the judged raster
+apps/web            the Vue app
+server              Go modular monolith (internal/*)
+docs                contracts and decisions
 ```
-npm workspaces (`packages/*` + `apps/*`); the Go service is separate. Reusability = package boundaries (`editor` consumed by both modes), not separate repos. Modular monolith, not microservices. The friend's judge is the only external service.
 
-## Current state
-Phase 0 (specs), **Phase 1 (Go backend + minimal editor), Phase 2 (real vector editor), and Phase 3 (the game) are done** — see `docs/ROADMAP.md`. The **async-duel loop runs end-to-end**, backend **and** frontend — `internal/game` (create/auto-join → submit → out-of-band judging → result + Elo, on the `internal/judge` + `internal/render` seams), a server-authoritative round deadline with forfeit/abandon (`internal/game/sweeper.go`), **and the navigable `/play` page** wired live to `/api/matches` (`core/api/matches.ts` + poll loop; `feat/play-api-loop`), now backed by **live WS realtime** (`internal/ws`, `feat/ws-realtime`) with the poll loop demoted to a reconciliation fallback. The authoritative **Node render worker** is wired (`RENDER_MODE=node`). The opponent-canvas reveal is a membership-gated participant-drawing endpoint, not object storage (superseded — `docs/ROADMAP.md`).
-- `/draw` is a real vector editor: real layers, command-based undo/redo, fit-to-viewport/zoom, oriui design system, save/load via TanStack Query, PNG export — all on the v1 document format, editor logic entirely in `packages/editor`.
-- The full round-trip works live: register → draw with every tool → save → reload → load the same drawing back, as a vector document through Postgres jsonb.
-- The **async duel loop runs end-to-end** (`/api/matches`, `internal/game`): create/auto-join → both draw → submit (validate + 1080² check, persist, `drawing → judging` on the last submit) → out-of-band judging → result with winner + reason + Elo (K=32). The **render is real**: `RENDER_MODE=node` renders the authoritative judged raster off the client via `packages/render` (the Node Konva worker reusing the editor's `renderToStage`); `RENDER_MODE=stub` (default) is a zero-dep in-process stand-in. The **judge is still a seam** (`internal/judge` FakeJudge; HTTP judge later). See `docs/GAME.md` / `docs/API.md §8`.
-- The old red-flag patterns (plaintext passwords, JWT empty-secret fallback, token in localStorage, Triangle-draws-a-rect, PNG-snapshot history) are **structurally gone** — the throwaway raster app that carried them (`/legacy`) was **deleted 2026-07-02** (`chore/remove-legacy`; salvaged UX ideas live in `docs/IDEAS.md`, code recoverable from git history). Don't reintroduce them.
-- **The API client is native `fetch`** (`src/core/api/drawings.ts` + `useSessionStore`, cookie `jp_session`) — the old axios/localStorage-Bearer client went with the legacy app. Use the fetch client + `useSessionStore`.
-- **AI Assist is shipped and real** (Phase A `feat/assist-phase-a` 2026-07-13, the live impl 2026-09-20) — the first AI-in-product slice: a prompt → validated `Op` batch (`add_layer`/`add_stroke`) → ghost preview → one composite editor command, via a judge-style `internal/assist` seam. `ASSIST_MODE=gemini` selects `GeminiAssist`, which shares the judge's key, quota and HTTP client; `fake` (the default) is the offline stand-in for dev/CI. There is no third mode — the Anthropic scaffold and its knobs were deleted 2026-09-20 and `ASSIST_MODE=anthropic` is now a boot error. See `docs/ASSIST.md`. **Phase 4** (stretch: ratings + leaderboard shipped; realtime hardening, teams/tournaments, replay, and the real judge integration remain) is in progress — see `docs/ROADMAP.md`.
+## Hard rules
 
-## Hard rules / gotchas
-- Stand on Konva; don't reinvent rendering. Own the document model, rent the renderer.
-- The judge is external — code only the `Judge` interface + a fake; never block on the ML. It gets pre-rendered PNGs; it never parses our document.
-- **The document contract lives in two validators** (`packages/document` TS + `server/internal/document` Go) that must stay 1:1 — every invariant on both sides, DoS caps identical to `docs/API.md`, test tables mirrored. A format change lands in the spec AND both validators AND both test tables together.
-- **Dependency direction** (ARCHITECTURE §3): `document` imports nothing; `editor` imports only `document` + Konva + perfect-freehand (never Vue/router/API); app logic stays in `apps/web`.
-- **Trust boundary**: client PNGs/thumbnails are advisory; anything judged or persisted is derived server-side from the vector document. Ownership is scoped in every query — a foreign row answers **404**, never 403.
-- **Consume oriui, don't re-implement it** (`docs/DESIGN-SYSTEM.md`): colors are set **once** at the root (`main.css`) — components never re-mix a brand role (`color-mix(--ori-color-primary …)` is banned); drive button state with **props** (`variant`/`pressed`/`disabled`/`loading`), never a hand-rolled `--active` class or `opacity` disable; icon actions are `OriButton`/`IconButton` (icon mode + `radius`), not raw `<button>`; content → `OriCard`, floating chrome → `OriSurface` used directly (`JpFloat` was deleted at the rc.18 bump — DESIGN-SYSTEM §4).
-- Keep `/draw` focused but **polished** — the 2026-07-04 UX-first pass (ROADMAP Phase 3) gates the `/play` UI. Product energy goes to the game; avoid the two-products trap. The line is no longer "editor + save/load only": the AI-in-product features (`DECISIONS.md` 2026-07-04) need a canvas with no opponent and no deadline, so `/draw` is where they land — assist 2026-07-13, guess 2026-09-20. **The test is not "is it editing?" but "does it make the drawing better or the drawing more fun, without becoming a second product?"** Anything with a score, a ladder or an opponent belongs in the game, not here.
-- The authoritative judged raster is rendered **off the client** (`packages/render`, `RENDER_MODE=node`) from the validated vector document via the editor's own `renderToStage` — never a Go rasterizer (would diverge from the pinned `FREEHAND_VERSION`), never a client PNG.
+- **Stand on Konva.** Own the document model; never hand-write a render engine.
+- **The document contract lives in two validators** — `packages/document` (TS) and
+  `server/internal/document` (Go) — kept 1:1 with `docs/DOCUMENT-FORMAT.md` and the caps in
+  `docs/API.md`. A format change touches the spec, both validators and both test tables together.
+- **Dependency direction:** `document` ← `editor` ← `apps/web`, never back (ARCHITECTURE §3).
+- **Trust boundary:** client PNGs are advisory. Anything judged or persisted is derived server-side from
+  the validated document, and the judged raster comes from `packages/render` — never a Go rasterizer,
+  never a client image. Every query is ownership-scoped: a foreign row answers 404, never 403.
+- **Auth** is the httpOnly `jp_session` cookie; the client is native `fetch` + `useSessionStore`. No
+  tokens in localStorage, no empty-secret fallback.
+- **The judge is external.** Code the interface and fakes; never block on the ML service.
+- **oriui is consumed, not restyled** (`docs/DESIGN-SYSTEM.md`): colors are set once in `main.css`;
+  button state goes through props (`variant`, `pressed`, `disabled`, `loading`); icon actions are
+  `OriButton`/`IconButton`; floating chrome is `OriSurface`, content is `OriCard`. Never style `.ori-*`.
+- **`/draw` stays focused.** A feature belongs there if it makes drawing better or more fun; anything
+  with a score, a ladder or an opponent belongs to the game.
 
 ## Commands
-- **Whole repo (root):** `npm run build` / `npm run types` / `npm run test` — fan out to all TS workspaces (`--workspaces --if-present`).
-- **Formatting (root):** `npm run format` / `npm run format:check` — one root prettier config (`semi: false`) over the whole repo; `.prettierignore` keeps it off `docs/` (hand-authored) and `server/` (gofmt owns it).
-- **Frontend:** `npm run dev -w @justpaint/web` (Vite on **:7777**), `npm run build -w @justpaint/web`, `npm run types -w @justpaint/web` (vue-tsc), `npm run lint:all -w @justpaint/web`. Or use the `.claude/launch.json` `web` config (preview MCP).
-- **Packages:** `npm run test -w @justpaint/document` / `-w @justpaint/editor` (Vitest); `npm run build -w @justpaint/document` (tsc → `dist/`). **Footgun:** `apps/web` imports the packages' built `dist/`, so after editing package `src` you must rebuild the package (no HMR across the boundary — see `docs/NOTES.md`).
-- **Go backend (in `server/`):** `go run ./cmd/server` (listens on **:8080**, the vite proxy target); `go build ./...`, `go vet ./...`, `go test ./...`. Requires `ENV` (`dev`/`prod`, no default) + `DATABASE_URL` + `JWT_SECRET` **exported in the environment** — the server does **not** auto-load `.env` (copy `.env.example` and export, or use an IDE run config). Judge raster defaults to the in-process stub; for the **authoritative** render set `RENDER_MODE=node` + `RENDER_CLI=<abs path>/packages/render/dist/render.mjs` (needs `node` on PATH + `npm run build -w @justpaint/render` first).
-- **CI:** `.github/workflows/ci.yml` runs these same gates on push to `main` and on every PR — a **ts** job (format:check / types / test / build / `lint:ci` / render selftest) and a **go** job (gofmt / vet / build / goose + `go test` **`-race`** against a postgres service). Green locally is green in CI for the TS side, **but not for Go**: `-race` needs cgo, which a stock Windows toolchain does not have, so `go test ./...` here and `go test -race ./...` there are different gates. The difference is not theoretical — it caught a test on 2026-09-21 that asserted a happens-before that never existed and had passed locally for months (`internal/game/limiter_test.go`).
-- **DB:** `docker compose up -d` at the repo root (postgres:17-alpine on :5432). Migrate with the **goose** CLI against `server/migrations/`; regenerate query code with **sqlc generate** (`server/sqlc.yaml`) — both are external CLIs, not wired into `go run`.
+
+- **Root:** `npm run build` · `types` · `test` · `format` / `format:check` (prettier skips `docs/` and
+  `server/`).
+- **Web:** `npm run dev -w @justpaint/web` (:7777) · `lint:all` / `lint:ci` · `test:a11y` ·
+  `test:layout` — the last two need the dev server running.
+- **Packages:** `apps/web` imports each package's built `dist/`, so rebuild after editing a package's
+  `src` (`npm run build -w @justpaint/<name>`).
+- **Go** (in `server/`): `go run ./cmd/server` (:8080) needs `ENV`, `DATABASE_URL` and `JWT_SECRET`
+  exported — there is no `.env` autoload. `gofmt -l .` · `go vet ./...` · `go test ./...`.
+- **DB:** `docker compose up -d`; `goose` and `sqlc` (`server/sqlc.yaml`) are external CLIs.
+- **CI** runs the same gates, but Go tests run with `-race`, which needs cgo and so doesn't run on a stock
+  Windows toolchain. Local green is not CI green for Go — check CI after pushing.
 
 ## Conventions
-- TS strict; avoid `any`; explicit types at package boundaries. Vue 3 Composition API + `<script setup>`. (`apps/web/tsconfig.json` does not extend `tsconfig.base.json` and omits `noUncheckedIndexedAccess` — the packages are stricter than the app.)
-- Go: idiomatic, stdlib-first, `internal/` packages, table-driven tests, errors wrapped with context (`%w`).
-- Commits: Conventional Commits, present tense, one logical change each; branch + `--no-ff` merge for multi-commit work. See `CONTRIBUTING.md`.
 
-## Docs map
-Source of truth lives in `docs/` (each doc owns one thing and cross-references the rest):
-- `docs/ROADMAP.md` — phases & current status (durable tracker; the real status source).
-- `docs/DECISIONS.md` — decision log (the "why").
-- `docs/DOCUMENT-FORMAT.md` — the keystone vector-doc schema (v1).
-- `docs/ARCHITECTURE.md` — topology & boundaries.
-- `docs/API.md` — HTTP contract (owns the `jp_session` cookie, error envelope, status map, DoS caps, pagination).
-- `docs/JUDGE.md` — judge contract (the agreement with the ML collaborator).
-- `docs/GAME.md` — match lifecycle, canvas, ratings.
-- `docs/ASSIST.md` — AI-assist Op contract, the `internal/assist` seam, doc-summary shape, ghost-preview UX.
-- `docs/REVIEW.md` — the per-change review bar (contract parity, security, scope).
-- `docs/DESIGN-SYSTEM.md` — how the UI consumes oriui (colors at root only, drive state with props, `OriSurface`/`IconButton`, `OriCard` for content) — the frontend chrome contract.
-- `docs/NOTES.md` — non-obvious implementation gotchas (read first; append what you learn).
-- `docs/IDEAS.md` — non-blocking backlog (deferred hardening & good-ideas-later).
-- `docs/ISSUES-INNER.md` — known problems **we** fix here (confirmed and unconfirmed, with evidence).
-- `docs/ISSUES-OUTER.md` — known problems a dependency must fix, oriui above all: each entry names the local
-  workaround it justifies and the upstream `ORI-I-*` id it waits on. oriui reads this file as its inbound
-  queue, so report an oriui gap here rather than only mentioning it. The axis is **who must fix it**, not
-  who found it; agents report, the orchestrator records.
-- `CONTRIBUTING.md` — branch / commit / merge workflow. `AGENTS.md` — tool-agnostic entry map.
+- TS strict, no `any`, explicit types at package boundaries; Vue 3 `<script setup>`. `apps/web` omits
+  `noUncheckedIndexedAccess`; the packages don't.
+- Go: stdlib first, `internal/` packages, table-driven tests, errors wrapped with `%w`.
+- Conventional Commits, one logical change each; a branch and a `--no-ff` merge for multi-commit work
+  (`CONTRIBUTING.md`). No AI co-author trailers.
+- Docs and comments are written for an outside developer: plain and short, no narration about who asked
+  or who found what, no AI-process talk. `docs/` is hand-written and not prettier-formatted.
+- `ISSUES-INNER.md` / `ISSUES-OUTER.md`: newest entry first; delete an entry in the change that resolves it.
 
-## Working with agents
-The main session is the **orchestrator**: it plans, runs the gates, verifies live, wires shared files (route/barrel/migration numbering), and records findings into `docs/NOTES.md` / `docs/DECISIONS.md`. Read-only review lenses live in `.claude/agents/` — `jp-contract-parity`, `jp-security`, `jp-go`, `jp-frontend`, `jp-scope-guard`, `jp-docs-reviewer`, `jp-design-reviewer`; each hunts one dimension against `docs/REVIEW.md`. Backend (`server/`) and frontend (`packages/` + `apps/`) share no files and both validate against the frozen contract, so they fan out on parallel branches; integration stays serialized through the orchestrator.
+## Docs
+
+`docs/` is the source of truth, one owner per topic. Contracts: ARCHITECTURE, DOCUMENT-FORMAT, API,
+GAME, JUDGE, ASSIST, DESIGN-SYSTEM. Then DECISIONS (why), NOTES (gotchas — read first), ROADMAP (what
+is left), IDEAS (backlog), ISSUES-INNER / ISSUES-OUTER (known problems, ours / upstream — oriui reads
+OUTER as its queue), REVIEW (what a change is reviewed against).
+
+## Agents
+
+Read-only review agents live in `.claude/agents/` (`jp-*`), one dimension each, measured against
+`docs/REVIEW.md`; they report and never edit. `server/` and `packages/` + `apps/` share no files, so they
+can be worked in parallel; shared wiring (routes, barrels, migration numbers) is integrated serially.

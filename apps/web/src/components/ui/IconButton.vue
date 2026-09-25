@@ -30,7 +30,7 @@ withDefaults(
          * boolean makes oriui render `aria-pressed` BOTH ways; leaving it
          * undefined means "not a toggle" and emits no ARIA state at all, which
          * is why it has no default. Replaces the `active` look plus a
-         * hand-wired `aria-pressed` (oriui rc.18, JP-O-01).
+         * hand-wired `aria-pressed` (oriui rc.18).
          */
         pressed?: boolean
         disabled?: boolean

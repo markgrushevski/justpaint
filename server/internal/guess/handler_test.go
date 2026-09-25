@@ -218,7 +218,7 @@ func TestGuess_ReturnsTheFrozenEnvelope(t *testing.T) {
 	}
 }
 
-// JUDGE_MODE=http: the collaborator's service compares two drawings against a
+// JUDGE_MODE=http: the external judge service compares two drawings against a
 // prompt and has nothing that names one drawing, so the guess is unconfigured. It
 // must refuse — loudly — rather than quietly fall back to the ink-coverage fake,
 // whose label a player has no way to tell from a real one.

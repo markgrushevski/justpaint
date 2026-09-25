@@ -57,7 +57,7 @@ func (k Kind) Noun() string {
 
 // Provider names whose free tier a call spends — the ledger's `provider` column.
 // The global half of the ceiling is counted PER PROVIDER, never service-wide:
-// Google running dry must not throttle a duel judged by the collaborator's own
+// Google running dry must not throttle a duel judged by the external ML judge's
 // service, whose quota is a different quota entirely, or the reverse. Narrowed by
 // WithModel, the same rule holds one level down — one `google:<model>` pool
 // emptying must not refuse a kind pinned to a different model (migration 00007).
@@ -72,7 +72,7 @@ const (
 	// ProviderGoogle backs every Gemini seam (JUDGE_MODE=gemini, ASSIST_MODE=gemini).
 	// It is almost never used bare — see WithModel.
 	ProviderGoogle Provider = "google"
-	// ProviderCollaborator is the ML collaborator's own service (JUDGE_MODE=http).
+	// ProviderCollaborator is the external ML judge's service (JUDGE_MODE=http).
 	// Its quota is not ours and we cannot see it, which is exactly why we keep a
 	// ceiling under it rather than waiting to be told we exceeded one.
 	ProviderCollaborator Provider = "collaborator"
@@ -90,8 +90,8 @@ const (
 // Google bills in.
 //
 // A provider whose quota is NOT metered per model keeps its bare name: the
-// collaborator's service is one service however many models sit behind it, and
-// splitting its counter would only hide how much of it we are using.
+// external ML judge's service is one service however many models sit behind
+// it, and splitting its counter would only hide how much of it we are using.
 //
 // An empty model returns the provider unchanged rather than "google:" — a key with
 // nothing after the colon counts a pool that does not exist, and the caller that

@@ -9,7 +9,7 @@ import { test, expect, type Page } from '@playwright/test'
  * this repo still passes. vue-tsc sees types, vitest renders into happy-dom
  * (no layout at all), stylelint reads declarations, and axe reads the
  * accessibility tree — none of them has a pixel to look at. That blind spot is
- * how JP-I-05 survived: the zoom island sat on top of the toolbar across the
+ * how this overlap bug survived: the zoom island sat on top of the toolbar across the
  * ENTIRE 601-1180px band (measured 9580px^2 at 768x1024) because the lift that
  * moves it out of the way was keyed to the phone breakpoint, while the toolbar
  * stays wide enough to reach it up to ~1169px.

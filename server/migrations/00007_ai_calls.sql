@@ -59,9 +59,9 @@ create table ai_calls (
     -- AI feature need a migration — exactly the friction this table removes.
     kind       text        not null,
     -- Null means this row bills no provider: it is a player-side row. Non-null
-    -- names WHOSE free tier was spent ('google', 'anthropic', …), because the
-    -- global ceiling is per provider — Google running dry must never throttle
-    -- Anthropic, or the reverse.
+    -- names WHOSE quota was spent ('google:<model>', 'collaborator', …), because
+    -- the global ceiling is per provider — one running dry must never throttle
+    -- another.
     provider   text,
     created_at timestamptz not null default now(),
     -- The invariant the Spend function upholds, written where it cannot drift: a

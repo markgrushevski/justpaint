@@ -25,9 +25,7 @@ exception is recorded in [DECISIONS.md](DECISIONS.md) — otherwise it's a findi
 ## How to apply it
 
 - **Default** — self-review the diff against the relevant sections before committing.
-- **Orchestrated** — the read-only lenses in `.claude/agents/` each own a section below:
-  `jp-contract-parity`, `jp-security`, `jp-go`, `jp-frontend`, `jp-scope-guard`, `jp-docs-reviewer`.
-  They report findings against this bar; the orchestrator integrates and records.
+- Automated review checks live in `.claude/agents/`.
 
 ## Contract fidelity — the keystone
 
@@ -75,10 +73,10 @@ never drift — `packages/document` (TS) and `server/internal/document` (Go):
       locked immutable after submit. Never store a client-supplied URL.
 - [ ] The error envelope leaks no SQL / stack / internal detail and no `password_hash`; new protected
       routes sit behind `RequireAuth`, not ad-hoc checks (logout is the deliberate exception).
-- [ ] Known deferrals (rate limiting `429` — DECISIONS 2026-06-20) stay deliberate; don't silently
-      half-ship them. (Duel 409 immutability is **no longer deferred** — it landed with the submit path
-      in `feat/game-submit`: `UpdateDrawing`/`DeleteDrawing` carry `and match_id is null` → `ErrDuelLocked`
-      → 409. Any new write path over a submitted duel drawing must keep that lock.)
+- [ ] Known deferrals stay deliberate and recorded in `DECISIONS.md`; don't silently half-ship them.
+      (Duel 409 immutability is **not** deferred — `UpdateDrawing`/`DeleteDrawing` carry
+      `and match_id is null` → `ErrDuelLocked` → 409. Any new write path over a submitted duel drawing
+      must keep that lock.)
 
 ## Go backend
 
@@ -92,7 +90,7 @@ never drift — `packages/document` (TS) and `server/internal/document` (Go):
       calls; no panic used as control flow; graceful shutdown stays wired.
 - [ ] New validator/handler paths get table-driven tests (only `internal/document` has tests today —
       grow coverage where you touch).
-- [ ] No inline Go teaching in review notes — the owner opted out; report findings plainly.
+- [ ] No inline Go teaching in review notes — report findings plainly.
 
 ## Frontend & packages
 
@@ -112,7 +110,7 @@ never drift — `packages/document` (TS) and `server/internal/document` (Go):
 
 ## Design & responsive (oriui)
 
-Owned by the `jp-design-reviewer` lens. The UI is built on the **oriui** design system.
+The UI is built on the **oriui** design system.
 
 - [ ] Colors/sizes read **resolved oriui aliases** (`--ori-color`, `--ori-color-surface`,
       `--ori-color-outline`, `--ori-size-*`), never hardcoded hex/px. Text uses `--ori-color-on-*`
@@ -132,7 +130,7 @@ Owned by the `jp-design-reviewer` lens. The UI is built on the **oriui** design 
 - [ ] `/draw` stays the editor, save/load and the AI-in-product surfaces (assist, guess) — anything
       with a score, a ladder or an opponent belongs in the game, and a feature that serves only
       free-draw needs a decision first (the two-products trap).
-- [ ] The collaborator's `Judge` contract stays frozen and nothing blocks on his ML — a new impl is a
+- [ ] The external judge's `Judge` contract stays frozen and nothing blocks on the ML — a new impl is a
       new impl behind the interface (`JUDGE_MODE`), never a widening of the contract, and a question
       that is ours to ask gets its own seam (`Critic`, `Guesser`). The positional `winner`
       (`"A"|"B"|"tie"`) → player-id mapping stays inside the game module.

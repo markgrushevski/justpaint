@@ -1,7 +1,7 @@
 // Package judge is the seam to the external ML judge (docs/JUDGE.md — the single
 // source of truth for this contract). The game module depends on the Judge
 // interface, never a concrete impl, so the in-process FakeJudge, the HTTPJudge to
-// his service and the GeminiJudge that scores today all swap by config
+// the external ML judge's service, and the GeminiJudge that scores today all swap by config
 // (JUDGE_MODE) with no change to the game loop. The judge scores pre-rendered
 // PNGs and never sees our vector document (trust boundary, DOCUMENT-FORMAT §10);
 // A/B are positional and mapped to player ids by game.

@@ -50,7 +50,7 @@ export interface Match {
     players: MatchPlayer[]
     /** Absolute round deadline (RFC3339Nano, UTC) — null while `open` (not stamped
      *  until the match enters `drawing`). The client counts down against this,
-     *  reconciled with `serverTime` (docs/DESIGN-PHASE3-LIVE.md §2.8). */
+     *  reconciled with `serverTime` (docs/API.md §8). */
     drawingDeadline: string | null
     /** The response-build instant (RFC3339Nano, UTC), always present — lets the
      *  client correct clock skew before computing the countdown from
@@ -67,7 +67,7 @@ export interface SubmitMatch {
     status: MatchStatus
     you: { submitted: boolean; drawingId: string }
     /** Same deadline/clock pair as `Match`, so the submit ack re-anchors the
-     *  client countdown without a follow-up GET (docs/DESIGN-PHASE3-LIVE.md §2.8). */
+     *  client countdown without a follow-up GET (docs/API.md §8.3). */
     drawingDeadline: string | null
     serverTime: string
 }
@@ -104,7 +104,7 @@ export interface MatchResultDone {
      *  player never submitted before the deadline, default win, no judge run), or
      *  `aborted` (judging exhausted its retries — both players drew, nobody was
      *  scored, no rating moved; docs/GAME.md §3). The client branches its copy on
-     *  this, never on the free-text `reason` (docs/DESIGN-PHASE3-LIVE.md §2.8). */
+     *  this, never on the free-text `reason` (docs/API.md §8.4). */
     resolution: 'judged' | 'forfeit' | 'aborted'
     players: ResultPlayer[]
 }
@@ -158,7 +158,7 @@ export const matches = {
     }
 }
 
-/* --- WS realtime (docs/DESIGN-PHASE3-LIVE.md §3.5 wire protocol, §3.7 frontend) --- */
+/* --- WS realtime (docs/API.md §9 wire protocol) --- */
 
 /**
  * The 8 server→client frames the WS hub (`server/internal/ws/events.go`) emits,
@@ -213,7 +213,7 @@ export interface MatchSocketHandlers {
 }
 
 /** A thin transport handle — reconnect/backoff policy and frame dispatch live in
- *  the caller (PlayView), not here (docs/DESIGN-PHASE3-LIVE.md §3.7 "thin adapters"). */
+ *  the caller (PlayView), not here. */
 export interface MatchSocketHandle {
     /** Close the socket. Safe to call more than once. */
     close(): void
@@ -227,10 +227,9 @@ export interface MatchSocketHandle {
  * Open the live match socket: same-origin `GET /api/matches/:id/ws` (the
  * `jp_session` cookie rides the handshake automatically — a WS handshake can't
  * carry a custom header, so cookie auth is the only mechanism, same as REST).
- * Built from `location.*` rather than the `/api` request base, but equivalent —
- * `VITE_URL_API` is always the relative `/api` in every environment
- * (docs/NOTES.md), so this is same-origin in dev (through the proxy) and prod
- * (through the reverse proxy) alike.
+ * Built from `location.*` rather than the request base, which is equivalent: the
+ * base is always the relative `/api`, so this is same-origin in dev (through the
+ * Vite proxy) and in production (the Go binary serves the SPA) alike.
  *
  * A thin wrapper over native `WebSocket`: JSON-parses each message into a
  * {@link WsFrame} (dropping anything unparseable or of an unknown `type`) and

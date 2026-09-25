@@ -84,11 +84,10 @@ type SummaryLayer struct {
 	StrokeCount int    `json:"strokeCount"`
 }
 
-// DocSummary is the minimal document summary the assist endpoint receives (Phase
-// A): just enough to seed the id namespace and resolve layer references, never
-// the full document (docs/DESIGN-ASSIST-PHASE-A.md §1 resolution 3). It is the
-// client's own already-validated data, so it is trusted here — only the ops are
-// validated. Mirror of the TS DocSummary.
+// DocSummary is the minimal document summary the assist endpoint receives: just
+// enough to seed the id namespace and resolve layer references, never the full
+// document (docs/ASSIST.md §4). It is the client's own already-validated data, so
+// it is trusted here — only the ops are validated. Mirror of the TS DocSummary.
 type DocSummary struct {
 	Canvas SummaryCanvas  `json:"canvas"`
 	Layers []SummaryLayer `json:"layers"`

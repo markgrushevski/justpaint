@@ -63,7 +63,7 @@ var (
 	// by trying to draw for it.
 	ErrPromptNotFound = errors.New("practice: prompt not found")
 	// ErrNotConfigured: no critic is wired, which today means JUDGE_MODE=http — the
-	// collaborator's service implements the two-image Judge contract and has no
+	// external judge service implements the two-image Judge contract and has no
 	// critique endpoint (docs/JUDGE.md §2 is frozen). → 500.
 	//
 	// It is deliberately NOT a silent fallback to FakeCritic. The fake scores ink
@@ -100,7 +100,7 @@ var (
 type Service struct {
 	q        *db.Queries
 	renderer render.Renderer
-	// critic is the seam (judge.Critic — ours, not the collaborator's frozen Judge).
+	// critic is the seam (judge.Critic — ours, not the external judge's frozen Judge).
 	// Nil means practice is not configured; see ErrNotConfigured.
 	critic judge.Critic
 	budget aibudget.Check

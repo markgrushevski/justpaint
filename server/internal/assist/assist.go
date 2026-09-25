@@ -1,17 +1,15 @@
-// Package assist is the AI-assist seam (docs/ASSIST.md, docs/DESIGN-ASSIST-PHASE-A.md):
-// a natural-language prompt goes to an LLM, which emits a batch of validated
-// document operations (the packages/document Op contract). The handler depends on
-// the Assist interface, never a concrete impl, so the deterministic FakeAssist
-// (the default in dev/CI/tests) and the real GeminiAssist swap by config with no
-// handler change — exactly like the render (internal/render) and judge
-// (internal/judge) seams.
+// Package assist is the AI-assist seam (docs/ASSIST.md): a natural-language
+// prompt goes to an LLM, which emits a batch of validated document operations
+// (the packages/document Op contract). The handler depends on the Assist
+// interface, never a concrete impl, so the deterministic FakeAssist (the default
+// in dev/CI/tests) and the real GeminiAssist swap by config with no handler
+// change — exactly like the render (internal/render) and judge (internal/judge)
+// seams.
 //
-// The real impl is GeminiAssist (ASSIST_MODE=gemini). Phase A planned a second
-// vendor for this seam and scaffolded one, but the answer turned out to be the
-// same API the judge, the critic and the guesser already use — one key, one quota,
-// one client, one place to fix when Google changes something — so the scaffold was
-// dropped rather than finished (docs/DECISIONS.md 2026-09-20). The collaborator's
-// ML may still take this seam later, which is the whole reason it is an interface.
+// The real impl is GeminiAssist (ASSIST_MODE=gemini): it reaches the same API,
+// key, quota and HTTP client as the judge, the critic and the guesser, one place
+// to fix when the provider changes something. The external ML judge may still
+// take this seam later, which is the whole reason it is an interface.
 //
 // Assist is STATELESS: no DB, no migration, no sqlc. Every request is
 // self-contained — prompt + minimal doc summary in, validated ops out.
@@ -27,7 +25,7 @@ import (
 // Request is one assist call: the natural-language prompt, the minimal document
 // summary (canvas + layer inventory — docs/ASSIST.md §4, never the full
 // document), and an optional layer to bias generation onto. camelCase JSON, like
-// the rest of the live API (docs/DESIGN-ASSIST-PHASE-A.md §1).
+// the rest of the live API (docs/ASSIST.md §3.1).
 type Request struct {
 	Prompt        string              `json:"prompt"`
 	DocSummary    document.DocSummary `json:"docSummary"`
@@ -46,7 +44,7 @@ type Result struct {
 // ErrInvalidBatch marks retry-exhaustion: the impl could not produce a batch that
 // passes validation within its retry budget. The handler maps it to
 // 400 validation_failed — NEVER 422, which docs/API.md:68 reserves unused in v1
-// (docs/DESIGN-ASSIST-PHASE-A.md §1 resolution 1).
+// (docs/ASSIST.md §3.3).
 var ErrInvalidBatch = errors.New("assist: model output failed validation after retries")
 
 // Assist generates a validated op batch from a prompt. The one thing the handler

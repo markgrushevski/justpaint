@@ -128,7 +128,7 @@ func run() error {
 	// nobody", which is exactly what the budget wants to hear (internal/aibudget).
 
 	// Who actually decides the duel. The fake never reads the prompt, so it is a
-	// loop-prover, not a judge — the two real impls are the collaborator's ML over
+	// loop-prover, not a judge — the two real impls are the external ML judge over
 	// the JUDGE.md §6 contract, and a vision model scoring both rasters in one
 	// call. config.Load has already proven each mode's dependency exists, so
 	// nothing here can fail.
@@ -137,12 +137,12 @@ func run() error {
 	switch cfg.JudgeMode {
 	case config.JudgeModeHTTP:
 		arbiter = judge.NewHTTPJudge(cfg.JudgeBaseURL, cfg.JudgeTimeout)
-		// His service, his quota — still worth a ceiling, because a bug here would
+		// Its service, its quota — still worth a ceiling, because a bug here would
 		// hammer it and we cannot see how much of it is left. Bare, with no model
-		// attached: his service is one service however many models sit behind it, and
+		// attached: it is one service however many models sit behind it, and
 		// splitting the counter would only hide how much of it we are using.
 		duelProvider = aibudget.ProviderCollaborator
-		logger.Info("judge: http (the collaborator's ML)", "base_url", cfg.JudgeBaseURL, "timeout", cfg.JudgeTimeout)
+		logger.Info("judge: http (external ML judge)", "base_url", cfg.JudgeBaseURL, "timeout", cfg.JudgeTimeout)
 	case config.JudgeModeGemini:
 		model := aiModelByKind[aibudget.KindDuel]
 		arbiter = judge.NewGeminiJudge(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
@@ -181,10 +181,10 @@ func run() error {
 	// to try it. Every part needed to score ONE drawing already exists here: prompts,
 	// the same renderer, the same quota.
 	//
-	// The critic is a seam of OURS (judge.Critic), NOT the collaborator's frozen
+	// The critic is a seam of OURS (judge.Critic), NOT the external judge's frozen
 	// two-image contract, and it follows JUDGE_MODE so a real judge and a real critic
 	// are never mismatched. JUDGE_MODE=http is the one mode with no critic: the
-	// collaborator's service answers "which of these two is better" and has no
+	// external judge service answers "which of these two is better" and has no
 	// critique endpoint. Practice then refuses honestly rather than quietly falling
 	// back to the fake — a made-up score presented as a real one is worse than a 500,
 	// because the player cannot tell.
@@ -211,7 +211,7 @@ func run() error {
 	// to score and the model is simply asked what it sees.
 	//
 	// It follows JUDGE_MODE for the same reason practice does, and is unavailable
-	// under http for the same reason: the collaborator's service answers one frozen
+	// under http for the same reason: the external judge service answers one frozen
 	// comparative question and has no endpoint for this. A nil guesser refuses
 	// honestly rather than quietly answering with the fake, whose "guess" is a
 	// canned string — a made-up answer presented as the AI's is a lie the player
@@ -270,7 +270,7 @@ func run() error {
 	// disagree, and they have: a scaffold that returned an error with no network I/O
 	// was once handed a provider by a mode switch and billed for calls nobody made.
 	// The seam is an interface precisely so another impl can arrive (the
-	// collaborator's ML), and the next one to arrive may be a scaffold first too.
+	// external ML judge), and the next one to arrive may be a scaffold first too.
 	var assistProvider aibudget.Provider
 	if assist.CallsProvider(assistImpl) {
 		assistProvider = assistVendor
@@ -343,7 +343,7 @@ func run() error {
 	// transitions to both duelists, Postgres stays authoritative, the poll loop is the
 	// fallback. The hub implements game.Publisher and is injected via SetPublisher, so
 	// game never imports ws (no cycle). Runs on the shutdown ctx — cancel drains it,
-	// same as the sweeper (docs/DESIGN-PHASE3-LIVE.md §3).
+	// same as the sweeper (docs/GAME.md §9).
 	//
 	// background tracks the long-lived goroutines (hub, sweeper) so shutdown can
 	// wait for them. srv.Shutdown only drains in-flight HTTP handlers; without
@@ -367,7 +367,7 @@ func run() error {
 
 	// Background deadline sweeps (forfeit / abandon / stuck-judging re-fire /
 	// stale-open reaper) on the shutdown-cancellable context, so a round resolves
-	// even if no client is polling (docs/DESIGN-PHASE3-LIVE.md §2.4). Boot-drains the
+	// even if no client is polling (docs/GAME.md §4.1). Boot-drains the
 	// backlog, then ticks every 3s; returns when ctx is cancelled.
 	background.Go(func() { gameSvc.RunSweeper(ctx, 3*time.Second) })
 

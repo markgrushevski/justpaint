@@ -23,7 +23,7 @@ func TestPolicies(t *testing.T) {
 		gemini  = map[Kind]Provider{
 			KindDuel: ProviderGoogle, KindPractice: ProviderGoogle, KindGuess: ProviderGoogle,
 		}
-		// JUDGE_MODE=http: the collaborator's service answers one frozen two-image
+		// JUDGE_MODE=http: the external judge service answers one frozen two-image
 		// question, so practice and guess have no impl and owe no quota.
 		collaborator = map[Kind]Provider{KindDuel: ProviderCollaborator}
 	)
@@ -56,7 +56,7 @@ func TestPolicies(t *testing.T) {
 			},
 		},
 		{
-			name:      "the collaborator's ML serves duels only",
+			name:      "the external ML judge serves duels only",
 			providers: collaborator,
 			want: map[Kind]Policy{
 				KindDuel:     {Provider: ProviderCollaborator, PerUser: 20, Noun: "duels"},
@@ -264,7 +264,7 @@ func TestProviderWithModel(t *testing.T) {
 			want:     "google:gemini-3.6-pro",
 		},
 		{
-			// The collaborator's service is one service however many models sit behind
+			// The external ML judge's service is one service however many models sit behind
 			// it, so it is never narrowed — its ceiling would only be hidden by the split.
 			name:     "an empty model leaves the provider bare",
 			provider: ProviderCollaborator,

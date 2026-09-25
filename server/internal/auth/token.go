@@ -30,10 +30,10 @@ func issueToken(secret, userID string, now time.Time) (string, time.Time, error)
 // parseToken verifies an HS256 JWT and returns its subject (the user id) plus its
 // expiry. The expiry is surfaced so the WS layer can arm a close at session end (a
 // long-lived socket outlives the request that authenticated it — nothing else
-// re-validates the cookie mid-connection; docs/DESIGN-PHASE3-LIVE.md §3.4). The parse
+// re-validates the cookie mid-connection; docs/API.md §9.1). The parse
 // REQUIRES an exp claim (jwt.WithExpirationRequired), so a valid token always carries
 // one and a no-exp token is rejected — keeping the WS close-at-expiry invariant
-// airtight regardless of future token shapes (jp-security).
+// airtight regardless of future token shapes.
 func parseToken(secret, raw string) (string, time.Time, error) {
 	claims := &jwt.RegisteredClaims{}
 	token, err := jwt.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {

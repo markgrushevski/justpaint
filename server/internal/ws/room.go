@@ -3,7 +3,7 @@ package ws
 // room is one match's live membership: userID → set of that user's clients (duplicate
 // tabs/devices allowed). It is a PLAIN struct with NO goroutine and NO mutex — every
 // field is touched only inside the hub's single select loop, which is the whole point
-// of the actor model (docs/DESIGN-PHASE3-LIVE.md §3.1, §3.3). The room never blocks:
+// of the actor model (docs/API.md §9.1). The room never blocks:
 // fan-out is non-blocking-send, and a client that can't keep up is force-closed.
 type room struct {
 	matchID string
@@ -70,7 +70,7 @@ func (rm *room) empty() bool {
 // broadcast non-blocking-sends one already-marshaled SHARED frame (identical for both
 // viewers: opponent_submitted / judging / abandoned / presence / pong) to every client.
 // A client whose buffer is full is force-closed, never waited on — one slow socket must
-// not stall the room (docs/DESIGN-PHASE3-LIVE.md §3.1). Called only inside the hub loop.
+// not stall the room. Called only inside the hub loop.
 func (rm *room) broadcast(frame []byte) {
 	for _, set := range rm.conns {
 		for c := range set {

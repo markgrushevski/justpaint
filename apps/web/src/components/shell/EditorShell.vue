@@ -210,8 +210,8 @@ defineExpose({ canvasEl })
        (vw + 769) / 2  <=  vw - (192 + 8)      =>   vw >= 1169
 
    Keying the lift on the phone breakpoint instead left the whole 601-1169px
-   band overlapping — every tablet, and every phone held sideways (JP-I-05:
-   measured 9580px^2 at 768x1024 and at 667x375, 3605px^2 at 1024x768). 1200
+   band overlapping — every tablet, and every phone held sideways (measured
+   9580px^2 at 768x1024 and at 667x375, 3605px^2 at 1024x768). 1200
    rather than 1169 leaves the toolbar ~31px of room to grow before the number
    is wrong again; `tests/layout/chrome-overlap.spec.ts` is what notices if it
    ever does, because nothing else in this repo looks at geometry. */

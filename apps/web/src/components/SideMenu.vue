@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 /**
- * The right-side slide-in menu — the legacy NON-MODAL pattern (owner's spec,
- * 2026-07-07): always mounted, slides in from the right over the canvas with
- * no backdrop and no focus trap, so the canvas stays interactive behind it.
+ * The right-side slide-in menu, deliberately NON-MODAL: always mounted, slides
+ * in from the right over the canvas with no backdrop and no focus trap, so the
+ * canvas stays interactive behind it.
  * Toggled from DrawView (the toggler lives there, not here). Holds the
  * drawing title (inline rename), copy actions, file actions, canvas settings,
  * and — at the bottom, since unregistered users are the /draw priority —
@@ -161,7 +161,7 @@ async function logout() {
     await session.logout()
 }
 
-// The owner wants the bulky inline auth form out of the drawer (2026-09-18) —
+// The bulky inline auth form was moved out of the drawer (2026-09-18) —
 // hand off to the shared modal instead. Close the drawer first: AuthDialog is a
 // true modal with its own backdrop, so leaving the drawer's Save/Load/Canvas/
 // Appearance sections slid out behind it would just double up on chrome.

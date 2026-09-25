@@ -27,7 +27,7 @@ export interface DuelResult {
      *  the deadline (no judge run, scores are meaningless), `aborted` means both
      *  sides drew but judging failed outright, so nobody was scored and no rating
      *  moved (docs/GAME.md §3). The reveal branches its copy on this instead of the
-     *  normal score comparison (docs/DESIGN-PHASE3-LIVE.md §2.9). */
+     *  normal score comparison (docs/API.md §8.4). */
     resolution: 'judged' | 'forfeit' | 'aborted'
     /** Elo delta applied to the local player (may be negative). */
     eloDelta: number
@@ -61,7 +61,7 @@ const isAborted = computed(() => props.result.resolution === 'aborted')
 const scored = computed(() => props.result.resolution === 'judged')
 const headline = computed(() => {
     // Neither of these ran the judge, so lead with what actually happened rather
-    // than a normal win/lose framing (docs/DESIGN-PHASE3-LIVE.md §2.9).
+    // than a normal win/lose framing (docs/API.md §8.4).
     if (isAborted.value) return 'Round couldn’t be scored'
     if (isForfeit.value) return youWon.value ? 'Opponent forfeited — you win' : 'You forfeited — no submission in time'
     return tie.value ? 'It’s a tie' : youWon.value ? 'You win!' : 'You lose'

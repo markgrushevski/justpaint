@@ -6,15 +6,15 @@
  * is first-party. This module is store-free (no api⇄store cycle); session STATE
  * lives in `useSessionStore`.
  *
- * Same-origin in EVERY environment (`VITE_URL_API` is the relative `/api`, and the
- * Go service serves the SPA itself) is also what lets {@link ApiError} read a
+ * Same-origin in EVERY environment (the base is the relative `/api`, and the Go
+ * service serves the SPA itself) is also what lets {@link ApiError} read a
  * response header at all: `Retry-After` is not CORS-safelisted, so cross-origin it
  * would need an `Access-Control-Expose-Headers` the server deliberately never
  * sends. Should the API ever move to its own origin, that is the thing to fix
  * before {@link isBudgetExhausted} silently starts calling every 429 a spent day.
  */
 
-const BASE = import.meta.env.VITE_URL_API ?? '/api'
+const BASE = '/api'
 
 /** Closed v1 error-code set from web.go, plus a client-only `network` code. */
 export type ApiErrorCode =

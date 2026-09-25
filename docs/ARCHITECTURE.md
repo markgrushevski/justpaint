@@ -2,7 +2,7 @@
 
 > **System topology & boundaries.** How the pieces fit, which way dependencies point, and where the seams are. Companion to `docs/DECISIONS.md` (the "why" of each call) and `docs/DOCUMENT-FORMAT.md` (the keystone contract). This doc maps the *structure*; it does not relitigate the decisions that produced it.
 >
-> **Status:** the monorepo layout below **now exists** (Phases 1–3 and 5 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, `packages/render` and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone, and the throwaway raster app that briefly survived behind `/legacy` was deleted 2026-07-02. This doc maps the structure and the explicit triggers for when to split further (§9). The game modules all exist — `internal/judge`, `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) — and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live. The WS hub (`internal/ws`) shipped 2026-07-12, and the real judge client exists twice over — `HTTPJudge` against the collaborator's §6 contract (still waiting on his service) and `GeminiJudge`, which decides duels in production today. The single-player modules (`internal/practice`, `internal/guess`) and the shared AI-call ledger (`internal/aibudget`) landed 2026-09-20. Phase 4's remaining stretch items and the post-launch UI work are what is left; §4 below is current, this header is the summary.
+> **Status:** the monorepo layout below **now exists** (Phases 1–3 and 5 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, `packages/render` and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone. This doc maps the structure and the explicit triggers for when to split further (§9). The game modules all exist — `internal/judge`, `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) — and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live. The WS hub (`internal/ws`) is live, and the real judge client exists twice over — `HTTPJudge` against the external judge's contract (still waiting on that service to exist) and `GeminiJudge`, which decides duels in production today. The single-player modules (`internal/practice`, `internal/guess`) and the shared AI-call ledger (`internal/aibudget`) round out the game. §4 below is current, this header is the summary.
 
 ## 1. One picture
 
@@ -22,7 +22,7 @@
            ▼                               ▼                       ▼
      ┌───────────┐                  ┌──────────────┐      ┌──────────────────────┐
      │ Postgres  │                  │ rendered PNGs│      │  ML judge (external,  │
-     │  (one DB) │                  │ (later)      │      │  collaborator-owned)  │
+     │  (one DB) │                  │ (later)      │      │  third-party service) │
      └───────────┘                  └──────────────┘      └──────────────────────┘
 ```
 
@@ -98,11 +98,9 @@ Module rules:
 - **Persistence:** pgx v5 + sqlc (typed queries) + goose (migrations). The `document` column is `jsonb`, bound as `json.RawMessage` (opaque to SQL); queryable fields are promoted to columns (§7, and `docs/DOCUMENT-FORMAT.md` §7).
 - **One process, clean seams** means a module can later become its own binary by lifting it out behind its existing interface — but only when a trigger in §9 fires.
 
-The old NestJS `server/` has already been **removed and replaced** by this Go service (Phase 1; recoverable from git history) — there is no NestJS code left to refactor (DECISIONS: "Don't refactor the old NestJS — replace it").
-
 ## 5. The Judge seam (interface + fake + external service)
 
-The ML judge is **external**, built by a collaborator as his own project (DECISIONS). We never build the ML; we own only the **contract** and a fake. **`docs/JUDGE.md` is the single owner of the contract's exact shape** — the `winner` representation, tie semantics, raster size, and background. The Go interface below mirrors it; if they ever diverge, JUDGE.md wins.
+The ML judge is **external** — built as its own project (DECISIONS). We never build the ML; we own only the **contract** and a fake. **`docs/JUDGE.md` is the single owner of the contract's exact shape** — the `winner` representation, tie semantics, raster size, and background. The Go interface below mirrors it; if they ever diverge, JUDGE.md wins.
 
 ```go
 // internal/judge — mirrors docs/JUDGE.md; that doc owns the canonical types.
@@ -127,8 +125,8 @@ type Result struct {
 
 Three implementations behind one interface:
 - **`FakeJudge`** — deterministic/heuristic stand-in (e.g. ink coverage, seeded score). Lets the *entire* game loop (create → draw → submit → judge → result → ratings) ship and demo with **zero dependency on the ML**. This is the default in dev and CI.
-- **`HTTPJudge`** — calls the collaborator's external service over HTTP against the live contract. Swapped in by config; everything else is identical.
-- The collaborator integrates over HTTP against the contract; he **never parses our document format or runs `getStroke`**. He receives **pre-rendered PNGs** (§6, render path) and returns `{scoreA, scoreB, winner, reason}`.
+- **`HTTPJudge`** — calls the external judge service over HTTP against the live contract. Swapped in by config; everything else is identical.
+- The judge service integrates over HTTP against the contract; it **never parses our document format or runs `getStroke`**. It receives **pre-rendered PNGs** (§6, render path) and returns `{scoreA, scoreB, winner, reason}`.
 
 Why this shape:
 - **Never block on the ML** (DECISIONS). The fake keeps us unblocked indefinitely.
@@ -195,7 +193,7 @@ Notes:
 - **`matches.winner_player_id`** is the resolved player id (§5 maps the judge's positional `A`/`B`/`tie` onto it). Tie semantics (whether it can be null) are a `docs/JUDGE.md` / `docs/GAME.md` decision.
 - **Rendered PNGs** (`drawings.thumbnail_url`, plus the judged raster) live in **object storage**, referenced by URL — not in Postgres (DOCUMENT-FORMAT rejects bytea/base64-PNG storage; the old `bytea`-per-layer red flag dies here).
 
-## 8. Realtime (async-first + a live WS hub — shipped)
+## 8. Realtime: async first, plus a live WebSocket hub
 
 - **v1 is the async duel:** create match → both players draw independently → submit → server renders rasters → judge → result. This needs only HTTP; **no realtime required** to ship the core loop.
 - **The WS hub lives *inside* `server/`** (`internal/ws`, coder/websocket)  — an in-process actor hub of match rooms pushing committed state (opponent connected/submitted, judging, result, abandoned) per-recipient. It is **not** a separate service; it shares the same process, auth, and Postgres (DECISIONS: WS hub is part of the one Go service).
@@ -209,7 +207,7 @@ Notes:
 - **Static frontend** — `apps/web` built to static assets and served by the Go binary (`STATIC_DIR`, with history fallback). One origin is a **constraint, not a preference**: the session cookie is httpOnly + SameSite, the WS handshake is same-origin, and the service sends no CORS headers — so a frontend on a second host cannot authenticate.
 - **Object storage** for rendered PNGs (thumbnails + judged rasters) — **added when needed**, not day one.
 - **Render worker** — `packages/render`, a **Node** worker reusing the editor's `renderToStage` to rasterize submissions authoritatively (one renderer shared with the editor). **Built** (`RENDER_MODE=node`), currently **spawn-per-render** (inline/synchronous, per `DECISIONS.md`); a resident process or queue only if it becomes a bottleneck.
-- **External judge** — one `JUDGE_MODE` picks the impl: `http` (the collaborator's service, via `HTTPJudge`), `gemini` (a vision LLM scoring both rasters — what decides duels today), or `fake` (the zero-dependency dev/CI default).
+- **External judge** — one `JUDGE_MODE` picks the impl: `http` (the external judge service, via `HTTPJudge`), `gemini` (a vision LLM scoring both rasters — what decides duels today), or `fake` (the zero-dependency dev/CI default).
 
 **Split only when a trigger actually fires** (resist premature distribution — microservices are over-engineering here):
 

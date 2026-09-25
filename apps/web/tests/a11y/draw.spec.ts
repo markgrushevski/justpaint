@@ -31,7 +31,8 @@ const CANVAS_SELECTOR = '.konvajs-content'
  * every one is a `color-contrast` finding tied to a deliberate brand color or
  * an oriui-owned component. Crucially this is per-ELEMENT, not per-RULE:
  * `color-contrast` stays enabled for every other node, so a real regression
- * anywhere else still fails. The orchestrator triages the list below.
+ * anywhere else still fails. Each new finding is triaged before an entry is
+ * added below.
  *
  * NEVER add an entry to silence a genuine, fixable bug (a missing name, a bad
  * role). This is the escape hatch for deliberate/third-party choices only.

@@ -259,7 +259,7 @@ func (b *Budget) check(ctx context.Context, k Kind, userID string) error {
 		// The one event here nobody else can see. A player hitting their own cap is
 		// ordinary and stays quiet; a provider's budget running out means every
 		// feature backed by it is off for EVERYONE until the window rolls, and
-		// without this line the only symptom is 429s the owner never receives.
+		// without this line the only symptom is 429s the operator never sees.
 		b.logger.Warn("daily AI budget exhausted — nothing backed by this provider runs until the rolling window frees a slot",
 			"provider", p.Provider, "kind", k, "spent", spent, "budget", b.global, "window", window)
 		return ErrGlobalSpent

@@ -6,7 +6,7 @@ import (
 )
 
 // Server→client frame types — the wire protocol the frontend socket wrapper mirrors
-// EXACTLY (docs/DESIGN-PHASE3-LIVE.md §3.5). Client→server carries only {"type":"ping"};
+// EXACTLY (docs/API.md §9.2). Client→server carries only {"type":"ping"};
 // nothing authoritative crosses this channel (submit stays HTTP POST).
 const (
 	frameMatchState           = "match_state"           // per-viewer: full matchDTO under "match"
@@ -19,7 +19,7 @@ const (
 	framePong                 = "pong"                  // shared: reply to a client ping
 )
 
-// clientPing is the ONLY client→server payload (docs/DESIGN-PHASE3-LIVE.md §3.5).
+// clientPing is the ONLY client→server payload (docs/API.md §9.3).
 const clientPing = "ping"
 
 // eventKind tags an internal hub event (what a game.Publisher method enqueued). The
@@ -36,8 +36,8 @@ const (
 
 // event is the internal hub message the Publisher methods enqueue. It carries ONLY
 // ids — never a ws or DTO type — so the hub rebuilds every per-viewer payload itself
-// via the game read seam (docs/DESIGN-PHASE3-LIVE.md §3.2). Small and copyable, so it
-// rides the buffered publish channel by value.
+// via the game read seam. Small and copyable, so it rides the buffered publish
+// channel by value.
 type event struct {
 	kind    eventKind
 	matchID string

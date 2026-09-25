@@ -391,7 +391,7 @@ Apply `translate(dx, dy)` then `scale(scale)`; **do not round `dx`/`dy`** (keep 
 **Trust boundary (game-critical):**
 - The client submits the **vector document, never a scored PNG.** A client thumbnail may ride along for instant UI — **advisory only**; a cheater could doctor it.
 - The judged raster is rendered **authoritatively off the player's machine** from the document.
-- **The judge receives pre-rendered PNGs**, never the document. The contract stays `(prompt, pngA, pngB) → { scoreA, scoreB, winner, reason }` (per `docs/DECISIONS.md`; the exact `winner` type and A/B→player mapping are pinned in `docs/JUDGE.md`). The ML collaborator never parses our schema or runs `getStroke`. PNGs go to object storage; the judge gets URLs/bytes.
+- **The judge receives pre-rendered PNGs**, never the document. The contract stays `(prompt, pngA, pngB) → { scoreA, scoreB, winner, reason }` (per `docs/DECISIONS.md`; the exact `winner` type and A/B→player mapping are pinned in `docs/JUDGE.md`). The external judge never parses our schema or runs `getStroke`. v1 ships the PNGs inline as base64 (`docs/JUDGE.md` §6); object storage is a later option, not built.
 
 **Undo/redo & replay** are runtime, not persisted. The editor maintains the canonical `Document` directly; Konva edits emit **commands** (add/remove/update/reorder stroke, layer ops) that mutate it, keyed by `id`. Undo/redo is a command stack over the document — **not** PNG snapshots (the old `CanvasHistory.ts` PNG stack and `bytea`/base64-per-layer storage are dropped entirely). The command stack is **never persisted in jsonb**; the saved document is the flattened current state, already sufficient for order-based replay.
 

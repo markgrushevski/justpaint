@@ -13,9 +13,9 @@ import (
 
 const (
 	// wsSendBuffer is the per-client outbound queue depth. A client that can't drain
-	// this many frames before it overflows is force-closed (non-blocking-send-or-kill,
-	// docs/DESIGN-PHASE3-LIVE.md §3.1) — every frame is superseded by a later full
-	// match_state, so a dropped slow client just falls back to REST + reconnect.
+	// this many frames before it overflows is force-closed (non-blocking-send-or-kill)
+	// — every frame is superseded by a later full match_state, so a dropped slow
+	// client just falls back to REST + reconnect.
 	wsSendBuffer = 32
 	// wsWriteTimeout bounds a single frame write, so one stalled socket can't wedge its
 	// write pump forever (the pump is the ONLY writer per coder/websocket).
@@ -49,8 +49,7 @@ type wsConn interface {
 // no room state. Two goroutines run it — readPump (drains inbound frames only to detect
 // close and service ping→pong) and writePump (the sole socket writer, draining the
 // buffered send channel). Fan-out reaches a client only through trySend (a non-blocking
-// channel send); a client that can't keep up is forceClose'd, never waited on
-// (docs/DESIGN-PHASE3-LIVE.md §3.3).
+// channel send); a client that can't keep up is forceClose'd, never waited on.
 type client struct {
 	id     string // the authenticated userID; duplicate tabs share it
 	conn   wsConn

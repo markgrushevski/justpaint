@@ -214,7 +214,7 @@ func TestPracticeRun_RejectsOversizeBody(t *testing.T) {
 	}
 }
 
-// JUDGE_MODE=http: the collaborator's service scores two drawings against each
+// JUDGE_MODE=http: the external judge service scores two drawings against each
 // other and has no critique endpoint, so practice is unconfigured. It must refuse
 // — loudly and on BOTH routes — rather than quietly fall back to the ink-coverage
 // fake, whose number a player has no way to tell from a real one.

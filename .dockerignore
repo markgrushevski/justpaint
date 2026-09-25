@@ -19,7 +19,6 @@ coverage
 
 docs
 *.md
-*.MD
 LICENSE
 
 apps/web/test-results

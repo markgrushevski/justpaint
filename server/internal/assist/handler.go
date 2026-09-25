@@ -16,7 +16,7 @@ import (
 
 // maxAssistBodyBytes caps the assist request body: a prompt plus the MINIMAL doc
 // summary (canvas + layer inventory, never the full document), so 64 KiB is
-// generous (docs/DESIGN-ASSIST-PHASE-A.md §2.3).
+// generous (docs/API.md §10).
 const maxAssistBodyBytes = 64 << 10 // 64 KiB
 
 // maxPromptBytes caps the natural-language prompt. Well under the body cap (which
@@ -103,7 +103,7 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 	// Rate limit FIRST — before decoding or spending an LLM call. On exceed, set
 	// Retry-After BEFORE web.Error: web.Error → JSON → w.WriteHeader, and headers
 	// set after WriteHeader are silently dropped by net/http
-	// (docs/DESIGN-ASSIST-PHASE-A.md §2.3 gotcha).
+	// (docs/NOTES.md "AI assist").
 	if !h.limiter.Allow(uid) {
 		secs := int(h.limiter.RetryAfter().Seconds())
 		w.Header().Set("Retry-After", strconv.Itoa(max(1, secs)))
