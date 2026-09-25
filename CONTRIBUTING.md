@@ -33,7 +33,7 @@ git branch -d feat/my-thing
 **Parallel work:** the backend (`server/`) and the frontend (`packages/` + `apps/`) share no files
 and both validate against the frozen contract ([`docs/DOCUMENT-FORMAT.md`](docs/DOCUMENT-FORMAT.md)),
 so they can run on **parallel branches**. Integration — review, `--no-ff` merge, and the
-ROADMAP-status update — stays **serialized** through one orchestrator. Within a single domain,
+ROADMAP-status update — stays **serialized**, one unit of work at a time. Within a single domain,
 isolate parallel work with git worktrees or sequential commits to avoid same-file conflicts.
 
 ## Commits

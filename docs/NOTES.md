@@ -1,977 +1,655 @@
 # Implementation notes
 
-A running log of **non-obvious implementation nuances and gotchas** — things that cost real time to
-work out but don't rise to an architectural decision. **Read this first; append what you discover**
-so the next person (or agent) doesn't re-analyze it.
+Non-obvious gotchas: traps in this codebase that are easy to step into and hard to see from one file.
+Read the section for an area before changing it, and add a note when you find a new trap. Rationale
+lives in [DECISIONS.md](DECISIONS.md), the per-change bar in [REVIEW.md](REVIEW.md).
 
-Companion to [`CLAUDE.md`](../CLAUDE.md) (conventions), [DECISIONS.md](DECISIONS.md) (rationale /
-ADRs), and [REVIEW.md](REVIEW.md) (the per-change bar). Architectural decisions go in DECISIONS.md;
-small practical gotchas go here.
+## Document contract (TS ↔ Go)
 
-## Document contract & TS↔Go parity
+### The two validators and their test tables must stay 1:1
 
-- **The format has two homes that must stay 1:1** — `packages/document` (TS) and
-  `server/internal/document` (Go). The TS `validate` test table was ported from the Go tests; treat
-  them as a mirror. A rule added to one side without the other is a latent bug, not a nuance.
-- **Color regex is lowercase-only** (`^#([0-9a-f]{6}|[0-9a-f]{8})$`). `#FFFFFF` is **rejected** — the
-  TS serializer must lowercase before POST or the write 400s.
-- **Point arity is enforced by custom `UnmarshalJSON`** on `FreehandPoint` (len 3) and `Point`
-  (len 2), because `encoding/json` silently zero-fills short fixed arrays and drops extras. If you
-  ever change those array types, re-add the arity guard or malformed points sneak through.
-- **The `Stroke` union is a sealed interface** in Go (`base()` is unexported) — you can't add a
-  stroke type from outside the package. A new type needs edits in **three** Go sites (the struct +
-  const in `document.go`, the switch in `parse.go`/`unmarshalStroke`, the switch in
-  `validate.go`/`checkStroke`) plus the TS mirror.
-- **`FREEHAND_VERSION` (`packages/document/src/constants.ts`) must equal the RESOLVED installed
-  perfect-freehand.** `^1.2.0` resolves to 1.2.3 — the pin is the exact resolved string, not the
-  range floor. perfect-freehand is a dep of `packages/editor` only (not `apps/web`). Bump the
-  constant in lockstep or rendered outlines diverge between the editor preview and the
-  server render worker (`packages/render`), which is the raster the judge scores.
-- **Write-precision rounding lives only in `serializeDocument`** (2dp geometry, 3dp pressure). Don't
-  round in the model or in tools — repeated rounding accumulates error.
-- **Ids share a single namespace** across layers + strokes (one `seen` set); a stroke id colliding
-  with a layer id is rejected.
+The format is validated in `packages/document` (TS) and `server/internal/document` (Go). A rule added
+to one side only is a bug: the two sides then accept different documents. Add every new rejection to
+both test tables (`packages/document/test/validate.test.ts` ↔
+`server/internal/document/validate_test.go`).
 
-## Go / pgx / sqlc / goose
+### Go accepts absent required fields unless you check key presence
 
-- **The server does NOT auto-load `.env`.** `server/.env.example` exists but there's no
-  godotenv/embed — `DATABASE_URL` + `JWT_SECRET` must be in the process environment or `config.Load()`
-  fails fast. Export them (or use an IDE run config); copying `.env` alone does nothing.
-- **`go.mod` targets `go 1.26`** (toolchain go1.26.4). The ROADMAP's "ServeMux (1.22 method patterns)"
-  note is about the routing feature's origin, not the module version — you need Go ≥ 1.26 to build.
-- **`docker-compose.yml` is at the REPO ROOT**, not under `server/`. Run `docker compose up -d` from
-  the root (postgres:17-alpine; db/user/pass all `justpaint`; :5432).
-- **goose and sqlc are external CLIs**, not Go deps and not wired into any Make target (there is no
-  Makefile). Migrations run via the goose CLI against `server/migrations/`; regenerate query code with
-  `sqlc generate` (`server/sqlc.yaml`; generator output pinned to sqlc v1.31.1).
-- **`CookieSecure` is derived from `ENV` alone** (default `dev` → Secure=false). Deploying with `ENV`
-  unset ships non-Secure cookies — set `ENV=prod` (which also requires `JWT_SECRET` ≥ 32 bytes or the
-  server refuses to boot).
-- **Migration 00001 creates `prompts` / `matches` / `match_players`; 00002 seeds `prompts`** (24 active
-  starter prompts). `internal/game` now queries all three (create/auto-join/get); `match_players` is
-  populated but `drawing_id`/`score`/`submitted_at` stay null until the submit slice. Retire a prompt
-  with `active = false`, never a delete (matches FK-reference `prompt_id` forever).
-- **Multi-write game paths run in an explicit pgx transaction** (`pool.Begin` → `s.q.WithTx(tx)` →
-  `defer tx.Rollback` (no-op after commit) → `tx.Commit`). The drawings CRUD is single-statement so it
-  uses `*db.Queries` directly; the game service holds **both** the `*pgxpool.Pool` (to begin the tx) and
-  `*db.Queries` (for read paths). `assemble()` takes a `*db.Queries` so it works for either — the tx
-  handle during create/join, the shared pool during a read. **Caveat:** a `Get` therefore runs its
-  three reads (match → prompt → roster) on the pool with **no snapshot**, so a concurrent write landing
-  mid-read could yield a torn view (e.g. `status = open` but a 2-player roster). Harmless while
-  `CreateOrJoin` is the only writer; the **submit slice should wrap `Get` in a read-only `pgx.Tx`** (or
-  collapse it to one joined query) once there are more writers.
-- **Open-match anti-stacking is Read-Committed best-effort, not a hard constraint** (`DECISIONS.md`
-  2026-07-03). `CreateOrJoin` dedupes a user's own open matches with a plain `SELECT` (`FindMyOpenMatch`),
-  which two *concurrent* create-txs bypass (neither sees the other's uncommitted match). The composite PK
-  still prevents any double-*seat*; only same-user self-stacking of `open` matches is possible, in a
-  narrow window. Hard fix (advisory-xact-lock on userID / partial unique index) was meant to ride the
-  rate-limit slice; that slice shipped 2026-09-18 without it, so it is still open and now needs its own
-  (`IDEAS.md`) — don't re-file as a separate integrity bug.
-- **`PickRandomActivePrompt` uses `order by random()`** — fine at seed scale (dozens of rows), but it's a
-  full scan + sort; swap for a keyset/`tablesample`/id-range pick if the prompt pool ever grows large.
-- **Match ownership is hidden as 404, like drawings**: a non-player calling `GET /api/matches/{id}` (or a
-  non-existent / non-UUID id) gets `not_found`, never 403 — match existence must not leak (`API.md` §1).
-  The player check is in the service (`isPlayer` over the loaded roster), after the row is fetched.
-  **Exception — submit is 403:** `POST …/submit` by a non-player returns **403** (`ErrNotPlayer`), the one
-  deliberate known-ownership case (`API.md` §8.3). Same non-membership, two codes by route — don't
-  "unify" them.
-- **`render.StubRenderer` is NOT pixel-authoritative** (the default `RENDER_MODE=stub`). It emits a
-  deterministic 1024² PNG whose ink coverage is `0.05 + 0.02·(stroke count)` (clamped) — enough for the
-  ink-coverage `FakeJudge` to produce a document-derived verdict and prove the loop, but it does **not**
-  draw the actual picture. The **real** render is `RENDER_MODE=node` (below). Don't grow a Go rasterizer —
-  it would diverge from the editor's output (the whole reason `FREEHAND_VERSION` is pinned).
+`encoding/json` zero-fills a missing key (no `visible` → `false`, no `opacity` → `0`, no `brush` → the
+zero `BrushOptions`, no `background` → nil), so struct decoding alone accepts documents TS rejects.
+`requiredKeys` (`parse.go`) and `requiredOpKeys` (`ops.go`) check presence on the raw JSON, which also
+keeps an explicit `null` background valid while an absent one fails. A new required field needs a
+presence check there too.
 
-### Render worker (`packages/render`, `RENDER_MODE=node`)
+### Point arity and `null` coordinates need custom decoding
 
-- **The worker reuses the editor's `renderToStage`** (the ONE shared projection), so the judged raster
-  matches the editor preview. `renderToStage` is the DOM-free core split out of `renderToPNG`; the browser
-  keeps `renderToPNG` (`toBlob`), the worker uses `stage.toDataURL()` under `konva/canvas-backend`. If you
-  touch the render path, keep it going through `renderToStage` or the two surfaces drift.
-- **`import 'konva/canvas-backend'` MUST be the FIRST import** in the worker, before anything that pulls
-  Konva — it registers node-canvas; Konva 10 dropped the default Node backend and throws
-  "unsupported environment" without it. `document` is **not** polyfilled (why `toKonva`/`renderToStage`
-  guard on `typeof document`).
-- **The worker is esbuild-BUNDLED** (`packages/render/dist/render.mjs`). `@justpaint/{editor,document}`
-  emit **extensionless** relative imports (`./ids`) that native Node ESM refuses (`ERR_MODULE_NOT_FOUND`),
-  so we bundle them in (esbuild resolves them) and keep `canvas` external (native). Consequence: **rebuild
-  the worker after editing `packages/editor`** — the bundle embeds a copy (`npm run build -w
-  @justpaint/render`, or the root `npm run build` fans out to it). `dist/` is gitignored, so a fresh clone
-  must build before `RENDER_MODE=node` works — same dist footgun as the other packages.
-- **`node-canvas` (`canvas`) is now a real, NATIVE repo dependency.** It installed from a prebuild on
-  Windows + Node 24 (no node-gyp), but a fresh `npm install` fetches/builds it; a platform without a
-  prebuild needs Cairo/Pango + build tools. It's isolated to `packages/render` (never bundled into the
-  browser app).
-- **`render.NodeRenderer` spawns `node dist/render.mjs` per render** (`exec.CommandContext`), document
-  JSON on stdin → **base64** PNG on stdout (base64 dodges binary-stdout/newline munging on Windows). It
-  re-marshals the validated `document.Document` to JSON (unknown fields don't affect rendering). Needs
-  `node` on PATH + the built bundle + `RENDER_CLI` pointing at it (fail-fast at boot if unset).
-  **How many of those processes may run at once is bounded INSIDE the renderer** — a `chan struct{}`
-  semaphore sized by `JUDGE_CONCURRENCY` — and not at a caller, because a caller-side bound misses the
-  inline ones: `internal/game` limits its judging passes, but `/api/guess` and `/api/practice` render on
-  the request goroutine, so one IP's burst under the write tier (30 in 2s) was thirty node-canvas
-  processes, each tens of MB resident, on a 512 MB host. It **blocks** rather than refusing (every caller
-  already came through a bound of its own, and a slower render beats a lost duel); the wait ends with the
-  caller's own context (`game.JudgePassBudget`, practice/guess `RunBudget`) and the error names the wait,
-  so it is not mistaken for a worker fault.
-- **`RENDER_MODE` defaults to `stub`** so the Go server runs with zero Node/canvas present (dev, CI, `go
-  test`). Only `RENDER_MODE=node` requires the worker. Don't flip the default without owning the native-dep
-  cost for everyone running the server.
-- **Judging runs in an out-of-band in-process goroutine** (`judgeMatch`), spawned by the final submit
-  *after* its tx commits (via `dispatchJudging`/`judging.tryGo`, bounded by `JudgeConcurrency`), on a
-  fresh `context.Background()` + `game.JudgePassBudget`. It's idempotent (`runJudging` no-ops unless the
-  match is still `judging`) and writes the result in one tx. **Durability gap (v1):** a crash mid-judge
-  leaves the match stuck in `judging`; the stuck-judging sweep (`sweeper.go` — shipped; this bullet used
-  to call it a deferred `IDEAS.md` item, before it landed) re-fires it up to `maxJudgeAttempts`, then
-  aborts it (`resolution: 'aborted'`, no Elo — `DECISIONS.md` 2026-09-18). The goroutine itself still
-  isn't drained by the shutdown `sync.WaitGroup` that covers the hub and the sweeper (`main.go`'s
-  `background`), so a clean shutdown can in principle still cut a pass short — the sweeper's re-fire is
-  the recovery for that, not a graceful wait.
-  **`JudgePassBudget` is 60s, not the flat 30s this used to be — a real trap, found wiring
-  `HTTPJudge`/`GeminiJudge` in (`feat/real-judge`).** `docs/JUDGE.md` §7 pins the judge to **3 attempts**;
-  at the default `JUDGE_TIMEOUT` (10s) the judge alone can need up to 30s, *before either authoritative
-  render has even run* — so a flat 30s wrapper meant the third retry attempt could never actually
-  complete, silently killing part of the documented policy. Neither `internal/judge`'s retry count nor
-  the old `judgeMatch` timeout was wrong by itself; only the pair was. Fixed by naming the budget
-  (`game.JudgePassBudget`, its doc comment spelling out the arithmetic — `3×10s` judge + ~1s backoff +
-  room for two node-canvas renders) and by a boot-time warning in `main.go` that fires whenever
-  `3 × JUDGE_TIMEOUT` would not fit inside it, so a generous `JUDGE_TIMEOUT` override can't quietly
-  reopen the same hole.
-- **`runJudging`'s status check is a no-op guard, NOT mutual exclusion — the real lock is in
-  `persistResult`.** `runJudging` reads status on the pool (unlocked) and bails if not `judging`; that
-  alone wouldn't stop two concurrent passes both rendering then both writing. So `persistResult` re-takes
-  `GetMatchForUpdate` and re-checks `status == judging` inside its write tx — whoever locks first commits
-  `done`, the loser bails. This is what makes the restart-sweeper (`internal/game/sweeper.go`) safe to
-  run alongside the live trigger (idempotent, never double-applies Elo). Keep that lock if you refactor judging.
-- **A submitted duel drawing is immutable via CRUD.** `UpdateDrawing`/`DeleteDrawing` carry
-  `and match_id is null`, so `PUT`/`DELETE /api/drawings/{id}` on a match-linked drawing touches no row;
-  the drawings service (`classifyMiss`) turns that miss into `ErrDuelLocked` → **409** (a genuinely
-  absent/foreign id stays 404). Without this a player could swap in a better document after submitting
-  (before the opponent does) and judging would render the swap — trust-boundary + Elo break. `match_id`
-  is fixed at creation, so the classify-on-miss is race-free. (Landed `feat/game-submit`; jp-security.)
-- **The final-submit → judging flip is serialized by `GetMatchForUpdate`** (`SELECT … FOR UPDATE` on the
-  match row). Without it, two simultaneous submits could each see the other as "not yet submitted" and
-  neither would flip to judging (both submitted, match wedged in `drawing`). Keep the lock at the top of
-  the submit tx.
-- **A/B is positional and comes from SQL order.** `GetSubmissionsForJudging` orders by
-  `(submitted_at, user_id)`: row 0 → image A, row 1 → image B. The judge sees only PNGs (never who is
-  who); the game maps `A/B/tie` → player id / null (`GAME.md` §7.1). Change that `ORDER BY` and you
-  silently re-bind the mapping.
-- **Manual game e2e needs a clean match pool.** Open-pool matchmaking auto-joins the *oldest* waiting
-  `open` match, so leftover open matches from a prior run hijack your new players (you end up dueling a
-  ghost that never submits, and the match never reaches `judging`). Reset between manual runs:
-  `delete from match_players; delete from drawings where match_id is not null; delete from matches;`
-  (users/prompts/free drawings survive).
-- **Logout is deliberately NOT behind `RequireAuth`** — it must clear the cookie even for an expired/
-  anonymous caller. Don't wrap it in `protect()`.
-- **Auth bodies use strict decode** (`DisallowUnknownFields`, 64 KiB); **document bodies use lax
-  decode** (unknown fields tolerated, 8 MiB) for forward-compat. Don't unify them; the client
-  `thumbnail` field is intentionally accepted-and-ignored.
-- **`internal/document`, `internal/judge`, `internal/game`, and `internal/render` have Go tests** (the
-  pure logic — validators, Elo, DTO redaction, stub coverage). auth/drawings/db/config/web/postgres and
-  the DB-integration paths (`Submit`/`runJudging`/`persistResult`) have zero unit coverage — verified
-  manually (curl/UI), per the ROADMAP. Grow tests where you touch.
-- **`color.Color.RGBA()` returns alpha-PREMULTIPLIED 16-bit channels.** The judge's ink test
-  (`internal/judge/fake.go`) shifts `>>8` to compare against an 8-bit threshold; since the judged
-  raster is opaque, premultiplication is a no-op there. But any future ink/luminance heuristic on
-  semi-transparent input must un-premultiply first, or partial-alpha color reads darker than it
-  renders. `inkThreshold = 250` (not 255) deliberately absorbs anti-aliased stroke edges.
-- **A detached background `go run` on Windows can be reaped without diagnostics** (observed exit code
-  4, perfectly clean log). Symptom in the web app: save/load fails with the `network` `ApiError`. Just
-  restart the server — there's nothing to debug in Go. (Internet scanners also hit a locally-exposed
-  `:8080` — stray 404s like `/en/reviews` are noise.)
-- **`curl localhost:8080` may hit a DIFFERENT app than our server.** Some other process on this machine
-  binds `[::1]:8080` (IPv6 loopback specifically). Go's `:8080` listens on the `0.0.0.0` + `[::]`
-  wildcards, but a specific `[::1]` bind wins for `localhost` when it resolves to `::1` first — so
-  `curl http://localhost:8080/healthz` returned a stray Quasar HTML page, not our `{"status":"ok"}`.
-  **Verify against `http://127.0.0.1:8080` (forces IPv4) to reach our server.** `netstat -ano | grep :8080`
-  shows the competing PIDs.
-- **`internal/drawings` has a DB-backed integration test** (`roundtrip_test.go` `TestNameRoundtrip_DB`)
-  that needs `DATABASE_URL` pointing at a **migrated** database — it `t.Skip`s otherwise. Plain
-  `go test ./internal/drawings/...` silently skips the COALESCE default/keep-name SQL semantics unless
-  the DB env is exported (docker compose up + goose up first).
-- **`GetMatchPlayerDrawing` (the opponent-canvas reveal) binds its ids POSITIONALLY, and the roles are
-  security-load-bearing.** `$1 = match_id`, `$2 = target_user_id` (whose drawing is returned), `$3 =
-  viewer_user_id` (the authenticated caller, the membership gate). The `service.go` call site is
-  field-named so it's safe, but if anyone reorders the generated `GetMatchPlayerDrawingParams` fields or
-  swaps `$2`/`$3` in the SQL, viewer/target flip silently — the membership `exists` gate would key on the
-  path-supplied target, not the JWT caller: an IDOR with **no compile error and no test failure**. Two
-  guards exist: the `d.owner_id = $2 and d.match_id = $1` backstops (a flip fails them closed), and the
-  field-named struct call. **Now also pinned by a test** (2026-09-20 — this note used to say one was still
-  owed): `internal/game/reveal_test.go`'s `TestPlayerDrawing_DB` drives the real query against Postgres
-  over eight gate combinations, and the case named *"non-member refused for a submitted target (IDOR /
-  role-flip)"* is exactly the assertion that catches a flip — a viewer who is in no match at all asking
-  for a target who HAS submitted. It skips without `DATABASE_URL`; CI supplies one, so it really runs there.
-- **`users.rating` is moved by an ATOMIC delta (`ApplyRatingDelta`: `set rating = rating + $delta
-  returning rating`), never an absolute `SET`** — so two *different* matches that seat the SAME user
-  and resolve concurrently BOTH land (no lost update). This is load-bearing because the match `FOR
-  UPDATE` lock (`GetMatchForUpdate`, `service.go`/`deadline.go`) serializes per **MATCH, not per
-  USER** — it cannot guard a cross-match write to a shared `users` row, and nothing stops a user being
-  seated in more than one active match. The `+= delta` is safe under Read-Committed precisely because
-  Postgres re-evaluates the row after granting the write lock (EvalPlanQual), so the second writer adds
-  to the FIRST's committed value instead of clobbering it. `writeFinalResult` (the single Elo write
-  site, shared by the judged and forfeit paths) writes the rating FIRST and derives the
-  `rating_before`/`rating_after` snapshot from that `RETURNING` (`after` = returned, `before` = after −
-  delta), so the chain invariant `rating_after(M_n) == rating_before(M_n+1)` and `after − before ==
-  delta` hold even under concurrency; it also **sorts players by `user_id`** before writing so a
-  rematch (the same PAIR in two concurrent matches) takes the two user row locks in one global order
-  and cannot deadlock (`40P01`). **ACCEPTED caveat:** the delta *magnitude* is still sized from a
-  pre-match rating snapshot the caller read (outside the tx on the judged path, in-tx on forfeit), so
-  two concurrent matches can each size their delta against the same starting rating — that is how real
-  Elo ladders work (a rating period), not a bug; the ladder still nets both deltas exactly. Proven by
-  `internal/game/rating_db_test.go` (concurrent-resolve regression + chain + zero-sum + judged path;
-  case (a) fails against the old absolute `SET`). Fixed on `feat/ratings-leaderboard`; was flagged by
-  `feat/round-deadline` (`DECISIONS.md` 2026-07-17, `IDEAS.md`).
-- **`ratings.ListTopRatings` recomputes the FULL aggregate on every request — no covering index, no
-  cache.** The leaderboard query joins `users` ⨝ `match_players` ⨝ `matches`, groups, and sorts the
-  *entire* ladder before top-N is applied by `limit` — there is no materialized/cached rank and no
-  index covering the `group by`/`order by`. Fine at Phase-4 scale; mitigated in the meantime by the
-  clamped `?limit` (`API.md` §11) and the frontend's 30s `staleTime` on the leaderboard query. Revisit
-  with a covering index, a materialized rank, or a cached leaderboard table before a large real user
-  base. (The per-IP rate limiter this note once waited on shipped 2026-09-18 — it bounds request
-  rate, not this query's cost, so the revisit above stands on its own.)
-- **Deadline enforcement leans on Postgres `now()` being the TRANSACTION-START instant, not the
-  statement instant.** `GetMatchForUpdate`'s `server_now`, `StampSubmission`'s `now()`, and
-  `SetMatchDrawing`'s deadline stamp are all plain `now()` — the SAME instant throughout one
-  transaction, by Postgres semantics. This is exactly what makes the intended fair behavior work: a
-  submit whose tx **began** before the deadline but whose row lock was only granted after it (queued
-  behind the sweeper or another submit) still reads a `server_now` from *tx start*, sees itself as
-  on-time, and stamps. **Do not "fix" these to `clock_timestamp()`** (the true wall clock, re-evaluated
-  per call) — that would re-introduce exactly the race this design avoids, rejecting a submit that
-  queued in time but was merely served late.
-- **The sweeper's `List…` queries (`ListExpiredDrawingMatches` etc.) run on the pool in autocommit —
-  their `FOR UPDATE SKIP LOCKED` lock only lasts for the SELECT itself**, released the instant it
-  returns rows. The real exactly-once guard is the **per-row re-lock + status recheck** in
-  `resolveExpiredMatch`/`refireJudging`/`reapOpenMatch` (each opens its own tx, re-`GetMatchForUpdate`s,
-  and bails if the status already moved on) — the list is just a candidate scan, never trusted alone.
-  Corollary: `RunSweeper`'s boot `drain()` loops each phase until it handles **fewer than a full batch**
-  (rows HANDLED without error, not rows listed), so a batch that persistently fails returns a short
-  count and drain exits rather than hot-looping a retry storm against an unhealthy DB — the 3s ticker
-  still retries the tail on its normal cadence.
-- **There is no `round_expired` error code.** A late submit (`ErrRoundExpired` in `internal/game`) maps
-  to the existing generic `409 conflict` with `message: "round expired"` — the frozen v1 error-code set
-  (`API.md` §3) was deliberately NOT extended for this. The client keys off "any submit `409` → go poll
-  the result," not a distinct machine code, so there was nothing for a new code to buy.
+`encoding/json` zero-fills short fixed-size arrays, drops extra elements and turns a `null` element into
+`0`. `FreehandPoint` (3) and `Point` (2) therefore have a custom `UnmarshalJSON` that decodes into
+`[]*float64` and checks length and nil. Change those types without keeping the guard and `[1]` or
+`[null,1]` gets through.
 
-## Konva / editor / render determinism
+### Colors are lowercase hex only
 
-- **Konva keeps every `Stage` in a module-global registry until `stage.destroy()`.** Dropping the Vue
-  ref alone leaks the stage and its `<canvas>` elements. `Editor.destroy()` exists for this — DrawView
-  calls it in `onBeforeUnmount`, and every `loadDocument()` destroys+rebuilds the stage. Any new host
-  of `Editor` must call `destroy()` on unmount.
-- **Pointer coords come from `stage.getRelativePointerPosition()`** (transform-aware), never
-  `pageX - offsetLeft` (the old DPR bug). Fit/zoom/pan (`packages/editor/src/view.ts` +
-  `Editor.applyView`) scale the Konva **stage** (`size` + `scale` + `position`), never a CSS transform
-  on the `<canvas>` — so `getRelativePointerPosition` keeps returning logical coords at any zoom.
-  `applyView()` is re-run after every `rerender()` (which recreates the stage) or the transform resets.
-- **Per-layer isolation is a render-contract requirement**: each document layer → its own
-  `Konva.Layer` (own canvas) so composite strokes (eraser `destination-out`) can't bleed across
-  layers.
-- **`Editor.loadDocument()` does not validate** — callers pre-validate with `parseDocument()`
-  (DrawView and `drawings.get` already do). Internal editor state is trusted.
-- **Undo/redo covers the DOCUMENT, not editor view-state — by design.** Commands
-  (`packages/editor/src/history.ts`) mutate only the `Document`, keyed by `id`; the **active layer**
-  is editor UI state, not document state, so `setActiveLayer` is *not* undoable and add/remove only
-  reassign the active layer as a side effect. Consequence: undoing (then redoing) a layer add/remove
-  leaves the active-layer *selection* where the command left it, not where it was pre-command
-  (`reconcileActiveLayer` only repairs a *dangling* active id). This is a conscious separation — keep
-  editor UI state out of the pure command model; don't "fix" it by threading active-layer into
-  commands. If `/play` ever needs full editor-state restore, model that as a separate concern.
-- **`renderToPNG` is browser-only** (needs a real DOM + Konva stage) and is intentionally **not**
-  unit-tested (no DOM in the Vitest runner). The headless/Konva-node server render path is a separate
-  thing and it exists — `packages/render`, covered by its own `selftest`.
-- **Konva 10 dropped its default Node.js backend** (browser is unaffected — the editor is fine). The
-  **headless server render worker** therefore does `import 'konva/canvas-backend'` before any Konva use
-  (`packages/render/render.mjs`, first import) — drop or reorder it and nothing renders off-DOM.
-  (`konva/skia-backend` is the alternative.) Also: Konva 10's one
-  render-behavior change (rounded corners on **negative-dimension** rects) can't bite us — `rect.ts`
-  normalizes to non-negative w/h and the validator rejects zero/negative dims, so v9↔v10 output is
-  identical for every document we can produce.
-- **`/draw` canvas fills its container; the document is `DEFAULT_CANVAS` (1920×1080)** and the editor
-  fits it into the viewport (no more fixed 1280×720 + scroll). A `ResizeObserver` on the container
-  auto-fits while `autoFit` is on; a manual zoom/pan turns `autoFit` off; `loadDocument` re-enables it.
-  **Preview caveat:** `ResizeObserver` (like rAF/timers) is unreliable in the hidden preview tab, so a
-  live `preview_resize` may not trigger a re-fit — verify a viewport-dependent fit by **reloading** at
-  the target size (a fresh mount measures the container in the constructor), not by resizing live.
-  Konva's `<canvas>` backing store is `stage.width × devicePixelRatio` (e.g. 375 CSS px → 750 px at
-  DPR 2) — that's correct retina sizing, not a bug.
-- **Canvas-bounds & preview compositing (feat/draw-ux, DECISIONS 2026-07-04):** every projected
-  layer is **clipped to the document rect** (`toLayer`/`backgroundLayer`, `clip:{0,0,w,h}` in
-  layer-local coords — follows any stage/layer transform, so it holds in the editor at any zoom AND
-  in the render worker); gestures **starting outside** the document are ignored
-  (`Editor.insideDocument`); the in-flight stroke preview renders in a transient `Konva.Group` **on
-  the active layer's own Konva layer** — never an isolated preview layer, which could not show the
-  eraser's `destination-out` erasing content beneath it (the old delayed-eraser bug); window-level
-  `pointerup`/`pointercancel` fallbacks end/abandon a gesture released outside the container.
+Both sides use `^#([0-9a-f]{6}|[0-9a-f]{8})$`; `#FFFFFF` is a 400. The serializer does not normalize
+case, so any code that produces a color (a picker, AI output) must lowercase it.
 
-## Auth / cookies / dev proxy
+### Adding a stroke type touches three Go sites plus TS
 
-- **Auth is cookie-session** (`jp_session`, HttpOnly) over same-origin `/api`. Dev relies on the vite
-  proxy `'/api' → http://localhost:8080` (`vite.config.js`) to keep the cookie first-party; the Go
-  server must be up on :8080 or every call throws `ApiError('network', 0)`.
-- **`.env` sets `VITE_URL_API=/api`** (relative). Do **not** point it at an absolute cross-origin URL
-  — the SameSite=Lax cookie stops being first-party.
-- **`npm run preview` does not re-declare the proxy** (only the dev server does), so built output
-  assumes a production reverse proxy for `/api` (an [IDEAS.md](IDEAS.md) item; every call 404s
-  without it).
-- The api layer is store-free by design — the session store calls the api, never the reverse (no
-  import cycle).
-- **`fetch` does NOT reject on 4xx/5xx** — only on network failure. The client turns `!res.ok` into a
-  typed `ApiError` parsed from the `{error:{code,message}}` envelope, and uses a distinct `'network'`
-  code (status 0) for a dead server. Keep both paths when extending it.
+`Stroke` is a sealed interface (unexported `base()`), so it cannot be extended from outside the
+package. A new type needs the struct and const in `document.go`, the switch in `unmarshalStroke`
+(`parse.go`), the switch in `checkStroke` (`validate.go`), and the TS mirror.
 
-## Frontend / build
+### `FREEHAND_VERSION` must equal the installed perfect-freehand
 
-- **Cross-package `dist/` footgun:** `apps/web` consumes `@justpaint/document` / `@justpaint/editor`
-  via their built `dist/` (`"*"` → `dist/index.js`). That `dist/` is **gitignored, not committed** —
-  so a **fresh clone has no package `dist` at all**
-  until you `npm run build` the packages, and `apps/web` / `vue-tsc` can't resolve
-  `@justpaint/document|editor` before then. After a clone, and after editing package `src`, rebuild
-  the package — there's no HMR across the boundary. (A Vite src alias is a deferred IDEAS.md item.)
-  **CI trips on this too:** `.github/workflows/ci.yml` runs `npm run build` *before* `npm run types`
-  for exactly this reason. The very first CI run (2026-09-18) failed with `TS2307: Cannot find module
-  '@justpaint/editor'` plus knock-on `TS7006` implicit-any errors — green locally only because a
-  stale `dist/` was lying around. Any new job that typechecks a fresh checkout must build first.
-- **A `<dialog>` in the shell overlay is unclickable, and only the mouse notices.** `EditorShell`'s
-  `.shell__overlay` is `pointer-events: none` (the island pattern: the layer is transparent to the
-  pointer, each island opts back in). A native `<dialog>` renders in the browser's TOP LAYER but still
-  **inherits `pointer-events` down the DOM tree** — so the shortcuts modal looked and animated fine while
-  its × and its backdrop were dead, and Esc kept working because that is the keyboard, not the pointer.
-  Diagnosed with `document.elementFromPoint()` on the button's own centre: it returned `<html>`.
-  Fixed by `.shell__overlay :deep(dialog) { pointer-events: auto }` — `:deep()` matters, because the
-  `<dialog>` belongs to a child component and never carries the shell's scope id, so the plain selector
-  silently matched nothing.
-- **The oriui CSS import list in `main.ts` is hand-maintained, and it silently rots.** We import
-  `@oriui/css/components/*.css` à la carte, one file per component used. `OriBadge` and `OriSkeleton`
-  shipped with NO block styles because nobody added their two lines (found by an oriui consumer review,
-  2026-09-18) — the leaderboard chip and every skeleton placeholder rendered bare, and nothing failed.
-  `apps/web/scripts/check-styles.mjs` now guards it (`npm run lint:styles`, in `lint:all` + `lint:ci`).
-  It checks **selectors, not filenames**, which matters: some component CSS is inlined into another file
-  (`.ori-spinner` lives inside `button.css`), so a filename check would report a bug that does not exist.
-  A component whose class oriui defines nowhere is skipped — it has no block styles to import.
-- **`apps/web/tsconfig.json` does NOT extend `tsconfig.base.json`** — it re-declares its own strict
-  flags and **omits** `noUncheckedIndexedAccess` / `noImplicitOverride` / `noFallthroughCasesInSwitch`.
-  So the app is type-checked less strictly than the packages; a strict-only bug can pass
-  `npm run types -w @justpaint/web` yet fail in a package.
-- **noUncheckedIndexedAccess (packages):** `gesture[0]` is `T | undefined` — guard with an explicit
-  `=== undefined` check, don't `!`-assert. Narrow union `Stroke` fields on `stroke.type` **before**
-  touching them, in tests too — a runtime-green test can still fail `npm run types`. `satisfies Tool`
-  keeps the frozen contract checked.
-- **`URL.revokeObjectURL` in the same tick as `a.click()` can abort the download** in some browsers —
-  defer the revoke (`setTimeout(…, 0)`).
-- **oriui is a normal npm dependency** now (`@oriui/{vue,css,headless}` pinned to `1.0.0-rc.18`, the
-  owner's own library — was vendored under `vendor/oriui/` until the swap). The three move in
-  **lockstep** — bump all three together (`@oriui/vue` pins its `css`/`headless` deps to the exact
-  same version). `@oriui/css` must be imported for side effects (done in `main.ts`) or components
-  render unstyled. A dep **version change needs a Vite dev-server restart** (Vite pre-bundles deps),
-  not just an HMR reload.
-- **The hairline token is `--jp-color-outline`, ours, and it stays ours:** the resolved alias
-  must be set at base `:root` for light AND repointed in the dark block, or light-mode borders
-  silently fall to the black literal fallback. oriui shipped its own `--ori-color-outline` in
-  `1.0.0-rc.18`, and we deliberately did not adopt it — theirs is a `currentcolor` tint, ours is a
-  fixed per-theme colour held to the 3:1 non-text bar by `scripts/check-contrast.mjs`
-  (`ISSUES-OUTER.md` JP-O-06). Same name, different job; don't "fix" a component to the `--ori-` one.
-- **`OriButton size="sm"` does not shrink height below ~40px** (`size` only sets `--ori-size-action`;
-  height is `max(2.5em, action)`) — budget floating-cluster widths accordingly.
-- **`layersOpen` is computed once at mount** from `innerWidth` and not re-evaluated on resize;
-  `color-mix()` (first used in the shell) sets the browser floor at ~2023 evergreens;
-  `eslint-disable-next-line` in SFC templates covers only the literal next LINE — with
-  attribute-per-line formatting it must sit right above the `v-html=` line (or use a block disable).
-- **`OriDialog` is CONTROLLED as of alpha-11 — RESOLVED 2026-07-10.** Through alpha-10 it had no `open`
-  prop or close emit (only `defaultOpen`/`closeOnEscape`/`closeOnInteractOutside`/`modal`/`title` + a
-  `trigger` slot), so external state (a hotkey, a chip toggle) couldn't drive it and ConfirmDialog /
-  ShortcutsDialog were hand-rolled controlled modals (Teleport + `Transition :duration` +
-  `tabindex="-1"` focus-on-open + panel-tree Esc + backdrop click) — that pattern is now historical.
-  Alpha-11 added `open` + `update:open`/`close` emits (`v-model:open`); both are migrated to
-  `OriDialog`. `OriKbd` still ships as the kbd-chip style — use it over custom chips.
-- **An UNLAYERED universal reset silently clobbers oriui's LAYERED box-model** (`feat/draw-ux-polish`,
-  2026-07-05). Cascade rule: unlayered author CSS beats **all** `@layer` styles regardless of
-  specificity. oriui ships `.ori-button { border: 1px solid …; padding-inline: 1em }` and
-  `.ori-input__field { border: 1px solid … }` inside `@layer ori.components`, so an unlayered
-  `* { border: 0; margin: 0; padding: 0 }` in `apps/web/src/reset.css` overrode them — every
-  `OriButton(outline)` rendered borderless and every `OriButton`/`OriInput` got `padding-inline: 0`
-  (the top-right Save button collapsed to 33px wide / 0 padding, reading as a cramped text-link).
-  oriui's OWN `@layer ori.reset` already does `*{margin:0;padding:0;border:0}` **layer-safely** (it
-  loses to `ori.components`, as intended), so the app must NOT re-declare box-model resets unlayered —
-  delegate the reset to oriui and add only app-specific bits (font-optical-sizing, canvas
-  `touch-action`, etc.). Fix: dropped `border`/`margin`/`padding` from the `*` rule in `reset.css`.
-  apps/web now carries NO `.ori-*` overrides (the last one — the light colored-text tone — went with
-  oriui alpha-8's role-as-text AA tokens); no rule targets `.ori-*`, no `:deep()`, no `!important`.
-- **The one sanctioned `.ori-*` override: light-theme colored-TEXT tone.** **RESOLVED alpha-8 (2026-07-08)** — kept below as history. Outline/tonal/text OriButtons
-  read their label color from `--ori-color`; the brand `hsl(20 100% 50%)` is only 2.86:1 on the
-  `#f0f2f6` surface (fails AA text). `main.css` darkens the TEXT tone to `hsl(20 100% 38%)` for
-  `.ori-button.ori-color_primary:where(.ori-variant_outline, _tonal, _text)` in light only — fills keep
-  the vivid brand (contrast there is the dark ink ON orange). NB: every OriButton always carries
-  `ori-color_<role>`, so guard by pinning `ori-color_primary`, NOT by `:not([class*='ori-color_'])`
-  (that matches everything and disables the rule).
-- **OriPopover/OriMenu position via CSS Anchor Positioning — not in Firefox** (mid-2026). The popover
-  still opens/dismisses (native Popover API is baseline) but ignores `position-anchor`/`position-area`,
-  falling back to the UA default (viewport-centered) — degraded but functional. Fine for the toolbar's
-  mobile style panel; don't build anchor-critical UI on it yet.
-- **Don't center overlays with `position:absolute; left:50%; translateX(-50%)`.** An abs-positioned box
-  with a `left` offset shrink-to-fits against the REMAINING space (viewport − left), so on a 405px phone
-  the bottom toolbar got squeezed to min-content and wrapped. Use a full-width strip instead:
-  `left:0; right:0; display:flex; justify-content:center` + `pointer-events:none` on the strip and
-  `pointer-events:auto` on the child.
-- **The registry `@oriui/css` alpha-6 `OriTooltip` mis-pairs the bubble** — background comes from
-  `--ori-color`, but text from `--ori-color-on` (= the global `currentColor`), so on dark ink the
-  tooltip renders **black-on-black**. App-side interim fix pins `--ori-tooltip-bg`/`--ori-tooltip-color`
-  on `.ori-tooltip`. The **root** fix is in oriui (self-pairing bubble + viewport flip/clamp + a static
-  arrow — the `anchor(center)` arrow was invalid CSS), on `feat/neutral-skin-tooltip-contrast`
-  (commit `bd3d847`, unpublished). **RESOLVED alpha-7 (2026-07-08):** the app bumped and the interim
-  override was dropped; the published bubble is self-paired + anchored.
-- **Preview-testing an UNPUBLISHED oriui build rewrites `package.json`.** `npm install <abs path>.tgz`
-  on a local oriui tarball rewrites the `@oriui/*` deps to fragile `file:` refs pointing at the sibling
-  `vueinjar` repo — do **NOT** commit those. Revert `package.json` + the lockfile to the registry range
-  and keep the built `node_modules` local for the duration of the preview (precedent: the alpha-4
-  preview tarballs).
-- **Stale Vite dep-optimize cache after an out-of-band SAME-VERSION dep swap.** A long-running `vite
-  dev` pre-optimizes deps into `node_modules/.vite` (and `apps/web/node_modules/.vite`) at startup. If
-  node_modules later changes out-of-band but the dependency **keeps the same version string** — e.g.
-  swapping a local `@oriui/* 1.0.0-alpha.6` tarball for the registry build of the same
-  `1.0.0-alpha.6`, or vice versa — a **reused** dev server (Playwright `webServer.reuseExistingServer:
-  true`, or just an already-running `npm run dev`) keeps serving the **stale** optimized bundle, mixing
-  an OLD bundled component with the app's CURRENT CSS. **Symptom this cost us (2026-07-08):** the
-  `/draw` **mobile** layout looked badly broken — the stale bundle's OriTooltip emitted the old
-  `.ori-tooltip__bubble_bottom` class (which the current `@oriui/css` no longer styles), so each hidden
-  tooltip bubble fell back to `position: static` (in normal flow), adding ~40px width to every wrapped
-  control; the top actions island ballooned to ~194px tall and the bottom toolbar's Tools group
-  overflowed (~624px inside a ~350px bar). The **locally-installed oriui (the branch tarball) and a
-  clean `vite build` off it were correct the whole time** — that tarball ships the anchored bubble
-  (`.ori-anchored { position: fixed }`, out of flow) and the dedicated `--ori-neutral-900/50` pairing;
-  the break was purely the stale local dev bundle masking it. **NB — do not conflate this with the
-  registry:** PUBLISHED `@oriui/css` alpha-6 WAS the OLD in-flow / mis-paired tooltip (the fix was
-  on the oriui branch `bd3d847`, since published in alpha-7 — the app now runs alpha-10)
-  (the published alpha-7+ bubble is anchored + self-paired, so no app override is needed — the
-  stale-cache hazard is purely about mismatched bundles at the same version string). **Fix (the stale
-  cache):** `rm -rf node_modules/.vite apps/web/node_modules/.vite`, then
-  restart the dev server (a fresh start re-optimizes from current node_modules — verify the OriTooltip
-  bubble computes `position: fixed` with classes `ori-anchored ori-anchored_<placement>`). **Guard:**
-  after ANY out-of-band oriui tarball↔registry swap at the SAME version string, clear `.vite` and
-  restart before trusting the preview. Cross-ref the tarball-swap note above and the parallel-oriui-dev
-  hazard (HEAD can switch under feature work).
-- **Two oriui CSS gotchas the `FloatingToolbar` → `OriToolbar` migration surfaced — both FIXED in oriui
-  alpha-13 (2026-07-10); kept as the lesson (full detail in `DESIGN-SYSTEM.md` §6).**
-  **(A) layer order beats specificity:** alpha-12's pressed *fill*
-  (`.ori-toolbar .ori-button[aria-pressed=true]`, layer `ori.components`) was defeated by `.ori-variant_text`
-  re-setting `--ori-variant-bg-color: transparent` in the LATER layer `ori.utilities`, so the active tool
-  showed the inset ring only (no fill). *alpha-13:* the pressed rule paints `background-color` directly, not
-  via the token. **(B) relative-colour transitions get stuck:** alpha-12's `.ori-button`
-  `transition: color` couldn't interpolate oriui's `oklch(from … )` role tokens, so swapping `color` per
-  selection left the glyph frozen on the previous colour until a repaint. *alpha-13:* `color` was dropped from
-  the transition, so the swap is instant — the active tool now uses `:color="active ? 'primary' : 'surface'"`.
-  **Corollary still live (it nearly tripped the review):** the focus ring stays visible on
-  `color="surface"` buttons ONLY because `main.css`'s **unlayered** `:where(button, …):focus-visible {
-  outline: var(--ori-color-primary) }` outranks oriui's layered `.ori-button:focus-visible { outline:
-  var(--ori-color) }` (which for `surface` resolves to background-on-background = invisible). Unlayered
-  author styles beat ANY `@layer` regardless of specificity — the same mechanic as (A), used in our favour.
+`packages/document/src/constants.ts` pins the exact resolved version (`1.2.3`, from `^1.2.3` in
+`packages/editor`), not the range floor. Bump it with the dependency, or the editor preview and the
+render worker (`packages/render`) draw different outlines — and the worker's raster is what gets judged.
+
+### Round only at serialization
+
+Write precision (2 dp geometry, 3 dp pressure) is applied only by `serializeDocument` /
+`roundDocument` (`packages/document/src/parse.ts`). Rounding in the model or in tools accumulates error.
+
+### Ids share one namespace
+
+Layer and stroke ids live in one `seen` set; a stroke id equal to a layer id is rejected.
+
+### The op validator does not presence-check `add_stroke`'s inner stroke
+
+`requiredOpKeys` checks `layerId` and `stroke`, not the fields inside the stroke. That is safe only
+because `freehand` (whose all-zero `brush` passes the stroke validator) is not allowed in ops
+(`docs/ASSIST.md` §2). If ops ever admit freehand, or a stroke type where a zero value is valid, extend
+the presence guard on both sides.
+
+### The two op validators take their arguments in opposite order
+
+TS `validateOpBatch(summary, ops)` vs Go `ValidateOpBatch(ops, summary)`. Known, not drift; don't
+"fix" one side.
+
+## Editor and rendering
+
+### Destroy the `Editor` on unmount
+
+Konva keeps every `Stage` in a module-global registry until `stage.destroy()`, so dropping the Vue ref
+leaks the stage and its canvases. Every host must call `editor.destroy()` in `onBeforeUnmount`
+(DrawView, PlayView and PracticeView do).
+
+### Pointer coordinates come from the stage transform
+
+Read positions with `stage.getRelativePointerPosition()`, never `pageX - offsetLeft`. Fit/zoom/pan
+(`view.ts`, `Editor.applyView`) transform the Konva stage, never the `<canvas>` via CSS, so logical
+coordinates hold at any zoom. `rerender()` recreates the stage, so `applyView()` must run after it or
+the transform resets.
+
+### Overlays must remount inside `rerender()`
+
+`rerender()` destroys and rebuilds the whole stage on every commit, undo/redo and `loadDocument`. Chrome
+that is not in the document — the brush cursor ring, the AI-assist ghost preview — must be remounted
+there or it silently disappears.
+
+### Layer isolation, clipping and the stroke preview
+
+Each document layer is its own `Konva.Layer`, so composite strokes (eraser `destination-out`) cannot
+bleed across layers. Every projected layer is clipped to the document rect in layer-local coordinates,
+which holds in the editor at any zoom and in the render worker. The in-flight stroke preview renders in
+a `Konva.Group` on the active layer's own Konva layer; a separate preview layer could not show the
+eraser removing what is beneath it. Gestures must start inside the document (`insideDocument`), and
+window-level `pointerup`/`pointercancel` listeners end a gesture released outside the container.
+
+### `Editor.loadDocument()` does not validate
+
+Callers run `parseDocument()` first (DrawView and the drawings query do).
+
+### Undo covers the document, not editor state
+
+Commands (`history.ts`) change only the `Document`. The active layer is UI state: `setActiveLayer` is
+not undoable, and undoing a layer add/remove leaves the selection where the command left it
+(`reconcileActiveLayer` only repairs a dangling id). Intentional; don't thread UI state into commands.
+
+### Multi-layer assist batches need a running insert index
+
+`addLayerCommand` clamps its index at apply time, not at construction. `acceptOps()` threads a running
+top-of-stack index through the batch; without it every new layer in a batch lands at the same position.
+
+### Auto-fit turns off on manual zoom
+
+The document (`DEFAULT_CANVAS`, 1920×1080) is fitted to its container by a `ResizeObserver` while
+`autoFit` is on. A manual zoom or pan turns it off; `loadDocument` and "fit" turn it back on. The canvas
+backing store is `stage.width × devicePixelRatio` — correct retina sizing, not a bug.
+
+### `renderToStage` is the one projection
+
+The browser export (`renderToPNG`, `stage.toBlob`) and the Node worker (`stage.toDataURL()` under
+`konva/canvas-backend`) both go through `renderToStage`. Keep render changes on that path or the judged
+raster drifts from what the player saw. `renderToPNG` needs a real DOM and is not unit-tested; the
+worker has its own `selftest`.
+
+### The render worker: backend import first, bundled, rebuilt by hand
+
+- `import 'konva/canvas-backend'` must be the first import in `packages/render/render.mjs`. Konva 10
+  has no default Node backend and throws "unsupported environment" without it. `document` is not
+  polyfilled, which is why `toKonva` guards on `typeof document`.
+- The worker is an esbuild bundle (`packages/render/dist/render.mjs`) because the packages emit
+  extensionless relative imports that native Node ESM refuses. The bundle embeds a copy of the editor:
+  rebuild it (`npm run build -w @justpaint/render`) after editing `packages/editor`, and on a fresh
+  clone before using `RENDER_MODE=node`.
+- `canvas` (node-canvas) is a native dependency, kept external. It normally installs from a prebuild; a
+  platform without one needs Cairo/Pango and build tools.
+
+### `StubRenderer` does not draw the document
+
+`RENDER_MODE=stub` (the default, so the server runs without Node) emits a deterministic 1024² PNG whose
+ink coverage grows with the stroke count, which is enough for the ink-coverage `FakeJudge` to produce a
+document-derived verdict. It is not the picture. The real raster is `RENDER_MODE=node`; don't build a Go
+rasterizer instead, it would diverge from the editor.
+
+### Node render concurrency is bounded inside the renderer
+
+`NodeRenderer` spawns `node dist/render.mjs` per render (document JSON on stdin, base64 PNG on stdout,
+which keeps the pipe text-safe on Windows). A semaphore inside the renderer, sized by
+`JUDGE_CONCURRENCY`, bounds concurrent processes, because `/api/guess` and `/api/practice` render on the
+request goroutine and bypass the judging-pass limiter. It blocks rather than refuses; the wait ends with
+the caller's context (`game.JudgePassBudget`, the practice/guess `RunBudget`).
+
+## Frontend
+
+### Packages are consumed from their built `dist/`
+
+`apps/web` resolves `@justpaint/document` and `@justpaint/editor` through `dist/`, which is gitignored.
+A fresh clone cannot typecheck (`TS2307: Cannot find module '@justpaint/editor'`) until the packages are
+built, and an edit to package `src` does not reach the app until you rebuild — there is no HMR across
+the boundary. CI runs `npm run build` before `npm run types` for this reason; any new job that
+typechecks must build first.
+
+### `apps/web` is type-checked less strictly than the packages
+
+`apps/web/tsconfig.json` does not extend `tsconfig.base.json` and omits `noUncheckedIndexedAccess`,
+`noImplicitOverride` and `noFallthroughCasesInSwitch`, so code can pass
+`npm run types -w @justpaint/web` and fail in a package. In packages `arr[0]` is `T | undefined`: guard
+with `=== undefined` rather than `!`, and narrow a `Stroke` on `type` before touching its fields —
+tests included.
+
+### Keep the API same-origin
+
+The `jp_session` cookie (SameSite=Lax), the WS upgrade and reading `Retry-After` all depend on it.
+The request base is the constant `/api` in `http.ts`. In dev the Vite proxy forwards it (with `ws: true`)
+to `:8080`, so the Go server must be up or every call fails with `ApiError('network', 0)`. In production
+the Go server serves the built SPA itself (`STATIC_DIR`). `npm run preview` has no proxy, so `/api`
+fails there.
+
+### Build new API modules on `core/api/http.ts`
+
+`http.ts` owns `BASE`, `ApiError` and `request` (`credentials: 'include'`, envelope parsing). `fetch`
+rejects only on a network failure; `request` turns `!res.ok` into a typed `ApiError` from the
+`{error:{code,message}}` envelope and uses the client-only `network` code (status 0) for a dead server.
+A new module imports `request` instead of re-implementing it. The api layer is store-free: stores call
+it, never the reverse.
+
+### Defer `URL.revokeObjectURL` after a download click
+
+Revoking in the same tick as `a.click()` can abort the download in some browsers; use
+`setTimeout(…, 0)`.
+
+### Don't center overlays with `left: 50%; translateX(-50%)`
+
+An absolutely positioned box with a `left` offset shrinks to fit the remaining width, so on a narrow
+phone the toolbar wrapped. Use a full-width strip (`left: 0; right: 0; display: flex;
+justify-content: center`) with `pointer-events: none`, and `pointer-events: auto` on the child.
+
+### Small ones
+
+- `layersOpen` (DrawView) is computed once at mount from `innerWidth`, not re-evaluated on resize.
+- In SFC templates `eslint-disable-next-line` covers only the literal next line; with one attribute per
+  line it must sit directly above the offending attribute, or use a block disable.
 
 ## /play — async-duel client
 
-- **The HTTP `fetch` plumbing is shared, not per-client.** `core/api/http.ts` owns `BASE`, the
-  `ApiError` envelope, and `request`; `drawings.ts` **and** `matches.ts` import it. The barrel
-  (`core/api/index.ts`) re-exports all three, so every `@core` consumer of `ApiError`/`isAuthError`
-  is unaffected by the split — but a **new** api module must import `request` from `./http`, never
-  re-implement the cookie/`credentials:'include'` + error-envelope logic.
-- **`matches.ts` wire types are 1:1 with the Go DTOs** in `server/internal/game` (handler.go), NOT
-  just with API.md — read the structs when changing them (e.g. `MatchResult` is a union discriminated
-  on `ready`; scores are **0..1** from the judge and the reveal multiplies to 0..100; `judgedImageUrl`
-  is always `null` until the object-storage seam lands).
-- **PlayView runs exactly ONE self-rescheduling poll loop** for the whole round (waiting → drawing →
-  judging), reached from `startMatch`. `submit()` does **not** start a second loop — it only flips the
-  phase to `judging`; the existing loop (which reschedules through the transient `submitting` phase)
-  picks up the verdict branch. Adding a `scheduleNextPoll()` in `submit` would double every poll.
-- **The round timer is anchored on the SERVER's clock, not the browser's** (`feat/round-deadline`
-  closed the old client-only `TODO(play-api)`). `anchorClock(drawingDeadline, serverTime)` stores the
-  offset between the two clocks and every tick recomputes `remaining` from it, so a skewed or
-  suspended client cannot gain or lose round time. The countdown still auto-submits near expiry, but
-  it is a mirror of `matches.drawing_deadline` — the authority is the sweeper and the submit check,
-  both on Postgres' own clock, and a late submit is refused `409` regardless of what the client shows.
-- **Every async continuation checks the `disposed` flag** (set in `onBeforeUnmount`) before touching
-  reactive state — the poll loop + `await`ed create/submit/capture can resolve after the route
-  changes. `clearTimers()` clears both the countdown interval and the tracked poll `setTimeout`s.
-- **A duel is auth-required**; `/play` has no sign-in form of its own. An anonymous visitor (or a
-  `fetchMe` failure) raises the ONE shared sign-in modal via `gate.ensure('Sign in to play a duel.')`
-  (`feat/auth-gate`, 2026-09-18) and the action resumes the moment they sign in — it no longer sends
-  them to `/draw`'s SideMenu. A `409` on submit is treated as already-recorded and proceeds to the
-  verdict poll, not an error.
-- **`PlayView.applyResult` mutates `session.user.rating` DIRECTLY**, bypassing the session store's
-  `fetchMe`/`login`/`register` actions (the only places that normally set `user.rating`). Without this
-  patch the SideMenu and the leaderboard would keep showing the page-load rating after a duel resolves
-  — the result card's `eloDelta` would be right but every other rating display stale until the next
-  full session refetch. A future session-store refactor must preserve this post-duel sync (or replace
-  it with an explicit store action) or the drawer/leaderboard rating goes stale again.
-
-## WS realtime (`internal/ws`, `feat/ws-realtime`)
-
-- **No server-side read-idle timeout/heartbeat — RESOLVED (`feat/ws-hardening`).** `conn.go`'s
-  `heartbeatLoop` (a third per-connection pump) now evicts a connection idle for
-  `Limits.ReadIdleTimeout` (private close code `4002`) and, well under that budget, proactively pings
-  the peer every `Limits.HeartbeatInterval`. A black-hole TCP drop is reclaimed on that schedule
-  instead of riding out to the next `wsWriteTimeout` write or the session-expiry close. See
-  `docs/API.md` §9.1 and the gotcha below before touching this again.
-- **coder/websocket ties ANY context expiry passed to `Read`/`Write` to closing the WHOLE
-  connection, not just failing that one call** — the `Conn` doc comment says so outright ("On any
-  error from any method, the connection is closed... This applies to context expirations as well
-  unfortunately"), and the mechanism is real: `setupReadTimeout`/`setupWriteTimeout` arm a
-  `context.AfterFunc(ctx, ...)` that calls `c.close()` (a real `rwc.Close()`) the moment that ctx
-  is Done — deadline OR cancellation, and regardless of how many control frames (ping/pong) were
-  handled inside that same call first, since it's one fixed deadline for the whole call. Two
-  consequences that shaped `heartbeatLoop`: (1) you cannot implement a "rolling" idle timeout by
-  wrapping each `Read` in a short, renewed `context.WithTimeout` — the FIRST such call that times
-  out (even briefly, even if the peer is healthy) kills the connection outright, it does not just
-  return an error you can loop past. (2) a received Pong does NOT reset an in-flight `Read`'s own
-  bound — control frames are absorbed inside `handleControl` without causing `Read` to return, so
-  they can't extend a deadline that's already fixed for that call. This is why eviction here is
-  driven off a plain wall-clock `lastActive` timestamp checked by an independent ticker, while
-  `readPump`'s own `Read` stays on the connection's unbounded lifetime context exactly as before —
-  never touch that call's context shape without re-reading this.
-- **`(*websocket.Conn).Ping` requires a concurrently-running `Read`/`Reader` loop to ever observe
-  the reply** — documented on the method ("Ping must be called concurrently with Reader as it does
-  not read from the connection but instead waits for a Reader call to read the pong"). `heartbeatLoop`
-  relies on `readPump`'s already-continuous `Read` loop for this; a caller that ever adds a code path
-  which stops reading (e.g. `CloseRead`, or simply not starting `readPump`) will make every `Ping`
-  hang until its own ctx times out. `Ping`/`Write`/`Close` ARE safe to call concurrently with each
-  other and with `Read` — only two `Read`/`Reader` calls concurrently with each other are disallowed.
-- **The server heartbeat probes over the WS protocol's native ping/pong, not an app-level JSON
-  frame** — deliberately: browsers answer a native ping automatically in the network stack, so it
-  needs no frontend change and is not subject to background-tab `setInterval` throttling the way the
-  client's own app-level heartbeat is (`apps/web` `PlayView.vue` `WS_PING_MS = 25000`, a `setInterval`
-  which CAN be throttled/delayed when the tab is hidden). `Limits.ReadIdleTimeout` must clear that
-  25s client cadence with real margin regardless, since the client's ping is still real, independent
-  proof of life via the ordinary `readPump` path.
-- **The per-IP connection cap keys on `r.RemoteAddr`, never `X-Forwarded-For`/`X-Real-Ip`** — those
-  headers are client-supplied and trusting them without a trusted-proxy allowlist (which nothing in
-  `config` implements) would let an attacker defeat the cap outright by sending a different fake IP
-  per connection. If the deploy ever sits behind a reverse proxy (`IDEAS.md` "SPA needs an `/api`
-  reverse proxy in prod"), `RemoteAddr` is the proxy's own address for every connection, which
-  collapses the per-IP cap to a de-facto global one — the proxy would need to preserve the real peer
-  (e.g. PROXY protocol) and the cap would need trusted-proxy-aware header parsing to tell them apart
-  again. Not done — no trusted-proxy config surface exists yet.
-- **`MatchStateJSON`/`ResultJSON` → `Get`/`Result` read without a snapshot** — the same torn-read
-  caveat already on record above (`Get` runs its match→prompt→roster reads on the pool with no
-  snapshot). WS calls this path far more often than the 2s REST poll (on every roster/deadline change
-  and again per reconnect), so it widens the same window rather than introducing a new one. Covered
-  today by the client's monotonic/idempotent apply (`applyRoster`/`applyResult` in `PlayView.vue`,
-  `docs/DESIGN-PHASE3-LIVE.md` §2.9) — a stale/torn read is just superseded by the next frame or poll.
-- **Per-viewer `match_state`/`result` frames fan out on independent goroutines** (`fanoutPerViewer` is
-  spawned per event, `hub.go`), so **completion order across the two duelists — or across two frames
-  to the same duelist — is not guaranteed on the wire.** Correctness relies entirely on the client
-  applying frames monotonically (a terminal phase can't regress), never on send order.
-- **`websocket.Accept` reaches `http.Hijacker` by walking the `Unwrap() http.ResponseWriter` chain.**
-  Any future `http.ResponseWriter` wrapper added to the middleware chain (logging, metrics, etc.) MUST
-  implement `Unwrap() http.ResponseWriter` or the WS handshake fails with a `501` the moment that
-  wrapper sits in front of the WS route — this is exactly why `statusRecorder.Unwrap`
-  (`internal/platform/web/middleware.go`) exists. Don't drop it when touching `LogRequests`/`Recover`.
-- **The `firstForUser` presence broadcast includes the connecting client itself** — when a user's
-  client set goes empty→non-empty, `handleRegister` broadcasts `opponent_connected` to the **whole
-  room**, including the socket that just triggered it. Harmless by design: clients filter presence
-  frames by `userId !== self` (`PlayView.vue`'s `handleWsFrame`), so a client silently receives (and
-  ignores) its own connect event rather than the hub special-casing the sender.
-- **`parseToken` now requires an `exp` claim** (`jwt.WithExpirationRequired`, `auth/token.go`) — a
-  valid token always carries an expiry, which is what makes the WS session-expiry close (arm
-  `time.AfterFunc(exp)` → close `4001`) safe to rely on unconditionally. Any future token-issuing path
-  must keep stamping `exp` or `RequireAuth` rejects it outright.
-
-## AI assist (`internal/assist`, `packages/editor` ghost preview, feat/assist-phase-a)
-
-> **2026-09-20:** the real impl landed and it is `GeminiAssist`, not `AnthropicAssist`
-> (`docs/ASSIST.md` §3.2). The bullets below that are addressed to "the real impl" are answered
-> or moot: the call has its own `ASSIST_TIMEOUT` (60s, per attempt); the final validator error
-> is wrapped in `ErrInvalidBatch`; the daily AI-call budget now sits behind the per-user bucket,
-> which is the spend ceiling a new account cannot walk around; and the `ParseAndValidateOpBatch`
-> worry does not arise, because the model never emits ops at all — it emits primitive shapes and
-> Go builds the typed ops, so there is no struct-decode of model JSON to zero-fill. Everything
-> about the ghost preview, the `Retry-After` ordering and the two validators still stands.
-
-- **The op validator does NOT presence-guard the inner stroke fields of `add_stroke`** — safe today
-  ONLY because `freehand` (the one stroke type whose all-zero `brush` still passes the existing
-  stroke validator) is excluded from the Op schema (`docs/ASSIST.md` §2). If Phase B/C ever admits
-  freehand ops, or any future stroke type where a zero-valued field is legitimately valid, extend the
-  `requiredOpKeys`-style presence guard (mirroring `parse.go`'s `requiredKeys`) in lockstep on both
-  sides — otherwise Go silently zero-fills an absent field the TS side would reject.
-- **The assist ghost overlay must remount inside `Editor.rerender()`**, following the same discipline
-  the cursor overlay already uses — `rerender()` destroys and rebuilds the whole Konva stage — or the
-  ghost silently vanishes on the next commit/undo/redo/`loadDocument`.
-- **`addLayerCommand`'s index clamps at *apply* time, not construction.** `acceptOps()` threads a
-  running top-of-stack index through a multi-`add_layer` batch (incremented per `add_layer` processed
-  in array order), or every new layer in the batch would clamp to the same insertion point and
-  collide in z-order.
-- **`Retry-After` must be set BEFORE calling `web.Error`.** `web.Error` → `JSON` → `w.WriteHeader`,
-  and headers set after `WriteHeader` are silently dropped by `net/http` — the assist handler sets it
-  first on the 429 path (`server/internal/assist/handler.go`).
-- **Before enabling `ASSIST_MODE=anthropic` in any real deployment, add a global/per-IP spend ceiling
-  in FRONT of the per-user bucket** (`ratelimit.go`) — account creation trivially bypasses per-user
-  rate limiting on a paid endpoint; the per-user bucket alone doesn't cap total spend. **Moot as of
-  2026-09-20:** `ASSIST_MODE=anthropic` was deleted rather than ever enabled (`docs/DECISIONS.md`
-  2026-09-20), and the concern is covered anyway — `internal/aibudget`'s global per-provider daily
-  ceiling now sits in front of every kind's per-user allowance, assist included.
-- **The real `AnthropicAssist` impl must route the model's raw JSON through
-  `document.ParseAndValidateOpBatch`, not a bare struct-decode** — only `ParseAndValidateOpBatch` runs
-  the `requiredOpKeys` presence guard; decoding straight into `Result` would let Go silently zero-fill
-  an absent field the TS validator would reject (the same class of gap already flagged above for
-  `add_stroke`'s inner fields). **Moot as of 2026-09-20:** `AnthropicAssist` was deleted rather than
-  built; the real impl (`GeminiAssist`) sidesteps this class of bug entirely — the model emits
-  primitive shapes, never `Op` JSON, so Go itself builds every required field and there is no
-  model-authored struct to zero-fill. The `add_stroke` presence-guard gap above still stands on its
-  own.
-- **Derive a `context.WithTimeout` for the LLM call itself**, rather than inheriting only the
-  request's 30s `WriteTimeout` (`main.go`) — an LLM call has its own latency budget, distinct from the
-  HTTP write deadline.
-- **Wrap the final validator error into `ErrInvalidBatch`** (`fmt.Errorf("%w: %v", ErrInvalidBatch,
-  err)`) so the handler's `errors.Is` check (`handler.go`) actually maps retry-exhaustion to `400`
-  instead of falling through to the generic `500` — `AnthropicAssist.GenerateOps` today returns a
-  plain, unwrapped error (it isn't implemented yet), exactly the case this would need to fix. **Done
-  as of 2026-09-20:** `GeminiAssist.GenerateOps` (`gemini.go`) wraps retry-exhaustion exactly this way
-  (`fmt.Errorf("assist: gemini: %w: %v", ErrInvalidBatch, lastInvalid)`); `AnthropicAssist` was
-  deleted, not left unimplemented.
-- **Treat the model-generated `note` as untrusted text** — escape it before rendering; never treat it
-  as HTML.
-- **The two op validators intentionally have swapped param order** — TS `validateOpBatch(summary,
-  ops)` (`validate.ts`) vs Go `ValidateOpBatch(ops, summary)` (`ops.go`) — recorded here so a future
-  edit doesn't mistake it for drift and "fix" one side to match the other.
-
-## Preview MCP / verification
-
-- **`preview_screenshot` times out (~30 s) on the Konva canvas page** — Konva's rAF loop likely
-  defeats idle detection. Verify `/draw` with `preview_eval` (DOM / `getComputedStyle`),
-  `preview_snapshot`, and console/network logs instead; don't retry screenshots there.
-- **`/play` needs the Go backend + a SECOND authenticated player** to reach `judging`/`done` — not
-  drivable from one browser preview. Smoke-test the mount + auth-gated card without a backend
-  (`/api/auth/me` 502 → the sign-in card renders); the client shapes are verified against the Go DTOs
-  by reading them, not by driving the full happy-path.
-- The vite dev server runs via `.claude/launch.json` (`preview_start` name `web`, port 7777). Previewing
-  the full app also needs the Go backend on :8080 up separately (not in launch.json).
-- **rAF is fully PAUSED while the preview tab is hidden** (`document.hidden === true`) — Konva's
-  `batchDraw` never flushes, so layer canvases keep stale pre-transform content; pixel-level canvas
-  checks are IMPOSSIBLE in the hidden preview (this also explains the screenshot timeout above).
-  Verify canvas pixels via the **Node render worker** instead (same Konva projection, deterministic
-  — render a crafted document and sample the PNG), or a real visible tab; DOM-level checks (stroke
-  counters, panel state) still work hidden. Vue `<Transition>` completion also hangs in the hidden
-  preview tab (its pipeline uses rAF), so menu/panel open-close animations can't be end-verified
-  there — check them in a real browser.
-- **CSS transitions also freeze mid-flight in the hidden tab** — and that includes property values:
-  a button with `transition: color …` reports the OLD `getComputedStyle(...).color` indefinitely even
-  though its `--ori-*` custom properties (not transitioned) already show the new value. If a computed
-  color "didn't change" but the tokens did, reload the page (fresh paint has no transition) before
-  concluding the CSS is broken.
-- **The desktop cursor-coord readout is rAF-throttled, and rAF is PAUSED in a hidden preview tab** — so
-  the coords chip never appears under `preview_eval` there, and any eval that `await`s
-  `requestAnimationFrame` **hangs to the 30 s timeout**. Verify the coord readout in a real visible
-  browser; never `await` rAF in a preview eval.
-
-## Orchestration / role agents
-
-- Custom agents in `.claude/agents/*.md` load into the Agent/Workflow registry **at session start** —
-  files created mid-session aren't available until Claude Code reloads. For a same-session workflow,
-  omit `agentType` and inline the role instructions in the `agent()` prompt.
-- The orchestrator (main session) integrates: review lenses write only findings; the orchestrator
-  owns shared files (route wiring, barrels/exports, migration numbering), runs the gates, verifies
-  live, and records findings here / in DECISIONS.md.
-- **Adversarial verify passes have repeatedly caught real defects green unit tests missed**
-  (type-level `noUncheckedIndexedAccess` violations, the Konva stage leak) — keep a verify stage in
-  any orchestrated build.
-
-## Document contract (Go ↔ TS parity)
-
-- **Absent required fields: Go must reject them explicitly.** `encoding/json` zero-fills an absent
-  required key (no `visible` → `false`, no `opacity` → `0.0`, no `brush` → the zero `BrushOptions`, no
-  `strokes` → nil, no `background` → nil), so struct decoding ALONE makes Go accept documents the TS
-  validator rejects — a silent keystone-parity break. `requiredKeys(data)` in `parse.go` walks the RAW
-  JSON asserting key presence, so an explicit `null` background still counts as present (valid) while an
-  absent one is rejected — matching TS, where `undefined !== null` falls into the hex check and fails.
-- **Point coords: decode `[]*float64`, not `[]float64`.** `json.Unmarshal` coerces a `null` array
-  element to `0.0`, so `[null,1]` would pass; a pointer slot stays nil and is rejected, matching TS's
-  finite-number check.
-- **The two validator TEST TABLES are 1:1** — a rejection added to one side must be added to the other
-  (`server/internal/document/validate_test.go` ↔ `packages/document/test/validate.test.ts`).
-
-## Rate limiting & request correlation (`internal/platform/ratelimit`, `internal/platform/web`)
-
-- **`Recover` must stay wrapped INSIDE `LogRequests`, not the other way around.** `LogRequests` is what
-  assigns the per-request id (adopts a trusted inbound `X-Request-Id` or generates a uuid) into the
-  request context, and it does so on its OWN locally-rebound `r` before calling `next`. If `Recover`
-  were the OUTER middleware instead, the panic it catches would unwind into a closure still holding the
-  ORIGINAL `r` (pre-context-assignment), so `RequestID(r.Context())` inside `Recover` would silently
-  find nothing — no crash, just an empty `request_id` on every panic log line. Same class of
-  ordering hazard as the `statusRecorder.Unwrap()` gotcha above (WS hijacking) — don't reorder this
-  chain without re-checking both.
-- **`ratelimit.Limiter` fails OPEN, not closed, when its bucket map is at capacity and every existing
-  bucket is still recently active** (`Allow`, `internal/platform/ratelimit/limiter.go`): a brand-new key
-  rides through untracked rather than being denied. Deliberate, not an oversight — keyed by client IP,
-  a hard deny here would let an attacker who can generate enough distinct source IPs/keys turn the rate
-  limiter itself into a lockout of every OTHER caller's first request. The idle-bucket sweep
-  (opportunistic inside `Allow`, periodic via `RunSweeper`) is what keeps this path rare in practice;
-  it only triggers under sustained, genuinely-high key cardinality.
-- **`go test -race` needs a working cgo C toolchain, which a Windows dev box may not have.** `CGO_ENABLED`
-  defaults to `0` there and `-race` refuses to run without a `gcc`/`clang` on `PATH` (none ships with a
-  plain Go + Git-Bash setup). Verified race-free by code review + `go test ./...` (no `-race`) on such a
-  machine; CI (`ci.yml`, Linux, has `gcc`) is where `-race` coverage actually gets exercised — install a
-  mingw-w64 toolchain and set `CGO_ENABLED=1` if you need `-race` locally before pushing.
-
-## Git / Windows
-
-- Conventional Commits, present tense, one logical change. Multi-commit units go on a branch
-  integrated with `--no-ff` (then delete the branch); single-commit work goes straight to `main`.
-  See [`CONTRIBUTING.md`](../CONTRIBUTING.md).
-- `LF will be replaced by CRLF` warnings on commit are normal on Windows — harmless.
-
-## Escape on a `<dialog>` cannot be tested through browser automation
-
-Chasing a "the sign-in modal ignores Escape" bug cost a cycle before the decisive experiment: create a bare
-`<dialog>` in the page, `showModal()` it, focus it, and send Escape through the automation harness. It does
-not close, and no `cancel` event fires — with nothing of ours anywhere near it. The synthesized key arrives
-at `window` and at `document` with `defaultPrevented === false`, so JS listeners see it; what does not happen
-is the **user-agent's own default action** for a modal dialog.
-
-So a dialog that "closes on Escape" under automation is closing because some app-level `keydown` handler set
-its `open` prop — which is exactly why the shortcuts cheat-sheet looked fine and the new sign-in modal
-looked broken: `DrawView`'s window handler lists the cheat-sheet and did not yet know about the modal. Test
-Escape by hand in a real browser, or assert on the handler, and verify dismissal in automation through the
-close button and the backdrop, which are pointer events and arrive normally.
-
-## After bumping a dependency, clear Vite's pre-bundle before you judge the result
-
-Bumping oriui to `1.0.0-rc.18` and reloading the running dev server, the new `pressed` prop landed in the
-DOM as a literal `pressed="true"` ATTRIBUTE and no `aria-pressed` — exactly what you would see if the prop
-did not exist. It did exist; the dist on disk declared it. What was stale was `apps/web/node_modules/.vite`,
-Vite's dependency pre-bundle, still serving the previous version's `OriButton` to a server that had been
-running since before the install.
-
-The tell is precise and worth recognising: a prop that FALLS THROUGH to the DOM as a raw attribute means the
-component you are actually rendering does not declare it. Reading the package's `dist` to check the API is
-not enough, because that is not what the browser got.
-
-`preview_stop`, `rm -rf apps/web/node_modules/.vite`, `preview_start`. Then judge.
-
-## A tool script must ASK where a package is, not assume the workspace root
-
-`apps/web/scripts/check-styles.mjs` built its path to `@oriui/css` by walking up to the workspace root's
-`node_modules`. That held until an install hoisted the package into `apps/web/node_modules` instead, and the
-guard died with `ENOENT` on a package that was present, installed and correct — a failure that looks
-like a broken dependency and is a broken assumption.
-
-npm decides hoisting from the whole tree, so it is neither stable across installs nor ours to predict.
-`createRequire(import.meta.url).resolve('<pkg>/package.json')` asks Node the same question the bundler asks,
-and gets the same answer.
-
-## Pass a third-party API's error text through verbatim
-
-The Gemini judge's wire format was reconstructed from documentation, and the worry was that some field name or
-casing would be wrong. All three guesses were right. What was wrong was the thing that felt safest: the default
-model id. The first live call answered `404 NOT_FOUND: This model models/gemini-2.5-flash is no longer available
-to new users. Please update your code to use models/gemini-3.6-flash`.
-
-That was a one-run diagnosis ONLY because the upstream message reaches our error unedited. A tidier
-`judge: gemini: request failed (404)` would have cost an afternoon and a packet capture. When wrapping a
-third-party failure, add context in front of their words — never in place of them.
-
-The second lesson is about defaults: a pinned model id is a liability with an expiry date, which is why
-`GEMINI_MODEL` is configuration. A pin is still the right default over a floating `-latest` alias, because a
-judge decides ratings and a model that changes under you silently is worse than one that stops loudly.
-
-## `go run` leaves a zombie holding the port, and `/readyz` lies about it
-
-Killing a backgrounded `go run ./cmd/server` kills the *wrapper*, not the compiled binary it spawned. The
-binary keeps listening on :8080, so the next `go run` dies with `bind: Only one usage of each socket
-address` — easy to miss in a background log — while `curl /readyz` answers **200 from the OLD build**.
-
-That combination is the trap: the health check is green, the port is served, and every request is handled
-by code from before your change. It cost a wrong diagnosis here — brand-new routes answering 404 looked
-like a routing bug and was a stale process.
-
-Before concluding anything about a local server, check WHICH process owns the port:
-
-```powershell
-Get-NetTCPConnection -LocalPort 8080 -State Listen | ForEach-Object { Get-Process -Id $_.OwningProcess }
-```
-
-and stop that pid, not the shell job. `go build -o` plus running the binary directly avoids the whole
-class of problem when you expect to restart often.
-
-## One status code, two ceilings: `429` alone cannot tell you to come back tomorrow
-
-Found by four reviewers independently, 2026-09-20.
-
-`POST /api/guess`, `/api/practice`, `/api/matches` and `/api/drawings` all sit behind **two**
-unrelated limiters that answer with the same `429 rate_limited`:
-
-- the per-IP **write tier** (`internal/platform/web/ratelimit.go`) — burst 30, one token per 2s,
-  **shared across all four routes**, and trivially tripped from behind a NAT or a proxy. It clears
-  in seconds.
-- the daily **AI-call budget** (`internal/aibudget`) — clears tomorrow.
-
-The client was deriving "you have used your allowance for today" from the status alone, so a
-transient tier 429 produced a screen that said the day was over *and removed the retry button* —
-the one action that would have worked a moment later.
-
-**The discriminator was already on the wire and was being thrown away.** The rate tier always sets
-`Retry-After`; the budget refusal deliberately never does, because its window rolls continuously and
-there is no honest reset instant to name (`docs/API.md` §3.1). `ApiError` now carries `retryAfter`
-and `isBudgetExhausted()` is `429 && retryAfter === null`. `isRateLimited()` still means "some
-ceiling refused this" and is the wrong question for "is this permanent".
-
-Two constraints that come with it: `Retry-After` is **not** CORS-safelisted, so this works only
-while the API stays same-origin (it does — the Go service serves the SPA); and the parser accepts
-the RFC 9110 HTTP-date form as well as seconds, so a platform edge answering its own 429 that way
-is not misfiled as a spent day.
-
-**The general lesson:** when two independent mechanisms share a status code, do not infer which one
-fired from the status. Find the field that already differs, or add one — and if neither exists, that
-is a contract gap, not a client problem.
-
-## A disabled `OriButton` cannot explain why it is disabled
-
-`.ori-button:disabled` sets `pointer-events: none`, and a disabled `<button>` takes no focus — so
-oriui's tooltip, which needs `:hover` (inside `@media (hover: hover)`) or `:focus-within`, can never
-open. On a phone a disabled icon button is a dimmed glyph with no reachable explanation, measured at
-2.65:1.
-
-So: an icon button whose disabled reason is **not self-evident** must carry that reason somewhere
-other than its `label`. For the AI-guess trigger the answer was to stop disabling it — the button
-stays live, the guard stays in the handler, and the result card (already the single home for every
-other outcome) says "draw something first". Undo/redo are the counter-example: nobody needs to be
-told why undo is off on a fresh canvas.
-
-## A ledger must record the event it bills for, not the event that is convenient to hook
-
-The AI-call ledger first billed a duel at `open → drawing`, because that is where the
-matchmaking transaction already was. Two reviewers, arriving from different directions,
-measured what that actually bought:
-
-- a **forfeited or abandoned** duel never reaches the judge — `deadline.go` resolves both
-  without a call — yet it wrote a provider row. Over-billed.
-- a **stuck-judging re-fire** runs up to `maxJudgeAttempts = 3` passes, each retrying up to
-  3 times inside the Gemini client, and all of it wrote **one** row. Under-billed by up to 9×.
-
-So the ledger was neither an upper nor a lower bound on real provider spend, while the
-migration's header claimed "ONE row per provider request".
-
-The fix was not a bigger comment. The two halves of a ledger row are two different facts —
-"this player was granted a round" and "one request is about to be made" — and they happen at
-two different moments for a duel. Player rows stayed at round start; the provider row moved
-into `Service.enterJudging`, which now wraps **every** `SetMatchJudging` call site, so
-one-row-per-pass is structural rather than a convention three files have to remember.
-
-**The general lesson:** when a billing site is chosen because a transaction is already open
-there, check whether the thing being billed for actually happens at that point — and whether
-it can happen more than once afterwards.
-
-## A rolling-window cap read without a lock is not a cap under concurrency
-
-`check` was two unlocked counting reads. Measured: a per-user cap of **2** with 25 genuinely
-simultaneous requests served **24** of them — every caller read zero. At that rate one IP,
-inside the per-IP burst of 30, drains a 200/day provider budget in under seven minutes and
-takes every AI feature offline for everyone until the window rolls.
-
-Two things closed most of it, and neither is a lock:
-
-1. **The insert enforces the cap.** `RecordAICallUnderCap` is one statement whose `WHERE`
-   counts the window, writing 2 rows or 0; zero is the refusal. Because the `WHERE` does not
-   reference the inserted rows, it holds for both or neither, so there is no "billed the
-   player, lost the provider row" state and no transaction is needed.
-2. **The burst it has to survive got smaller** — `/api/guess` joined the `write` tier, and
-   `NodeRenderer` now holds a `JUDGE_CONCURRENCY`-sized semaphore so a burst cannot fork a
-   subprocess per request.
-
-Re-measured after: the same 25 simultaneous requests → **5 served, 20 refused**.
-
-It is still **not exact**, and the code says so: under READ COMMITTED two concurrent statements
-can each see the same pre-insert count. What shrank is the window — from "an advisory read,
-then a render, then a provider call" to "one statement". Exactness needs SERIALIZABLE or a
-per-user lock, which is not worth serializing every AI call for a ceiling that already sits
-below the provider's own.
-
-The advisory `check` stays, and still earns its place: it refuses *before* the render.
-
-## The provider has its own ceiling, and hitting it must not look like a crash
-
-While measuring the above, the burst hit Google's own per-minute quota and came back
-`HTTP 429 RESOURCE_EXHAUSTED`. `judge.ErrQuotaExhausted` existed for exactly this but was
-special-cased only in `internal/game`, so on `/api/guess` and `/api/practice` it fell through
-to an opaque `500` — and the UI then offered a retry that could not succeed, spending one of
-a player's two daily guesses on it. Both inline handlers now map it to the same refusal the
-service's own exhausted budget produces. Our ceiling is set below the provider's, but "below"
-is not "never".
-
-## Structured output that parses perfectly and is still wrong: set `maxOutputTokens`
-
-A model asked for a LIST over structured output can run out of output budget mid-answer. It
-does not then return broken JSON — the API **closes the object so it stays parseable**, and
-what arrives is a syntactically perfect answer whose last element is half written. Measured
-live on 2026-09-20 building the assist seam: `[{"type":"rect","x":0,"y":0` and then the
-closing brackets, which failed validation as a zero-area rect and read for all the world
-like a model that cannot draw a house.
-
-Two things follow, and both are now in the code:
-
-1. **A caller that asks for a list must set `MaxOutputTokens`** (`judge.GeminiJSONRequest`).
-   Zero leaves it to the model's own default, which a thinking model spends on its
-   reasoning. `assist` sets 8192; a whole house costs ~450 tokens, so loose is free and
-   tight is a silent failure.
-2. **Read the finish reason before blaming the model's judgement.**
-   `judge.GeminiFinishTruncated` (`"MAX_TOKENS"`) is exported for exactly this, and
-   `GeminiAssist` puts *"the answer was cut off before it finished"* in front of the
-   validator's complaint on the retry — otherwise the retry asks the model to explain a
-   zero-width rectangle it never meant to draw.
-
-The three verdict impls in `internal/judge` leave the budget unset on purpose: a verdict is
-four scalars and could not overrun anything. The trap belongs to lists.
-
-## At temperature 0, a schema that permits a boring continuation will get an infinite one
-
-The truncations above were not really a budget problem. They were **greedy decoding loops**,
-and the schema is what let them exist. Both were measured live on 2026-09-20; both are now
-impossible to express rather than merely unlikely.
-
-- **Fractional coordinates.** Geometry fields were `NUMBER`. Asked for a house, the model
-  emitted `"y": 440.0000000000000640000000000000000000000000…` and kept emitting zeros for
-  8176 tokens until the answer was truncated. Greedy decoding cannot escape a run like that
-  — the likeliest token after a zero is another zero — so the retry could not have helped
-  either, and what reached validation was a rect with no width. The fix is one word:
-  `INTEGER` (`assist.geminiCoordType`). A canvas coordinate is a pixel, so nothing is lost,
-  and the decimal point is gone from the grammar. A non-zero temperature was the other
-  candidate and was refused: it trades a reproducible answer for a probabilistic escape from
-  one specific loop.
-- **Optional fields.** The shape object required only `type`, on the reasonable-sounding
-  grounds that a rect has no centre and an outline-only shape has no fill, so requiring them
-  would make the model write something meaningless. What actually happened: the model closed
-  each shape after three fields and then repeated that same stub — 24 identical
-  `{"type":"rect","x":340,"y":400}` and counting — until the answer was truncated. An
-  "optional" field over structured output is not a field the model weighs; it is one it is
-  free to skip, and skipping most of them leaves objects so alike that greedy decoding
-  simply loops. **Every** property is now `required`
-  (`assist.geminiAssistRequiredShapeFields`), including the ones a given shape ignores; the
-  meaningless values cost a few tokens and are dropped on the way in, where `""` already
-  meant an absent colour and `0` an absent width.
-
-**The general lesson for the next structured-output seam:** at temperature 0 the schema is
-not a validation layer, it is the **grammar the decoder walks**. Ask of every field whether a
-repetitive or degenerate continuation is representable in it, because if it is, one day it
-will be the likeliest one — and the symptom will arrive as a truncated answer that blames
-the model.
-
-## Absolute positioning has no gate: only a rendered browser has a pixel
-
-Closing JP-I-05 (the zoom island overlapping the bottom toolbar) meant admitting that nothing else
-in the stack could have caught it. vue-tsc sees types. Vitest renders into happy-dom, which has no
-layout at all. stylelint reads declarations, never computed boxes. axe reads the accessibility tree,
-not pixel geometry. None of them has a pixel, so absolutely-positioned chrome can be painted on top
-of itself with every one of those gates green — which is exactly how this survived. Measured in a
-real browser before the fix: the island and toolbar's content boxes overlapped by 9580px² at
-601×900, 667×375 and 768×1024; 8205px² at 840×700; 3605px² at 1024×768, and 0 both at <=600px and
-from 1169px up. The new guard, `apps/web/tests/layout/chrome-overlap.spec.ts`
-(`npm run test:layout -w @justpaint/web`) fills that blind spot with a rendered-DOM Playwright pass at eleven viewports,
-asserting no two of the shell's three bottom regions have intersecting content boxes — like
-`test:a11y`, it needs a dev server, so it's a local gate, not a CI one.
-
-The second half of the lesson is about the breakpoint itself, not just the guard: **a breakpoint
-keyed to a device class instead of the condition it is responding to is wrong wherever the two
-disagree.** The lift lived inside `@media (width <= 600px)`, alongside the phone gutter tweaks —
-"phones" standing in for the real condition, which is the shrink-to-fit bottom toolbar (769px
-intrinsic width, measured on `/draw`) growing wide enough to reach the zoom island (192px, anchored
-8px off the right edge): they stop touching only once `(vw + 769) / 2 <= vw - (192 + 8)`, i.e.
-`vw >= 1169`. "Phones" and "wide enough to reach the island" happen to agree at very narrow widths
-and disagree across a 569px-wide band, 601px to 1169px, that contains every tablet. The lift now has
-its own query, `@media (width <= 1200px)` (1200 rather than 1169, to leave the toolbar room to
-grow), derived from that arithmetic and written into a comment above it; `<= 600px` keeps only what
-it actually governs, the phone gutter/gap tweaks.
+### Match wire types mirror the Go DTOs
+
+`core/api/matches.ts` follows the structs in `server/internal/game/handler.go`, not only `API.md`.
+`MatchResult` is a union on `ready`; judge scores are 0..1 and the reveal shows 0..100;
+`judgedImageUrl` is always `null` (there is no object storage — the reveal uses the participant-drawing
+endpoint).
+
+### `/play` runs exactly one poll loop
+
+`PlayView` starts one self-rescheduling poll loop in `startMatch` for the whole round. `submit()` only
+flips the phase to `judging`; calling `scheduleNextPoll()` there would double every poll. A live socket
+slows the loop down but never stops it.
+
+### The round countdown is anchored on the server clock
+
+`anchorClock(drawingDeadline, serverTime)` stores the offset between server and browser clocks from
+every roster/create/submit response, so both duelists count down from the same server instant and a
+skewed or suspended client cannot gain time. The countdown only mirrors the deadline: Postgres is the
+authority, a late submit gets `409` whatever the client shows, and the client treats any submit `409`
+as "go poll the result".
+
+### Check `disposed` after every `await`
+
+The poll loop and the awaited create/submit/capture calls can resolve after the route changes. Every
+continuation checks `disposed` (set in `onBeforeUnmount`) before touching state, and `clearTimers()`
+clears the countdown and the tracked poll timeouts.
+
+### A finished duel patches the session rating directly
+
+`applyResult` writes `session.user.rating`, because the session store sets it only on
+restore/login/register. A store refactor must keep this sync (or replace it with a store action), or
+every other rating display is stale after a duel.
+
+## oriui and CSS
+
+### Unlayered CSS beats every `@layer`
+
+oriui's styles live in cascade layers, and any unlayered app rule wins regardless of specificity. An
+unlayered `* { border: 0; margin: 0; padding: 0 }` in `reset.css` once stripped every `OriButton`'s
+border and padding. oriui already resets the box model inside `@layer ori.reset`, so the app must not
+re-declare it unlayered. The same mechanism is used on purpose: the focus ring on `color="surface"`
+buttons is visible only because `main.css`'s unlayered `:focus-visible` outline beats oriui's layered
+one, which resolves to an invisible color there.
+
+### The oriui CSS import list is hand-maintained
+
+`main.ts` imports `@oriui/css/components/*.css`, one file per component. A missing line renders that
+component unstyled with no error. `npm run lint:styles` (`apps/web/scripts/check-styles.mjs`, part of
+`lint:all` and `lint:ci`) guards it by checking selectors, not filenames, because some component CSS is
+inlined elsewhere (`.ori-spinner` ships in `button.css`).
+
+### oriui packages move in lockstep
+
+`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.18`), and
+`@oriui/vue` pins the other two to its own, so bump all three together. `@oriui/css` must be imported
+for its side effects or components render unstyled.
+
+### After a dependency change, clear Vite's pre-bundle
+
+Vite pre-bundles dependencies into `node_modules/.vite` and `apps/web/node_modules/.vite` at startup. A
+running dev server keeps serving the old bundle after an install, and a restart does not help when the
+version string is unchanged (e.g. swapping a local oriui tarball for the registry build of the same
+version). The tell: a new prop falls through to the DOM as a raw attribute (`pressed="true"` and no
+`aria-pressed`), because the component actually rendered is not the one in `dist`. Stop the dev server,
+`rm -rf node_modules/.vite apps/web/node_modules/.vite`, restart, then judge.
+
+### Installing a local oriui tarball rewrites `package.json`
+
+`npm install <path>.tgz` rewrites the `@oriui/*` dependencies to `file:` references. Never commit them:
+revert `package.json` and the lockfile to the registry version when the local test is done, and clear
+the Vite cache (above).
+
+### `--jp-color-outline` is ours, not `--ori-color-outline`
+
+The hairline token must be set at `:root` for light and repointed in the dark block, or light borders
+fall back to black. oriui now ships `--ori-color-outline`, but it is a `currentcolor` tint; ours is a
+fixed per-theme color held to the 3:1 non-text bar by `scripts/check-contrast.mjs` (`DECISIONS.md`
+2026-09-18).
+Same name, different job; don't switch components to the oriui one.
+
+### A `<dialog>` inside the shell overlay is unclickable
+
+`EditorShell`'s `.shell__overlay` is `pointer-events: none` (each island opts back in). A native
+`<dialog>` renders in the top layer but still inherits `pointer-events` from its DOM ancestors, so its
+buttons and backdrop are dead to the mouse while Escape keeps working. `.shell__overlay :deep(dialog)
+{ pointer-events: auto }` fixes dialogs inside the shell (`:deep()` because the dialog belongs to a child
+component); app-wide dialogs such as the sign-in modal live in `App.vue`, outside any such ancestor.
+Diagnose with `document.elementFromPoint()` on the button: it returns `<html>`.
+
+### A disabled `OriButton` cannot say why
+
+`.ori-button:disabled` sets `pointer-events: none` and a disabled button takes no focus, so its tooltip
+never opens — on a phone a disabled icon button is an unexplained dim glyph. When the reason is not
+self-evident, keep the button enabled and explain in the result (the AI-guess trigger does this). Undo
+and redo on a fresh canvas need no explanation.
+
+### `OriButton size="sm"` stays about 40px tall
+
+`size` sets `--ori-size-action`, but the height is `max(2.5em, var(--ori-size-action))`. Budget floating
+clusters accordingly.
+
+### `OriPopover`/`OriMenu` rely on CSS anchor positioning
+
+In a browser without it (Firefox, as of mid-2026) the popover still opens but sits at the UA default
+position. Check current support before building anchor-critical UI on it.
+
+## Go backend
+
+### Setup
+
+- The server does not load `.env`. `ENV`, `DATABASE_URL` and `JWT_SECRET` must be in the process
+  environment (export them or use a run config). A missing or unknown `ENV` is a boot error, and
+  `ENV=prod` requires a `JWT_SECRET` of at least 32 bytes.
+- `docker-compose.yml` is at the repo root (postgres:17-alpine, db/user/password `justpaint`, :5432).
+- sqlc is an external CLI (`server/sqlc.yaml`; the generated code is from sqlc v1.31.1). goose is both:
+  the server embeds `server/migrations/` and applies them at boot (`AUTO_MIGRATE`, default true), and
+  the CLI is for manual work. There is no Makefile.
+
+### Strict decode for small bodies, lax for documents
+
+Auth, match-create and assist bodies use `web.DecodeJSON` (`DisallowUnknownFields`, small caps);
+document-carrying bodies use `web.DecodeJSONLax` (unknown fields tolerated, 8 MiB) for forward
+compatibility — the client's `thumbnail` field is accepted and ignored. Don't unify them.
+
+### Logout is not behind `RequireAuth`
+
+It must clear the cookie for an expired or anonymous caller too.
+
+### Foreign resources answer 404; submit is the one 403
+
+A non-player reading a match (or a missing or malformed id) gets `404 not_found`, as with drawings, so
+existence never leaks; the check is `isPlayer` over the loaded roster. `POST /api/matches/{id}/submit`
+by a non-player returns `403` (`ErrNotPlayer`), the deliberate known-existence exception in `API.md` §1.
+Don't unify them.
+
+### Middleware order: `Recover` inside `LogRequests`
+
+`LogRequests` stores the request id in its own rebound `r` before calling `next`, and writes one access
+line per request (`method`, `path`, `status`, `duration_ms`, `request_id`, `client_ip`). If `Recover`
+were the outer one, its closure would hold the original `r` and every panic log would have an empty
+`request_id`. `RateLimit` sits inside both. Re-check this, and `Unwrap()` below, before reordering the
+chain in `main.go`.
+
+### `TRUST_PROXY` decides what the client IP is
+
+Rate limits, WS connection caps and the access log key on `web.ClientIP`. With `TRUST_PROXY=false` (the
+default) that is `RemoteAddr`, so behind a proxy every client collapses into the proxy's IP and one
+shared bucket. With `TRUST_PROXY=true` it is the rightmost `X-Forwarded-For` entry — the one our proxy
+appended; a client can only prepend forged entries — and an inbound `X-Request-Id` is adopted. Set it
+true only behind exactly one trusted proxy: without a proxy clients can forge the header, and with two
+chained proxies (a CDN in front of a load balancer) the real client is second from the right, which is
+not implemented.
+
+### The rate limiter fails open at capacity
+
+When its bucket map is full and every bucket is recently active, `ratelimit.Limiter.Allow` lets a new
+key through untracked. Deliberate: failing closed would let anyone with enough distinct IPs lock out
+every other caller's first request. The idle-bucket sweep keeps this path rare.
+
+### Tokens must carry `exp`
+
+`parseToken` requires an `exp` claim (`jwt.WithExpirationRequired`), and the WS session-expiry close
+(`time.AfterFunc(exp)` → close `4001`) relies on it. Any new token-issuing path must stamp `exp`.
+
+### `color.Color.RGBA()` is alpha-premultiplied 16-bit
+
+The fake judge's ink test (`internal/judge/fake.go`) shifts `>>8` to compare with an 8-bit threshold;
+the judged raster is opaque, so premultiplication does not matter there. A heuristic on semi-transparent
+input must un-premultiply first. `inkThreshold = 250`, not 255, absorbs anti-aliased edges.
+
+## Database and game logic
+
+### Multi-write paths use a transaction; `Get` reads without a snapshot
+
+Game writes run in a pgx transaction (`pool.Begin` → `s.q.WithTx(tx)` → `defer tx.Rollback` →
+`tx.Commit`); `assemble()` takes a `*db.Queries` so it works on either the tx or the pool.
+`Service.Get` runs its match → prompt → roster reads on the pool with no snapshot, so a concurrent write
+can produce a torn view (e.g. `open` with a two-player roster), and the WS fan-out calls it far more
+often than the REST poll. It is tolerated because the client applies state monotonically and the next
+frame or poll supersedes a stale one. Wrap `Get` in a read-only transaction (or one joined query) if
+that stops being true.
+
+### A user can still stack two open matches
+
+`CreateOrJoin` dedupes a user's own open match with a plain `SELECT` (`FindMyOpenMatch`) under Read
+Committed, so two truly concurrent creates by one user can both open a match. The composite primary key
+still prevents a double seat. The hard fix (advisory lock or partial unique index) is open in
+`IDEAS.md`; don't file it again as a separate bug.
+
+### Retire prompts, never delete them
+
+Matches reference `prompt_id` forever; set `active = false`. `PickRandomActivePrompt` uses
+`order by random()` — a full scan and sort, fine for the seeded pool, not for a large one.
+
+### Submitted duel drawings are immutable through CRUD
+
+`UpdateDrawing` and `DeleteDrawing` include `and match_id is null`, so they touch no row for a duel
+drawing, and `classifyMiss` turns that miss into `ErrDuelLocked` → `409` (a missing or foreign id stays
+404). Without it a player could swap in a better drawing between submitting and judging.
+
+### The last-submit → judging flip needs the match row lock
+
+Submit takes `GetMatchForUpdate` (`SELECT … FOR UPDATE`) at the top of its transaction. Without it two
+simultaneous submits each see the other as unsubmitted, neither flips to `judging`, and the match wedges
+in `drawing`.
+
+### Deadlines rely on `now()` being the transaction start time
+
+`GetMatchForUpdate`'s `server_now`, `StampSubmission` and `SetMatchDrawing` use plain `now()`, which is
+constant for a whole transaction. A submit whose transaction began before the deadline but got the row
+lock after it still counts as on time, which is intended. Don't change these to `clock_timestamp()`.
+
+### A late submit is a plain `409 conflict`
+
+There is no `round_expired` error code: `ErrRoundExpired` maps to `409` with the message
+`"round expired"`, keeping the error-code set closed (`API.md` §3). The client treats any submit `409`
+as "poll the result".
+
+### Image A/B comes from SQL order
+
+`GetSubmissionsForJudging` orders by `(submitted_at, user_id)`: row 0 is image A, row 1 image B, and the
+game maps the judge's `A`/`B`/`tie` back to players (`GAME.md` §7.1). Changing that `ORDER BY`, or the
+inner join into a left join, silently rebinds the mapping.
+
+### Judging runs out of band and is recovered by the sweeper
+
+The final submit starts `judgeMatch` after its transaction commits (`dispatchJudging` →
+`judging.tryGo`, bounded by `JUDGE_CONCURRENCY`) on a fresh background context. The pass is not tracked
+by the shutdown `WaitGroup`, so a crash or shutdown can cut it short; the stuck-judging sweep
+(`sweeper.go`) re-fires it up to `maxJudgeAttempts` and then closes the match as `done` / `aborted`
+without Elo (`GAME.md` §4.1). Start a pass through `dispatchJudging`, never a bare `go`.
+
+### `runJudging`'s status check is not a lock
+
+`runJudging` reads the status without a lock and bails unless it is `judging`; that does not stop two
+passes rendering and judging at once. `persistResult` re-takes `GetMatchForUpdate` and re-checks
+`judging` inside its write transaction: the first to lock commits, the other bails. That is what makes a
+sweeper re-fire safe alongside a live pass. Keep it when refactoring.
+
+### `JudgePassBudget` must fit the judge's retry envelope
+
+A pass (two renders plus the judge call with retries) runs under `game.JudgePassBudget` (60s). The
+judge makes up to 3 attempts (`JUDGE.md` §7), so at `JUDGE_TIMEOUT=10s` it alone may need 30s; a
+tighter budget silently cancels the last retry. `main.go` warns at boot when `3 × JUDGE_TIMEOUT` does
+not fit.
+
+### The sweeper's `SKIP LOCKED` lists are only candidates
+
+`ListExpiredDrawingMatches` and the other list queries run in autocommit, so their
+`FOR UPDATE SKIP LOCKED` lock ends when the SELECT returns. Exactly-once comes from each handler
+(`resolveExpiredMatch`, `refireJudging`, `abortJudging`, `reapOpenMatch`) opening its own transaction,
+re-locking with `GetMatchForUpdate` and re-checking the status. `drain()` stops once a phase handles
+fewer than a full batch, so a batch that keeps failing does not hot-loop against an unhealthy database.
+
+### Ratings move by an atomic delta: the match lock is per match, not per user
+
+The match `FOR UPDATE` lock serializes per match; it cannot protect a `users` row shared by two matches
+that resolve concurrently. So `ApplyRatingDelta` runs `rating = rating + delta returning rating`
+(Postgres re-reads the row after taking the lock, so both deltas land), never an absolute `SET`.
+`writeFinalResult`, the single Elo write site for judged and forfeit results, derives
+`rating_before`/`rating_after` from that `RETURNING` and writes players sorted by `user_id` so a
+concurrent rematch cannot deadlock. Each delta is still sized from a pre-match rating, as in any Elo
+rating period. Covered by `internal/game/rating_db_test.go`.
+
+### `GetMatchPlayerDrawing` binds viewer and target positionally
+
+`$1 = match_id`, `$2 = target_user_id` (whose drawing is returned), `$3 = viewer_user_id` (the caller,
+the membership gate). Swapping `$2`/`$3` in the SQL or reordering the generated params struct moves the
+gate onto the path-supplied user — an IDOR that compiles. The call site uses field names, and
+`TestPlayerDrawing_DB` (`internal/game/reveal_test.go`) catches a flip with its "non-member refused for
+a submitted target" case; it needs `DATABASE_URL`.
+
+### The leaderboard recomputes the whole ladder per request
+
+`ListTopRatings` joins users, match players and matches, then groups and sorts everything before
+`limit`, with no covering index or cache. For now it is bounded by the clamped `?limit` (`API.md` §11)
+and the client's 30s `staleTime`; add an index, a materialized rank or a cache before the ladder grows.
+
+## WS realtime (`internal/ws`)
+
+### Every `ResponseWriter` wrapper needs `Unwrap()`
+
+`websocket.Accept` finds `http.Hijacker` by walking `Unwrap() http.ResponseWriter`. Any middleware
+wrapper without it in front of the WS route makes the handshake fail with `501` — the reason
+`statusRecorder.Unwrap` exists (`internal/platform/web/middleware.go`).
+
+### A context deadline on `Read`/`Write` closes the whole connection
+
+In coder/websocket, any context expiry passed to `Read` or `Write` closes the connection, not just that
+call. So a rolling idle timeout cannot be built from short per-`Read` contexts (the first timeout kills a
+healthy socket), and a received pong does not extend an in-flight `Read`. That is why `readPump` reads on
+the connection's lifetime context and `heartbeatLoop` evicts idle connections (close `4002`) from a
+separate ticker checking a wall-clock `lastActive`. Re-read this before changing either.
+
+### `Ping` needs a concurrent `Read` loop
+
+`(*websocket.Conn).Ping` waits for a pong that only a running `Read`/`Reader` observes. `heartbeatLoop`
+relies on `readPump`; a code path that stops reading (`CloseRead`, or not starting `readPump`) makes
+every `Ping` hang until its context expires. `Ping`, `Write` and `Close` may run concurrently with each
+other and with `Read`; two concurrent `Read`s may not.
+
+### The heartbeat uses protocol pings
+
+The server probes with native WS ping/pong, which browsers answer in the network stack: no client code,
+and no background-tab timer throttling. The client's own app-level ping (`WS_PING_MS = 25000` in
+`PlayView.vue`) can be throttled, and `WS_READ_IDLE_TIMEOUT` must still clear that 25s cadence with
+margin.
+
+### Connection caps: `0` means unlimited in code, so config refuses it
+
+`newConnLimiter` treats a cap ≤ 0 as unlimited (tests rely on that). `config.Load` rejects
+`WS_MAX_CONNS` or `WS_MAX_CONNS_PER_IP` below 1, a per-IP cap above the global one, and a heartbeat that
+is not shorter than the idle timeout.
+
+### Frame order is not guaranteed
+
+Per-viewer `match_state`/`result` frames are built and sent on a goroutine per event
+(`fanoutPerViewer`), so frames can arrive out of order, even to one client. Correctness depends on the
+client applying them monotonically (`applyRoster`/`applyResult`: a terminal phase never regresses),
+never on send order.
+
+### Presence frames reach the sender too
+
+When a user's first socket joins, `handleRegister` broadcasts `opponent_connected` to the whole room,
+including that socket. Clients ignore presence frames carrying their own `userId` (`handleWsFrame`).
+
+## AI assist, providers and budgets
+
+### Set `Retry-After` before `web.Error`
+
+`web.Error` calls `WriteHeader`, and `net/http` silently drops headers set after that. The assist
+handler's per-user limiter and the per-IP tiers (`platform/web/ratelimit.go`) both set the header first;
+any new 429 path must too.
+
+### Two different limits both answer `429`
+
+`/api/matches`, `/api/drawings`, `/api/practice` and `/api/guess` share the per-IP write tier (burst 30,
+one token per 2s, easy to trip behind NAT), which clears in seconds, and sit behind the daily AI-call
+budget (`internal/aibudget`), which clears tomorrow. The difference is `Retry-After`: the rate tiers
+always send it, the budget never does (`API.md` §3.1). The client uses `isBudgetExhausted()` (`429`
+without `Retry-After`) for "come back tomorrow"; `isRateLimited()` only says that some limit refused.
+This works only while the API is same-origin, because `Retry-After` is not CORS-safelisted.
+
+### Bill the ledger where the provider call happens
+
+A duel writes its player rows at round start but its provider row in `Service.enterJudging`, which wraps
+every `SetMatchJudging` call. Billing at round start over-counted forfeits (no judge call) and
+under-counted stuck-judging re-fires (one row for up to three passes). Route any new transition into
+`judging` through `enterJudging`.
+
+### The per-user AI cap is enforced by the insert, and is still not exact
+
+`RecordAICallUnderCap` is one statement whose `WHERE` counts the window and writes all rows or none;
+zero rows is the refusal. An unlocked read-then-insert let 24 of 25 simultaneous requests through a cap
+of 2. Under Read Committed two concurrent statements can still see the same count, so it is close, not
+exact. The advisory pre-check stays because it refuses before the render.
+
+### Provider quota errors must map to the same refusal
+
+The provider's own limit arrives as `judge.ErrQuotaExhausted` (Gemini `429 RESOURCE_EXHAUSTED`). Every
+handler that calls a provider (game, practice, guess, assist) must map it to the same refusal as our own
+budget; otherwise it surfaces as a `500` and the UI offers a retry that cannot succeed. Our ceiling sits
+below the provider's, but that is not a guarantee.
+
+### Keep the provider's error text
+
+When wrapping a third-party failure, put context in front of their message, never in place of it. A
+retired model id came back as `404 NOT_FOUND` naming its replacement — a one-run diagnosis only because
+the text survived. Model ids are pinned (not a `-latest` alias, since the judge decides ratings) and live
+in configuration (`GEMINI_MODEL`, `AI_MODEL_PER_KIND`) because they get retired.
+
+### Structured output can be truncated and still parse
+
+When a list answer runs out of output tokens, the API closes the JSON so it parses; the last element is
+half-written (a rect with `x`, `y` and nothing else) and fails validation as if the model drew badly. A
+caller that asks for a list must set `MaxOutputTokens` (`judge.GeminiJSONRequest`; assist uses 8192)
+and check for `judge.GeminiFinishTruncated` before blaming the answer. Verdicts are a few scalars and
+leave it unset.
+
+### At temperature 0 the schema is the grammar
+
+Greedy decoding follows any repetitive continuation the schema allows. `NUMBER` coordinates produced
+`440.000000…` until truncation, and optional fields let the model repeat the same three-field stub shape.
+Assist coordinates are therefore `INTEGER` (`geminiCoordType`) and every shape property is required
+(`geminiAssistRequiredShapeFields`), with meaningless values dropped on the way in. For a new
+structured-output seam, ask of every field whether a degenerate continuation is representable.
+
+### The assist `note` is untrusted text
+
+It is model prose steered by user input. Render it as text, never as HTML.
+
+## Testing and local tooling
+
+### DB-backed Go tests skip silently without `DATABASE_URL`
+
+The `*_db_test.go` files, `internal/game/reveal_test.go`, `internal/drawings/roundtrip_test.go` and the
+migrate tests `t.Skip` unless `DATABASE_URL` points at a reachable, migrated database, so a plain
+`go test ./...` passes without running the SQL-level checks. CI provides a database.
+
+### `go test -race` does not run on a stock Windows toolchain
+
+`-race` needs cgo and a C compiler, which a plain Go install on Windows lacks. CI (Linux) runs
+`go test -race ./...`, so a local `go test ./...` is a weaker gate: check CI after pushing, or install
+mingw-w64 and set `CGO_ENABLED=1`.
+
+### Check which process owns `:8080`
+
+Killing a backgrounded `go run` kills the wrapper, not the compiled binary, which keeps serving the old
+build; the next `go run` fails to bind (easy to miss in a background log) while `/readyz` answers 200
+from the old code. Another local process can also bind `[::1]:8080`, which wins for `localhost`;
+`http://127.0.0.1:8080` forces IPv4. Before trusting a local result, check the listener
+(`Get-NetTCPConnection -LocalPort 8080 -State Listen`, or `netstat -ano`) and stop that pid. Running a
+`go build -o` binary directly avoids the wrapper.
+
+### Manual duel testing needs two players and a clean pool
+
+A duel reaches `judging` only with the Go backend up and two authenticated players. Matchmaking
+auto-joins the oldest waiting `open` match, and open matches are reaped only after 10 minutes, so
+leftovers from a previous run hijack new players. Between runs, on a local database:
+`delete from match_players; delete from drawings where match_id is not null; delete from matches;`
+
+### Hidden tabs pause `requestAnimationFrame`
+
+In a hidden tab (`document.hidden`) rAF does not run: Konva's `batchDraw` never flushes (canvas pixels
+are stale), Vue `<Transition>`s never finish, the rAF-throttled cursor readout never appears, and code
+that awaits rAF hangs. CSS transitions freeze too, so `getComputedStyle` can report an old value while
+the custom properties already changed. Verify canvas pixels in a visible tab or through the Node render
+worker; DOM-level checks still work.
+
+### Escape on a modal `<dialog>` cannot be tested through automation
+
+A synthesized Escape reaches JS listeners but does not trigger the browser's own close action, even on
+a bare `<dialog>`. A dialog that closes on Escape under automation does so through an app `keydown`
+handler. Test Escape by hand, and test dismissal in automation through the close button and the
+backdrop.
+
+### Only a rendered browser catches overlapping chrome
+
+Type checks, Vitest (happy-dom has no layout), stylelint and axe never see pixel geometry, so absolutely
+positioned chrome can overlap with every gate green. `npm run test:layout -w @justpaint/web`
+(`tests/layout/chrome-overlap.spec.ts`, Playwright at eleven viewports) checks the shell's bottom
+regions; like `test:a11y` it needs a dev server, so it is a local gate, not a CI one. Key a breakpoint to
+the condition, not the device class: the zoom-island lift uses `width <= 1200px` because the
+shrink-to-fit toolbar reaches the island below about 1169px, not only on phones.
+
+### Tool scripts must resolve packages, not assume the root `node_modules`
+
+npm hoisting changes between installs; `check-styles.mjs` failed with `ENOENT` when `@oriui/css` moved
+into `apps/web/node_modules`. Use `createRequire(import.meta.url).resolve('<pkg>/package.json')`.

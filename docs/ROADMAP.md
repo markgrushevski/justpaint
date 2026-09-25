@@ -1,203 +1,40 @@
-# Roadmap & status
+# Roadmap
 
-> **Dual purpose.** The phased plan **and** the durable status tracker. This file survives context resets — it is the source of truth for *what's done, what's next, and why*. Update the status markers as work lands; don't keep status in an ephemeral task list.
->
-> Companion docs: `docs/DECISIONS.md` (the "why"), `docs/DOCUMENT-FORMAT.md` (the keystone schema), `docs/ARCHITECTURE.md` (topology & boundaries). When this disagrees with reality, fix this file.
+What is left to build. Finished work lives in git history, and the reasoning behind it in
+[DECISIONS.md](DECISIONS.md). Keep this file short: add an item when it is agreed, delete it when it
+ships.
 
-## Status at a glance
+## Where things stand
 
-| Phase | Goal | Status |
+| Phase | Scope | Status |
 |---|---|---|
-| **0** | Specs — agree the contracts before code | 🟢 **done** |
-| **1** | Go backend (auth + drawings CRUD) + minimal Konva editor | 🟢 **done** |
-| **2** | Frontend refactor — vector editor, real layers; oriui swap | 🟢 **done** |
-| **3** | Game — async duel first, then live WS | 🟢 **done** |
-| **4** | Stretch — realtime hub, ratings, teams/tournaments, replay, AI assist, single-player practice | 🟡 in progress |
-| **5** | Public release — CI, prod-config fail-fast, per-IP rate limiting, judging durability, one deployable image | 🟢 **done** |
-| **6** | Post-launch UI — the owner's own list after using the launched product | 🟡 in progress |
+| 0 | Specs: document format, API, judge contract | done |
+| 1 | Go backend (auth, drawings) and a minimal Konva editor | done |
+| 2 | The real vector editor: layers, undo/redo, oriui | done |
+| 3 | The game: async duel, server-authoritative deadline, live WebSocket updates | done |
+| 4 | Depth: ratings, AI assist, practice, "what did I draw?" — plus the open items below | in progress |
+| 5 | Public release: CI, fail-fast config, rate limits, judging durability, one image | done |
+| 6 | Post-launch UI | in progress |
 
-Legend: ⚪ not started · 🟡 in progress · 🟢 done. Within a phase, check off deliverables as they land.
+## Open
 
-**North star** (per `CLAUDE.md` / `DECISIONS.md`): the AI-judged drawing duel. Every phase is sequenced to reach a playable async duel (Phase 3) as fast as the foundations allow; `/draw` is the supporting mode that falls out for near-free. Don't build two products.
+**Game**
+- **The external ML judge.** `HTTPJudge` implements [JUDGE.md](JUDGE.md) §6 and is waiting for the
+  service to exist; `GeminiJudge` gives real verdicts until then.
+- **Spectating.** Reconnect, presence and idle eviction are done; watching someone else's match is not.
+- **Teams and tournaments** — brackets on top of `match_players`, which already generalizes past 1v1.
+- **Replay** — animate a drawing from its document. Stroke order works on v1; true timing needs an
+  additive field ([DOCUMENT-FORMAT.md](DOCUMENT-FORMAT.md) §9).
+- **Object storage** for the judged raster and thumbnails. Until then the result screen renders the
+  opponent's document client-side and `judgedImageUrl` is `null`.
 
----
+**Editor**
+- **Object selection, tldraw-style** — a select tool, per-stroke hit testing, marquee, move/scale and
+  multi-select, all through the command stack. Mostly `packages/editor`; a phase, not a slice.
+- **Editor chrome layout** — rearrange the floating islands, then make the layout hold at every
+  breakpoint (`npm run test:layout` guards overlaps).
 
-## Phase 0 — Specs 🟢 (done)
-
-**Goal:** lock the contracts the rest of the build depends on, so Phases 1–3 don't relitigate them mid-flight. The keystone is the vector document format (shared by editor, backend, judge).
-
-**Deliverables**
-- [x] `docs/DECISIONS.md` — decision log.
-- [x] `docs/DOCUMENT-FORMAT.md` — the keystone vector-doc schema (v1).
-- [x] `docs/ROADMAP.md` — this file (phases + durable status).
-- [x] `docs/ARCHITECTURE.md` — monorepo topology, package boundaries, request/render/trust flows.
-- [x] `docs/API.md` — HTTP contract + WS sketch: routes, `jp_session` cookie, `{error:{code,message}}` envelope + status map, DoS caps, pagination.
-- [x] `docs/JUDGE.md` — the `Judge` contract (`prompt + 2 PNGs → {scoreA, scoreB, winner:"A"|"B"|"tie", reason}`), 1024² opaque-white raster, FakeJudge/HTTPJudge, versioning. Single owner of the winner/tie/raster definition.
-- [x] `docs/GAME.md` — match lifecycle (open→drawing→judging→done/abandoned), square 1080² canvas, prompt pinning, trust boundary, Elo sketch (K=32, tie=0.5).
-
-**Exit criteria**
-- Document format v1 is frozen enough to code against (TS canonical types + Go validator can be written from it without further decisions).
-- Judge contract pinned: raster size, background, **and** the `winner` representation (string `"A"|"B"|"tie"` vs resolved player id) — one definition the other docs cite.
-- API shape (routes, auth, limits) decided well enough to implement Phase 1 without inventing it ad hoc.
-
----
-
-## Phase 1 — Go backend + minimal editor 🟢 (done)
-
-**Goal:** a secure Go service that authenticates users and does drawings CRUD storing the **vector document as jsonb**, plus the thinnest Konva editor that can produce and load a valid document. First real Go backend surface.
-
-**Deliverables**
-- [x] **Monorepo skeleton** — npm-workspace root (`package.json` workspaces `packages/*`+`apps/*`, shared strict `tsconfig.base.json`); members: `packages/document`, `apps/web` (migrated from `client/` via `git mv`, history preserved, renamed `@justpaint/web`); `server/` already at target. oriui was `file:`-linked from a temporary local `vendor/oriui/` copy (alpha.1), later swapped to the published npm packages in Phase 2 (`@oriui/* 1.0.0-alpha.2`; see `IDEAS.md`). `npm install` + `vite build` + `vue-tsc` green; internals refactor is Phase 2.
-- [x] **`packages/document` v1** — canonical TS types (§3–§5 of `DOCUMENT-FORMAT.md`); `parseDocument`/`serializeDocument` (write-precision rounding, §2); `validateDocument` mirroring the Go validator (every invariant + DoS caps, single id namespace); the pinned `computeFitTransform` (contain, §10) + `toFreehandOptions` render-contract constants + `FREEHAND_VERSION` pin (§5.3/§9). 40 Vitest tests green (validate table ported 1:1 from the Go tests, serialize/parse round-trip, fit); `tsc` + `build` (dist + d.ts) clean. The `renderToPNG`/`toKonva` **Konva** seam lands with `packages/editor` — kept out of the pure, dependency-free contract package so anything (incl. the future Node render worker) can import types/validation without pulling Konva.
-- [x] **Go service scaffold** — net/http + `ServeMux` (1.22 method patterns) + slog, `internal/platform/{config,logging}`, env config with **fail-fast on `JWT_SECRET`** (no empty-secret fallback), graceful shutdown, `/healthz`. `go build` + `go vet` + gofmt + runtime smoke all green. Old NestJS `server/` removed (recoverable from git history).
-- [x] **Auth** — `internal/auth` (service/handler/middleware/token/password): bcrypt (+SHA-256 prehash for long passwords), JWT HS256 with alg-pinning, `jp_session` cookie (HttpOnly/SameSite=Lax; Secure in prod, off for dev http); `register/login/logout/me` + `RequireAuth` middleware; anti-enumeration (generic `invalid_credentials` + dummy-hash compare). Verified end-to-end via curl against Postgres (201/200/401/409/400/204 per API.md). Shared `internal/platform/web` envelope + strict JSON decode.
-- [x] **DB** — Postgres via Docker (`docker-compose.yml`) + pgx pool (`internal/platform/postgres`); **goose** migration `00001_initial_schema` (users/prompts/matches/drawings/match_players per ARCHITECTURE §7 + DOCUMENT-FORMAT §7); **sqlc** type-safe queries (uuid→string, timestamptz→time.Time, nullable→pointers, `drawings.document`→`json.RawMessage`). Migrated + generated + builds green.
-- [x] **Drawings CRUD** — `internal/drawings` create/get/list/update/delete + `internal/document` write-edge validator (discriminated-union `Stroke` decode via `UnmarshalJSON`, every invariant, DoS caps, 8 MB `http.MaxBytesReader`→413). Ownership-scoped (foreign→404, no IDOR); keyset pagination (opaque cursor) with free/duel/all filter. Verified end-to-end.
-- [x] **Minimal Konva editor + round-trip** — `packages/editor` (`@justpaint/editor`): full pure `buildStroke` tool set + `toKonva`/`renderToPNG` + `Editor` controller (logical coords, `Editor.destroy()` on unmount); 14 tests; `FREEHAND_VERSION` pinned to perfect-freehand 1.2.3. **Wired into `apps/web`**: a vue-router `/draw` page mounts the `Editor` with an oriui toolbar (tools, color, width, fill, New, Export PNG, Save/Load) + a `SessionBar` (login/register/logout). Auth + drawings go through a **native-`fetch`** client (`src/core/api/drawings.ts`, `credentials:'include'`, no axios) + `useSessionStore`; a vite dev proxy forwards same-origin `/api` → the Go server so the `jp_session` cookie is first-party. **Round-trip verified live end-to-end** through the real UI: register/login → draw → save → reload (session restored) → load → the **same drawing back**. `vue-tsc` + `vite build` green; preview via `.claude/launch.json`.
-- [x] **Tests** — Go validator table tests (valid full document + every rejection path + union decode, `internal/document`). **`packages/document`** 40 Vitest (validate table mirrored from Go, serialize/parse round-trip + write-precision, fit). **`packages/editor`** 14 Vitest (each tool's `buildStroke` validated against `@justpaint/document`). **App round-trip verified live** (register→draw→save→reload→load through the UI + Go + Postgres); an automated e2e harness is a later nicety, not blocking.
-
-**Exit criteria**
-- A user can register, log in (cookie-based), draw with every tool, save, reload the page, and get the **same drawing back** — round-tripped as a vector document through Postgres jsonb.
-- Invalid/oversized/forged documents are rejected by the Go validator with clear errors.
-- No plaintext passwords, no empty-JWT-secret fallback, no token in localStorage (the old red flags are structurally gone).
-
-**✅ All exit criteria met** — the full register → draw → save → reload → load round-trip is verified live (real UI + Go + Postgres jsonb); the drawings/auth client is native `fetch`.
-
----
-
-## Phase 2 — Frontend refactor (vector editor + real layers) 🟢 (done)
-
-**Goal:** turn the minimal editor into the real one — a proper vector editor with **real layers**, command-based undo/redo, and clean export — extracted into `packages/editor` so both `/draw` and `/play` consume it. The **oriui swap is a separate, isolated pass** (don't entangle it with the editor rewrite).
-
-**Deliverables**
-- [x] **`packages/editor`** — the real editor, built across `feat/editor-history-layers` + `feat/editor-fit`: `@justpaint/editor` has the pure tool set, `toKonva`/`renderToPNG`, the `Editor` controller, a command-based `History`, real layer operations, an `onChange` subscription seam (host reads `getLayers()`/`canUndo()`/`getZoom()` — no Vue in the package), and a `view` seam (fit-to-viewport, zoom, pan — scales the Konva *stage*, not CSS). Depends only on `packages/document` + Konva + perfect-freehand (ARCHITECTURE §3).
-- [x] **Real layers** — ordered list with id/name/visible/opacity/z-order, mapped to `Konva.Layer` (own `<canvas>`, per-layer isolation); add/remove/reorder/rename/visible/opacity via the `Editor` + a `/draw` layers panel. Replaces the old fake-layer + center-anchored PNG compositing. *(feat/editor-history-layers)*
-- [x] **Command-based undo/redo** — a command stack over the `Document` keyed by stroke/layer `id` (add-stroke/add/remove/reorder/rename/visible/opacity), with `Ctrl/Cmd+Z` / `Shift+Z` / `Ctrl+Y`. **Replaces PNG-snapshot history entirely.** History is runtime-only; never persisted in jsonb. *(feat/editor-history-layers)*
-- [x] **perfect-freehand brush** — store input points + curated brush options (store-input-not-output, §5.3); `FREEHAND_VERSION` pins the resolved perfect-freehand (render contract). *(Phase 1 `packages/editor` / document)*
-- [x] **Clean export** — `document → PNG` via the shared `renderToPNG` (pinned contain-fit); Export button on `/draw`. **Server-side thumbnails** (`drawings.thumbnail_url`) wait on the Node render worker — moved to **Phase 3** (the trust boundary needs the authoritative raster rendered off the client anyway).
-- [x] **`/draw` page** — editor + save/load only, on the oriui design system with fit/zoom; kept deliberately minimal (no feature creep).
-- [x] **State** — session in Pinia (`useSessionStore`); server data via **TanStack Query** (`useSaveDrawing`/`useLoadLatestDrawing` mutations, `feat/web-query`); the editor owns its own document/view state in `packages/editor`. The ad-hoc axios path is gone (legacy removed).
-- [x] **oriui swap (isolated pass)** — DONE EARLY (ahead of Phase 1): replaced `vueinjar` (`VButton/VCard/VIcon/VAvatar` across 14 files) with **oriui** (`@oriui/vue` + `@oriui/css`); `npm run types` + `vite build` green. Kept separate from the editor rewrite. **Vendored→npm swap landed 2026-07-02** (`build/oriui-npm-swap`): `@oriui/{vue,css,headless}` `1.0.0-alpha.2` from the registry; `vendor/oriui/` deleted.
-
-**Exit criteria**
-- `/draw` is a usable vector editor: real layers (reorder/toggle/opacity), undo/redo via commands, save/load, PNG export, fit/zoom — all on the v1 document format.
-- `packages/editor` is consumed by `apps/web` with no editor logic left in the app shell.
-- No `vueinjar` imports remain; UI runs on oriui.
-
-**✅ All exit criteria met** — `/draw` is a real vector editor (layers, command undo/redo, fit/zoom, save/load via TanStack Query, PNG export) on the oriui design system; the editor lives entirely in `packages/editor`. Deferred to Phase 3: **server-side thumbnails** (need the Node render worker + object storage) and **touch pinch/pan** polish (IDEAS).
-
----
-
-## Phase 3 — Game (async duel first, then live) 🟢 (done)
-
-**Goal:** the north star, shipped. **Async duel first** — the simplest complete loop — then layer live realtime on top. The editor from Phase 2 powers both duelists.
-
-**Deliverables**
-- [x] **`docs/GAME.md` realized** — the **full async match lifecycle** runs in Go (`feat/game-matches` + `feat/game-submit`): `open → drawing → judging → done`, create/auto-join, submit, out-of-band judging, result — verified live end-to-end. (`abandoned` and the live back-half both landed in later deliverables below.)
-- [x] **Prompts** — `prompts` table seeded (migration 00002, 24 active starters); `PickRandomActivePrompt` pins one random active prompt per match at creation; text redacted until `drawing` (GAME.md §5). Selection is `active`-only, random (v1).
-- [x] **Matches** — `matches` + `match_players` fully wired in `internal/game`: `POST /api/matches` open-pool create/auto-join (tx + `FOR UPDATE SKIP LOCKED`, no double-seat), `GET /api/matches/{id}` (ownership hidden as 404; the two visibility redactions), `POST /api/matches/{id}/submit` (validate + 1080² canvas check, persist match-linked drawing, stamp slot, `drawing → judging` on the last submit — serialized by a match-row `FOR UPDATE`), `GET /api/matches/{id}/result` (ready-false states + the done verdict). **Remaining:** the optional `POST …/abandon` transition.
-- [x] **Submit** — the submit path + trust boundary landed **and the authoritative render is real** (`feat/render-worker`). The server persists the vector doc and renders the judged raster **off the client** via `render.Renderer`; client PNGs never touch the judge. `RENDER_MODE=node` runs the **Node Konva + perfect-freehand worker** (`packages/render`) which shares the editor's exact `renderToStage` projection — one renderer, browser + headless, no drift; `RENDER_MODE=stub` (default) keeps the zero-dep in-process stub for dev. Verified live: the judge scores the **real rendered pixels** (ink 0.044 vs 0.006 for a 5-rect vs 1-rect drawing, not the stub's stroke-count proxy).
-- [x] **Judge seam + fake impl** — `internal/judge` (`feat/game-judge`) + the **positional `winner` → player-id mapping** and Elo now landed in the game loop (`feat/game-submit`): stable A/B ordering (`submitted_at`, `user_id`), scores → `match_players.score`, winner → `matches.winner_player_id` (null on tie), Elo (K=32, tie=0.5) applied atomically on `judging → done`. Verified live (1200→1216/1184). `HTTPJudge` (the real ML) is **Phase 4**.
-- [x] **UI/UX pass (`/draw` + app shell) — gated `/play`** — landed via `feat/draw-ux` (slices 1–3, 2026-07-04): canvas correctness (**layers clipped to the document**, outside-start gestures ignored, **immediate eraser feedback** via on-layer preview); the **floating editor shell** — bottom toolbar with icon tools, **slide-in side menu** (auth + profile + file actions, replaces the top SessionBar), light/dark/auto theme on `.ori-theme_dark`, layers/zoom islands, the `.jp-float` island language **shared with the future `/play` chrome**; **full hotkey set** (B/E/L/R/O/T, Ctrl+Z/Y, Ctrl+0/±, Ctrl+S) + a `?` cheat-sheet dialog. Reviewed by jp-frontend + jp-design-reviewer (findings folded: light-theme outline token, mobile top-right overflow → file actions into the menu, Esc/focus a11y, `:focus-visible` rings, oriui adoption — OriTabs/OriField/OriAvatar/OriKbd); verified live across breakpoints + dark.
-- [x] **`/play` page** — create/auto-join, draw, submit, poll the verdict, see result + reason + Elo, **live against `/api/matches`** (`feat/play-api-loop`, 2026-07-09). Reuses `packages/editor` on the shared `EditorShell`; a typed `core/api/matches.ts` client (1:1 with the Go DTOs) + TanStack `useCreateMatch`/`useSubmitMatch` mutations; one self-rescheduling poll loop (roster → verdict) stands in until the live WS push. Anonymous visitors get a sign-in card. **Opponent canvas now revealed** (2026-07-11): a match-membership + `done`-gated `GET …/players/{userId}/drawing` returns the opponent's document, rendered client-side — no object storage (DECISIONS 2026-07-11).
-- [x] **Server-authoritative round deadline + forfeit/abandon** (2026-07-11, `feat/round-deadline`, migration `00004_round_deadline`) — closes the client-only-timer `TODO(play-api)`: `matches.drawing_deadline` is stamped `now() + 90s` (Postgres' own clock) at `open → drawing` and enforced both by a background sweeper (`internal/game/sweeper.go`, boot-drain + 3s tick) and a defense-in-depth check on `submit`, so a round resolves even if nobody polls. Exactly one submitter at the deadline → **forfeit** (`done`, `resolution: 'forfeit'`, submitter wins full-K Elo, judge does not run); zero submitters → `abandoned`; a late submit is rejected (`409 conflict`, not stamped). The sweeper also re-fires a stuck `judging` match (crash recovery, capped retries) and reaps stale never-joined `open` matches (TTL). `drawingDeadline`/`serverTime` now ride the match DTOs so the client anchors its countdown off the server clock (`docs/GAME.md` §4/§8, `docs/API.md` §8).
-- [~] **Object storage seam** *(deferred — no longer gating anything)* — the result reveal that once needed this now uses the membership-gated participant-drawing endpoint + a client render instead (2026-07-11), so `judgedImageUrl` stays `null` and the ownership-scoped drawings route is bypassed by design. Object storage stays a **later, optional** slice — feed thumbnails, render offload, signed judge URLs (`JUDGE.md`) — not a Phase-3 blocker.
-- [x] **Live realtime** (2026-07-12, `feat/ws-realtime`) — an in-process `coder/websocket` hub (`internal/ws`) pushes match-room state over `GET /api/matches/{id}/ws`: 8 frame types (`match_state`, `opponent_submitted`, `judging`, `result`, `abandoned`, `opponent_connected`/`opponent_disconnected` presence, `pong`), fed by a `game.Publisher` seam (`NopPublisher` default, no import cycle) so every deadline-sweeper/submit commit fans out instantly. `match_state`/`result` are rebuilt **per recipient** through the same viewer-scoped read the REST handlers use, preserving `GAME.md` §4.2 visibility on the wire. Gated behind the same `RequireAuth` + membership-hidden-404 as REST, strict same-origin (`OriginPatterns`, never `*`), and closed at the JWT `exp` (code `4001`). The client (`openMatchSocket` in `core/api/matches.ts`, `PlayView.vue`) demotes its poll loop to a ~15s reconciliation fallback while the socket is live and snaps back to the fast cadence on disconnect — the poll loop itself is never removed. Full protocol in `docs/API.md` §9; design rationale in `docs/DESIGN-PHASE3-LIVE.md` §3; review gotchas in `docs/NOTES.md`.
-
-**Exit criteria**
-- Two users can play an **async duel** end-to-end: same prompt → both draw → submit → fake judge scores → winner + reason shown — with the scored image rendered authoritatively server-side from the vector document. **✅ MET live** (`feat/game-submit` + `feat/render-worker`): submit → out-of-band judging → winner/scores/reason/Elo, and at **`RENDER_MODE=node`** (opt-in; `stub` is the zero-dep default) the raster is rendered **authoritatively** off the client by the Node Konva worker from the vector document — the fake judge scores those real pixels.
-- Swapping the fake judge for the collaborator's HTTP judge requires no schema/loop change (only the `Judge` impl). **✅ Met** — the game loop depends only on the `Judge` interface; the render worker is the **same seam pattern** (`Renderer` interface, stub ⇄ node by config), proving both real impls drop in without touching the loop.
-- (Live half) two users see each other's match state in realtime over WS. **✅ MET live** (`feat/ws-realtime`): all 8 frame types verified pushing end-to-end — roster/deadline, submit, judging, judged/forfeit result, abandoned, and presence — with the REST poll loop demoted to a 15s reconciliation fallback (never removed) while the socket is live.
-
----
-
-## Phase 4 — Stretch 🟡 (in progress)
-
-**Goal:** depth once the core loop is proven. Each item is independent; pull forward whatever the product needs.
-
-**Deliverables (unordered)**
-- [x] **AI Assist Phase A** (2026-07-13, `feat/assist-phase-a`) — the first AI-in-product slice (text drawing commands, `docs/IDEAS.md` "AI inside the product"): a small `Op` union (`add_layer`/`add_stroke`) applied through the existing command seam, a judge-style `internal/assist` Go module (`Assist` interface + `FakeAssist`, the default), ghost-preview accept/reject in `packages/editor` (`previewOps`/`acceptOps`/`rejectOps`), and the prompt panel in `/draw`. **Fake-first:** `ASSIST_MODE=fake` (default) ships live; the real Anthropic impl is scaffolded behind `ASSIST_MODE=anthropic` (config plumbing + fail-fast, no live SDK call) and deferred until an API key/model exists — the scaffold was later deleted outright rather than built out (2026-09-20, below). Full design: `docs/ASSIST.md` / `docs/DESIGN-ASSIST-PHASE-A.md`; HTTP contract: `docs/API.md` §10.
-- [x] **The real AI assist** (2026-09-20) — the prompt box finally reads the prompt: `ASSIST_MODE=gemini` selects `GeminiAssist`, which shares the judge's API, key, quota and HTTP client (`judge.GeminiClient`, exported for it) rather than adding a second vendor. **Anthropic is dropped** — the SDK was never added to `go.mod` and is not going to be; the scaffold, `ASSIST_MODE=anthropic` and its two knobs were deleted outright later the same day rather than kept as vestigial weight — `ASSIST_MODE=anthropic` is now a dedicated boot error naming `gemini`, and `ASSIST_MODEL`/`ANTHROPIC_API_KEY` are gone, not vestigial. No change to the Op contract, the doc summary, the ghost preview or the client — the real impl emits exactly the batch the fake did, which is what made the swap a config change. The design that carries it: the model returns a **flat list of primitive shapes**, not ops, so it never invents an id, a layer reference or a composite, and Go expands the batch; `INTEGER` coordinates, every schema field `required`, and `maxOutputTokens: 8192` are three live-diagnosed fixes rather than preferences (`docs/NOTES.md`). Its own `ASSIST_TIMEOUT` (60s) sits beside `JUDGE_TIMEOUT` (10s) because widening the shared one would break the judging pass's retry envelope, and `judge.ErrQuotaExhausted` now answers `429` here too. **Verified through the real API on 2026-09-20** — a live batch passing `ValidateOpBatch` — but **not on `gemini-3.6-flash`, the configured default**: that model's free-tier pool went on the diagnostics and it also returned `503`s, so the runs that succeeded used other models through the identical code path. Contract: `docs/ASSIST.md` §3.2/§3.3; decisions: `docs/DECISIONS.md` 2026-09-20.
-- [x] **A model per AI kind** (2026-09-20) — `AI_MODEL_PER_KIND="duel=…,guess=…"` overrides `GEMINI_MODEL` per kind, in the same `kind=value` list `AI_DAILY_PER_USER` uses and through the same parser; an unknown kind is a boot error and the resolved model per kind is logged at boot, because an override that never took is otherwise invisible. The budget follows the model: the global ceiling is keyed `google:<model>` (`aibudget.Provider.WithModel`), because Google's `429` named its own quota — `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, **20/day** — and two kinds on two models are two pools, not one. That measurement also dropped `DefaultAIDailyGlobal` from **200 to 15**, with the caveat kept in the docs rather than smoothed away: on a free key ours is not the binding ceiling, and 15 ledger rows are 15–45 real requests, since a row is one judging *pass* and a pass may retry three times. Rules: `docs/GAME.md` §4.3; decisions: `docs/DECISIONS.md` 2026-09-20.
-- [ ] **Realtime hardening** — WS hub robustness (reconnect, presence, match rooms), spectating.
-- [x] **Ratings** — per-player rating updated on match result (Elo-style; `users.rating`, `match_players.rating_before/after`) **and the leaderboard**. The **Elo half landed in Phase 3** (`feat/game-submit`: K=32 delta atomically applied on `judging → done` / forfeit; see the Phase 3 judge-seam deliverable + `docs/GAME.md` §8). The **leaderboard half** (`feat/ratings-leaderboard`) adds the read-only top-N ladder: `ListTopRatings` (aggregate + sort, INNER-JOIN hides 0-games players, `rating desc, id asc`) behind a small read-only `internal/ratings` module → `GET /api/leaderboard?limit=` (auth-gated, `login` never exposed, `rank` = row-number). Contract: `docs/API.md` §11, `docs/GAME.md` §8.
-- [ ] **Teams / tournaments** — multi-player brackets on top of the `match_players` primitive (generalizes from 1v1 without reshaping `matches`).
-- [ ] **Replay / animation** — animate a drawing from its document (order-based replay works on v1; add per-point/per-stroke timing as an additive, version-safe field if true timed replay is wanted — format §9).
-- [~] **Real judge integration** — `HTTPJudge` (`server/internal/judge/http.go`) is built against the `JUDGE.md` §6 wire contract and is waiting for the collaborator's service to exist (`config.Load` fails fast if `JUDGE_MODE=http` is set without `JUDGE_BASE_URL`). In the meantime `GeminiJudge` (`JUDGE_MODE=gemini`, a vision LLM scoring both rasters in one call) makes the verdict real instead of shipping the ink-coverage fake indefinitely — `docs/JUDGE.md` §8.1, `docs/DECISIONS.md` 2026-09-19. `FakeJudge` stays the dev/CI default (`JUDGE_MODE=fake`). **Verified 2026-09-19:** the Gemini path against the REAL API (`gemini_live_test.go`, opt-in behind `GEMINI_LIVE=1`), then a full duel in production — the deploy log carries `judge: gemini vision, model=gemini-3.6-flash`. The daily AI-call budget bounds the quota it spends (`GAME.md` §4.3). **Still unverified:** the HTTP path, which has no collaborator service to call at all.
-- [x] **Single-player practice** (2026-09-20) — one prompt, one drawing, one score, no opponent: the mode that makes the product playable by a single visitor before there is a player base to duel against (`/practice`, `internal/practice`, migration `00006_practice_runs`). **Deliberately not a `matches` row** — `decideExpiry` (`internal/game/deadline.go`) wedges on a single-seat roster, and the duel's matchmaking/deadline/forfeit machinery has no meaning for one player — so it is a flat table with no status, no sweeper, no deadline. Scored by a new `judge.Critic` seam (`FakeCritic`/`GeminiCritic`, `JUDGE_MODE`-selected; **unavailable** under `JUDGE_MODE=http`, which has no critique endpoint and refuses honestly rather than faking a score), explicitly not a widening of the frozen `Judge` contract (`docs/JUDGE.md` §8.2). Spends the SAME daily AI-call budget as a duel, counted by one rule over the `ai_calls` ledger (`internal/aibudget`, migration `00007`; `docs/GAME.md` §4.3) — its own per-player allowance, the same per-provider ceiling; no Elo, no leaderboard effect. The render and the critique run **synchronously** inside the request (`practice.RunBudget`, 25s, under the server's 30s write timeout) — there is no second player to judge out-of-band for. **Verified live** against the real API: a drawn sun scored `0` against *"a jellyfish disco party"*, with feedback naming what the drawing was missing, in 9.5s including the authoritative render. Contract: `docs/API.md` §12; rules: `docs/GAME.md` §10; decisions: `docs/DECISIONS.md` 2026-09-20.
-
-- [x] **Per-kind AI budget** (2026-09-20) — the daily ceiling generalized from "judge calls" to *every* AI call, in a new `internal/aibudget` over one ledger table (`ai_calls`, migration `00007`) instead of a union over whichever tables a feature happened to write. Forced, not cosmetic: a `/draw` guess has no row to count (the drawing may never be saved) and assist had none either — it was bounded only by an in-process token bucket the host resets on every deploy and every wake from idle, so that ceiling had never held. **Per-user is now per KIND** (a day's duels no longer cost a player their assists) and **global is now per PROVIDER** (Google running dry must not refuse an Anthropic-backed feature). Spending is explicit and happens *before* the provider call — a duel inside its matchmaking transaction at `open → drawing`, billing both players for the one request; practice and assist outside a transaction, so a failed call cannot become free. **Amended the same day by a review pass** (`docs/DECISIONS.md`, top entry): `open → drawing` grants a *round*, not a judge call, so only the two player rows are written there — the provider row moved to the flip into `judging`, which means a forfeited or abandoned duel bills no request at all and a stuck-judging re-fire bills one more; the per-user cap moved into the insert as well, after a burst was measured billing 24 of 25 requests against a cap of 2; and a provider is now read off the impl that was built rather than off the mode env, which is what stopped `ASSIST_MODE=anthropic` billing for a scaffold that makes no call. Consumers hold plain `Check`/`Spend` funcs bound to their kind at the composition root, which is how `internal/practice` stopped importing `internal/game` for its quota. **Backwards compatible by design:** `JUDGE_DAILY_BUDGET` / `JUDGE_DAILY_PER_USER` keep working (the latter seeds only `duel` and `practice`, never a kind invented later), so a deployed environment needs no edit — **verified by booting on the legacy variables alone** and reading back `global 200, duel 20/day via google, practice 20/day via google` — the defaults *of that day*. Both have since moved: the global default is **15** and the provider key carries the model (`google:<model>`), after the API disclosed that the free tier is 20/day **per model**. This line records what that boot printed, not what a boot prints now. **Verified live:** a player who had spent their practice allowance was refused `429` with the practice sentence and could still start a duel — which the old shared quota would have refused. Rules: `docs/GAME.md` §4.3; decisions: `docs/DECISIONS.md` 2026-09-20.
-- [x] **"What did I draw?"** (2026-09-20) — a button on `/draw` that asks the AI to name what is on the canvas: one image in, a guess out, no prompt and no score (`POST /api/guess`, `internal/guess`, `judge.Guesser`). The third vision seam beside the frozen `Judge` and our own `Critic`, and deliberately not a `Critique`: nobody supplied an answer, so there is nothing to score against. The raster is rendered **server-side** from the validated document — the standing trust boundary, plus a sharper reason specific to this route, that accepting a client PNG would turn it into an open pipe to Google under our API key for any bytes a caller cared to upload. Validated with `document.ParseAndValidate`, **not** the duel's 1080² rule: a real `/draw` canvas measured 1280×720 live, which the game validator would have rejected outright. **Nothing is persisted** — the ledger records the call, the guess is a moment. Capped at **2/day**, the smallest of any kind; the refusal names that number, since the player could have counted it themselves (**amended the same day:** every kind's refusal now names its own cap, from one template — this was never really a carve-out, just the one constant that had not drifted). **Verified live** against the real API: a drawn smiley came back *"a smiley face"* at 0.98 in 4.7s including the render; the daily cap refused the third call with the message naming the 2; and the instruction's carve-out held — block letters spelling CAT returned *"the word CAT"* rather than the animal, and a drawn imperative OBEY returned *"the word OBEY"*, i.e. writing on the canvas reads as drawing, never as instruction. Contract: `docs/API.md` §13; seam: `docs/JUDGE.md` §8.3; decisions: `docs/DECISIONS.md` 2026-09-20.
-**Exit criteria:** none fixed — these are stretch. Track individually.
-
----
-
-## Phase 6 — Post-launch UI 🟡 (in progress)
-
-**Goal:** the owner's own list after using the launched product ([IDEAS.md](IDEAS.md), "Post-launch UI"), in his order. Not polish — each item is a piece of product that the launch exposed as missing.
-
-**Deliverables**
-- [x] **An auth module with a modal** (2026-09-18, `feat/auth-gate`) — one `useAuthGate` store plus an `AuthDialog` mounted at the app root. Any action that needs a session awaits `ensure(reason)`: signed in resolves at once, otherwise ONE modal opens and the action resumes the moment the visitor signs in. Replaces three improvised answers (a toast pointing at the side menu, a terminal error phase, an inline panel) and the bulky sign-in block inside the drawer. Forgetting a dead session moved into the fetch client, where every 401 is already seen, which also closed the stale-profile defect the owner reported. Rationale + the rejected alternatives: [DECISIONS.md](DECISIONS.md) 2026-09-18.
-- [ ] **Object selection, tldraw-style** — a select tool, per-stroke hit testing, marquee, move/scale, multi-select, all through the existing command stack. Lands mostly in `packages/editor`. A phase, not a slice.
-- [ ] **Recomposing the editor chrome** — the owner moves things himself; then make his layout hold across breakpoints.
-
-**Done alongside, and NOT part of this phase:** the oriui bump to `1.0.0-rc.18` (2026-09-18, `chore/oriui-rc18`), which the owner put BEFORE the next release. It turned eight local workarounds back into plain API use — see [ISSUES-OUTER.md](ISSUES-OUTER.md) "Bump landed" and [DECISIONS.md](DECISIONS.md) 2026-09-18.
-
----
-
-## Phase 5 — Public release 🟢 (done)
-
-**Goal:** take justpaint from "the game loop works" to "a stranger can open a URL and play it" — CI that actually gates `main`, config that fails fast instead of shipping an insecure default, abuse protection before the world can hit it, a judging path that can't wedge a match forever, and one deployable artifact. A soft launch: the real judge, live AI assist, object storage and further `/play` polish are deliberately deferred past this phase, not part of it.
-
-**Deliverables**
-- [x] **CI** (`.github/workflows/ci.yml`, `ci/github-actions` + `ci/build-before-typecheck`) — three jobs, on every push to `main` and every PR: `ts` (Prettier `format:check`, build, `types`, Vitest `test`, apps/web's new check-mode `lint:ci` — stylelint + eslint + contrast, without `lint:all`'s `--fix`/`--write` — and the `packages/render` `selftest` liveness check); `go` (gofmt, vet, build, goose migrations, then `go test` against a `postgres:17-alpine` service container — the `DATABASE_URL` that lets the seven DB-gated `*_test.go` files actually run instead of skip); and `image` (`docker build`, then boots that exact image against the same real Postgres and curls `/readyz` plus `/` and a client-side route (`/leaderboard`) for the `<!doctype html` SPA shell — proving the shipped artifact, not just its source). **Ordering gotcha CI caught on its first run:** `npm run build` has to precede `npm run types`, because `apps/web` resolves `@justpaint/document`/`@justpaint/editor` through their gitignored `dist/` — a fresh checkout can't typecheck until the packages are built (`docs/NOTES.md`).
-- [x] **Prod config fail-fast** (`feat/prod-safety`) — `ENV` is now mandatory and closed-valued (`dev`|`prod` only; it decides `CookieSecure`, so defaulting to dev used to ship a silently non-Secure session cookie), `RENDER_MODE=node` also verifies the Node interpreter is on `PATH` (not just that `RENDER_CLI` exists), `DB_MAX_CONNS` bounds the pgx pool (default 10), `GET /readyz` pings the database while `/healthz` stays dependency-free, and shutdown now waits for the WS hub and the sweeper to drain before the deferred pool close runs.
-- [x] **Per-IP rate limiting + request correlation** (`feat/ratelimit-reqid`) — three independent token-bucket tiers (strict auth, moderate writes, generous default), keyed by client IP, with `TRUST_PROXY` gating whether `X-Forwarded-For` is believed; `X-Request-Id` generated-or-adopted and echoed on every response, correlated with client IP in the structured access log. Closes the "before any public deploy" rate-limiting deferral recorded in `docs/DECISIONS.md` (2026-06-20) and `docs/IDEAS.md`.
-- [x] **Judging durability** (`fix/judging-durability`) — a match whose judging exhausts its retries now ends `done` with `resolution = 'aborted'` (no winner, no Elo) instead of wedging in `judging` forever (migration `00005_judging_aborted`), plus a `JUDGE_CONCURRENCY` semaphore (default 2) bounding concurrent render+judge passes so a boot-drain sweep can't fork-bomb a small instance. (Since the 2026-09-20 review pass the same number also bounds the render worker subprocesses *inside* `NodeRenderer`, so the inline renders on `/api/guess` and `/api/practice` are covered too, not just judging passes.) `/play` (`fix/play-aborted-result`) now reads the server's own `isTie` instead of re-deriving it, so an aborted round renders as "round couldn't be scored," never as a tie.
-- [x] **Deployability** (`feat/deploy`) — the Go binary now serves the built SPA (`STATIC_DIR`, with history fallback to `index.html`) so the API, the WS upgrade and the frontend are one origin, matching what the httpOnly/SameSite cookie and the same-origin-only WS handshake already required (no CORS headers are sent anywhere). A multi-stage `Dockerfile` builds the SPA + render worker on a Node image and the Go service as a static binary, then combines both in a Node runtime carrying node-canvas's shared libraries (the judged raster is rendered by a local Node child process); a `render.yaml` blueprint deploys it against an external Postgres (Render's own expires 30 days after creation) with an external uptime pinger against `/readyz` (Render's free tier sleeps idle and its own cron is a paid feature).
-
-**Not in this phase (deliberate):**
-- [~] **The real ML judge** — no longer only `FakeJudge`: `HTTPJudge` is now built and waiting for the collaborator's service, and `GeminiJudge` (a vision LLM, `JUDGE_MODE=gemini`) gives a real interim verdict while that service doesn't exist yet — tracked under Phase 4 above. `FakeJudge` (`server/internal/judge/fake.go`, an ink-coverage heuristic that never reads the prompt) stays the zero-dependency dev/CI default.
-- [x] **Live AI assist** — deferred past this phase, then landed on 2026-09-20 under Phase 4 above: `ASSIST_MODE=gemini` (`GeminiAssist`) is the real impl, and the Anthropic scaffold this line was waiting on was dropped rather than finished.
-- [ ] **Object storage** — the `/play` opponent-canvas reveal still uses the membership-gated drawing endpoint + a client render (2026-07-11); `judgedImageUrl` stays `null`.
-- [x] **WS hardening** — merged (`feat/ws-hardening`): a server-side read-idle timeout evicts a socket with no proof of life (close `4002`), a protocol-level ping probes a quiet-but-healthy one so a player drawing in silence is never dropped (no client change — browsers answer in the network stack), and process-wide / per-IP connection caps refuse a saturated upgrade with `429`. The per-IP key runs through the same `web.ClientIP`/`TRUST_PROXY` resolver as the HTTP limiter, so the two agree on who a client is. The broader Phase 4 "Realtime hardening" item (presence depth, spectating) stays open.
-
-**Exit criteria**
-- CI is red-gated on `main`: format, build, types, unit tests, lint, a render-worker liveness check, and the full Go suite against a real migrated Postgres all run before a merge, not after.
-- A misconfigured deploy fails at boot, not silently: a missing/misspelled `ENV`, `JWT_SECRET` or `DATABASE_URL`, a `RENDER_MODE=node` missing its CLI or its Node interpreter, or an out-of-range `DB_MAX_CONNS`/`JUDGE_CONCURRENCY` all refuse to start rather than run in some half-safe mode.
-- The service survives the abuse it will actually see on a public URL: auth/write/default traffic each have their own ceiling, and a judging pass that fails outright resolves the match instead of leaving it stuck in `judging` forever.
-- `docker build` + `docker run` against a real Postgres, given only `JWT_SECRET` and `DATABASE_URL` (`ENV` already defaults to `prod` inside the image), is a complete, servable deployment — verified live in CI's `image` job.
-
----
-
-## Cross-cutting cleanups (where each lands)
-
-Known red flags from the throwaway code (`CLAUDE.md` "known red flags"; current-code brief). These are **not** ported — they're fixed structurally by the rewrite. Tracked here so none slips through:
-
-| Issue (old code) | Where it dies | How |
-|---|---|---|
-| **PNG-snapshot history** (`CanvasHistory.ts`, `drawData.*.canvasDataURL`) | Phase 2 | Command-based undo/redo over the `Document`, keyed by `id`. History is runtime-only, never in jsonb. |
-| **Non-reactive / stub history** (empty `save()/load()`, manual snapshot stack) | Phase 2 | Replaced by the command stack; no more PNG frames or empty stubs. |
-| **DPR / CSS-pixel coords** (`pageX - offsetLeft`, `CanvasTool.ts:257-269`) | Phase 1 | Capture in logical/stage coords (`getRelativePointerPosition`); document stores DPR-independent logical units (format §2). |
-| **Triangle draws a rectangle** (`CanvasTool.ts:386-396`) | Phase 1 | Modeled as `polygon` (closed 3-point); triangle bug is structurally impossible (no `Konva.Triangle`). |
-| **"Circle" `/√2` bbox quirk** (`CanvasTool.ts:363-364`) | Phase 1 | Standard `ellipse` (center + radii) from drag bbox. |
-| **"Square" is a free rectangle** | Phase 1 | Renamed `rect`; a constrained square is `width === height` (editor concern). |
-| **Eraser modeled inconsistently across tools** | Phase 1 | The old eraser was already correct (`destination-out`, `CanvasTool.ts:309-323`); we generalize it to a per-stroke `composite` field shared by all stroke types — not a bug fix, a model unification. |
-| **Dev/prod default-color divergence** (`CanvasTool.ts:69-77`) | Phase 1 | Defaults live in editor/tool config, identical everywhere; the document always carries explicit resolved colors. |
-| **bytea / base64-PNG-per-layer storage** (`layer.entity.ts`, `arts.dto.ts`) | Phase 1 | Vector document as jsonb; PNG is a derived/cached artifact only (`thumbnail_url`). |
-| **Plaintext passwords** | Phase 1 | bcrypt. |
-| **JWT empty-secret fallback** | Phase 1 | Mandatory secret; fail fast if unset. |
-| **Token in localStorage** | Phase 1 | httpOnly + secure + sameSite cookie. |
-| **Broken axios error handling** | Phase 2 | TanStack Query + a single typed API client with a consistent error path. |
-| **Client-side max-size + center-anchor compositing** (`getCompositedArts.ts`) | Phase 2 | One shared coordinate space + z-order/opacity; one renderer (`packages/document`) with per-layer isolation. |
-| **Dead code / empty stubs** (`CanvasLayers.ts`, `width?/height?` "after compositing" fields) | Phase 1–2 | Superseded by the schema; not carried into the rewrite. |
-| **NestJS backend** | Phase 1 | Replaced wholesale by Go — not refactored. |
-
----
-
-## Working notes
-
-- **Order is load-bearing:** format (Phase 0) → storage + validator + editor (Phase 1) → real editor (Phase 2) → game (Phase 3). Don't start the game loop before the document round-trips and the editor is real.
-- **Never block on the ML judge.** The fake impl kept Phase 3 fully playable, and `GeminiJudge` gives real verdicts today; the collaborator's ML is still a Phase 4 item with no service to call.
-- **Keep `/draw` focused.** Editor, save/load, and the AI-in-product surfaces (assist, guess) that need a canvas with no opponent and no clock. Anything with a score, a ladder or an opponent belongs in the game — that is the line, not "editor only".
-- **Update this file when a deliverable lands or a phase flips status.** It's the durable tracker; treat a stale ROADMAP as a bug.
+**Dependencies**
+- **Next oriui release.** It renames the API vocabulary (`fill` → `solid`, `text` → `label`, …), so
+  migrate the call sites first and bump second — the reverse leaves buttons silently unstyled. The
+  bump closes JP-O-09, JP-O-10 and JP-O-11 ([ISSUES-OUTER.md](ISSUES-OUTER.md)).

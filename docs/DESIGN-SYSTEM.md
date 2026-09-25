@@ -4,15 +4,24 @@
 > exact-pinned, lockstep). This doc pins the **rules for consuming it** so the app never re-implements what
 > the library already owns. Same spirit as `DOCUMENT-FORMAT.md`: a small set of invariants everyone honors.
 >
-> **Status:** adopted 2026-07-09 (from the owner's review of the `/draw` chrome). Companion to
+> **Status:** adopted 2026-07-09. Companion to
 > `ARCHITECTURE.md` (boundaries), `REVIEW.md` (the per-change bar), `NOTES.md` (gotchas).
+>
+> **oriui is a separate library**, maintained alongside this project and consumed as a pinned dependency
+> (`@oriui/{vue,css,headless}`, currently `1.0.0-rc.18`, all three in lockstep).
 >
 > **Read the oriui source, not `dist`.** The authority is the oriui repo checked out alongside this one —
 > **`../vueinjar`** (`@oriui/{css,headless,vue}` under `packages/`, guides under `docs/content/guides/`) — and the
 > published docs: <https://oriui.vercel.app/llms-full.txt> (everything in one file) + `/guides/{customization,theming,design-tokens}`.
 > Reading `node_modules/**/dist` instead cost two wrong claims about the Button API (2026-07-09); don't repeat that.
 > When this doc disagrees with that source, **the library wins — fix this doc.** If a needed component is genuinely
-> missing, tell the owner (they maintain oriui) rather than only wrapping it here.
+> missing, it gets added to oriui upstream — report the gap in `docs/ISSUES-OUTER.md` rather than only wrapping it here.
+>
+> **Naming heads-up.** The next oriui release renames the variant vocabulary this doc uses below —
+> `variant="fill"`→`"solid"`, `"tonal"`→`"soft"`, `color="warn"`→`"warning"`, `radius="zero"`→`"none"`,
+> `"rounded"`→`"full"`, `size="text"`→`"inherit"`, and the content prop `text`→`label` on
+> Button/Tag/Kbd/Divider/ToolbarButton. This doc describes the API as pinned today (`rc.18`); when upgrading,
+> the migration table is oriui's `.changeset/api-vocabulary-rename.md`.
 
 ## 0. The one rule
 
@@ -120,8 +129,8 @@ backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`clos
 
 ## 6. oriui capability map — read the source, don't assume gaps
 
-Every "gap" I first assumed (from `dist`) turned out to already exist in the source — that IS the lesson of §0's
-"read the source". Current status, so no one re-spawns these as wants:
+Every "gap" first assumed (from `dist`) turned out to already exist in the source — that IS the lesson of §0's
+"read the source". Current status, so nobody re-opens these as wants:
 
 - **Elevation** — `--ori-shadow-{sm,md,lg,ring}` tokens (theme-aware; `OriDialog`/`OriPopover` use `-lg`). Alpha-11
   shipped **`OriSurface`**, oriui's elevation primitive, whose defaults reproduce the old `.jp-float` island look —
@@ -159,5 +168,5 @@ Every "gap" I first assumed (from `dist`) turned out to already exist in the sou
     a glyph swap is instant — which is what unblocked flipping the active item to `color="primary"` above.
 - **`llms-full.txt`** — published (oriui.vercel.app + `/guides/*`), just not in the npm tarball. Read it.
 
-**If something IS genuinely missing** (or broken, like A/B above), tell the owner (they maintain oriui) — but confirm
-against `../vueinjar` first, never assume from `dist`.
+**If something IS genuinely missing** (or broken, like A/B above), it gets added to oriui upstream — report the gap in
+`docs/ISSUES-OUTER.md`, but confirm against `../vueinjar` first, never assume from `dist`.
