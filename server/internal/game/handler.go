@@ -80,7 +80,7 @@ type matchDTO struct {
 	Players []playerDTO `json:"players"`
 	// DrawingDeadline is the absolute round deadline (RFC3339Nano, UTC); null while
 	// `open`. ServerTime is the response-build instant (always present) so the
-	// client corrects clock skew before counting down (docs/DESIGN-PHASE3-LIVE.md §2.8).
+	// client corrects clock skew before counting down (docs/API.md §8).
 	DrawingDeadline *string   `json:"drawingDeadline"`
 	ServerTime      string    `json:"serverTime"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -93,7 +93,7 @@ type matchEnvelope struct {
 
 // formatDeadline renders an optional deadline as RFC3339Nano (UTC), or nil while
 // the match is `open` (no deadline stamped yet). Same format as serverTime so the
-// client parses one shape (docs/DESIGN-PHASE3-LIVE.md §2.8).
+// client parses one shape (docs/API.md §8).
 func formatDeadline(t *time.Time) *string {
 	if t == nil {
 		return nil
@@ -232,7 +232,7 @@ type submitMatch struct {
 	Status string    `json:"status"`
 	You    submitYou `json:"you"`
 	// Same deadline/clock pair as matchDTO, so the submit ack re-anchors the
-	// client countdown without a follow-up GET (docs/DESIGN-PHASE3-LIVE.md §2.8).
+	// client countdown without a follow-up GET (docs/API.md §8.3).
 	DrawingDeadline *string `json:"drawingDeadline"`
 	ServerTime      string  `json:"serverTime"`
 }
@@ -270,7 +270,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 			web.Error(w, http.StatusConflict, web.CodeConflict, "already submitted")
 		case errors.Is(err, ErrRoundExpired):
 			// The match moved on (forfeit/abandon); the client treats a 409 here as
-			// "go poll the result", not an error toast (docs/DESIGN-PHASE3-LIVE.md §2.4).
+			// "go poll the result", not an error toast (docs/API.md §8.3).
 			web.Error(w, http.StatusConflict, web.CodeConflict, "round expired")
 		default:
 			h.logger.Error("submit", "err", err)
@@ -377,7 +377,7 @@ type resultDone struct {
 	Reason       *string   `json:"reason"`
 	// Resolution is how the match was decided: 'judged' | 'forfeit' | 'aborted'. The
 	// client branches its copy on this, never on the free-text Reason
-	// (docs/DESIGN-PHASE3-LIVE.md §2.8, docs/GAME.md §4.1).
+	// (docs/GAME.md §4.1).
 	Resolution string            `json:"resolution"`
 	Players    []resultPlayerDTO `json:"players"`
 }
@@ -465,7 +465,7 @@ func buildResultDTO(v ResultView) any {
 	}
 	text := v.PromptText
 	// Default nil (legacy pre-migration `done` rows) to 'judged' so the field is
-	// never empty on a completed match (docs/DESIGN-PHASE3-LIVE.md §2.8).
+	// never empty on a completed match (docs/API.md §8.4).
 	resolution := resolutionJudged
 	if v.Resolution != nil {
 		resolution = *v.Resolution

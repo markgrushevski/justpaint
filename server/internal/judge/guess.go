@@ -9,13 +9,13 @@ import (
 	"unicode/utf8"
 )
 
-// --- ALSO OURS, AND ALSO NOT THE COLLABORATOR'S CONTRACT ---------------------
+// --- ALSO OURS, AND ALSO NOT THE EXTERNAL JUDGE'S CONTRACT --------------------
 //
 // This is the THIRD seam in this package and the second LOCAL one, for exactly
 // the reason Critic is local: docs/JUDGE.md is FROZEN, it is an agreement with an
-// external ML collaborator, it takes TWO images and answers a comparative
-// question, and it does not move without him. He implements Judge. He does NOT
-// implement Guesser, he is not asked to, and his service has no such endpoint.
+// external ML judge service, it takes TWO images and answers a comparative
+// question, and it does not change unilaterally. The external ML judge
+// implements Judge. It does NOT implement Guesser — that endpoint does not exist.
 //
 // What makes a guess a different question is what is MISSING from it. A Critique
 // scores ONE drawing against the prompt it was drawn for; a guess has no prompt,
@@ -47,7 +47,7 @@ const (
 	maxGuessAlternatives = 2
 )
 
-// Guesser names what is in ONE drawing. Ours, not the collaborator's — see the
+// Guesser names what is in ONE drawing. Ours, not the external judge's — see the
 // note above.
 //
 // It takes the raw PNG rather than a request struct because there is genuinely

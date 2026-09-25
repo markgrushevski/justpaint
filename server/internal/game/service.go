@@ -47,7 +47,7 @@ const (
 	statusAbandoned = "abandoned"
 )
 
-// Match resolutions (docs/DESIGN-PHASE3-LIVE.md §2.7, docs/GAME.md §4.1): how a
+// Match resolutions (docs/GAME.md §4.1): how a
 // `done` match was decided. Only `done` rows carry one; `abandoned` (no result)
 // stays null. The DB check constraint (migration 00005) pins the same three.
 const (
@@ -73,7 +73,7 @@ const defaultJudgeConcurrency = 2
 // roundSeconds is the drawing-round length, stamped as the absolute
 // drawing_deadline (now() + roundSeconds) when the roster fills and the match
 // flips open→drawing. A Go constant, not a column — changing it needs no
-// migration (docs/DESIGN-PHASE3-LIVE.md §2.1).
+// migration (docs/GAME.md §4.1).
 const roundSeconds = 90
 
 // Sentinel errors the handler maps onto HTTP responses.
@@ -95,7 +95,7 @@ var (
 	ErrAlreadySubmitted = errors.New("game: already submitted")
 	// ErrRoundExpired: the drawing deadline passed before this submit landed. The
 	// late submission is NOT stamped; the match is resolved (forfeit/abandoned)
-	// instead → 409 (docs/DESIGN-PHASE3-LIVE.md §2.4).
+	// instead → 409 (docs/API.md §8.3).
 	ErrRoundExpired = errors.New("game: round deadline passed")
 )
 
@@ -135,8 +135,7 @@ type Service struct {
 	logger   *slog.Logger
 	// publisher pushes committed transitions to the realtime layer. It defaults to
 	// NopPublisher (no realtime) and is swapped for the ws hub via SetPublisher, so
-	// NewService keeps its signature and the round-deadline suite runs unchanged
-	// (docs/DESIGN-PHASE3-LIVE.md §3.2).
+	// NewService keeps its signature and the round-deadline suite runs unchanged.
 	publisher Publisher
 	// judging bounds concurrent judging passes across BOTH dispatch paths (the last
 	// submit and the sweeper). Never nil — both constructors build it.
@@ -230,7 +229,7 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 		}
 		// Roster full → start the round AND stamp the server-authoritative deadline
 		// (now() + roundSeconds, the DB's own clock). Replaces the generic status
-		// flip only at this open→drawing site (docs/DESIGN-PHASE3-LIVE.md §2.3).
+		// flip only at this open→drawing site (docs/GAME.md §4.1).
 		if m, err = qtx.SetMatchDrawing(ctx, db.SetMatchDrawingParams{ID: m.ID, RoundSeconds: roundSeconds}); err != nil {
 			return MatchView{}, fmt.Errorf("game: start match: %w", err)
 		}
@@ -290,7 +289,7 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 	// Post-commit: the waiting player's socket learns the opponent joined and the
 	// round started (open→drawing stamped the deadline). Only the join branch flips
 	// state; the reuse/create branches leave a lone-open match nobody is watching yet
-	// (docs/DESIGN-PHASE3-LIVE.md §2.4 publish sites).
+	// (docs/API.md §9.2).
 	if joined {
 		s.publisher.MatchChanged(m.ID)
 	}
@@ -428,7 +427,7 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 	// silently converting the opponent's forfeit win into a judged match. Resolve
 	// the expiry here instead; the late submission is NOT stamped (we return before
 	// CreateDrawing/StampSubmission). Fire judging only for the defensive
-	// both-submitted case (docs/DESIGN-PHASE3-LIVE.md §2.4).
+	// both-submitted case (docs/GAME.md §4.1).
 	if isExpiredDrawing(m) {
 		outcome, err := s.resolveExpiry(ctx, qtx, m)
 		if err != nil {
@@ -442,7 +441,7 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		}
 		// Uniform post-commit tail, identical to the sweeper's: the WINNING opponent
 		// (not on this request) is notified the instant this late submit forfeited the
-		// round (docs/DESIGN-PHASE3-LIVE.md §2.4, §3.2).
+		// round (docs/API.md §9.2).
 		s.publishOutcome(matchID, outcome)
 		return SubmitResult{}, ErrRoundExpired
 	}
@@ -499,7 +498,7 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 
 	// Post-commit realtime: tell the room this player submitted (the frame carries
 	// {userId}; clients ignore their own), and — if this was the last submission that
-	// flipped the match to judging — that judging began (docs/DESIGN-PHASE3-LIVE.md §3.2).
+	// flipped the match to judging — that judging began (docs/API.md §9.2).
 	s.publisher.PlayerSubmitted(matchID, userID)
 	if triggerJudging {
 		s.publisher.Judging(matchID)
@@ -521,7 +520,7 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 //
 // SetMatchJudging (not the generic status flip) stamps judging_started_at + the
 // attempt counter, so the stuck-judging watchdog measures staleness per attempt
-// (docs/DESIGN-PHASE3-LIVE.md §2.3, §2.6).
+// (docs/GAME.md §4.1).
 //
 // The ledger row commits with the flip: a pass that never became a pass is never
 // billed, and a re-fire — which really does make another request — is billed
@@ -723,7 +722,7 @@ type finalResult struct {
 // the ladder — not only match_players), then winner/reason/resolution on the match.
 // Elo is applied here in exactly ONE place, shared by the judged and forfeit paths
 // and keyed by user_id. It commits nothing — the caller owns the tx
-// (docs/DESIGN-PHASE3-LIVE.md §2.4, §2.7).
+// (docs/GAME.md §8).
 //
 // The ladder move is ATOMIC: ApplyRatingDelta does `rating = rating + delta` and RETURNs
 // the true post-update rating, so two DIFFERENT matches sharing a player and resolving
@@ -795,7 +794,7 @@ func (s *Service) persistResult(ctx context.Context, matchID string, res judge.R
 	}
 
 	// Shared terminal writer (Elo in one place, seat-safe) — the judged path
-	// (docs/DESIGN-PHASE3-LIVE.md §2.7). The forfeit path calls the same helper.
+	// (docs/GAME.md §8). The forfeit path calls the same helper.
 	if err := s.writeFinalResult(ctx, qtx, matchID, finalResult{
 		winner:     winner,
 		players:    []playerResult{a, b},
@@ -810,7 +809,7 @@ func (s *Service) persistResult(ctx context.Context, matchID string, res judge.R
 	// Post-commit: both duelists' sockets get their per-viewer verdict. Reached only
 	// when this pass actually wrote the result (the status != judging early return
 	// above never gets here), so a losing double-judge does not double-publish
-	// (docs/DESIGN-PHASE3-LIVE.md §3.2).
+	// (docs/API.md §9.2).
 	s.publisher.Resolved(matchID)
 	return nil
 }

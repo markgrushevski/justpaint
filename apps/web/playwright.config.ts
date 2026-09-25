@@ -11,7 +11,7 @@ import { defineConfig, devices } from '@playwright/test'
  *
  * `tests/layout/` rides the same harness for a different blind spot: rendered
  * GEOMETRY. Absolutely-positioned chrome can be painted on top of itself with
- * every other gate green (JP-I-05), and only a real browser has the pixels to
+ * every other gate green, and only a real browser has the pixels to
  * say so. Its own command (`npm run test:layout`) — same reason.
  */
 export default defineConfig({

@@ -25,7 +25,7 @@ func UserID(ctx context.Context) (string, bool) {
 
 // SessionExpiry returns the authenticated session's expiry that RequireAuth placed in
 // ctx (the JWT exp). The WS upgrade handler reads it to close a long-lived socket at
-// session end (docs/DESIGN-PHASE3-LIVE.md §3.4). Absent/zero on an unauthenticated ctx.
+// session end (docs/API.md §9.1). Absent/zero on an unauthenticated ctx.
 func SessionExpiry(ctx context.Context) (time.Time, bool) {
 	v, ok := ctx.Value(expiryKey).(time.Time)
 	return v, ok

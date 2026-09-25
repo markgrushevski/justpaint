@@ -1,5 +1,5 @@
 /**
- * AI Assist — the editor half (ASSIST.md §5, DESIGN-ASSIST-PHASE-A §2.2):
+ * AI Assist — the editor half (ASSIST.md §5):
  * `compositeCommand` (one undo entry for a whole accepted batch, inverted in
  * reverse) and the `Editor.previewOps` / `acceptOps` / `rejectOps` ghost-preview
  * flow. The ghost is a top overlay only — the proposal enters the document and

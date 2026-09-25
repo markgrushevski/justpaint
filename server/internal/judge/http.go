@@ -40,7 +40,7 @@ const httpRetryBase = 250 * time.Millisecond
 // memory.
 const httpMaxResponseBytes = 1 << 20 // 1 MiB
 
-// HTTPJudge is the transport to the collaborator's real ML service
+// HTTPJudge is the transport to the external ML judge's real service
 // (docs/JUDGE.md §7), implementing Judge over the wire contract §6 pins. It is
 // stateless and safe for concurrent use — the game module runs up to
 // JudgeConcurrency judging passes at once (internal/game/service.go).
@@ -66,7 +66,7 @@ type HTTPJudge struct {
 	retryBase time.Duration
 }
 
-// NewHTTPJudge builds a client for the collaborator's service at baseURL (a
+// NewHTTPJudge builds a client for the external ML judge's service at baseURL (a
 // trailing slash is tolerated and trimmed, so callers can't accidentally send
 // a doubled slash before /v1/score). timeout bounds ONE attempt, retries
 // excluded: internal/platform/config's JudgeTimeout doc comment reads §7's
@@ -103,8 +103,8 @@ type httpWireResponse struct {
 }
 
 // httpErrorBody mirrors the {error:{code,message}} shape §6 promises on a
-// non-2xx. That code space is the collaborator's own, independent of API.md
-// §3's closed set (§6's note) — we only read it to make an error/log line
+// non-2xx. That code space belongs to the external ML judge, independent of
+// API.md §3's closed set (§6's note) — we only read it to make an error/log line
 // readable, never to branch on.
 type httpErrorBody struct {
 	Error struct {
@@ -197,7 +197,7 @@ func (h *HTTPJudge) attempt(ctx context.Context, body []byte, idemKey string) (R
 	result := Result{ScoreA: wire.ScoreA, ScoreB: wire.ScoreB, Winner: wire.Winner, Reason: wire.Reason}
 	if err := result.Validate(); err != nil {
 		// A 200 that fails §2 validation is a CONTRACT VIOLATION, not a
-		// verdict, and not worth a retry either: the collaborator's service is
+		// verdict, and not worth a retry either: the external ML judge's service is
 		// pure, so a same-content retry earns the same broken body back.
 		// Validate's error already wraps ErrInvalidResult.
 		return Result{}, false, fmt.Errorf("judge: http: %w", err)

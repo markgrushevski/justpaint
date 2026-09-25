@@ -17,8 +17,8 @@ import (
 // 404, because the route only exists once the bundle boots.
 //
 // Why the Go binary serves the frontend at all: the session cookie and the
-// WebSocket upgrade are same-origin by design (docs/API.md, docs/DESIGN-PHASE3-LIVE.md
-// §3.4 — the origin check never allows "*"), and the service sets no CORS
+// WebSocket upgrade are same-origin by design (docs/API.md §9.1 — the origin
+// check never allows "*"), and the service sets no CORS
 // headers whatsoever. Serving the SPA from a second origin would therefore break
 // every authenticated request unless something else re-unified the origins. One
 // binary serving both keeps the deployment a single unit: no proxy to configure,

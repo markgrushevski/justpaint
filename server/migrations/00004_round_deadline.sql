@@ -1,7 +1,7 @@
 -- +goose Up
 
 -- Server-authoritative round deadline + forfeit/abandon resolution (docs/GAME.md
--- §3/§4, docs/DESIGN-PHASE3-LIVE.md §2). Until now the 90s round timer lived only
+-- §3/§4). Until now the 90s round timer lived only
 -- on the client and a match whose opponent never submitted had NO exit from
 -- `drawing` — this makes the deadline a real column the server stamps, enforces,
 -- and sweeps.

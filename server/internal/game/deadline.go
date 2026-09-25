@@ -8,8 +8,7 @@ import (
 )
 
 // resolveOutcome is what resolveExpiry decided for a locked match row, so the
-// caller knows whether to fire judging after committing
-// (docs/DESIGN-PHASE3-LIVE.md §2.4).
+// caller knows whether to fire judging after committing (docs/GAME.md §4.1).
 type resolveOutcome int
 
 const (
@@ -20,13 +19,13 @@ const (
 )
 
 // forfeitReason is the human-prose judge_reason stamped on a forfeit. The client
-// branches on resolution == 'forfeit', never on this text (docs/DESIGN-PHASE3-LIVE.md §2.7).
+// branches on resolution == 'forfeit', never on this text (docs/API.md §8.4).
 const forfeitReason = "opponent did not submit before the deadline"
 
 // isExpiredDrawing reports whether a locked match row is a drawing round whose
 // deadline has passed on the DB clock (row.ServerNow) — the single condition that
 // makes resolveExpiry act, and the exact guard Submit uses to reject a late submit.
-// Pure so both share one predicate that cannot drift (docs/DESIGN-PHASE3-LIVE.md §2.4).
+// Pure so both share one predicate that cannot drift.
 // Boundary: serverNow == deadline counts as expired (!Before ⇒ >=).
 func isExpiredDrawing(row db.GetMatchForUpdateRow) bool {
 	return row.Status == statusDrawing &&
@@ -68,7 +67,7 @@ func decideExpiry(players []db.GetMatchPlayersForResolveRow) (resolveOutcome, fi
 // submitter wins by default (sa = scoreWin) and the non-submitter forfeits, Elo from
 // the same computeElo the judged path uses (K = 32). Neither carries a judge
 // similarity score (nil — no judge ran on a single image); reason names the forfeit
-// and resolution is 'forfeit' (docs/DESIGN-PHASE3-LIVE.md §2.7). Pure, so the
+// and resolution is 'forfeit' (docs/GAME.md §8). Pure, so the
 // seat mapping is table-testable.
 func forfeitResult(submitter, forfeiter db.GetMatchPlayersForResolveRow) finalResult {
 	afterWin, afterLose := computeElo(int(submitter.Rating), int(forfeiter.Rating), scoreWin)
@@ -90,7 +89,7 @@ func forfeitResult(submitter, forfeiter db.GetMatchPlayersForResolveRow) finalRe
 // redundantly: a submit that just committed, or a second sweeper, sees a non-drawing
 // status or an unexpired deadline and returns outcomeNone. It commits nothing and
 // fires no judging — the caller does both after a successful commit, from the
-// returned outcome (docs/DESIGN-PHASE3-LIVE.md §2.4).
+// returned outcome.
 func (s *Service) resolveExpiry(ctx context.Context, qtx *db.Queries, row db.GetMatchForUpdateRow) (resolveOutcome, error) {
 	if !isExpiredDrawing(row) {
 		return outcomeNone, nil

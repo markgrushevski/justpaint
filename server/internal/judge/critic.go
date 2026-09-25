@@ -8,12 +8,12 @@ import (
 	"unicode/utf8"
 )
 
-// --- THIS IS OURS, AND IT IS NOT THE COLLABORATOR'S CONTRACT -----------------
+// --- THIS IS OURS, AND IT IS NOT THE EXTERNAL JUDGE'S CONTRACT ---------------
 //
 // Everything above in this package mirrors docs/JUDGE.md, which is FROZEN: it is
-// an agreement with an external ML collaborator, it takes TWO images and answers
-// a comparative question (scoreA / scoreB / winner), and it does not move without
-// him.
+// an agreement with an external ML judge service, it takes TWO images and answers
+// a comparative question (scoreA / scoreB / winner), and it does not change
+// unilaterally.
 //
 // Practice asks a different question — "how well does this ONE drawing depict the
 // prompt?" — for a player who has no opponent (docs/GAME.md §10: the duel needs
@@ -23,9 +23,9 @@ import (
 // answer), or widening the frozen interface. So it gets its own, small, LOCAL
 // seam instead.
 //
-// The collaborator implements Judge. He does NOT implement Critic, he is not
-// asked to, and his service has no critique endpoint — which is precisely why
-// JUDGE_MODE=http leaves practice unconfigured rather than silently faking it.
+// The external ML judge implements Judge. It does NOT implement Critic — that
+// endpoint does not exist — which is precisely why JUDGE_MODE=http leaves
+// practice unconfigured rather than silently faking it.
 
 // maxFeedbackLen bounds the player-facing critique. Same number as the duel's
 // reason cap and for the same reason (it is one or two sentences on a result
@@ -34,7 +34,7 @@ import (
 const maxFeedbackLen = 500
 
 // Critic scores ONE drawing against the prompt it was drawn for. Ours, not the
-// collaborator's — see the note above.
+// external judge's — see the note above.
 type Critic interface {
 	Critique(ctx context.Context, req CritiqueRequest) (Critique, error)
 }

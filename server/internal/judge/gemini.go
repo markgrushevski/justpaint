@@ -236,7 +236,7 @@ func (c *GeminiClient) attempt(ctx context.Context, body []byte) (GeminiOutput, 
 	return out, false, nil
 }
 
-// GeminiJudge is a REAL verdict while the collaborator's ML is built: it sends
+// GeminiJudge is a REAL verdict while the external ML judge is built: it sends
 // both judged rasters to Google's Generative Language API in ONE vision call and
 // takes the model's structured JSON as the JUDGE.md §2 result. Unlike FakeJudge
 // it actually reads the prompt — which is the entire premise of the game.

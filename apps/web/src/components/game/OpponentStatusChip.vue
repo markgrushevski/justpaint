@@ -26,7 +26,7 @@ const props = defineProps<{
     status: OpponentStatus
     /**
      * Best-effort live-socket presence (`opponent_connected`/`opponent_disconnected`,
-     * docs/DESIGN-PHASE3-LIVE.md §3.5/§3.7) — `false` dims the chip and stills its
+     * docs/API.md §9.2) — `false` dims the chip and stills its
      * pulse as a subtle "gone quiet" hint. Deliberately NOT load-bearing: `status`
      * (REST/poll-derived) stays the authoritative round state regardless, so a
      * dropped socket never hides that the opponent already submitted. `undefined`

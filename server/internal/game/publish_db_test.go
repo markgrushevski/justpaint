@@ -18,7 +18,7 @@ import (
 // TestMatchStateJSON_PerViewerRedaction_DB is the DB-backed proof that the WS hub's
 // per-viewer match_state (built via Service.MatchStateJSON) applies the SAME runtime
 // redaction as REST: mid-round (status != done), a viewer sees their OWN drawingId and
-// NEVER the opponent's (docs/GAME.md §4.2, docs/DESIGN-PHASE3-LIVE.md §3.6). This is the
+// NEVER the opponent's (docs/GAME.md §4.2). This is the
 // one assertion that would catch a hub that leaks the opponent's id before the match is
 // done — the moment any membership-only reveal ships, that would be a live hole. Needs a
 // migrated DATABASE_URL (docker compose up + goose up); skips otherwise, matching

@@ -19,7 +19,7 @@ import (
 const (
 	// wsStatusSessionExpired is the private (4000–4999) close code sent when a socket
 	// outlives its session's JWT exp. The client treats it as "re-authenticate", not a
-	// transient drop (docs/DESIGN-PHASE3-LIVE.md §3.4).
+	// transient drop (docs/API.md §9.1).
 	wsStatusSessionExpired = websocket.StatusCode(4001)
 	// wsStatusIdleTimeout is the private close code sent when heartbeatLoop evicts a
 	// connection that has gone read-idle for Limits.ReadIdleTimeout (docs/API.md §9.1).
@@ -64,7 +64,7 @@ type Handler struct {
 	hub *Hub
 	svc *game.Service
 	// originPatterns authorize cross-Host origins on the handshake (the split-host dev
-	// proxy). The request Host is always authorized; never "*" (docs/DESIGN-PHASE3-LIVE.md §3.4).
+	// proxy). The request Host is always authorized; never "*" (docs/API.md §9.1).
 	originPatterns []string
 	logger         *slog.Logger
 	limits         Limits

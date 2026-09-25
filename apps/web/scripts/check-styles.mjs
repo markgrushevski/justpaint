@@ -5,7 +5,7 @@
  * keeps the bundle honest but leaves a list that a human must remember to update.
  * It was already wrong: `OriBadge` and `OriSkeleton` were rendered on /leaderboard
  * and in the judging overlay with no block styles at all, because nobody added
- * their two lines (JP-I-01).
+ * their two lines.
  *
  * The check is deliberately about SELECTORS, not filenames. Some component CSS is
  * inlined into another file — `.ori-spinner` ships inside button.css — so asking

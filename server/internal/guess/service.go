@@ -83,7 +83,7 @@ const maxRasterBytes = 4 << 20 // 4 MiB
 // Sentinel errors the handler maps onto HTTP responses.
 var (
 	// ErrNotConfigured: no guesser is wired, which today means JUDGE_MODE=http —
-	// the collaborator's service implements the two-image Judge contract and has no
+	// the external judge service implements the two-image Judge contract and has no
 	// endpoint that looks at one drawing and names it (docs/JUDGE.md §2 is frozen).
 	// → 500.
 	//
@@ -118,7 +118,7 @@ var (
 // because a guess is not written down (see the package comment).
 type Service struct {
 	renderer render.Renderer
-	// guesser is the seam (judge.Guesser — ours, not the collaborator's frozen
+	// guesser is the seam (judge.Guesser — ours, not the external judge's frozen
 	// Judge). Nil means the feature is not configured; see ErrNotConfigured.
 	guesser judge.Guesser
 	budget  aibudget.Check

@@ -24,7 +24,7 @@ for update;
 -- name: SetMatchResult :one
 -- Terminal write for the → done transition: winner (null = tie), the judge's
 -- reason verbatim, and how the match resolved ('judged' or 'forfeit'), status
--- done (docs/GAME.md §4.1, §7.1, docs/DESIGN-PHASE3-LIVE.md §2.7).
+-- done (docs/GAME.md §4.1, §7.1).
 update matches
 set status = 'done', winner_player_id = $2, judge_reason = $3, resolution = $4, updated_at = now()
 where id = $1
@@ -91,7 +91,7 @@ order by mp.submitted_at asc nulls last, mp.user_id asc;
 -- Start the round: the roster just filled, so flip open→drawing AND stamp the
 -- server-authoritative deadline as now() + the round length (seconds). One clock
 -- authority — the deadline every reader and the sweeper compare against is the
--- DB's own now() (docs/DESIGN-PHASE3-LIVE.md §2).
+-- DB's own now() (docs/GAME.md §4.1).
 update matches
 set status = 'drawing',
     drawing_deadline = now() + make_interval(secs => sqlc.arg('round_seconds')::int),
@@ -130,7 +130,7 @@ for update skip locked;
 
 -- name: ListStuckJudgingMatches :many
 -- Judging rows wedged past the stale window with retries left — a crashed/hung
--- judge attempt to re-fire (docs/DESIGN-PHASE3-LIVE.md §2.6). Staleness is measured
+-- judge attempt to re-fire. Staleness is measured
 -- against judging_started_at (the current attempt), not updated_at. The rows this
 -- filter excludes on judge_attempts are NOT dropped: ListExhaustedJudgingMatches
 -- below is its exact complement (>= the same cap, same stale window) and sweeps
@@ -160,7 +160,7 @@ for update skip locked;
 
 -- name: ListStaleOpenMatches :many
 -- Open matches nobody joined within the TTL — reaped to abandoned so a ghost can't
--- later ambush a fresh joiner (docs/DESIGN-PHASE3-LIVE.md §2.6, §5 Q9).
+-- later ambush a fresh joiner (docs/GAME.md §4.1).
 select id from matches
 where status = 'open' and created_at <= now() - make_interval(secs => sqlc.arg('ttl_secs')::int)
 order by created_at

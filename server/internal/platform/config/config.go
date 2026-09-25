@@ -76,7 +76,7 @@ type Config struct {
 	// everyone.
 	//
 	// AIDailyGlobal is applied PER PROVIDER AND MODEL, not once across all of them:
-	// Google running dry must never refuse a feature served by the collaborator's
+	// Google running dry must never refuse a feature served by the external ML judge's
 	// own service, which has its own quota entirely, and — since Google meters its
 	// free tier per MODEL — a kind pinned to one model must not be refused because
 	// a different kind emptied a different model's pool. Which provider and model
@@ -114,10 +114,10 @@ type Config struct {
 
 	// JudgeMode selects the judge impl (docs/JUDGE.md): "fake" (default; the
 	// zero-dependency ink-coverage stand-in that never reads the prompt), "http"
-	// (the collaborator's ML over the §6 contract) or "gemini" (a vision LLM
+	// (the external ML judge over the §6 contract) or "gemini" (a vision LLM
 	// scoring both rasters in one call — the real verdict while the ML is built).
 	JudgeMode string
-	// JudgeBaseURL is the collaborator's service root, required for JudgeMode
+	// JudgeBaseURL is the external ML judge's service root, required for JudgeMode
 	// "http" (§7).
 	JudgeBaseURL string
 	// JudgeTimeout bounds ONE judging call, retries excluded (§7 pins 10s). The
@@ -181,7 +181,7 @@ type Config struct {
 	// case: the dev Vite proxy sets changeOrigin, so the backend sees Host=:8080 while
 	// the browser Origin is :7777, which the default same-origin check would reject.
 	// NEVER contains "*" (that would open the socket to cross-site CSRF via the auto-
-	// attached cookie) — docs/DESIGN-PHASE3-LIVE.md §3.4.
+	// attached cookie) — docs/API.md §9.1.
 	WSAllowedOrigins []string
 }
 
@@ -251,13 +251,6 @@ const (
 	AssistModeFake   = "fake"
 	AssistModeGemini = "gemini"
 )
-
-// assistModeRetiredAnthropic is the one ASSIST_MODE value that used to boot and
-// no longer does (docs/DECISIONS.md 2026-09-20). It sits apart from the modes
-// above on purpose: it is not a mode, it is a wire value kept only so the switch
-// below can refuse it BY NAME. Drop it once no deployment can plausibly still
-// carry it.
-const assistModeRetiredAnthropic = "anthropic"
 
 // DefaultJudgeTimeout bounds one judging call (docs/JUDGE.md §7). ML inference
 // and a vision LLM are both slow; JUDGE_TIMEOUT overrides it.
@@ -469,16 +462,6 @@ func Load() (Config, error) {
 		if cfg.GeminiAPIKey == "" {
 			return Config{}, fmt.Errorf("config: GEMINI_API_KEY is required when ASSIST_MODE=%s", AssistModeGemini)
 		}
-	case assistModeRetiredAnthropic:
-		// Refused BY NAME rather than left to the generic error below, because this is
-		// the one value that used to boot: a deployment still carrying it is not a
-		// typo, it is out of date, and naming the valid set does not tell such an
-		// operator WHICH of the two they meant. Silently falling back to the default
-		// would be worse than either — "fake" boots green and then answers every
-		// prompt with the same canned house, which is a dead feature wearing a live
-		// one's face.
-		return Config{}, fmt.Errorf("config: ASSIST_MODE=%s was removed — the real assist impl is Gemini; set ASSIST_MODE=%s (with GEMINI_API_KEY) or %s, and drop ANTHROPIC_API_KEY/ASSIST_MODEL",
-			assistModeRetiredAnthropic, AssistModeGemini, AssistModeFake)
 	default:
 		return Config{}, fmt.Errorf("config: ASSIST_MODE must be %q or %q", AssistModeFake, AssistModeGemini)
 	}

@@ -86,7 +86,7 @@ func withMatchmaking(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fn f
 //	(g) two KINDS do not share a per-user cap — a player out of duels can still
 //	    practice;
 //	(h) two PROVIDERS do not share the global cap — Google running dry must not
-//	    throttle a kind backed by the collaborator's own service.
+//	    throttle a kind backed by the external ML judge's service.
 //
 // (g) and (h) are the two behaviours the ledger bought. Before it, per-user was
 // one pot across every AI feature and the global count was service-wide, so both

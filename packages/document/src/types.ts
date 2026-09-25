@@ -189,9 +189,9 @@ export type OpStroke = LineStroke | RectStroke | EllipseStroke | PolygonStroke
 export type Op = { kind: 'add_layer'; id: Id; name: string } | { kind: 'add_stroke'; layerId: Id; stroke: OpStroke }
 
 /**
- * Minimal document summary the assist endpoint receives (Phase A). Just enough to
+ * Minimal document summary the assist endpoint receives. Just enough to
  * seed the id namespace and resolve layer references — NOT the full document.
- * See docs/DESIGN-ASSIST-PHASE-A.md §1 resolution 3.
+ * See docs/ASSIST.md §4.
  */
 export interface DocSummary {
     canvas: { width: number; height: number }

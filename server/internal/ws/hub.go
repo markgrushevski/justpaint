@@ -8,7 +8,7 @@
 // through the game.Publisher seam (game defines it, ws implements it: the dependency
 // runs ws→game only, so there is no import cycle). Per-viewer visibility (GAME.md §4.2)
 // is preserved by rebuilding match_state / result PER RECIPIENT via the game read seam,
-// never by a marshal-once broadcast (docs/DESIGN-PHASE3-LIVE.md §3).
+// never by a marshal-once broadcast (docs/API.md §9.2).
 package ws
 
 import (
@@ -25,17 +25,16 @@ import (
 // allowed up to this). Authenticated is not unbounded: without a cap one valid member
 // could open thousands of sockets (2 goroutines + buffers each) via a reconnect loop.
 // On exceed, the OLDEST is force-closed before the newcomer is admitted
-// (docs/DESIGN-PHASE3-LIVE.md §3.3).
+// (docs/API.md §9.1).
 const wsMaxConnsPerUser = 5
 
 // wsPublishBuffer sizes the hub's inbound event channel. A committed game transition
 // enqueues here via a NON-BLOCKING send; if it is ever full (a wedged hub loop), the
-// event is dropped + logged rather than blocking the committed path
-// (docs/DESIGN-PHASE3-LIVE.md §3.2).
+// event is dropped + logged rather than blocking the committed path.
 const wsPublishBuffer = 64
 
 // wsBuildTimeout bounds each per-viewer DB read (MatchStateJSON/ResultJSON — ~3 pool
-// reads) so a slow/hung DB can't let fan-out goroutines pile up unbounded (jp-go review).
+// reads) so a slow/hung DB can't let fan-out goroutines pile up unbounded.
 const wsBuildTimeout = 5 * time.Second
 
 // stateSource is the game read seam the hub needs to rebuild per-viewer frames. Kept an
@@ -212,9 +211,10 @@ func (h *Hub) handleRegister(r registration) {
 
 	// Seed presence FOR the newcomer: opponent_connected otherwise fires only on a
 	// user's empty→non-empty transition, so a client joining an already-populated room
-	// would never learn the opponent is already present (jp-go review). Send the new
+	// would never learn the opponent is already present. Send the new
 	// client an opponent_connected for each OTHER user already in the room. Best-effort
-	// (a fresh client's buffer won't be full); presence is non-load-bearing (§3.7).
+	// (a fresh client's buffer won't be full); presence is non-load-bearing
+	// (docs/NOTES.md "WS realtime").
 	for uid := range rm.conns {
 		if uid != r.client.id {
 			r.client.trySend(h.userFrameBytes(frameOpponentConnected, uid))
@@ -262,10 +262,10 @@ func (h *Hub) handlePublish(ctx context.Context, ev event) {
 // fanoutPerViewer builds each recipient's OWN redacted frame — once per distinct userID
 // via the game read seam — and non-blocking-sends it to that user's clients. This is
 // where GAME.md §4.2 visibility is enforced on the wire: A's match_state carries A's
-// drawingId and never B's mid-round (docs/DESIGN-PHASE3-LIVE.md §3.6). Runs off the hub
-// loop (its own goroutine); it touches only the client snapshot, never the rooms map. A
-// build that returns ErrNotFound (a user no longer a player) is skipped silently; any
-// other error is logged and skipped. A full-buffer client is force-closed.
+// drawingId and never B's mid-round. Runs off the hub loop (its own goroutine); it
+// touches only the client snapshot, never the rooms map. A build that returns
+// ErrNotFound (a user no longer a player) is skipped silently; any other error is
+// logged and skipped. A full-buffer client is force-closed.
 func (h *Hub) fanoutPerViewer(
 	ctx context.Context,
 	matchID string,

@@ -19,7 +19,7 @@ func requireBaseEnv(t *testing.T) {
 
 // TestLoad_AssistMode pins the ASSIST_MODE mode-switch, mirroring the RENDER_MODE
 // fail-fast: gemini demands GEMINI_API_KEY at boot, an unknown mode is rejected,
-// the retired anthropic mode is rejected BY NAME, and fake is the default.
+// and fake is the default.
 func TestLoad_AssistMode(t *testing.T) {
 	t.Run("default is fake", func(t *testing.T) {
 		requireBaseEnv(t)
@@ -29,26 +29,6 @@ func TestLoad_AssistMode(t *testing.T) {
 		}
 		if cfg.AssistMode != AssistModeFake {
 			t.Errorf("AssistMode = %q, want %q", cfg.AssistMode, AssistModeFake)
-		}
-	})
-
-	// The one thing that must NOT happen to a deployment still carrying the retired
-	// mode: boot green on the default and serve the fake's canned house for every
-	// prompt. It has to fail, and it has to say what replaced it — the operator is
-	// out of date, not mistyping, and the generic "must be fake or gemini" would not
-	// tell them which of the two they wanted.
-	t.Run("the retired anthropic mode is refused by name", func(t *testing.T) {
-		requireBaseEnv(t)
-		t.Setenv("ASSIST_MODE", "anthropic")
-		t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-		cfg, err := Load()
-		if err == nil {
-			t.Fatalf("ASSIST_MODE=anthropic must not boot; it loaded as %q", cfg.AssistMode)
-		}
-		for _, want := range []string{"anthropic", "removed", AssistModeGemini} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("error %q does not mention %q — it has to name what to use instead", err, want)
-			}
 		}
 	})
 
@@ -440,7 +420,7 @@ func TestLoad_DatabaseURLShape(t *testing.T) {
 }
 
 // TestLoad_JudgeMode pins the JUDGE_MODE mode-switch. Each non-fake mode depends
-// on something the process cannot invent — the collaborator's URL, or a
+// on something the process cannot invent — the external ML judge's URL, or a
 // server-side API key — and a mode missing its dependency would fail out of band
 // on the first duel, long after the deploy that broke it. Same fail-fast shape as
 // RENDER_CLI and the ASSIST_MODE switch.

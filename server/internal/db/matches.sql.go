@@ -345,7 +345,7 @@ type ListStaleOpenMatchesParams struct {
 }
 
 // Open matches nobody joined within the TTL — reaped to abandoned so a ghost can't
-// later ambush a fresh joiner (docs/DESIGN-PHASE3-LIVE.md §2.6, §5 Q9).
+// later ambush a fresh joiner (docs/GAME.md §4.1).
 func (q *Queries) ListStaleOpenMatches(ctx context.Context, arg ListStaleOpenMatchesParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, listStaleOpenMatches, arg.TtlSecs, arg.Lim)
 	if err != nil {
@@ -383,7 +383,7 @@ type ListStuckJudgingMatchesParams struct {
 }
 
 // Judging rows wedged past the stale window with retries left — a crashed/hung
-// judge attempt to re-fire (docs/DESIGN-PHASE3-LIVE.md §2.6). Staleness is measured
+// judge attempt to re-fire. Staleness is measured
 // against judging_started_at (the current attempt), not updated_at. The rows this
 // filter excludes on judge_attempts are NOT dropped: ListExhaustedJudgingMatches
 // below is its exact complement (>= the same cap, same stale window) and sweeps
@@ -454,7 +454,7 @@ type SetMatchDrawingParams struct {
 // Start the round: the roster just filled, so flip open→drawing AND stamp the
 // server-authoritative deadline as now() + the round length (seconds). One clock
 // authority — the deadline every reader and the sweeper compare against is the
-// DB's own now() (docs/DESIGN-PHASE3-LIVE.md §2).
+// DB's own now() (docs/GAME.md §4.1).
 func (q *Queries) SetMatchDrawing(ctx context.Context, arg SetMatchDrawingParams) (Match, error) {
 	row := q.db.QueryRow(ctx, setMatchDrawing, arg.RoundSeconds, arg.ID)
 	var i Match
@@ -523,7 +523,7 @@ type SetMatchResultParams struct {
 
 // Terminal write for the → done transition: winner (null = tie), the judge's
 // reason verbatim, and how the match resolved ('judged' or 'forfeit'), status
-// done (docs/GAME.md §4.1, §7.1, docs/DESIGN-PHASE3-LIVE.md §2.7).
+// done (docs/GAME.md §4.1, §7.1).
 func (q *Queries) SetMatchResult(ctx context.Context, arg SetMatchResultParams) (Match, error) {
 	row := q.db.QueryRow(ctx, setMatchResult,
 		arg.ID,

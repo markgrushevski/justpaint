@@ -11,7 +11,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/db"
 )
 
-// Sweeper tunables (docs/DESIGN-PHASE3-LIVE.md §2.4, §2.6). Constants for now; a
+// Sweeper tunables (docs/GAME.md §4.1). Constants for now; a
 // per-prompt round length or telemetry-tuned staleness is an additive change.
 const (
 	// sweepBatch is the page size per phase per tick. A batch that comes back full
@@ -22,12 +22,12 @@ const (
 	// not healthy in-flight attempts.
 	judgeStaleSecs = 45
 	// maxJudgeAttempts caps stuck-judging retries so a genuinely wedged judge does
-	// not spin forever (docs/DESIGN-PHASE3-LIVE.md §2.6, §5 Q5). Hitting the cap is
-	// not the end of the line: sweepExhaustedJudging then closes the match out as
+	// not spin forever. Hitting the cap is not the end of the line:
+	// sweepExhaustedJudging then closes the match out as
 	// `done` + resolution 'aborted' (docs/GAME.md §4.1).
 	maxJudgeAttempts = 3
 	// openTTLSecs reaps open matches nobody joined, so a ghost can't later ambush a
-	// fresh joiner (docs/DESIGN-PHASE3-LIVE.md §2.6, §5 Q9).
+	// fresh joiner (docs/GAME.md §4.1).
 	openTTLSecs = 600
 )
 
@@ -35,8 +35,8 @@ const (
 // client polling. It first drains each phase's backlog to empty (a boot pass that
 // recovers every deadline missed while the process was down — including rows the
 // migration backfilled), then ticks at interval doing one batch per phase. It
-// returns when ctx is cancelled (server shutdown) (docs/DESIGN-PHASE3-LIVE.md §2.4,
-// §2.5). Start it once: `go svc.RunSweeper(ctx, 3*time.Second)`.
+// returns when ctx is cancelled (server shutdown). Start it once:
+// `go svc.RunSweeper(ctx, 3*time.Second)`.
 // Phase order matters: sweepStuckJudging runs BEFORE sweepExhaustedJudging, so a row
 // it re-fires (re-stamping judging_started_at to now()) is no longer stale and cannot
 // be aborted by the very same tick.
@@ -108,7 +108,7 @@ func (s *Service) sweepExpiredDrawing(ctx context.Context) int {
 			s.dispatchJudging(id)
 		}
 		// Uniform post-commit tail (same as the Submit late-path): forfeit→result,
-		// abandoned→abandoned, judging→judging frame (docs/DESIGN-PHASE3-LIVE.md §2.4, §3.2).
+		// abandoned→abandoned, judging→judging frame (docs/API.md §9.2).
 		s.publishOutcome(id, outcome)
 	}
 	return handled
@@ -214,8 +214,7 @@ func (s *Service) sweepExhaustedJudging(ctx context.Context) int {
 			s.logger.Error("match aborted: judging exhausted its retries — no verdict, no rating change",
 				"matchID", id, "attempts", maxJudgeAttempts)
 			// Post-commit: both duelists' sockets get the (unscored) terminal result,
-			// the same frame a judged/forfeit resolution publishes
-			// (docs/DESIGN-PHASE3-LIVE.md §3.2).
+			// the same frame a judged/forfeit resolution publishes (docs/API.md §9.2).
 			s.publisher.Resolved(id)
 		}
 	}
@@ -271,9 +270,9 @@ func (s *Service) abortJudging(ctx context.Context, matchID string) (bool, error
 // judging_started_at) under the row lock, rechecking status=='judging' first so a
 // match that resolved to 'done' between the list and the lock is left alone rather
 // than reverted. Returns whether it actually re-entered judging (⇒ fire judgeMatch).
-// The lock+recheck is a deliberate strengthening of the design's bare SetMatchJudging:
+// The lock+recheck is a deliberate strengthening over a bare SetMatchJudging:
 // SetMatchJudging has no status guard, so an unlocked call could revert a just-done
-// match to judging and re-apply Elo (docs/DESIGN-PHASE3-LIVE.md §2.6).
+// match to judging and re-apply Elo.
 func (s *Service) refireJudging(ctx context.Context, matchID string) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -364,7 +363,7 @@ func (s *Service) reapOpenMatch(ctx context.Context, matchID string) error {
 		return fmt.Errorf("game: commit tx: %w", err)
 	}
 	// Post-commit: a lone creator watching the "searching…" socket learns the match
-	// was reaped (docs/DESIGN-PHASE3-LIVE.md §2.4, §3.2).
+	// was reaped (docs/API.md §9.2).
 	s.publisher.Abandoned(matchID)
 	return nil
 }
