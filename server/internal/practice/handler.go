@@ -110,7 +110,7 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ONE validator for anything that gets scored — the vector-document contract
+	// One validator for anything that gets scored — the vector-document contract
 	// plus the square game canvas (game.ValidateSubmission). A practice drawing and
 	// a duel submission are the same artefact put to the same use.
 	doc, err := game.ValidateSubmission(req.Document)
@@ -126,25 +126,18 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 
 	view, err := h.svc.Run(r.Context(), uid, req.PromptID, doc)
 	if err != nil {
-		// Both budget refusals are 429s and neither is the player's fault in the same
-		// way; the copy for both lives in one place now (aibudget.WriteRefusal),
-		// because deciding what a refusal discloses is one decision, not one per
-		// feature.
-		//
-		// It writes the response as a side effect, so it is tested and branched on
-		// here rather than from inside a switch predicate, where a reader has to know
-		// that evaluating a case can answer the request.
+		// aibudget.WriteRefusal owns the copy for both 429 cases and writes the
+		// response itself, so it is branched on here rather than inside a switch
+		// predicate.
 		if aibudget.WriteRefusal(w, err) {
 			return
 		}
 		switch {
 		case errors.Is(err, ErrPromptNotFound):
 			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
-		// The provider ran out before our own ceiling did — the same news for the
-		// player, from the other end. Answering it as a 500 invites a retry that
-		// cannot succeed until the provider's own window rolls, so it gets the refusal
-		// the global ceiling would have written. The cause still reaches the log,
-		// where it is an operator's problem and a real one.
+		// The provider's own quota ran out, learned from a 429 on the wire — the same
+		// news as our own ceiling, so it gets the same refusal rather than a 500 that
+		// invites a retry that cannot succeed until the provider's window resets.
 		case errors.Is(err, judge.ErrQuotaExhausted):
 			h.logger.Error("practice: provider quota exhausted — every run fails until it resets", "err", err)
 			aibudget.WriteRefusal(w, aibudget.ErrGlobalSpent)
@@ -162,10 +155,9 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
-// fail maps a server-side failure to 500. ErrNotConfigured gets a message that
-// names the cause instead of the usual opaque "internal error": it is a
-// deployment fact, not a secret, and "practice is unavailable" with no reason is
-// how a misconfiguration survives for a week.
+// fail maps a server-side failure to 500. ErrNotConfigured names the cause
+// instead of the usual opaque message — a misconfiguration is a deployment fact,
+// not a secret worth hiding.
 func (h *Handler) fail(w http.ResponseWriter, what string, err error) {
 	if errors.Is(err, ErrNotConfigured) {
 		h.logger.Error(what+": practice has no critic — JUDGE_MODE=http scores duels only", "err", err)

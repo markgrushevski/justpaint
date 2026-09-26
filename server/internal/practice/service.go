@@ -1,28 +1,6 @@
 // Package practice is single-player mode: one prompt, one drawing, one score, no
-// opponent (docs/API.md §8 covers the duel; this is its solo sibling).
-//
-// # Why it is not a match
-//
-// It does NOT reuse `matches`, and the reason is written into the schema
-// (migration 00006) and visible in game/deadline.go: a single-seat drawing round
-// falls into decideExpiry's "malformed roster" branch, gets flipped to judging,
-// and runJudging demands exactly two submissions and wedges. The duel lifecycle —
-// matchmaking, a shared deadline, forfeit, abandonment, the stuck-judging watchdog
-// — is intricate precisely BECAUSE two people wait on each other. One player waits
-// on nobody. So practice is a flat `practice_runs` row: no status, no deadline, no
-// sweeper.
-//
-// # Why it is synchronous
-//
-// A duel judges out of band because the second player may still be drawing. Here
-// the one player is already staring at a spinner, so the request does the render
-// and the critique and returns the verdict; there is nothing to come back for.
-//
-// # Module shape
-//
-// Like internal/ratings, this is a small module over the shared *db.Queries plus
-// an HTTP handler, wired in main.go next to the game handler. It holds NO pool and
-// opens no transaction — see Run for why the two writes must not be one.
+// opponent — a flat practice_runs row scored synchronously, not a match
+// (docs/GAME.md §10, docs/DECISIONS.md 2026-09-20).
 package practice
 
 import (
@@ -41,67 +19,37 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/render"
 )
 
-// RunBudget bounds one practice run end to end: the authoritative render plus the
-// critique, retries included.
-//
-// Unlike the duel's JudgePassBudget (60s, on a background context) this one has a
-// hard ceiling it did not choose: the run happens INSIDE the request, and the HTTP
-// server's WriteTimeout is 30s (cmd/server/main.go). Overrun there is not an error
-// the player can read — it is a response cut off mid-write. 25s leaves the margin,
-// and a clean 500 beats a dead socket.
-//
-// The arithmetic worth knowing: with the default JUDGE_TIMEOUT of 10s and the
-// JUDGE.md §7 policy of 3 attempts, a critic that keeps timing out needs ~30s and
-// will be cut short here. That is the honest trade — a player waiting half a
-// minute for a practice score has already lost the round of feedback.
+// RunBudget bounds one practice run end to end (render plus critique, retries
+// included). The work happens inside the request and the HTTP server's
+// WriteTimeout is 30s (cmd/server/main.go), so 25s leaves margin for a clean 500
+// instead of a response cut off mid-write.
 const RunBudget = 25 * time.Second
 
 // Sentinel errors the handler maps onto HTTP responses.
 var (
-	// ErrPromptNotFound: the promptId names no ACTIVE prompt → 404. A retired
+	// ErrPromptNotFound means promptId names no active prompt, → 404. A retired
 	// prompt answers exactly like a made-up one, so deactivation is not detectable
 	// by trying to draw for it.
 	ErrPromptNotFound = errors.New("practice: prompt not found")
-	// ErrNotConfigured: no critic is wired, which today means JUDGE_MODE=http — the
-	// external judge service implements the two-image Judge contract and has no
-	// critique endpoint (docs/JUDGE.md §2 is frozen). → 500.
-	//
-	// It is deliberately NOT a silent fallback to FakeCritic. The fake scores ink
-	// coverage and has never read a prompt; presenting its number as a real
-	// critique is a lie the player cannot detect, and a feature that looks like it
-	// works is worse than one that says it does not.
+	// ErrNotConfigured means no critic is wired (JUDGE_MODE=http has none), → 500.
+	// Deliberately not a fallback to FakeCritic: see docs/JUDGE.md §8.2 for why a
+	// fabricated score is worse than an honest refusal.
 	ErrNotConfigured = errors.New("practice: no critic configured")
 )
 
-// The two budget ports are aibudget's own func types, bound to
-// aibudget.KindPractice at the composition root: aibudget.Check asks whether this
-// player may spend an AI call right now, aibudget.Spend records the one they just
-// spent (and refuses, with the same error Check returns, if the ledger finds them
-// at their cap by the time it writes).
-//
-// They used to be re-declared here as local BudgetCheck/BudgetSpend types, on the
-// stated grounds that this package then never imported aibudget. That was not
-// true — the handler has always imported it for WriteRefusal — so the copies
-// bought a second name for one contract and a conversion at the wiring site, and
-// nothing else. internal/game holds aibudget's types directly for the same reason.
-//
-// Practice has its OWN per-player allowance, separate from the duel's; what it
-// shares with every other feature is the provider's global ceiling, counted by
-// ONE rule for all of them rather than by per-feature copies that drift
-// (docs/GAME.md §4.3). Before the ledger this port was literally
-// game.Service.CheckJudgeBudget, which made the game module the owner of solo
-// mode's quota — a dependency practice no longer has.
-//
-// Nil means unbudgeted, which is what every test and every fake-configured
-// deployment gets.
+// budget and spend are aibudget's func types bound to aibudget.KindPractice at
+// the composition root; nil means unbudgeted, which every test and
+// fake-configured deployment gets. Practice has its own per-player allowance but
+// shares the provider's global ceiling with every other AI feature (docs/GAME.md
+// §4.3).
 
 // Service runs the practice loop. It takes *db.Queries and no pool: the two writes
 // here must NOT share a transaction (see Run).
 type Service struct {
 	q        *db.Queries
 	renderer render.Renderer
-	// critic is the seam (judge.Critic — ours, not the external judge's frozen Judge).
-	// Nil means practice is not configured; see ErrNotConfigured.
+	// critic is judge.Critic — ours, not the external judge's frozen Judge. Nil
+	// means practice is unconfigured; see ErrNotConfigured.
 	critic judge.Critic
 	budget aibudget.Check
 	spend  aibudget.Spend
@@ -130,13 +78,10 @@ type RunView struct {
 	Prompt   PromptView
 }
 
-// Prompt hands out one random active prompt to draw. Unlike a duel — where the
-// prompt is pinned server-side and hidden until an opponent arrives, so nobody can
-// pre-draw (docs/GAME.md §5) — there is nothing to hide from a solo player and
-// nobody to gain an advantage over, so the text comes back immediately.
-//
-// It refuses when practice is unconfigured: handing out a prompt we cannot score
-// would walk the player through a whole drawing before admitting it.
+// Prompt hands out one random active prompt to draw. Unlike a duel, it is never
+// redacted — there is no opponent to be fair to (docs/GAME.md §5) — and it
+// refuses when practice is unconfigured, rather than walking the player through
+// a drawing we cannot score.
 func (s *Service) Prompt(ctx context.Context) (PromptView, error) {
 	if s.critic == nil {
 		return PromptView{}, ErrNotConfigured
@@ -153,28 +98,20 @@ func (s *Service) Prompt(ctx context.Context) (PromptView, error) {
 	return PromptView{ID: p.ID, Text: p.Text}, nil
 }
 
-// Run scores one drawing against the prompt it claims to answer. The document is
-// already validated by the handler (game.ValidateSubmission — one validator for
-// both modes); doc is the parsed form the renderer needs.
+// Run scores one drawing against the prompt it claims to answer. doc is already
+// validated by the handler (game.ValidateSubmission — one validator for both
+// modes).
 //
-// Order is deliberate:
+// Order matters: budget checked first, then the prompt looked up (a foreign or
+// retired id is a 404), then an attempt row written before the critic runs, then
+// render, then the ledger spent immediately before the critique (it re-checks the
+// cap at write time, tighter than the check above), then the verdict stamped onto
+// the attempt row.
 //
-//  1. the budget, before any expensive work — the whole point of a ceiling is to
-//     refuse before the call, not after;
-//  2. the prompt, which must be a live one (a foreign/retired id is a 404);
-//  3. the ATTEMPT row, written BEFORE the critic is called;
-//  4. render, then the BILL, then critique — the bill sits between them because
-//     the render spends nobody's quota and the critique spends the provider's.
-//     The bill can itself refuse, with the same error the check in (1) returns:
-//     it writes under the cap as it stands at that instant, where (1) only read a
-//     count before the render;
-//  5. the verdict, stamped onto the row from (3).
-//
-// Steps 3 and 5 are separate statements and NOT one transaction, deliberately. A
-// transaction would roll the attempt back when the critic failed, which is exactly
-// backwards: that call was made, that quota was spent, and a failure that costs
-// nothing is a failure the budget cannot see — precisely when a broken critic is
-// draining it (migration 00006, docs/GAME.md §4.3).
+// The attempt row and the verdict update are separate statements, not one
+// transaction: a transaction would roll the attempt back when the critic failed,
+// which is backwards — that call was made and that quota was spent (docs/GAME.md
+// §4.3).
 func (s *Service) Run(ctx context.Context, userID, promptID string, doc document.Document) (RunView, error) {
 	if s.critic == nil {
 		return RunView{}, ErrNotConfigured
@@ -198,9 +135,8 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 		return RunView{}, fmt.Errorf("practice: record attempt: %w", err)
 	}
 
-	// Bound the expensive half only. The budget check and the attempt row are
-	// already committed, so a timeout here leaves exactly the state we want: a
-	// spent call, counted.
+	// Bounds the render and the critique only; the budget check and the attempt row
+	// are already committed, so a timeout here still leaves a spent call, counted.
 	workCtx, cancel := context.WithTimeout(ctx, RunBudget)
 	defer cancel()
 
@@ -211,19 +147,10 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 		return RunView{}, fmt.Errorf("practice: render: %w", err)
 	}
 
-	// Billed between the render and the critique, which is the narrowest correct
-	// window. Never AFTER the call: a critique that failed still spent the
-	// provider's quota, and a failure the budget cannot see is exactly what a
-	// broken critic drains it through. But not before the render either — the
-	// render is our own subprocess and spends nobody's quota, so a renderer that
-	// fell over must not cost the player a scored drawing. Same rule, same words,
-	// in internal/guess.
-	//
-	// This is also the second and tighter of the two per-user gates: the check at
-	// the top of Run read a count a whole render ago, while this write refuses on
-	// the count as it stands at the instant of writing. Its refusal is the same
-	// *KindSpentError the check returns, so the wrap below still reaches the
-	// handler's 429 branch and needs no case of its own.
+	// Billed here, between the render and the critique: a critique that fails still
+	// spent the provider's quota, and the render is ours and free (docs/GAME.md
+	// §4.3, same rule as internal/guess). This write also re-checks the cap at the
+	// instant of writing, tighter than the check at the top of Run.
 	if s.spend != nil {
 		if err := s.spend(ctx, userID); err != nil {
 			return RunView{}, fmt.Errorf("practice: bill run: %w", err)
@@ -238,11 +165,9 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 	if err := critique.Validate(); err != nil {
 		return RunView{}, fmt.Errorf("practice: critique result: %w", err)
 	}
-	// The line that says the feature worked, mirroring "match judged": without it a
-	// live critic is unobservable — you cannot tell a sane score from a degenerate
-	// one (every run a 0), or notice latency creeping toward RunBudget. The score
-	// and the latency, never the feedback: that is player-facing text which can
-	// carry whatever a drawing provoked, and logs are not the place for it.
+	// Confirms the feature works and would surface latency creeping toward
+	// RunBudget. Never the feedback: that is player-facing text that can carry
+	// whatever the drawing provoked.
 	s.logger.Info("practice run scored",
 		"runID", run.ID,
 		"prompt", prompt.Text,

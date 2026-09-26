@@ -27,17 +27,17 @@ import (
 // deliberately so — the budget's rules live with the budget.
 const budgetWindowSecs = int32(24 * 60 * 60)
 
-// quotaCritic is the provider saying the thing our own ceiling says: its daily
-// budget is gone. Wrapped the way judge's Gemini client wraps it, because the
-// handler's mapping is an errors.Is through a service wrap and a client wrap.
+// quotaCritic reports the provider's own quota as exhausted, wrapped the way
+// judge's Gemini client wraps it, so the handler's errors.Is mapping is exercised
+// through both a service wrap and a client wrap.
 type quotaCritic struct{}
 
 func (quotaCritic) Critique(context.Context, judge.CritiqueRequest) (judge.Critique, error) {
 	return judge.Critique{}, fmt.Errorf("judge: %w (429): daily limit", judge.ErrQuotaExhausted)
 }
 
-// failingCritic is a critic that always fails, for the case the ledger comment
-// is actually about: a judge call that was spent and produced nothing.
+// failingCritic always fails, for the case of a judge call that was spent and
+// produced nothing.
 type failingCritic struct{}
 
 func (failingCritic) Critique(context.Context, judge.CritiqueRequest) (judge.Critique, error) {
@@ -49,19 +49,8 @@ func (failingCritic) Critique(context.Context, judge.CritiqueRequest) (judge.Cri
 // daily AI budget, whether an attempt survives a failed critique, and whether a
 // retired prompt is reachable.
 //
-//	(a) the happy path end to end, through the fake critic;
-//	(b) an unknown or deactivated promptId is a 404-shaped refusal, and costs
-//	    nothing — the budget check runs before it, the spend after it;
-//	(c) a practice run writes BOTH ledger rows — the player's and the provider's —
-//	    and both halves of the ceiling refuse when they are out;
-//	(d) an attempt that failed in the critic is still recorded, and still counts —
-//	    a failure that costs nothing is a failure the budget cannot see;
-//	(e) an unconfigured critic (JUDGE_MODE=http) refuses without touching anything.
-//
-// Needs a migrated + seeded DATABASE_URL (docker compose up + goose up, including
-// migration 00007); skips otherwise, matching aibudget's budget_db_test.go —
-// including its pool-close-via-t.Cleanup ordering so no fixture leaks (Cleanup is
-// LIFO: the pool.Close registered FIRST runs LAST).
+// Needs a migrated + seeded DATABASE_URL; skips otherwise. Cleanup order matches
+// aibudget's budget_db_test.go (LIFO: pool.Close registered first runs last).
 func TestPracticeRun_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -117,17 +106,10 @@ func TestPracticeRun_DB(t *testing.T) {
 		return u.ID
 	}
 
-	// mkProvider hands out a provider name nothing else in the world spends.
-	//
-	// This is how the old suite's flakiness stays fixed. `go test ./...` runs
-	// packages in parallel, and internal/aibudget's DB suite spends AI calls into
-	// the same rolling window, so the global count was never safe to assert as an
-	// absolute — the old file worked around that by reading the total and its two
-	// halves in one repeatable-read snapshot and asserting the identity between
-	// them. The ledger has no halves to add up any more; what it has instead is a
-	// global count scoped PER PROVIDER, so a name nothing else spends scopes every
-	// assertion below to rows this test created, which is stronger than a delta and
-	// deterministic besides.
+	// mkProvider hands out a provider name nothing else in the world spends, so
+	// every count below is scoped to rows this test created — safe under
+	// `go test ./...`'s package parallelism, where internal/aibudget's own DB suite
+	// spends into the same rolling window.
 	mkProvider := func(tag string) aibudget.Provider {
 		p := aibudget.Provider(fmt.Sprintf("test-practice-%s-%d", tag, ns))
 		providers = append(providers, string(p))
@@ -139,25 +121,15 @@ func TestPracticeRun_DB(t *testing.T) {
 		t.Fatalf("pick prompt (is the DB migrated + seeded? migration 00002): %v", err)
 	}
 
-	// The one document every case draws: minimal, valid, and on the game canvas —
-	// through the SAME validator a duel submission goes through, so this test would
-	// fail if the two ever stopped agreeing.
+	// The one document every case draws, through the same validator a duel
+	// submission goes through, so this test fails if the two ever stop agreeing.
 	doc, err := game.ValidateSubmission([]byte(docOfSize(game.GameCanvasSize, game.GameCanvasSize)))
 	if err != nil {
 		t.Fatalf("the shared submission validator rejected the fixture document: %v", err)
 	}
 
-	// newService wires the production shape: the stub renderer (the loop, not the
-	// art), a critic, and the two budget ports bound ONCE to aibudget.KindPractice.
-	// Practice holds them as plain funcs and never learns its own kind's name — the
-	// port used to be game.Service.CheckJudgeBudget, which made the game module the
-	// owner of solo mode's quota.
-	//
-	// The ports pass straight through now. They used to be converted to local
-	// BudgetCheck/BudgetSpend types on the grounds that this package then never
-	// imported aibudget — which was never true, since the handler imports it for
-	// WriteRefusal, so the copies bought a second name for one contract and nothing
-	// else.
+	// newService wires the production shape: a stub renderer (the loop, not the
+	// art), a critic, and the two budget ports bound once to aibudget.KindPractice.
 	newService := func(critic judge.Critic, b *aibudget.Budget) *Service {
 		check, spend := b.For(aibudget.KindPractice)
 		return NewService(q, render.NewStubRenderer(), critic, check, spend, logger)
@@ -183,8 +155,8 @@ func TestPracticeRun_DB(t *testing.T) {
 		}
 		return n
 	}
-	// mineSpent is the per-user half — per KIND, which is the change practice cares
-	// about most: a player's duels no longer eat their practice runs.
+	// mineSpent is the per-user half, scoped by kind: a player's duels do not eat
+	// their practice runs.
 	mineSpent := func(uid string) int64 {
 		n, err := q.CountUserKindCallsInWindow(ctx, db.CountUserKindCallsInWindowParams{
 			UserID: uid, Kind: string(aibudget.KindPractice), WindowSecs: budgetWindowSecs,
@@ -252,11 +224,9 @@ func TestPracticeRun_DB(t *testing.T) {
 	// --- (b) the prompt must be a live one ---------------------------------
 	t.Run("an unknown or retired prompt is not found", func(t *testing.T) {
 		uid := mkUser("prompt")
-		// Budgeted on purpose: only then is "a refused run cost the player nothing" a
-		// claim about the ORDER of the loop — the budget check clears first, the
-		// prompt lookup then fails, and the spend site a few lines further down is
-		// never reached. Against an unbudgeted service it would be true of a service
-		// that bills nobody for anything.
+		// Budgeted on purpose: only then does "cost the player nothing" test the
+		// ORDER of the loop (budget clears, prompt lookup fails, spend never reached)
+		// rather than a service that bills nobody for anything.
 		svc := newService(judge.NewFakeCritic(), practiceBudget(mkProvider("prompt"), 20, 200))
 
 		// A deactivated prompt must answer exactly like a made-up one, so retiring a
@@ -300,12 +270,9 @@ func TestPracticeRun_DB(t *testing.T) {
 			t.Fatalf("Run under the cap: %v", err)
 		}
 
-		// The extension this whole feature turns on, now read off the ledger rather
-		// than off a union of whichever tables a feature happened to write: one run is
-		// TWO rows — the player's allowance and the provider's quota. Without the
-		// provider row the global ceiling would be no ceiling at all for practice,
-		// which is one cheap request per call with no opponent to wait for; without
-		// the player row the per-user cap would never bind.
+		// One run is two ledger rows: the player's allowance and the provider's
+		// quota. Without the provider row the global ceiling would not see practice
+		// at all; without the player row the per-user cap would never bind.
 		var mine, theirs int64
 		if err := pool.QueryRow(ctx, `select
 			(select count(*) from ai_calls where user_id = $1 and provider is null),
@@ -324,8 +291,8 @@ func TestPracticeRun_DB(t *testing.T) {
 			t.Errorf("per-player count = %d, want 1", got)
 		}
 
-		// Now at their own cap: refused, and told it is THEIR allowance — and told
-		// which one, so the message names scored drawings rather than "AI requests".
+		// Now at their own cap: refused, and told which allowance, so the message
+		// names scored drawings rather than "AI requests".
 		_, err := svc.Run(ctx, uid, prompt.ID, doc)
 		if !errors.Is(err, aibudget.ErrPerUserSpent) {
 			t.Errorf("at the per-player cap: err = %v, want %v", err, aibudget.ErrPerUserSpent)
@@ -374,10 +341,9 @@ func TestPracticeRun_DB(t *testing.T) {
 			t.Fatal("expected the critic's failure to surface, got a score")
 		}
 
-		// The ledger's own reasoning, unchanged by the move: the attempt row AND the
-		// ledger row are written BEFORE the critic is called, so a failure cannot be
-		// free. A transaction around them would have rolled both away — which is
-		// exactly when a broken critic is draining the quota fastest.
+		// The attempt row and the ledger row are written before the critic is called,
+		// so a failure cannot be free — a transaction around them would roll both
+		// away exactly when a broken critic is draining the quota fastest.
 		if got := mineSpent(uid); got != 1 {
 			t.Errorf("per-player count = %d, want 1 — a spent-and-failed call must still count", got)
 		}
@@ -415,15 +381,9 @@ func TestPracticeRun_DB(t *testing.T) {
 
 	// --- (f) the provider's own refusal reads like ours --------------------
 	t.Run("a provider that is out of quota answers 429, not 500", func(t *testing.T) {
-		// Two ceilings can refuse a run: ours, which knows the player's allowance, and
-		// the provider's, which we only learn about from a 429 on the wire. They are
-		// the same news to the player — "not today" — so they must read the same. As a
-		// 500 this offered a retry that could not possibly succeed until the
-		// provider's own window rolled.
-		//
-		// Driven through the HTTP handler, because the mapping IS the handler's: the
-		// service only wraps the error, and what matters is that the wrap survives to
-		// the branch.
+		// The provider's own quota, learned from a 429 on the wire, must read the same
+		// as our ceiling. Driven through the HTTP handler, since the mapping is the
+		// handler's: the service only wraps the error.
 		uid := mkUser("provider-quota")
 		svc := newService(quotaCritic{}, practiceBudget(mkProvider("provider-quota"), 20, 200))
 
@@ -444,8 +404,7 @@ func TestPracticeRun_DB(t *testing.T) {
 		if code := errorCode(t, rec); code != "rate_limited" {
 			t.Errorf("code = %q, want rate_limited", code)
 		}
-		// The same sentence the global half of our own ceiling writes — one decision
-		// about what a refusal discloses, in aibudget.
+		// Same sentence the global half of our own ceiling writes, from aibudget.
 		if !strings.Contains(rec.Body.String(), "resumes tomorrow") {
 			t.Errorf("body %s should read like the budget's own global refusal", rec.Body.String())
 		}

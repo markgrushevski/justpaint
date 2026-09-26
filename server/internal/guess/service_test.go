@@ -19,9 +19,8 @@ import (
 
 // --- stand-ins for the two seams --------------------------------------------
 //
-// Both are interfaces, so the whole service is exercised with no network, no
-// subprocess and no database — which is the point of a module that holds no
-// *db.Queries.
+// Both are interfaces, so the whole service is exercised with no network and no
+// database.
 
 type stubRenderer struct {
 	png   []byte
@@ -54,10 +53,8 @@ type spendRecorder struct {
 	err   error
 }
 
-// spend matches aibudget.Spend, which takes ONE user: the conditional insert
-// behind it weighs the call against one allowance, and the kind that bills two
-// players for a single request (the duel) does not spend its halves at the same
-// moment anyway — it holds aibudget.BillPlayers instead.
+// spend matches aibudget.Spend, which bills one user (the duel bills two players
+// through aibudget.BillPlayers instead).
 func (s *spendRecorder) spend(_ context.Context, userID string) error {
 	s.calls++
 	s.users = append(s.users, userID)
@@ -85,9 +82,8 @@ func tinyPNG(t *testing.T) []byte {
 // these tests are actually about: the ORDER of the steps around it.
 func aDocument() document.Document { return document.Document{} }
 
-// An unconfigured guesser must refuse before it touches anything else. Checking a
-// budget for a call that will never be made would spend a read and, worse, teach
-// the next reader that the order does not matter.
+// An unconfigured guesser must refuse before it touches the budget or the
+// renderer.
 func TestService_Guess_Unconfigured(t *testing.T) {
 	renderer := &stubRenderer{png: tinyPNG(t)}
 	budgetCalls := 0
@@ -106,8 +102,8 @@ func TestService_Guess_Unconfigured(t *testing.T) {
 	}
 }
 
-// The ceiling refuses BEFORE the expensive work, and its error reaches the caller
-// intact so aibudget.WriteRefusal can still recognise it.
+// The refusal reaches the caller intact so aibudget.WriteRefusal can recognise
+// it.
 func TestService_Guess_BudgetRefusesBeforeAnyWork(t *testing.T) {
 	renderer := &stubRenderer{png: tinyPNG(t)}
 	guesser := &stubGuesser{guess: judge.Guess{Label: "a cat", Confidence: 0.9}}
@@ -127,8 +123,8 @@ func TestService_Guess_BudgetRefusesBeforeAnyWork(t *testing.T) {
 	}
 }
 
-// The render is OURS and spends no external quota, so a renderer that falls over
-// must not cost a player one of the two guesses they get for the day.
+// The render is ours and spends no external quota, so a failed one must not cost
+// a guess.
 func TestService_Guess_RenderFailureIsNotBilled(t *testing.T) {
 	renderer := &stubRenderer{err: errors.New("the node worker died")}
 	guesser := &stubGuesser{}
@@ -150,9 +146,7 @@ func TestService_Guess_RenderFailureIsNotBilled(t *testing.T) {
 	}
 }
 
-// The raster ceiling is checked BEFORE the quota is spent and before anything
-// leaves the building: an oversize render is a fault of ours, and the player pays
-// for none of it.
+// An oversize render is a fault of ours; the player pays for none of it.
 func TestService_Guess_RefusesOversizeRaster(t *testing.T) {
 	renderer := &stubRenderer{png: make([]byte, maxRasterBytes+1)}
 	guesser := &stubGuesser{guess: judge.Guess{Label: "a cat", Confidence: 0.9}}
@@ -178,8 +172,8 @@ func TestService_Guess_RefusesOversizeRaster(t *testing.T) {
 	}
 }
 
-// The happy path, plus the two facts that matter around it: the guesser is handed
-// the SERVER's raster, and the call is billed exactly once, to the caller.
+// The guesser is handed the server's raster, and the call is billed exactly once,
+// to the caller.
 func TestService_Guess_HappyPath(t *testing.T) {
 	raster := tinyPNG(t)
 	renderer := &stubRenderer{png: raster}

@@ -41,7 +41,7 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 type guessRequest struct {
 	Document json.RawMessage `json:"document"`
 	// A client thumbnail may ride along but is advisory only and ignored here —
-	// nothing the client rasterizes is ever what we send onward (see Service.Guess).
+	// nothing the client rasterizes is ever what we send onward.
 }
 
 type guessDTO struct {
@@ -75,15 +75,11 @@ func (h *Handler) Guess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// document.ParseAndValidate, NOT game.ValidateSubmission — the one line in this
-	// file worth stopping at, because the copy-paste is sitting right there in
-	// internal/practice, which does use the duel's validator.
-	//
-	// The duel's validator adds a square GameCanvasSize (1080²) rule on top of the
-	// document contract, and that rule belongs to the DUEL: two players are compared
-	// against each other, so they must draw on the same canvas. A free-draw canvas is
-	// whatever the player made it, any size the format allows, and importing the
-	// duel's rule here would 400 exactly the drawings this feature exists to look at.
+	// document.ParseAndValidate, NOT game.ValidateSubmission (which internal/practice
+	// uses): the duel's square GameCanvasSize rule belongs to the duel, where two
+	// players are compared on the same canvas. A free-draw canvas is any size the
+	// format allows, and importing that rule here would 400 exactly the drawings
+	// this feature exists to look at.
 	doc, err := document.ParseAndValidate(req.Document)
 	if err != nil {
 		msg := "invalid document"
@@ -97,21 +93,15 @@ func (h *Handler) Guess(w http.ResponseWriter, r *http.Request) {
 
 	view, err := h.svc.Guess(r.Context(), uid, doc)
 	if err != nil {
-		// Both budget refusals are 429s and neither is the player's fault in the same
-		// way; the copy for both lives in one place (aibudget.WriteRefusal), because
-		// deciding what a refusal discloses is one decision, not one per feature.
-		//
-		// It writes the response as a side effect, so it is tested and branched on
-		// here rather than from inside a switch predicate, where a reader has to know
-		// that evaluating a case can answer the request.
+		// aibudget.WriteRefusal owns the copy for both 429 cases and writes the
+		// response itself, so it is branched on here rather than inside a switch
+		// predicate.
 		if aibudget.WriteRefusal(w, err) {
 			return
 		}
-		// The provider ran out before our own ceiling did — the same news for the
-		// player, from the other end. Answering it as a 500 invites a retry that
-		// cannot succeed until the provider's own window rolls, so it gets the refusal
-		// the global ceiling would have written. The cause still reaches the log,
-		// where it is an operator's problem and a real one.
+		// The provider's own quota ran out, learned from a 429 on the wire — the same
+		// news as our own ceiling, so it gets the same refusal rather than a 500 that
+		// invites a retry that cannot succeed until the provider's window resets.
 		if errors.Is(err, judge.ErrQuotaExhausted) {
 			h.logger.Error("guess: provider quota exhausted — every guess fails until it resets", "err", err)
 			aibudget.WriteRefusal(w, aibudget.ErrGlobalSpent)
@@ -121,9 +111,8 @@ func (h *Handler) Guess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Always an array on the wire, never null. The client renders 0-2 runner-ups;
-	// an absent list and an empty one are the same fact, and it should not have to
-	// know two spellings of it.
+	// Always [] on the wire, never null: the client renders 0-2 runner-ups and
+	// should not have to know two spellings of "none".
 	alternatives := view.Alternatives
 	if alternatives == nil {
 		alternatives = []string{}
@@ -135,10 +124,9 @@ func (h *Handler) Guess(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
-// fail maps a server-side failure to 500. ErrNotConfigured gets a message that
-// names the cause instead of the usual opaque "internal error": it is a
-// deployment fact, not a secret, and "the guess is unavailable" with no reason is
-// how a misconfiguration survives for a week.
+// fail maps a server-side failure to 500. ErrNotConfigured names the cause
+// instead of the usual opaque message — a misconfiguration is a deployment fact,
+// not a secret worth hiding.
 func (h *Handler) fail(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrNotConfigured) {
 		h.logger.Error("guess: no guesser is configured — JUDGE_MODE=http scores duels only", "err", err)

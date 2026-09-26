@@ -111,9 +111,7 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return env.Error.Code
 }
 
-// The route requires a session: a call is billed to a player's allowance, so
-// there is no anonymous path to it. RequireAuth owns this; asserted here so a
-// future Routes() edit that drops the wrapper is caught.
+// Asserted here so a future Routes() edit that drops RequireAuth is caught.
 func TestGuess_RequiresAuth(t *testing.T) {
 	rec := post(t, unconfiguredMux(t), `{"document":`+docOfSize(800, 600)+`}`, false)
 	if rec.Code != http.StatusUnauthorized {
@@ -124,8 +122,7 @@ func TestGuess_RequiresAuth(t *testing.T) {
 	}
 }
 
-// The request edge, in one table. Every case here is refused before the service
-// is reached.
+// Every case here is refused before the service is reached.
 func TestGuess_RejectsBadRequests(t *testing.T) {
 	tests := []struct {
 		name string
@@ -151,11 +148,8 @@ func TestGuess_RejectsBadRequests(t *testing.T) {
 	}
 }
 
-// The heart of this endpoint's validation choice: a free-draw canvas is ANY size
-// the format allows. The duel's square 1080² rule (game.ValidateSubmission, which
-// internal/practice reuses) belongs to the duel, where two drawings are compared
-// with each other — importing it here would 400 exactly the drawings this feature
-// exists to look at.
+// A free-draw canvas is any size the format allows; the duel's square rule
+// (game.ValidateSubmission, reused by internal/practice) belongs to the duel.
 func TestGuess_AcceptsAnyFreeDrawCanvas(t *testing.T) {
 	mux := workingMux(t)
 	sizes := [][2]int{
@@ -175,8 +169,7 @@ func TestGuess_AcceptsAnyFreeDrawCanvas(t *testing.T) {
 	}
 }
 
-// The 8 MB document cap is the drawings/practice cap (docs/API.md §6) and answers
-// with its own code, not a generic 400.
+// The 8 MB cap (docs/API.md §6) answers with its own code, not a generic 400.
 func TestGuess_RejectsOversizeBody(t *testing.T) {
 	body := `{"document":{"version":1,"pad":"` + strings.Repeat("x", maxGuessBodyBytes) + `"}}`
 	rec := post(t, unconfiguredMux(t), body, true)
@@ -218,10 +211,8 @@ func TestGuess_ReturnsTheFrozenEnvelope(t *testing.T) {
 	}
 }
 
-// JUDGE_MODE=http: the external judge service compares two drawings against a
-// prompt and has nothing that names one drawing, so the guess is unconfigured. It
-// must refuse — loudly — rather than quietly fall back to the ink-coverage fake,
-// whose label a player has no way to tell from a real one.
+// JUDGE_MODE=http has no endpoint that names one drawing, so the guess must
+// refuse rather than quietly fall back to the ink-coverage fake.
 func TestGuess_UnconfiguredRefusesHonestly(t *testing.T) {
 	rec := post(t, unconfiguredMux(t), `{"document":`+docOfSize(800, 600)+`}`, true)
 	if rec.Code != http.StatusInternalServerError {
@@ -240,8 +231,8 @@ func TestGuess_UnconfiguredRefusesHonestly(t *testing.T) {
 	}
 }
 
-// Both halves of the daily ceiling are 429 rate_limited, and the copy comes from
-// aibudget — one decision about what a refusal discloses, not one per feature.
+// Both halves of the daily ceiling answer 429 rate_limited, with copy from
+// aibudget.
 func TestGuess_BudgetRefusalsAre429(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -285,14 +276,9 @@ func TestGuess_BudgetRefusalsAre429(t *testing.T) {
 	}
 }
 
-// TestGuess_ProviderQuotaIs429 covers the third way to run out: not our own
-// ceiling, but the provider's, learned from a 429 on the wire.
-//
-// It is the same news to the player — "not today" — so it reads the same. As a
-// 500 it read as a fault and the UI offered a retry that could not possibly
-// succeed until the provider's own window rolled. internal/game already
-// special-cases this error in its judging pass for the same reason; the two
-// inline endpoints were the ones still answering 500.
+// Covers a third way to run out: the provider's own quota, learned from a 429 on
+// the wire, which must read the same as our ceiling rather than as a retryable
+// 500.
 func TestGuess_ProviderQuotaIs429(t *testing.T) {
 	renderer := &stubRenderer{png: tinyPNG(t)}
 	guesser := &stubGuesser{err: fmt.Errorf("judge: %w (429): daily limit", judge.ErrQuotaExhausted)}
@@ -305,8 +291,7 @@ func TestGuess_ProviderQuotaIs429(t *testing.T) {
 	if code := errorCode(t, rec); code != "rate_limited" {
 		t.Errorf("code = %q, want rate_limited", code)
 	}
-	// The same sentence the global half of our own ceiling writes — one decision
-	// about what a refusal discloses, made once in aibudget.
+	// Same sentence the global half of our own ceiling writes, from aibudget.
 	if !strings.Contains(rec.Body.String(), "resumes tomorrow") {
 		t.Errorf("body %s should read like the budget's own global refusal", rec.Body.String())
 	}
