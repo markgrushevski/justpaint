@@ -88,9 +88,7 @@ never drift — `packages/document` (TS) and `server/internal/document` (Go):
       are additive and goose-managed.
 - [ ] Errors are wrapped with context (`%w`), never ignored; `context.Context` is threaded to DB/HTTP
       calls; no panic used as control flow; graceful shutdown stays wired.
-- [ ] New validator/handler paths get table-driven tests (only `internal/document` has tests today —
-      grow coverage where you touch).
-- [ ] No inline Go teaching in review notes — report findings plainly.
+- [ ] New validator/handler paths get table-driven tests.
 
 ## Frontend & packages
 

@@ -40,7 +40,7 @@ isolate parallel work with git worktrees or sequential commits to avoid same-fil
 
 [Conventional Commits](https://www.conventionalcommits.org): `feat` / `fix` / `refactor` / `build` /
 `docs` / `chore` …, `!` for breaking. **Present tense, one logical change per commit** — group
-related edits rather than shipping many tiny commits. Git author is **Leonid**.
+related edits rather than shipping many tiny commits.
 
 **Update [`docs/ROADMAP.md`](docs/ROADMAP.md) in the same change that lands a deliverable or flips a
 phase.** The ROADMAP is the durable status tracker; a stale ROADMAP is a bug, not a nit.

@@ -1,6 +1,6 @@
 /*
- * justpaint brand tokens — the LEGACY palette (owner-approved 2026-07-07): a pure
- * orange over neutral grays, layered on the oriui design system. We only set the
+ * justpaint brand tokens — the LEGACY palette: a pure orange over neutral grays,
+ * layered on the oriui design system. We only set the
  * `*-light`/`*-dark` SOURCES here; oriui resolves them into `--ori-color-*` per
  * theme (its NOTES: a global brand override sets the source at `:root`).
  * Components read the resolved aliases, never these.

@@ -433,7 +433,7 @@ func TestGeminiJudge_Score_RejectsContractViolations(t *testing.T) {
 		{"scoreA above 1", `{"scoreA":1.4,"scoreB":0.3,"winner":"A","reason":"ok"}`},
 		{"scoreB below 0", `{"scoreA":0.4,"scoreB":-0.2,"winner":"A","reason":"ok"}`},
 		{"winner not in the enum", `{"scoreA":0.4,"scoreB":0.3,"winner":"first","reason":"ok"}`},
-		{"winner names a player", `{"scoreA":0.4,"scoreB":0.3,"winner":"leonid","reason":"ok"}`},
+		{"winner names a player", `{"scoreA":0.4,"scoreB":0.3,"winner":"alice","reason":"ok"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
