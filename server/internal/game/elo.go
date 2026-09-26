@@ -15,10 +15,9 @@ const (
 
 // computeElo returns both players' post-match ratings from their pre-match
 // ratings and player A's actual score sa (1 win / 0 loss / 0.5 tie); B's is
-// 1-sa. Standard Elo, K=32, round-half-away-from-zero (docs/GAME.md §8).
-//
-// It is zero-sum for a decisive result (and for a tie): A's gain equals B's loss,
-// because the pre-rounding deltas are exact negatives and math.Round is symmetric.
+// 1-sa. Standard Elo, K=32 (docs/GAME.md §8). Zero-sum: A's gain equals B's
+// loss, because the pre-rounding deltas are exact negatives and math.Round is
+// symmetric.
 func computeElo(ratingA, ratingB int, sa float64) (afterA, afterB int) {
 	ea := expectedScore(ratingA, ratingB)
 	eb := 1 - ea

@@ -1,10 +1,7 @@
-// Package game implements the async drawing-duel lifecycle: create/auto-join a
-// match, pin one shared prompt, draw the same prompt, submit, judge out-of-band,
-// and reveal the result — the full open → drawing → judging → done loop. The
-// render and judge are seams (internal/render, internal/judge); each has a real
-// impl behind it — the pixel-authoritative Node worker (RENDER_MODE=node) and a
-// real judge (JUDGE_MODE=http|gemini) — plus an in-process stand-in that proves
-// the loop with no external dependency. See docs/GAME.md, docs/API.md §8.
+// Package game implements the async drawing-duel lifecycle: create/join, submit,
+// judge out-of-band, and reveal the result (open → drawing → judging → done).
+// Render and judge are seams (internal/render, internal/judge) with fake and real
+// impls behind them. See docs/GAME.md, docs/API.md §8.
 package game
 
 import (
@@ -27,14 +24,12 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/render"
 )
 
-// GameCanvasSize is the canonical square game canvas (docs/GAME.md §2). Both
-// duelists draw at exactly this size; it is echoed to the client so it configures
-// the editor without guessing, and enforced at submit (ValidateSubmission).
+// GameCanvasSize is the canonical square game canvas (docs/GAME.md §2), echoed
+// to the client and enforced at submit (ValidateSubmission).
 const GameCanvasSize = 1080
 
-// modeAsync is the only match mode in v1. Live realtime shipped as a transport
-// over this same lifecycle rather than a second mode, so nothing writes the
-// column's other legal value (docs/GAME.md §9).
+// modeAsync is the only match mode in v1; live realtime is a transport over the
+// same lifecycle, not a second mode (docs/GAME.md §9).
 const modeAsync = "async"
 
 // Match statuses (docs/GAME.md §3). Only the states this slice reasons about are
@@ -47,55 +42,50 @@ const (
 	statusAbandoned = "abandoned"
 )
 
-// Match resolutions (docs/GAME.md §4.1): how a
-// `done` match was decided. Only `done` rows carry one; `abandoned` (no result)
-// stays null. The DB check constraint (migration 00005) pins the same three.
+// Match resolutions (docs/GAME.md §4.1): how a `done` match was decided;
+// `abandoned` carries none. The DB check constraint (migration 00005) pins the
+// same three.
 const (
 	resolutionJudged  = "judged"
 	resolutionForfeit = "forfeit"
 	// resolutionAborted: the judging pass never returned within maxJudgeAttempts, so
-	// the round is closed unscored — no winner, NO Elo (docs/DECISIONS.md 2026-09-18).
+	// the round is closed unscored — no winner, no Elo (docs/DECISIONS.md 2026-09-18).
 	resolutionAborted = "aborted"
 )
 
-// abortedReason is the player-facing judge_reason stamped on an aborted round. Like
-// forfeitReason it is human prose — the client branches on resolution == 'aborted',
-// never on this text — but it must read as an explanation, because this is the only
+// abortedReason is the player-facing judge_reason on an aborted round. The client
+// branches on resolution == 'aborted', never on this text, but it is the only
 // thing a player ever sees about why their duel produced no verdict.
 const abortedReason = "this round could not be scored — the judge did not answer after several attempts, so no winner and no rating change were recorded"
 
-// defaultJudgeConcurrency is the fallback bound on concurrent judging passes when a
-// caller does not configure one (see judgeLimiter). Two: enough to keep a second
-// duel moving while one is rendering, low enough that a 512 MB instance running
-// RENDER_MODE=node (two node-canvas child processes per pass) does not thrash.
+// defaultJudgeConcurrency is the fallback judging-pass bound (see judgeLimiter):
+// enough to keep a second duel moving while one renders, without thrashing a
+// 512 MB instance running RENDER_MODE=node (two child processes per pass).
 const defaultJudgeConcurrency = 2
 
-// roundSeconds is the drawing-round length, stamped as the absolute
-// drawing_deadline (now() + roundSeconds) when the roster fills and the match
-// flips open→drawing. A Go constant, not a column — changing it needs no
-// migration (docs/GAME.md §4.1).
+// roundSeconds is the drawing-round length, stamped as drawing_deadline
+// (now() + roundSeconds) when the roster fills. A Go constant, not a column, so
+// changing it needs no migration (docs/GAME.md §4.1).
 const roundSeconds = 90
 
 // Sentinel errors the handler maps onto HTTP responses.
 var (
-	// ErrNoPrompts means no active prompt exists to pin — a server seeding fault,
-	// not a client error (→ 500). The seed migration (00002) must have run.
+	// ErrNoPrompts means no active prompt exists to pin — a seeding fault (→ 500);
+	// run the seed migration (00002).
 	ErrNoPrompts = errors.New("game: no active prompts to pin")
-	// ErrNotFound means the match is absent or the caller is not a player in it.
-	// Hidden as 404 so match existence does not leak (docs/API.md §1, §8).
+	// ErrNotFound means the match is absent or the caller isn't a player in it —
+	// hidden as 404 so existence never leaks (docs/API.md §1, §8).
 	ErrNotFound = errors.New("game: match not found")
-	// ErrNotPlayer: the caller is authenticated but not a player in this match. On
-	// submit — a known-ownership violation the client already knows exists — this
-	// maps to 403 (docs/API.md §1, §8.3), distinct from the read path's 404 hide.
+	// ErrNotPlayer: authenticated but not a player in this match — maps to 403 on
+	// submit (a known violation), unlike the read path's hidden 404 (API.md §8, submit).
 	ErrNotPlayer = errors.New("game: not a player in this match")
 	// ErrNotSubmittable: the match is not in the drawing state (already judging/
 	// done/abandoned) → 409.
 	ErrNotSubmittable = errors.New("game: match not accepting submissions")
 	// ErrAlreadySubmitted: this player already submitted → 409 (no double-submit).
 	ErrAlreadySubmitted = errors.New("game: already submitted")
-	// ErrRoundExpired: the drawing deadline passed before this submit landed. The
-	// late submission is NOT stamped; the match is resolved (forfeit/abandoned)
-	// instead → 409 (docs/API.md §8.3).
+	// ErrRoundExpired: the deadline passed before this submit landed. Not stamped —
+	// the match resolves to forfeit/abandoned instead (409, docs/API.md §8, submit).
 	ErrRoundExpired = errors.New("game: round deadline passed")
 )
 
@@ -122,63 +112,45 @@ type MatchView struct {
 	UpdatedAt       time.Time
 }
 
-// Service holds the game business logic. It needs the pool (to run the
-// create/join + submit transactions), the generated queries (read paths), and
-// the two seams — the render worker and the judge — both behind interfaces so the
-// stub/fake swap for real impls with no loop change. The logger is for the
-// out-of-band judging goroutine, whose failures have no request to return to.
+// Service holds the game business logic: the pool (create/join + submit
+// transactions), the generated queries, and the render/judge seams behind
+// interfaces so a fake swaps for a real impl with no loop change. The logger is
+// for the out-of-band judging goroutine, whose failures have no request to
+// return to.
 type Service struct {
 	pool     *pgxpool.Pool
 	q        *db.Queries
 	renderer render.Renderer
 	judge    judge.Judge
 	logger   *slog.Logger
-	// publisher pushes committed transitions to the realtime layer. It defaults to
-	// NopPublisher (no realtime) and is swapped for the ws hub via SetPublisher, so
-	// NewService keeps its signature and the round-deadline suite runs unchanged.
+	// publisher defaults to NopPublisher and is swapped for the ws hub via
+	// SetPublisher, so NewService's signature and existing tests are unaffected.
 	publisher Publisher
-	// judging bounds concurrent judging passes across BOTH dispatch paths (the last
-	// submit and the sweeper). Never nil — both constructors build it.
+	// judging bounds concurrent judging passes across both dispatch paths (the
+	// last submit and the sweeper). Never nil — both constructors build it.
 	judging *judgeLimiter
-	// checkBudget, billPlayers and billProvider are the duel's three questions to
-	// the daily AI-call ceiling (internal/aibudget), held as plain funcs so this
-	// package never learns its own kind's name, the other features' quotas, or the
-	// budget's shape. Nil means unbudgeted, which is what every test and the fake
-	// judge get; main.go binds all three once, to aibudget.KindDuel.
-	//
-	// There are three and not two because the duel's two ledger facts happen at
-	// different moments, and each is written where it is true:
-	//
-	//	checkBudget  — an advisory read ahead of the matchmaking transaction, so a
-	//	               player over their cap is told before they pick up the brush;
-	//	billPlayers  — "these two were granted a round", inside the transaction that
-	//	               starts the round (open→drawing), so no round means no grant;
-	//	billProvider — "a request to the judge is about to be made", at every site
-	//	               that enters judging and nowhere else. A round that is
-	//	               abandoned or forfeited never reaches one and so bills no
-	//	               provider; a stuck-judging re-fire reaches one again and bills
-	//	               again, while the players keep the single round they were
-	//	               granted.
-	//
-	// The two billing ports take the caller's tx-scoped queries; the check does not.
+	// checkBudget, billPlayers and billProvider are the duel's three calls into the
+	// daily AI-call ceiling (internal/aibudget), bound to aibudget.KindDuel at the
+	// composition root; nil means unbudgeted. Three, not a check/spend pair,
+	// because the duel's two ledger facts are written at different moments — see
+	// enterJudging (docs/GAME.md §4.3). Billing ports take tx-scoped queries; the
+	// check does not.
 	checkBudget  aibudget.Check
 	billPlayers  aibudget.BillPlayers
 	billProvider aibudget.BillProvider
 }
 
 // NewService builds the service with defaultJudgeConcurrency judging passes in
-// flight at once. Prefer NewServiceWithConcurrency at the composition root so the
-// bound is an explicit, configurable deployment knob; this shorthand exists for
-// tests and for callers with no opinion.
+// flight. Prefer NewServiceWithConcurrency at the composition root; this
+// shorthand is for tests and callers with no opinion.
 func NewService(pool *pgxpool.Pool, q *db.Queries, renderer render.Renderer, jdg judge.Judge, logger *slog.Logger) *Service {
 	return NewServiceWithConcurrency(pool, q, renderer, jdg, logger, defaultJudgeConcurrency)
 }
 
-// NewServiceWithConcurrency is NewService with the judging-concurrency bound passed
-// in explicitly: at most judgeConcurrency judging passes (authoritative render +
-// judge call) run at once, whichever path dispatched them. A non-positive value is
-// clamped to 1. This is the cap that keeps RENDER_MODE=node from fork-bombing a
-// small instance when a boot drain or a burst of final submits queues up work.
+// NewServiceWithConcurrency sets the judging-concurrency bound explicitly: at
+// most judgeConcurrency passes (render + judge call) run at once, clamped to 1.
+// Keeps RENDER_MODE=node from fork-bombing a small instance under a boot drain
+// or a burst of final submits.
 func NewServiceWithConcurrency(pool *pgxpool.Pool, q *db.Queries, renderer render.Renderer, jdg judge.Judge, logger *slog.Logger, judgeConcurrency int) *Service {
 	return &Service{
 		pool: pool, q: q, renderer: renderer, judge: jdg, logger: logger,
@@ -188,23 +160,17 @@ func NewServiceWithConcurrency(pool *pgxpool.Pool, q *db.Queries, renderer rende
 }
 
 // CreateOrJoin is the single "play" entry point (docs/API.md §8 POST /api/matches,
-// docs/DECISIONS.md "Matchmaking"). In one transaction it, in order:
-//  1. auto-joins the oldest waiting async match the caller is not already in,
-//     flipping it open→drawing (the roster is now full);
-//  2. failing that, returns the caller's own still-open match if one exists, so a
-//     waiting player tapping "play" again does not stack duplicate open matches;
-//  3. failing that, creates a fresh open match with one random active prompt
-//     pinned, and seats the caller as the first player.
-//
-// It refuses with an aibudget refusal (→ 429) when the daily AI-call budget is
-// out (internal/aibudget).
+// docs/DECISIONS.md 2026-07-03). In one transaction: (1) auto-joins the oldest
+// waiting async match the caller isn't in, flipping it open→drawing; (2) failing
+// that, returns the caller's own open match, so tapping "play" again doesn't
+// stack duplicates; (3) failing that, creates a fresh open match with one random
+// prompt pinned. Refuses with an aibudget error (→ 429) when the daily AI-call
+// budget is out.
 func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, error) {
-	// Ahead of the matchmaking tx, and ahead of all three branches: branch (1) starts
-	// a round on the spot, and a match created in branch (3) starts one the moment
-	// anybody joins — at which point it is the JOINER being budget-checked, not this
-	// caller. Guarding only the join would let a player over their cap queue up and
-	// duel anyway. Outside the tx because these are advisory reads and the tx below
-	// holds row locks worth keeping short.
+	// Checked ahead of the tx and ahead of all three branches: branch 3 bills the
+	// joiner, not the creator, once someone joins later, so guarding only the join
+	// would let a player over cap queue up and duel anyway. Outside the tx because
+	// this is an advisory read and the tx below holds row locks worth keeping short.
 	if s.checkBudget != nil {
 		if err := s.checkBudget(ctx, userID); err != nil {
 			return MatchView{}, err // an aibudget refusal; the handler maps it
@@ -227,9 +193,8 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 		if err := qtx.AddMatchPlayer(ctx, db.AddMatchPlayerParams{MatchID: m.ID, UserID: userID}); err != nil {
 			return MatchView{}, fmt.Errorf("game: seat joiner: %w", err)
 		}
-		// Roster full → start the round AND stamp the server-authoritative deadline
-		// (now() + roundSeconds, the DB's own clock). Replaces the generic status
-		// flip only at this open→drawing site (docs/GAME.md §4.1).
+		// Roster full → start the round and stamp the server-authoritative deadline
+		// (now() + roundSeconds, DB clock) — replaces the generic flip here (GAME.md §4.1).
 		if m, err = qtx.SetMatchDrawing(ctx, db.SetMatchDrawingParams{ID: m.ID, RoundSeconds: roundSeconds}); err != nil {
 			return MatchView{}, fmt.Errorf("game: start match: %w", err)
 		}
@@ -253,27 +218,10 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 	if err != nil {
 		return MatchView{}, err // already wrapped by assemble
 	}
-	// Grant the round to both players at the ONE site that starts one: open→drawing,
-	// the join branch, inside the same transaction that starts it. "No round, no
-	// grant" is the atomicity we want, and one insert into an unrelated table adds
-	// no contention to locks we are already holding.
-	//
-	// BOTH seats are billed for the one round, from the roster assemble just read.
-	// That is not a tax on being joined: nobody is drawn into a duel passively —
-	// both sides pressed play — and both get the round.
-	//
-	// What is NOT billed here is the provider. A round that starts is not a request
-	// to the judge: it becomes one only if both players submit (or the deadline
-	// finds them both in), and an abandoned or forfeited round never makes one at
-	// all. That row is written at the judging sites instead — Submit's last
-	// submission, resolveExpiry's both-submitted branch, and the stuck-judging
-	// re-fire — which is also why a re-fire bills the provider a second time and
-	// these two players exactly once.
-	//
-	// The branches that do NOT start a round bill nothing, which is how "a match
-	// nobody ever joined costs the player nothing" survives the move off the old
-	// drawing_deadline predicate: now it is true by construction rather than by a
-	// query's choice of anchor column.
+	// Bills both seats inside the same transaction that starts the round: "no
+	// round, no grant" is atomic, and both players get it because both pressed
+	// play. The provider bills separately, only at judging (enterJudging) —
+	// starting a round is not yet a request to the judge (docs/GAME.md §4.3).
 	if joined && s.billPlayers != nil {
 		ids := make([]string, 0, len(view.Players))
 		for _, p := range view.Players {
@@ -287,9 +235,8 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 		return MatchView{}, fmt.Errorf("game: commit tx: %w", err)
 	}
 	// Post-commit: the waiting player's socket learns the opponent joined and the
-	// round started (open→drawing stamped the deadline). Only the join branch flips
-	// state; the reuse/create branches leave a lone-open match nobody is watching yet
-	// (docs/API.md §9.2).
+	// round started. Only the join branch flips state; reuse/create leave a
+	// lone-open match nobody is watching yet (docs/API.md §9.2).
 	if joined {
 		s.publisher.MatchChanged(m.ID)
 	}
@@ -316,9 +263,8 @@ func (s *Service) createMatch(ctx context.Context, q *db.Queries, userID string)
 	return m, nil
 }
 
-// Get returns match state for a caller who must be a player in it; a non-player
-// (or a missing match) is hidden as ErrNotFound (→ 404, docs/API.md §8).
-// Read-only, so it runs on the shared queries without a transaction.
+// Get returns match state for a caller who must be a player; a non-player or
+// missing match is hidden as ErrNotFound (→ 404, docs/API.md §8). Read-only.
 func (s *Service) Get(ctx context.Context, userID, matchID string) (MatchView, error) {
 	m, err := s.q.GetMatch(ctx, matchID)
 	if err != nil {
@@ -337,9 +283,8 @@ func (s *Service) Get(ctx context.Context, userID, matchID string) (MatchView, e
 	return view, nil
 }
 
-// assemble loads the pinned prompt and roster for m and packs a MatchView. It
-// runs on whatever queries handle it is given (a tx during create/join, the
-// shared pool during a read) so the snapshot is consistent with its caller.
+// assemble loads the pinned prompt and roster for m into a MatchView, on
+// whatever queries it's given (tx or pool) so the snapshot matches its caller.
 func (s *Service) assemble(ctx context.Context, q *db.Queries, m db.Match) (MatchView, error) {
 	prompt, err := q.GetPromptByID(ctx, m.PromptID)
 	if err != nil {
@@ -376,8 +321,7 @@ func isPlayer(players []PlayerRow, userID string) bool {
 }
 
 // SubmitResult is the small post-submit state the handler echoes (docs/API.md
-// §8.3): the match status now (drawing while awaiting the opponent, judging once
-// both are in) and the caller's stored drawing id.
+// §8.3): status now, and the caller's stored drawing id.
 type SubmitResult struct {
 	Status    string
 	DrawingID string
@@ -386,13 +330,13 @@ type SubmitResult struct {
 	Deadline *time.Time
 }
 
-// Submit persists the caller's drawing for the match, stamps their roster slot,
-// and — when it is the last outstanding submission — flips the match to judging
-// and scores it out-of-band (docs/GAME.md §4.1, docs/API.md §8.3). The document is
-// already validated + canvas-checked by the handler; raw is the canonical jsonb.
+// Submit persists the caller's drawing, stamps their roster slot, and — if it's
+// the last outstanding submission — flips the match to judging and scores it
+// out-of-band (docs/GAME.md §4.1, docs/API.md §8, submit). The document is already
+// validated + canvas-checked by the handler.
 //
-// Errors: ErrNotFound (no such match → 404), ErrNotPlayer (403), ErrNotSubmittable
-// (match not in drawing → 409), ErrAlreadySubmitted (double-submit → 409).
+// Errors: ErrNotFound (404), ErrNotPlayer (403), ErrNotSubmittable (409),
+// ErrAlreadySubmitted (409).
 func (s *Service) Submit(ctx context.Context, userID, matchID string, doc document.Document, raw []byte) (SubmitResult, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -412,7 +356,7 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 	}
 
 	// Must be a player. Unlike the read path (hidden 404), a submit to a match you
-	// are not in is a known-ownership violation → ErrNotPlayer → 403 (API.md §8.3).
+	// are not in is a known-ownership violation → ErrNotPlayer → 403 (API.md §8, submit).
 	player, err := qtx.GetMatchPlayer(ctx, db.GetMatchPlayerParams{MatchID: matchID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -421,13 +365,11 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		return SubmitResult{}, fmt.Errorf("game: get player: %w", err)
 	}
 
-	// Defense-in-depth deadline enforcement on the DB clock (server_now, captured
-	// under this lock). A submit landing after the deadline but before the next
-	// sweep tick still sees status='drawing' and would otherwise be stamped —
-	// silently converting the opponent's forfeit win into a judged match. Resolve
-	// the expiry here instead; the late submission is NOT stamped (we return before
-	// CreateDrawing/StampSubmission). Fire judging only for the defensive
-	// both-submitted case (docs/GAME.md §4.1).
+	// Defense-in-depth on the DB clock (server_now, captured under this lock): a
+	// submit landing after the deadline but before the next sweep tick would
+	// otherwise still see status='drawing' and get stamped, silently turning a
+	// forfeit into a judged match. Resolve the expiry here instead — not stamped
+	// (docs/NOTES.md "Deadlines rely on now() being the transaction start time").
 	if isExpiredDrawing(m) {
 		outcome, err := s.resolveExpiry(ctx, qtx, m)
 		if err != nil {
@@ -439,8 +381,8 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		if outcome == outcomeJudging {
 			s.dispatchJudging(matchID)
 		}
-		// Uniform post-commit tail, identical to the sweeper's: the WINNING opponent
-		// (not on this request) is notified the instant this late submit forfeited the
+		// Uniform post-commit tail, identical to the sweeper's: notifies the winning
+		// opponent, not on this request, the instant the late submit forfeits the
 		// round (docs/API.md §9.2).
 		s.publishOutcome(matchID, outcome)
 		return SubmitResult{}, ErrRoundExpired
@@ -453,8 +395,6 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		return SubmitResult{}, ErrAlreadySubmitted
 	}
 
-	// Persist the submission as a match-linked drawing (owner = caller). The server
-	// derives doc_version/width/height from the validated document.
 	d, err := qtx.CreateDrawing(ctx, db.CreateDrawingParams{
 		OwnerID:    userID,
 		MatchID:    &matchID,
@@ -496,45 +436,31 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		return SubmitResult{}, fmt.Errorf("game: commit tx: %w", err)
 	}
 
-	// Post-commit realtime: tell the room this player submitted (the frame carries
-	// {userId}; clients ignore their own), and — if this was the last submission that
-	// flipped the match to judging — that judging began (docs/API.md §9.2).
+	// Post-commit realtime: the room learns this player submitted (frame carries
+	// {userId}; clients ignore their own) and, if this was the last submission,
+	// that judging began (docs/API.md §9.2).
 	s.publisher.PlayerSubmitted(matchID, userID)
 	if triggerJudging {
 		s.publisher.Judging(matchID)
-		// Out-of-band: the submit response returns immediately (202); the verdict is
-		// produced by the async pass (docs/API.md §8.3). In-process, under the
-		// judging concurrency bound — a crash mid-judge, or a dispatch the bound
-		// refuses, is recovered by the stuck-judging sweep (sweeper.go).
+		// Out-of-band: the response returns immediately (202 — docs/API.md §8, submit); a
+		// crash mid-judge, or a dispatch the concurrency bound refuses, is recovered
+		// by the stuck-judging sweep (sweeper.go).
 		s.dispatchJudging(matchID)
 	}
 	return SubmitResult{Status: status, DrawingID: d.ID, Deadline: m.DrawingDeadline}, nil
 }
 
-// enterJudging flips a locked match into judging INSIDE the caller's transaction
-// and bills the provider for the request that flip is about to cause. Every site
-// that enters judging goes through here — the last submit, the deadline's
-// both-submitted branch, and the stuck-judging re-fire — and those are the only
-// three, which is what makes "one provider row per judging pass" a property of
-// the code rather than a hope.
+// enterJudging flips a locked match into judging inside the caller's transaction
+// and bills the provider for the request the flip causes. Every path into
+// judging — the last submit, the deadline's both-submitted branch, the
+// stuck-judging re-fire — goes through here, so "one provider row per pass" is
+// guaranteed by the code (docs/GAME.md §4.3, docs/NOTES.md "Bill the ledger
+// where the provider call happens"). It counts passes, not the judge's internal
+// retries (docs/JUDGE.md §7 pins 3).
 //
-// SetMatchJudging (not the generic status flip) stamps judging_started_at + the
-// attempt counter, so the stuck-judging watchdog measures staleness per attempt
-// (docs/GAME.md §4.1).
-//
-// The ledger row commits with the flip: a pass that never became a pass is never
-// billed, and a re-fire — which really does make another request — is billed
-// again while the two players keep the single round they were granted at
-// open→drawing. What the row does NOT cover is the retries inside the judge seam
-// itself (docs/JUDGE.md §7 pins 3), because counting those would mean handing the
-// frozen Judge contract a database dependency; the row is one per PASS and says
-// so in aibudget.BillProvider.
-//
-// A ledger failure fails the transition. That is deliberate and it is the cheap
-// direction: the ledger lives in the same database as the match row, so an insert
-// that fails has almost certainly taken the surrounding transaction with it
-// already, and a duel that stays in `drawing` for another sweep tick is a far
-// smaller problem than a provider ceiling that silently stops counting.
+// SetMatchJudging also stamps judging_started_at + the attempt counter the
+// stuck-judging watchdog uses (docs/GAME.md §4.1). A ledger failure fails the
+// transition — staying in `drawing` beats a ceiling that silently stops counting.
 func (s *Service) enterJudging(ctx context.Context, qtx *db.Queries, matchID string) error {
 	if _, err := qtx.SetMatchJudging(ctx, matchID); err != nil {
 		return fmt.Errorf("game: to judging: %w", err)
@@ -548,14 +474,12 @@ func (s *Service) enterJudging(ctx context.Context, qtx *db.Queries, matchID str
 	return nil
 }
 
-// dispatchJudging starts a judging pass for a match that just entered judging, if
-// the concurrency bound allows one right now. It NEVER blocks the caller (a request
-// goroutine or the sweep loop) and never queues.
-//
-// A refusal is not a lost match: the row stays in `judging` with its attempt
-// stamped, so sweepStuckJudging re-claims it once the attempt goes stale — the same
-// recovery path that covers a crashed judge. Returns whether the pass started, so a
-// caller that already paid for a retry (the sweeper) can tell the difference.
+// dispatchJudging starts a judging pass if the concurrency bound allows one right
+// now. It never blocks the caller and never queues: a refusal leaves the row in
+// `judging` with its attempt stamped, for sweepStuckJudging to re-claim once it
+// goes stale (docs/NOTES.md "Judging runs out of band and is recovered by the
+// sweeper"). Returns whether the pass started, so a caller that already paid for
+// a retry (the sweeper) can tell the difference.
 func (s *Service) dispatchJudging(matchID string) bool {
 	if s.judging.tryGo(func() { s.judgeMatch(matchID) }) {
 		return true
@@ -565,42 +489,32 @@ func (s *Service) dispatchJudging(matchID string) bool {
 	return false
 }
 
-// JudgePassBudget bounds ONE judging pass end to end: two authoritative renders
-// plus the judge call, retries included.
-//
-// It must clear the judge's whole retry envelope, or the wrapper silently
-// truncates the policy the judge was configured with — which is what a flat 30s
-// did: docs/JUDGE.md §7 pins 3 attempts, so a default JUDGE_TIMEOUT of 10s needs
-// 30s for the judge ALONE, before either render has run. The arithmetic is
-// 3x10s of judge + ~1s of backoff + room for two node-canvas renders.
-//
-// Generous on purpose: this is not the abuse guard. A pass that wedges anyway is
-// caught by the stuck-judging sweep and finally resolved as done/'aborted'
-// (sweeper.go, docs/GAME.md §4.1), so being too tight (a truncated retry, a lost
-// duel) costs more than being too loose (a player waits a little longer).
+// JudgePassBudget bounds one judging pass end to end: two renders plus the judge
+// call, retries included. It must clear the judge's whole retry envelope
+// (docs/JUDGE.md §7 pins 3 attempts, so JUDGE_TIMEOUT=10s alone needs 30s) or the
+// wrapper silently truncates the last retry (docs/NOTES.md "JudgePassBudget must
+// fit the judge's retry envelope"). Generous on purpose: a wedged pass is caught
+// by the stuck-judging sweep and resolved as done/'aborted' (docs/GAME.md §4.1).
 const JudgePassBudget = 60 * time.Second
 
 // judgeMatch runs the judging pass for a match that just entered judging, on its
-// own background context (the request that triggered it has already returned). It
-// runs holding a judgeLimiter slot — always start it via dispatchJudging (or, for a
-// caller that pre-acquired, judging.goHeld), never a bare `go`.
+// own background context. Runs holding a judgeLimiter slot — start it via
+// dispatchJudging or judging.goHeld, never a bare `go`.
 func (s *Service) judgeMatch(matchID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), JudgePassBudget)
 	defer cancel()
 	if err := s.runJudging(ctx, matchID); err != nil {
-		// Quota exhaustion is an operational fact, not a bug, and it reads nothing
-		// like one in a wall of "judge match" errors: every duel from here until
-		// the budget resets will fail the same way. Name it so the cause is one
-		// grep away instead of an evening spent suspecting the judge.
+		// Quota exhaustion is an operational fact, not a bug: every duel will fail
+		// the same way until the budget resets. Name it so the cause is a grep
+		// away instead of an evening spent suspecting the judge.
 		if errors.Is(err, judge.ErrQuotaExhausted) {
 			s.logger.Error("judge quota exhausted — every duel will abort until the budget resets",
 				"matchID", matchID, "err", err)
 			return
 		}
-		// Log and leave the match in judging: the stuck-judging sweep re-fires the
-		// attempt once it goes stale, up to maxJudgeAttempts, and the exhausted sweep
-		// then closes it out as done/'aborted' rather than letting it wedge forever
-		// (sweeper.go, docs/GAME.md §4.1).
+		// Leaves the match in judging: the stuck-judging sweep re-fires it until
+		// maxJudgeAttempts, then closes it as done/'aborted' rather than wedging
+		// forever (sweeper.go, docs/GAME.md §4.1).
 		s.logger.Error("judge match", "matchID", matchID, "err", err)
 	}
 }
@@ -646,12 +560,9 @@ func (s *Service) runJudging(ctx context.Context, matchID string) error {
 	if err := res.Validate(); err != nil {
 		return fmt.Errorf("game: judge result: %w", err)
 	}
-	// The ONE line that says the product's core feature worked. Without it a live
-	// judge is unobservable: you cannot tell a sane verdict from a degenerate one
-	// (every duel a tie, every score 0), or notice latency creeping toward the
-	// pass budget, and the first signal would be a player complaining. Scores and
-	// latency, not the reason — the rationale is player-facing text that can carry
-	// whatever a drawing provoked, and logs are not the place for it.
+	// The one line showing a live judge produces sane verdicts, not every duel a
+	// tie or every score 0, and that latency isn't creeping toward the pass budget.
+	// Scores and latency only — the reason is player-facing text, not a log field.
 	s.logger.Info("match judged",
 		"matchID", matchID,
 		"prompt", prompt.Text,
@@ -696,8 +607,7 @@ func (s *Service) renderSubmission(ctx context.Context, raw []byte) ([]byte, err
 }
 
 // playerResult carries one player's terminal record into writeFinalResult: the
-// judge similarity score (nil on a forfeit — no judge ran), the Elo snapshot around
-// the match, all keyed by user_id so a seat mix-up can't write to the wrong row.
+// judge score (nil on a forfeit), the Elo snapshot, keyed by user_id.
 type playerResult struct {
 	userID string
 	score  *float64
@@ -705,11 +615,10 @@ type playerResult struct {
 	after  int
 }
 
-// finalResult is the seat-independent terminal state both the judged path
-// (persistResult) and the forfeit path (resolveExpiry) hand to writeFinalResult.
-// winner is the winner's user_id, or nil on a tie (judged only). Players are
-// identified by user_id inside `players`, never by seat index, so Elo can never be
-// applied to the wrong seat. resolution is resolutionJudged | resolutionForfeit.
+// finalResult is the seat-independent terminal state the judged (persistResult)
+// and forfeit (resolveExpiry) paths hand to writeFinalResult. winner is nil on a
+// tie; players are keyed by user_id, never seat index, so Elo can't land on the
+// wrong seat.
 type finalResult struct {
 	winner     *string
 	players    []playerResult
@@ -717,36 +626,28 @@ type finalResult struct {
 	resolution string
 }
 
-// writeFinalResult writes the terminal → done state for a match already locked in
-// qtx: each player's score + Elo snapshot AND their users.rating (so the Elo reaches
-// the ladder — not only match_players), then winner/reason/resolution on the match.
-// Elo is applied here in exactly ONE place, shared by the judged and forfeit paths
-// and keyed by user_id. It commits nothing — the caller owns the tx
-// (docs/GAME.md §8).
+// writeFinalResult writes the terminal → done state for a match already locked
+// in qtx: each player's score + Elo snapshot and users.rating, then
+// winner/reason/resolution. Elo is applied in exactly one place, shared by the
+// judged and forfeit paths, keyed by user_id. Commits nothing — the caller owns
+// the tx (docs/GAME.md §8).
 //
-// The ladder move is ATOMIC: ApplyRatingDelta does `rating = rating + delta` and RETURNs
-// the true post-update rating, so two DIFFERENT matches sharing a player and resolving
-// concurrently BOTH land (no lost update) — the match-row FOR UPDATE lock serializes per
-// MATCH, not per USER, and so cannot guard a cross-match rating write (docs/NOTES.md).
-// before/after are DERIVED from that RETURNING (after = returned value, before = after −
-// delta), never from the pre-match read: this keeps the snapshot consistent with the
-// ladder even under concurrency, so per user rating_after(M_n) == rating_before(M_n+1)
-// and after − before == delta always hold. The delta magnitude itself is still computed
-// from the pre-match rating snapshot the caller read — that is how real ladders work.
+// The ladder move is atomic (`rating = rating + delta` returning the new value,
+// never SET), because the match-row lock serializes per match, not per user.
+// before/after are derived from that RETURNING, not the pre-match read, so the
+// snapshot holds under concurrency (docs/NOTES.md "Ratings move by an atomic
+// delta").
 func (s *Service) writeFinalResult(ctx context.Context, qtx *db.Queries, matchID string, fr finalResult) error {
-	// Lock the user rows in a global (user_id) order. ApplyRatingDelta holds each user
-	// row lock until this tx commits, so two matches over the SAME pair of players
-	// (a rematch) resolving concurrently would deadlock (40P01) if they took the two
-	// locks in opposite orders — sorting makes both take them in the same order.
-	// Lock-ordering, not cosmetics.
+	// Lock the user rows in a global (user_id) order: ApplyRatingDelta holds each
+	// row lock until commit, so a rematch resolving concurrently would deadlock
+	// (40P01) if the two matches took the locks in opposite orders.
 	slices.SortFunc(fr.players, func(a, b playerResult) int {
 		return strings.Compare(a.userID, b.userID)
 	})
 
 	for _, p := range fr.players {
-		// Rating write FIRST so its RETURNING feeds the snapshot. Keep before/after as
-		// distinct per-iteration locals: SetPlayerScore takes their addresses, so a
-		// variable hoisted out of the loop would alias across players.
+		// Rating write first so its RETURNING feeds the snapshot; before/after stay
+		// per-iteration locals since SetPlayerScore takes their addresses.
 		delta := int32(p.after - p.before)
 		after, err := qtx.ApplyRatingDelta(ctx, db.ApplyRatingDeltaParams{ID: p.userID, Delta: delta})
 		if err != nil {
@@ -806,15 +707,14 @@ func (s *Service) persistResult(ctx context.Context, matchID string, res judge.R
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("game: commit tx: %w", err)
 	}
-	// Post-commit: both duelists' sockets get their per-viewer verdict. Reached only
-	// when this pass actually wrote the result (the status != judging early return
-	// above never gets here), so a losing double-judge does not double-publish
-	// (docs/API.md §9.2).
+	// Post-commit: both duelists get their per-viewer verdict. Only reached when
+	// this pass actually wrote the result, so a losing double-judge never
+	// double-publishes (docs/API.md §9.2).
 	s.publisher.Resolved(matchID)
 	return nil
 }
 
-// ResultView is the end-of-round result (docs/API.md §8.4). Not-ready states
+// ResultView is the end-of-round result (docs/API.md §8, result). Not-ready states
 // carry only Status; a done match carries the full verdict.
 type ResultView struct {
 	Status       string
@@ -881,15 +781,12 @@ func (s *Service) Result(ctx context.Context, userID, matchID string) (ResultVie
 	}, nil
 }
 
-// PlayerDrawing returns the vector document a fellow match participant submitted,
-// for the result reveal. Authorization is match MEMBERSHIP (not drawing ownership,
-// which 404s a non-owner and so can't serve the opponent's canvas), gated on the
-// match being `done` (no peeking mid-duel). The single query folds all three trust
-// gates; any miss — a non-member viewer, an unfinished match, a non-player target —
-// yields pgx.ErrNoRows, which becomes ErrNotFound → a hidden 404 that leaks nothing
-// (docs/API.md §8, docs/IDEAS.md). No object storage: the caller renders the
-// returned document with the same editor renderer that draws the local canvas.
-// (targetID == viewerID also works, so it's a uniform "participant drawing" read.)
+// PlayerDrawing returns a fellow participant's submitted document (targetID ==
+// viewerID also works, as a uniform read). Authorization is match membership,
+// not drawing ownership (which 404s a non-owner), gated on the match being
+// `done` — no peeking mid-duel. One query folds all three trust gates; any miss
+// becomes ErrNotFound, a hidden 404 (docs/API.md §8). No object storage: the
+// caller renders the document with the same renderer as the local canvas.
 func (s *Service) PlayerDrawing(ctx context.Context, viewerID, matchID, targetID string) (json.RawMessage, error) {
 	doc, err := s.q.GetMatchPlayerDrawing(ctx, db.GetMatchPlayerDrawingParams{
 		MatchID: matchID, TargetUserID: targetID, ViewerUserID: viewerID,
@@ -913,13 +810,9 @@ func rowsContain(rows []db.ListMatchPlayersRow, userID string) bool {
 }
 
 // SetBudget installs the duel's three ports into the daily AI-call ceiling, the
-// same post-construction wiring shape as SetPublisher: NewService's signature
-// stays put, every existing test keeps an unbudgeted service, and main.go opts in
-// once with the trio aibudget bound to KindDuel.
-//
-// Any of them may be nil, and nil means unbudgeted rather than a panic — an
-// unconfigured ceiling must fail open. It is the composition root, not this
-// method, that decides whether a real provider is configured at all.
+// same post-construction wiring as SetPublisher, so NewService's signature and
+// existing tests are unaffected. Any port may be nil (unbudgeted); deciding
+// whether a real provider exists is the composition root's job.
 func (s *Service) SetBudget(check aibudget.Check, billPlayers aibudget.BillPlayers, billProvider aibudget.BillProvider) {
 	s.checkBudget = check
 	s.billPlayers = billPlayers

@@ -70,7 +70,7 @@ func TestJudgeLimiterBound(t *testing.T) {
 						break
 					}
 				}
-				entered <- struct{}{} // signal BEFORE parking, so the test can wait for a full house
+				entered <- struct{}{} // signal before parking, so the test can wait for a full house
 				<-release
 				inFlight.Add(-1)
 			})
@@ -113,20 +113,16 @@ func TestJudgeLimiterBound(t *testing.T) {
 		if got := peak.Load(); got != limit {
 			t.Errorf("peak concurrency = %d, want %d", got, limit)
 		}
-		// Every finished pass returns its slot — but NOT by the time wg.Wait()
+		// Every finished pass returns its slot — but not by the time wg.Wait()
 		// returns, which is why this polls instead of asserting straight away.
 		//
-		// goHeld is `go func() { defer l.release(); fn() }()`, and the fn above ends
-		// with `defer wg.Done()`. Those two defers belong to DIFFERENT functions, so
-		// they run in return order: fn's defers first, then fn returns, then the
-		// wrapper's defer releases the slot. wg.Wait() therefore establishes nothing
-		// about the semaphore — it unblocks strictly BEFORE the release.
-		//
-		// The gap is nanoseconds when the scheduler is idle, which is why this read
-		// as correct for months and only failed under `go test -race`, where the
-		// instrumentation widens every such window. Waiting for the condition is the
-		// assertion the test always meant to make; the immediate read was measuring
-		// a happens-before that was never there.
+		// goHeld is `go func() { defer l.release(); fn() }()`, and fn above ends
+		// with `defer wg.Done()`. Those defers belong to different functions and
+		// run in return order: fn's defers first, then fn returns, then the
+		// wrapper's defer releases the slot — so wg.Wait() unblocks strictly
+		// before the release and establishes nothing about the semaphore. The gap
+		// is nanoseconds when the scheduler is idle, wide under `-race`. Waiting
+		// for the condition is the assertion the test always meant to make.
 		deadline := time.Now().Add(2 * time.Second)
 		for i := range limit {
 			for !l.tryAcquire() {

@@ -17,26 +17,24 @@ import (
 )
 
 // markedDocJSON is the smallest valid v1 document with a marker in its single
-// layer's name, so a returned document can be traced to WHICH player owns it —
-// the assertion that a co-player sees the OPPONENT's canvas, not their own.
+// layer's name, so a returned document can be traced to its owner.
 func markedDocJSON(marker string) string {
 	return `{"version":1,"width":10,"height":10,"background":null,` +
 		`"layers":[{"id":"l","name":"` + marker + `","visible":true,"opacity":1,"strokes":[]}]}`
 }
 
-// TestPlayerDrawing_DB exercises the security gates of the opponent-canvas reveal
-// (`GET /api/matches/{id}/players/{userId}/drawing` → Service.PlayerDrawing →
-// GetMatchPlayerDrawing) against a real Postgres. The gates are folded into ONE
+// TestPlayerDrawing_DB exercises the security gates of the opponent-canvas
+// reveal (GET .../players/{userId}/drawing → Service.PlayerDrawing →
+// GetMatchPlayerDrawing) against a real Postgres. The gates are folded into one
 // SQL query (viewer-is-a-co-player, match-is-done, target-is-a-submitted-player),
-// so a unit test can't see them — this is the DB-backed proof that every miss is
-// a hidden 404 and that a NON-member is refused even for a submitted target (the
-// one assertion that would catch a positional $2/$3 target↔viewer bind flip —
-// docs/NOTES.md). Needs a migrated `DATABASE_URL` (docker compose up + goose up);
-// skips otherwise, matching internal/drawings/roundtrip_test.go.
+// so a unit test can't see them; this is the proof that every miss is a hidden
+// 404, including a non-member refused for a submitted target (the assertion that
+// would catch a positional $2/$3 target↔viewer bind flip — docs/NOTES.md). Needs
+// a migrated `DATABASE_URL`; skips otherwise.
 //
-// The handler's own `uuid.Parse`-→404 guard for malformed path ids is the same
-// pre-existing pattern as Get/Result and is not re-tested here; the foreign-but-
-// well-formed id → 404 path IS covered below (unknown match / target cases).
+// The handler's `uuid.Parse`→404 guard for malformed ids is not re-tested here
+// (same pattern as Get/Result); the foreign-but-well-formed id → 404 path is
+// covered below.
 func TestPlayerDrawing_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -48,10 +46,9 @@ func TestPlayerDrawing_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	// Close the pool via Cleanup, NOT `defer`: a test-body defer runs BEFORE the
+	// Close the pool via Cleanup, not defer: a test-body defer runs before the
 	// t.Cleanup callbacks, so a deferred Close would shut the pool before the
-	// row-cleanup below runs — leaving fixtures behind (errors are ignored). Being
-	// registered first, this runs LAST (Cleanup is LIFO), after the row cleanup.
+	// row-cleanup below runs. Registered first, this runs last (Cleanup is LIFO).
 	t.Cleanup(func() { pool.Close() })
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("postgres unreachable: %v", err)
@@ -63,15 +60,12 @@ func TestPlayerDrawing_DB(t *testing.T) {
 	svc := NewService(pool, q, nil, nil, nil)
 
 	// --- fixtures ---------------------------------------------------------
-	// Cleanup is registered BEFORE any row is created (the slices are captured by
-	// reference), so a mid-setup t.Fatalf still tears down whatever landed. Order
-	// respects the FKs: match_players (→ drawings/matches/users) first, then
-	// drawings (→ matches/users), then matches (→ prompts), then users.
+	// Cleanup is registered before any row is created (slices captured by
+	// reference), so a mid-setup t.Fatalf still tears down whatever landed.
 	var userIDs, matchIDs []string
 	t.Cleanup(func() {
-		// Scalar per-id deletes with a uuid-string param bind reliably (the same
-		// `where x = $1` form roundtrip_test uses). Teardown errors are ignored (best
-		// effort), so the delete form must be one that definitely binds.
+		// Scalar per-id deletes bind a uuid-string param reliably (the same
+		// `where x = $1` form roundtrip_test uses); teardown errors are ignored.
 		for _, mid := range matchIDs {
 			_, _ = pool.Exec(ctx, "delete from match_players where match_id = $1", mid)
 			_, _ = pool.Exec(ctx, "delete from drawings where match_id = $1", mid)
@@ -104,9 +98,8 @@ func TestPlayerDrawing_DB(t *testing.T) {
 		t.Fatalf("pick prompt (is the DB migrated + seeded? migration 00002): %v", err)
 	}
 
-	// mkMatch creates a match, seats the players, submits ONE marked drawing per
-	// player (the same CreateDrawing + StampSubmission path Submit uses), and sets
-	// the final status. Returns the match id.
+	// mkMatch creates a match, seats the players, submits one marked drawing per
+	// player, and sets the final status.
 	mkMatch := func(status string, players ...string) string {
 		m, err := q.CreateMatch(ctx, prompt.ID)
 		if err != nil {

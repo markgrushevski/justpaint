@@ -78,9 +78,9 @@ type matchDTO struct {
 	Prompt  promptDTO   `json:"prompt"`
 	Canvas  canvasDTO   `json:"canvas"`
 	Players []playerDTO `json:"players"`
-	// DrawingDeadline is the absolute round deadline (RFC3339Nano, UTC); null while
-	// `open`. ServerTime is the response-build instant (always present) so the
-	// client corrects clock skew before counting down (docs/API.md §8).
+	// DrawingDeadline is the absolute round deadline (RFC3339Nano, UTC), null while
+	// `open`; ServerTime lets the client correct clock skew before counting down
+	// (docs/API.md §8).
 	DrawingDeadline *string   `json:"drawingDeadline"`
 	ServerTime      string    `json:"serverTime"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -92,8 +92,7 @@ type matchEnvelope struct {
 }
 
 // formatDeadline renders an optional deadline as RFC3339Nano (UTC), or nil while
-// the match is `open` (no deadline stamped yet). Same format as serverTime so the
-// client parses one shape (docs/API.md §8).
+// `open`, in the same format as serverTime so the client parses one shape.
 func formatDeadline(t *time.Time) *string {
 	if t == nil {
 		return nil
@@ -103,10 +102,8 @@ func formatDeadline(t *time.Time) *string {
 }
 
 // buildMatchDTO renders a MatchView for one viewer, applying the two visibility
-// rules (docs/GAME.md §4.2, §5): the prompt text is hidden until the match leaves
-// `open`, and a player sees only their own drawingId until the match is `done`.
-// `now` is the response-build instant, echoed as serverTime for client clock-skew
-// correction. Pure — no DB, no HTTP — so the redaction is table-tested directly.
+// rules (docs/GAME.md §4.2, §5): prompt text hidden until `open` ends, and a
+// player sees only their own drawingId until `done`. Pure — table-tested directly.
 func buildMatchDTO(v MatchView, viewerID string, now time.Time) matchDTO {
 	prompt := promptDTO{ID: v.PromptID}
 	if v.Status != statusOpen {
@@ -153,13 +150,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "invalid request body")
 		return
 	}
-	// v1 accepts only "async" (the default). The value is validated here but not
-	// threaded into CreateOrJoin: creation relies on the matches.mode column
-	// default ('async') and auto-join only considers async matches. Live realtime
-	// shipped as a transport over the same lifecycle and added no 'live' mode
-	// (docs/GAME.md §9), so mode stays intentionally inert — validated so a client
-	// asking for something else is told, threaded nowhere because there is nowhere
-	// for it to go.
+	// v1 accepts only "async" (the default), validated but not threaded into
+	// CreateOrJoin: creation relies on the matches.mode column default, and live
+	// realtime added no 'live' mode (docs/GAME.md §9) — there is nowhere else for
+	// the value to go.
 	mode := req.Mode
 	if mode == "" {
 		mode = modeAsync
@@ -171,13 +165,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	view, err := h.svc.CreateOrJoin(r.Context(), uid)
 	if err != nil {
-		// Both budget refusals are 429s, but they are not the same news — and the
-		// copy for both lives in one place (aibudget.WriteRefusal), because deciding
-		// what a refusal discloses is one decision, not one per feature.
-		//
-		// It writes the response as a side effect, so it is tested and branched on
-		// here rather than from inside a switch predicate, where a reader has to know
-		// that evaluating a case can answer the request.
+		// Both budget refusals are 429s but not the same news; the copy for both
+		// lives in one place (aibudget.WriteRefusal). Checked before the switch,
+		// not as a case predicate, because it writes the response as a side effect.
 		if aibudget.WriteRefusal(w, err) {
 			return
 		}
@@ -232,7 +222,7 @@ type submitMatch struct {
 	Status string    `json:"status"`
 	You    submitYou `json:"you"`
 	// Same deadline/clock pair as matchDTO, so the submit ack re-anchors the
-	// client countdown without a follow-up GET (docs/API.md §8.3).
+	// client countdown without a follow-up GET (docs/API.md §8, submit).
 	DrawingDeadline *string `json:"drawingDeadline"`
 	ServerTime      string  `json:"serverTime"`
 }
@@ -243,7 +233,7 @@ type submitEnvelope struct {
 
 // Submit: POST /api/matches/{id}/submit — submit the caller's vector document for
 // this match (auth: required; must be a player). Returns 202: the submission is
-// recorded, the verdict is produced out-of-band (docs/API.md §8.3).
+// recorded, the verdict is produced out-of-band (docs/API.md §8, submit).
 func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context())
 	id := r.PathValue("id")
@@ -270,7 +260,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 			web.Error(w, http.StatusConflict, web.CodeConflict, "already submitted")
 		case errors.Is(err, ErrRoundExpired):
 			// The match moved on (forfeit/abandon); the client treats a 409 here as
-			// "go poll the result", not an error toast (docs/API.md §8.3).
+			// "go poll the result", not an error toast (docs/API.md §8, submit).
 			web.Error(w, http.StatusConflict, web.CodeConflict, "round expired")
 		default:
 			h.logger.Error("submit", "err", err)
@@ -286,8 +276,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 }
 
 // decodeSubmission reads {document} (8 MB cap), validates it at the write edge,
-// and enforces the square game canvas (docs/GAME.md §2). Mirrors the drawings
-// decode path plus the canvas-size check unique to a duel submission.
+// and enforces the square game canvas (docs/GAME.md §2).
 func (h *Handler) decodeSubmission(w http.ResponseWriter, r *http.Request) (document.Document, []byte, bool) {
 	var req struct {
 		Document json.RawMessage `json:"document"`
@@ -316,16 +305,12 @@ func (h *Handler) decodeSubmission(w http.ResponseWriter, r *http.Request) (docu
 	return doc, req.Document, true
 }
 
-// ValidateSubmission is the ONE rule set for a drawing offered up to be scored:
-// the vector-document contract (docs/DOCUMENT-FORMAT.md) plus the square game
-// canvas both duelists share (docs/GAME.md §2).
-//
-// Exported because single-player practice submits a drawing for exactly the same
-// purpose — a server-side render handed to a model — and must therefore accept
-// exactly the same documents. A second copy of these two rules would be a second
-// contract, and the first off-size drawing to be scored anyway would prove it.
-// Every failure is a *document.ValidationError, so every caller maps it to the
-// same 400 validation_failed.
+// ValidateSubmission is the one rule set for a drawing to be scored: the
+// vector-document contract (docs/DOCUMENT-FORMAT.md) plus the square game canvas
+// (docs/GAME.md §2). Exported because practice submits for the same purpose — a
+// server-side render handed to a model — and must accept the same documents; a
+// second copy of these rules would be a second contract. Every failure is a
+// *document.ValidationError, mapped to 400 validation_failed.
 func ValidateSubmission(raw json.RawMessage) (document.Document, error) {
 	doc, err := document.ParseAndValidate(raw)
 	if err != nil {
@@ -357,13 +342,9 @@ type resultPlayerDTO struct {
 	Score        *float64 `json:"score"`
 	RatingBefore *int32   `json:"ratingBefore"`
 	RatingAfter  *int32   `json:"ratingAfter"`
-	// JudgedImageURL would point at the server-rendered authoritative raster in
-	// object storage. It stays null: the render is real (RENDER_MODE=node) but is
-	// never persisted, and the reveal shows the opponent's canvas through the
-	// membership-gated participant-drawing route below plus a client render, which
-	// is why object storage was dropped rather than built (docs/API.md §8.4,
-	// docs/DECISIONS.md 2026-07-11). The field is kept for a later feed-thumbnail
-	// or render-offload use.
+	// JudgedImageURL would point at the authoritative raster in object storage,
+	// dropped in favor of the participant-drawing route plus a client render
+	// (docs/API.md §8, result; docs/DECISIONS.md 2026-07-11); stays null.
 	JudgedImageURL *string `json:"judgedImageUrl"`
 }
 
@@ -375,8 +356,7 @@ type resultDone struct {
 	IsTie        bool      `json:"isTie"`
 	Reason       *string   `json:"reason"`
 	// Resolution is how the match was decided: 'judged' | 'forfeit' | 'aborted'. The
-	// client branches its copy on this, never on the free-text Reason
-	// (docs/GAME.md §4.1).
+	// client branches on this, never on the free-text Reason (docs/GAME.md §4.1).
 	Resolution string            `json:"resolution"`
 	Players    []resultPlayerDTO `json:"players"`
 }
@@ -412,14 +392,11 @@ type playerDrawingEnvelope struct {
 	Document json.RawMessage `json:"document"`
 }
 
-// PlayerDrawing: GET /api/matches/{id}/players/{userId}/drawing — a fellow
-// participant's submitted vector document, revealed only once the match is `done`
-// (auth: required; the caller must be a co-player, else a hidden 404). This is how
-// the reveal shows the OPPONENT's canvas: the ownership-scoped GET /api/drawings/{id}
-// 404s a non-owner, so match membership is the authorization instead (docs/API.md
-// §8, docs/IDEAS.md). No object storage — the client renders the returned document
-// (the same renderer as the local canvas). `userId` == self also resolves, so it's
-// a uniform participant-drawing route.
+// PlayerDrawing: GET .../players/{userId}/drawing — a fellow participant's
+// submitted document, revealed only once `done` (auth required; caller must be
+// a co-player, else hidden 404). Authorization is match membership, not
+// ownership: GET /api/drawings/{id} 404s a non-owner and can't serve the
+// opponent's canvas (docs/API.md §8). No object storage.
 func (h *Handler) PlayerDrawing(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context())
 	matchID := r.PathValue("id")
@@ -464,7 +441,7 @@ func buildResultDTO(v ResultView) any {
 	}
 	text := v.PromptText
 	// Default nil (legacy pre-migration `done` rows) to 'judged' so the field is
-	// never empty on a completed match (docs/API.md §8.4).
+	// never empty on a completed match (docs/API.md §8, result).
 	resolution := resolutionJudged
 	if v.Resolution != nil {
 		resolution = *v.Resolution
@@ -473,9 +450,9 @@ func buildResultDTO(v ResultView) any {
 		Status: v.Status, Ready: true,
 		Prompt:       promptDTO{ID: v.PromptID, Text: &text},
 		WinnerUserID: v.WinnerUserID,
-		// A tie is a VERDICT with no winner. An aborted round also has no winner but
-		// produced no verdict at all, so it must not read as a drawn duel — the
-		// resolution is the only thing that distinguishes them (docs/API.md §8.4).
+		// A tie is a verdict with no winner; an aborted round has no winner either
+		// but produced no verdict at all, so it must not read as a drawn duel —
+		// resolution is the only thing that distinguishes them (docs/API.md §8, result).
 		IsTie:      v.WinnerUserID == nil && resolution != resolutionAborted,
 		Reason:     v.Reason,
 		Resolution: resolution,

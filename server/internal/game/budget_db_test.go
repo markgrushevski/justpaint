@@ -17,18 +17,12 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/render"
 )
 
-// matchmakingLockID guards the seed-an-open-match-then-join window against the
-// OTHER DB suites that drive CreateOrJoin, which `go test ./...` runs
-// concurrently against this same database (internal/aibudget's budget_db_test.go
-// holds the same id).
-//
-// It has to exist because matchmaking is global by design: FindOpenMatchToJoin
-// takes the OLDEST open async match the caller is not in, anywhere in the table.
-// Two suites that each seed a backdated open match and then join it will
-// therefore steal each other's — not flakily, but whenever their windows overlap.
-// A session-level advisory lock is the smallest thing that makes the two windows
-// mutually exclusive; it costs one connection for a few milliseconds and needs no
-// coordination beyond the shared number.
+// matchmakingLockID guards the seed-an-open-match-then-join window against
+// other DB suites that drive CreateOrJoin concurrently (internal/aibudget's
+// budget_db_test.go holds the same id). Matchmaking is global — FindOpenMatchToJoin
+// takes the oldest open async match anywhere in the table — so two suites that
+// each seed and join a backdated match steal each other's whenever their windows
+// overlap; a session-level advisory lock keeps the two windows exclusive.
 const matchmakingLockID int64 = 20260920
 
 // withMatchmaking runs fn holding matchmakingLockID. The lock is session-scoped,
@@ -52,36 +46,21 @@ func withMatchmaking(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fn f
 	fn()
 }
 
-// TestDuelBudgetBilling_DB pins WHERE a duel's two ledger facts are written, which
-// is the whole of the fix that split aibudget.Spend into BillPlayers and
-// BillProvider.
+// TestDuelBudgetBilling_DB pins where a duel's two ledger facts are written
+// (aibudget.BillPlayers vs BillProvider), across four cases:
 //
-// The bug it exists to prevent: both rows used to be written together, in the
-// matchmaking transaction, on the theory that a round that starts is a judge call.
-// It is not. A round can end abandoned (nobody drew) or forfeit (one drew), and
-// neither ever reaches a judge — so the ledger billed a provider request that was
-// never made. It can also be judged MORE than once, because the stuck-judging
-// sweep re-fires a wedged attempt — so the ledger undercounted the requests that
-// were made. The count was therefore neither an upper nor a lower bound on real
-// provider spend, which is the one thing a spend ledger is for.
+//	(a) a round that starts grants both players a round and bills no provider;
+//	(b) a round that reaches judging bills the provider once, players not again;
+//	(c) a forfeited or abandoned round bills no provider at all;
+//	(d) a re-fired judging attempt bills the provider again, players still once —
+//	    they got one round, however many times the judge was asked.
 //
-// The rule now, and the four cases below:
-//
-//	(a) a round that STARTS grants both players a round and bills no provider;
-//	(b) a round that reaches JUDGING bills the provider, once, and the players not
-//	    again;
-//	(c) a round that is forfeited or abandoned bills no provider at all;
-//	(d) a re-fired judging attempt bills the provider AGAIN, and the players still
-//	    exactly once — they got one round, however many times the judge was asked.
-//
-// This lives in package game, not beside the rest of the budget's DB suite in
-// internal/aibudget: (d) has to drive refireJudging, which is unexported, and the
-// three judging sites it is asserting about are all in here.
+// Lives in package game, not beside aibudget's own DB suite, because (d) drives
+// refireJudging (unexported) and the three judging sites it asserts about.
 //
 // Needs a migrated + seeded DATABASE_URL (docker compose up + goose up, including
-// migration 00007); skips otherwise, with the same pool-close-via-t.Cleanup
-// ordering as the rest of the DB suites (Cleanup is LIFO: the pool.Close
-// registered FIRST runs LAST).
+// migration 00007); skips otherwise. Cleanup order is LIFO: the pool.Close
+// registered first runs last.
 func TestDuelBudgetBilling_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -100,9 +79,8 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 
 	q := db.New(pool)
 	logger := slog.New(slog.DiscardHandler)
-	// A real (stub) renderer and a real (fake) judge, because case (b) submits for
-	// both players and that dispatches an actual judging pass. A nil renderer would
-	// panic in the goroutine and take the test binary with it.
+	// A real (stub) renderer and (fake) judge: case (b) submits for both players
+	// and dispatches an actual judging pass, which a nil renderer would panic in.
 	svc := NewService(pool, q, render.NewStubRenderer(), judge.NewFakeJudge(), logger)
 
 	// A provider name nothing else in the world spends, so every count below is an
@@ -110,9 +88,8 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 	ns := time.Now().UnixNano()
 	provider := aibudget.Provider(fmt.Sprintf("test-duel-billing-%d", ns))
 
-	// Caps high enough that nothing here is ever refused: this suite is about WHERE
-	// rows are written, not about when the ceiling binds (that is aibudget's own
-	// DB suite).
+	// Caps high enough that nothing here is ever refused: this suite is about
+	// where rows are written, not when the ceiling binds (aibudget's own DB suite).
 	budget := aibudget.New(q, map[aibudget.Kind]aibudget.Policy{
 		aibudget.KindDuel: {Provider: provider, PerUser: 1000},
 	}, 1_000_000, logger)
@@ -181,11 +158,9 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 		return n
 	}
 
-	// startRound puts two fresh players through the REAL join: a seeded open match,
-	// backdated so matchmaking provably lands on THIS one (it takes the OLDEST open
-	// match the caller is not in, and a shared database holds others), then a
-	// CreateOrJoin that fills the roster — the one site that starts a round.
-	// Returns the match and its two players.
+	// startRound puts two fresh players through the real join: a seeded open match,
+	// backdated so matchmaking provably lands on this one, then a CreateOrJoin
+	// that fills the roster — the one site that starts a round.
 	startRound := func(t *testing.T, tag string) (string, string, string) {
 		t.Helper()
 		host, joiner := mkUser(tag+"-host"), mkUser(tag+"-joiner")
@@ -280,9 +255,8 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 				t.Errorf("player %s has %d duel rows after the round started, want 1", uid, got)
 			}
 		}
-		// The line this whole change is about. A started round is not a judge call:
-		// it becomes one only if both players submit, and it may never become one at
-		// all.
+		// A started round is not a judge call: it becomes one only if both players
+		// submit, and it may never become one at all.
 		if got := providerRows(); got != before {
 			t.Errorf("starting a round wrote %d provider rows, want 0 — no request has been made yet", got-before)
 		}
@@ -308,9 +282,8 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 				t.Errorf("player %s has %d duel rows, want 1 — submitting is not a second round", uid, got)
 			}
 		}
-		// Let the out-of-band pass finish before the cleanup pulls the rows out from
-		// under it. It does not touch the ledger; it is only here so the teardown does
-		// not race a live transaction.
+		// Let the out-of-band pass finish before cleanup pulls the rows out from
+		// under it; it doesn't touch the ledger, only avoids racing a live transaction.
 		waitForStatus(t, mid, statusDone)
 	})
 
@@ -333,8 +306,7 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 			if got := expireRound(t, mid); got != tc.wantOutcome {
 				t.Fatalf("outcome = %v, want %v", got, tc.wantOutcome)
 			}
-			// The measured bug, from the other side: this used to be 1. Nobody was ever
-			// asked anything, so the ledger must say nothing was.
+			// Nobody was ever asked anything here, so the ledger must say nothing was.
 			if got := providerRows() - before; got != 0 {
 				t.Errorf("a round that reached no judge wrote %d provider rows, want 0", got)
 			}
@@ -353,9 +325,8 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 		before := providerRows()
 		mid, host, joiner := startRound(t, "refire")
 
-		// Enter judging through the shared helper every judging site uses, rather than
-		// through Submit, so no out-of-band pass resolves the match before the re-fire
-		// can be tested against it.
+		// Enters judging through the shared helper directly, not via Submit, so no
+		// out-of-band pass resolves the match before the re-fire is tested.
 		if err := svc.enterJudging(ctx, q, mid); err != nil {
 			t.Fatalf("enterJudging: %v", err)
 		}
@@ -363,9 +334,8 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 			t.Fatalf("the first pass wrote %d provider rows, want 1", got)
 		}
 
-		// What the stuck-judging sweep does to a wedged attempt. refireJudging is its
-		// only caller; calling it directly keeps the assertion off the sweep's own
-		// listing, which in a shared database may see rows this test did not create.
+		// refireJudging is the stuck-judging sweep's only caller; calling it directly
+		// keeps the assertion off the sweep's own listing in a shared database.
 		refired, err := svc.refireJudging(ctx, mid)
 		if err != nil {
 			t.Fatalf("refireJudging: %v", err)

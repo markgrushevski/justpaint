@@ -16,12 +16,11 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
-// TestResolveExpiry_DB exercises the round-deadline resolver against a real Postgres:
-// the forfeit path (one submitter wins, Elo reaches users.rating, resolution=forfeit),
-// the abandoned path (nobody drew, no Elo), and the late-submit rejection (a submit
-// after the deadline is refused with ErrRoundExpired and NOT stamped). Needs a
-// migrated DATABASE_URL (docker compose up + goose up); skips otherwise, matching
-// reveal_test.go — including its pool-close-via-t.Cleanup ordering so no fixture leaks.
+// TestResolveExpiry_DB exercises the round-deadline resolver against a real
+// Postgres: the forfeit path (submitter wins, Elo reaches users.rating), the
+// abandoned path (nobody drew, no Elo), and the late-submit rejection (refused
+// with ErrRoundExpired, not stamped). Needs a migrated DATABASE_URL; skips
+// otherwise, matching reveal_test.go's pool-close-via-t.Cleanup ordering.
 func TestResolveExpiry_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -33,9 +32,9 @@ func TestResolveExpiry_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	// Close via Cleanup, NOT defer: a test-body defer runs BEFORE t.Cleanup callbacks,
-	// so a deferred Close would shut the pool before the row cleanup below. Registered
-	// first, this runs LAST (Cleanup is LIFO), after the row cleanup.
+	// Close via Cleanup, not defer: a test-body defer runs before t.Cleanup
+	// callbacks, so a deferred Close would shut the pool before the row cleanup
+	// below. Registered first, this runs last (Cleanup is LIFO).
 	t.Cleanup(func() { pool.Close() })
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("postgres unreachable: %v", err)
@@ -48,9 +47,8 @@ func TestResolveExpiry_DB(t *testing.T) {
 	svc := NewService(pool, q, nil, nil, logger)
 
 	// --- fixtures ---------------------------------------------------------
-	// Cleanup registered BEFORE any row is created (slices captured by reference), so
-	// a mid-setup t.Fatalf still tears down whatever landed. FK order: match_players,
-	// then drawings, then matches, then users.
+	// Cleanup registered before any row is created (slices captured by reference),
+	// so a mid-setup t.Fatalf still tears down whatever landed.
 	var userIDs, matchIDs []string
 	t.Cleanup(func() {
 		for _, mid := range matchIDs {
@@ -82,10 +80,9 @@ func TestResolveExpiry_DB(t *testing.T) {
 		t.Fatalf("pick prompt (is the DB migrated + seeded? migration 00002): %v", err)
 	}
 
-	// mkExpiredDrawing creates a match, seats players, submits one marked drawing for
-	// each in submitters (the same CreateDrawing + StampSubmission path Submit uses),
-	// forces the match to `drawing`, then backdates its deadline so the round is
-	// expired on the DB clock. Returns the match id.
+	// mkExpiredDrawing creates a match, seats players, submits one marked drawing
+	// for each in submitters, forces `drawing`, then backdates the deadline past
+	// expiry.
 	mkExpiredDrawing := func(submitters map[string]bool, players ...string) string {
 		m, err := q.CreateMatch(ctx, prompt.ID)
 		if err != nil {
@@ -133,8 +130,7 @@ func TestResolveExpiry_DB(t *testing.T) {
 	}
 
 	// mkPlainMatch creates a match, seats players (optionally submitting a marked
-	// drawing for each), and forces a status — the fixture for the sweep-path cases
-	// (stale judging / stale open). Returns the match id.
+	// drawing for each), and forces a status — the fixture for the sweep-path cases.
 	mkPlainMatch := func(status string, submit bool, players ...string) string {
 		m, err := q.CreateMatch(ctx, prompt.ID)
 		if err != nil {
