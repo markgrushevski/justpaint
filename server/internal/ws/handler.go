@@ -27,15 +27,13 @@ const (
 	wsStatusIdleTimeout = websocket.StatusCode(4002)
 )
 
-// Limits bundles the pre-launch WS hardening knobs (docs/IDEAS.md "Realtime (WS
-// hub)"): the per-connection read-idle timeout + heartbeat cadence (conn.go
-// heartbeatLoop) and the process-wide / per-IP connection caps (limiter.go). Grouped
-// into one struct, rather than four positional constructor params, so a call site
-// names each value instead of relying on positional order between two same-typed
-// durations and two same-typed ints. All four are required explicit values — nothing
-// here is a magic number buried in code; config.Load owns picking/validating them.
+// Limits bundles the WS hardening knobs: the per-connection read-idle timeout and
+// heartbeat cadence (conn.go heartbeatLoop), and the process-wide / per-IP connection
+// caps (limiter.go). Grouped into one struct rather than four positional params so a
+// call site names each value instead of relying on order between two same-typed
+// durations and two same-typed ints. config.Load owns picking and validating them.
 type Limits struct {
-	// ReadIdleTimeout is how long a connection may go without ANY proof of life (an
+	// ReadIdleTimeout is how long a connection may go without any proof of life (an
 	// inbound frame, or a successful heartbeat pong) before the server evicts it.
 	// Must clear the client's own ping cadence (apps/web PlayView.vue WS_PING_MS,
 	// currently 25s) with real margin for jitter/background-tab delay.
@@ -51,14 +49,14 @@ type Limits struct {
 	// unlimited caveat as MaxConns).
 	MaxConnsPerIP int
 	// TrustProxy mirrors the HTTP side: it decides whether the per-IP cap keys on
-	// X-Forwarded-For or on the direct peer. It must agree with the rate limiter,
-	// or the two disagree about who a client IS — and behind a proxy, keying on the
-	// peer collapses MaxConnsPerIP into a second, much lower global cap, because
-	// every visitor arrives as the proxy.
+	// X-Forwarded-For or on the direct peer. It must agree with the rate limiter, or the
+	// two disagree about who a client is — behind a proxy, keying on the peer collapses
+	// MaxConnsPerIP into a second, much lower global cap, because every visitor arrives
+	// as the proxy.
 	TrustProxy bool
 }
 
-// Handler upgrades GET /api/matches/{id}/ws to a WebSocket after the SAME auth +
+// Handler upgrades GET /api/matches/{id}/ws to a WebSocket after the same auth and
 // membership gates the REST match routes use, then hands the socket to the hub.
 type Handler struct {
 	hub *Hub
@@ -88,9 +86,9 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 	mux.Handle("GET /api/matches/{id}/ws", protect(http.HandlerFunc(h.Connect)))
 }
 
-// Connect performs, in order and ALL before websocket.Accept: a connection-cap check
+// Connect performs, in order and all before websocket.Accept: a connection-cap check
 // (global + per-IP, refused cleanly — docs/API.md §9.1), then parse {id} (non-UUID →
-// hidden 404), then a MEMBERSHIP check via the viewer-scoped Get (a non-member → hidden
+// hidden 404), then a membership check via the viewer-scoped Get (a non-member → hidden
 // 404, never 403 — docs/API.md §8). Only then does it upgrade with strict same-origin
 // verification (never InsecureSkipVerify — a WS handshake bypasses CORS, so without this
 // a cross-site page could open a socket riding the victim's auto-attached cookie). On
@@ -99,12 +97,11 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context()) // RequireAuth guarantees presence
 
-	// Admission control FIRST — cheapest possible check, shedding load before the
-	// membership check's DB round-trip when the process (or this IP) is already at
-	// capacity (docs/IDEAS.md "A global connection semaphore / per-IP cap"). release
-	// is deferred immediately so EVERY subsequent exit path — the 404s below, a
-	// failed Accept, a hub-shutdown refusal, or normal pump completion (panic
-	// included, via the pumps' own recover) — decrements it exactly once.
+	// Admission control first: the cheapest check, shedding load before the membership
+	// check's DB round-trip. release is deferred immediately so every subsequent exit
+	// path — the 404s below, a failed Accept, a hub-shutdown refusal, or normal pump
+	// completion (panic included, via the pumps' own recover) — decrements it exactly
+	// once.
 	release, ok := h.limiter.tryAcquire(web.ClientIP(r, h.limits.TrustProxy))
 	if !ok {
 		web.Error(w, http.StatusTooManyRequests, web.CodeRateLimited, "too many connections")
@@ -118,8 +115,6 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Membership gate BEFORE Accept: reuse the viewer-scoped read, so a non-player is a
-	// hidden 404 (identical to REST) and never learns the match exists.
 	if _, err := h.svc.Get(r.Context(), uid, id); err != nil {
 		if errors.Is(err, game.ErrNotFound) {
 			web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
@@ -132,7 +127,7 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: h.originPatterns,
-		// InsecureSkipVerify is deliberately NOT set — same-origin is enforced.
+		// InsecureSkipVerify is deliberately not set — same-origin is enforced.
 	})
 	if err != nil {
 		// Accept has already written the handshake failure (e.g. 403 on a bad origin);
@@ -141,7 +136,7 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The response is hijacked past this point — never call web.Error. CloseNow is the
-	// final teardown (runs LAST; a no-op if the pumps already closed the conn).
+	// final teardown (runs last; a no-op if the pumps already closed the conn).
 	defer conn.CloseNow()
 
 	// The pumps run on a background-derived context (the socket outlives the request),
@@ -149,9 +144,8 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	connCtx, cancel := context.WithCancel(context.Background())
 	c := newClient(uid, conn, cancel, h.logger, h.limits.ReadIdleTimeout, h.limits.HeartbeatInterval)
 
-	// Nothing re-validates the cookie mid-connection, so close the socket at the JWT exp
-	// with a 4001 the client reads as "re-authenticate". RequireAuth already rejected an
-	// expired token, so exp is in the future.
+	// Nothing re-validates the cookie mid-connection, so arm the 4001 close at the JWT
+	// exp — already in the future, since RequireAuth rejected an expired token.
 	if exp, ok := auth.SessionExpiry(r.Context()); ok && !exp.IsZero() {
 		timer := time.AfterFunc(time.Until(exp), func() {
 			_ = conn.Close(wsStatusSessionExpired, "session expired")

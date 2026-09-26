@@ -58,7 +58,7 @@ func TestConnLimiterCaps(t *testing.T) {
 }
 
 // TestConnLimiterReleaseFreesSlot asserts a released slot can be re-acquired — the cap
-// bounds CONCURRENT connections, not lifetime connections.
+// bounds concurrent connections, not lifetime connections.
 func TestConnLimiterReleaseFreesSlot(t *testing.T) {
 	l := newConnLimiter(1, 1)
 
@@ -97,15 +97,9 @@ func TestConnLimiterReleaseIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestReleaseRunsOnPanic proves the acquire/defer-release pattern Connect uses (defer
-// release() immediately after a successful tryAcquire, before anything else) still
-// decrements the counters when the code between acquire and return panics — the
-// "panic included" exit path the task and docs/IDEAS.md call out, so a bug handling
-// one connection can't leak a global/per-IP slot forever and eventually brick the
-// server. This mirrors handler.go's Connect exactly: acquire, defer release, then
-// arbitrary work that might panic (each pump already recovers its own panics, but the
-// guarantee this test checks is Go's defer-runs-during-unwind semantics, which is what
-// makes that recovery pattern safe for the limiter specifically).
+// TestReleaseRunsOnPanic proves the acquire/defer-release pattern Connect uses still
+// decrements the counters when the code between acquire and return panics, so a bug
+// handling one connection can't leak a slot forever and eventually brick the server.
 func TestReleaseRunsOnPanic(t *testing.T) {
 	l := newConnLimiter(1, 1)
 

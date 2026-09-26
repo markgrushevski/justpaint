@@ -37,7 +37,7 @@ func TestConnectRefusesUpgradeAtGlobalCap(t *testing.T) {
 	}
 }
 
-// TestConnectRefusesUpgradeAtPerIPCap asserts the SAME refusal for a single IP that
+// TestConnectRefusesUpgradeAtPerIPCap asserts the same refusal for a single IP that
 // has hit its own per-IP cap, even though the global cap has room.
 func TestConnectRefusesUpgradeAtPerIPCap(t *testing.T) {
 	h := NewHandler(nil, nil, nil, testLogger(), Limits{MaxConns: 10, MaxConnsPerIP: 1})
@@ -60,10 +60,10 @@ func TestConnectRefusesUpgradeAtPerIPCap(t *testing.T) {
 }
 
 // TestConnectAllowsDifferentIPUnderPerIPCap proves the per-IP cap keys on IP, not a
-// single shared slot: a DIFFERENT ip must be admitted past the cap gate even while
+// single shared slot: a different ip must be admitted past the cap gate even while
 // another IP is saturated. It can't observe a full upgrade (that needs a live
 // hub/svc/websocket handshake, out of scope for a unit test), but admission is proven
-// by reaching the NEXT gate instead of being refused at this one — the request uses a
+// by reaching the next gate instead of being refused at this one — the request uses a
 // malformed match id, so passing the cap check surfaces as the existing, unrelated 404
 // rather than 429.
 func TestConnectAllowsDifferentIPUnderPerIPCap(t *testing.T) {
