@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import type { Document } from '@justpaint/document'
+import type { Document } from '@justpaint/editor'
 import { isAuthError } from './http'
 import { drawings } from './drawings'
 import type { DrawingFull, DrawingMeta } from './drawings'

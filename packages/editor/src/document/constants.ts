@@ -30,8 +30,7 @@ export const LIMITS = {
  * Pinned perfect-freehand version — part of the render contract (§5.3, §9).
  * Stamped into `meta.freehandVersion`; the editor preview and the server render
  * worker MUST resolve this exact version from the lockfile, or their outlines
- * diverge. Reconcile this constant with the actual installed version when
- * perfect-freehand is added to `packages/editor`.
+ * diverge.
  */
 export const FREEHAND_VERSION = '1.2.3'
 

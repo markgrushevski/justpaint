@@ -1,4 +1,4 @@
-import type { Document, FreehandStroke, Layer } from '@justpaint/document'
+import type { Document, FreehandStroke, Layer } from '../src/document'
 import { describe, expect, it } from 'vitest'
 import {
     addLayerCommand,

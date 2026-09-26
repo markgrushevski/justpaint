@@ -18,7 +18,6 @@ WORKDIR /app
 
 # Copy manifests first so `npm ci` caches across source-only changes.
 COPY package.json package-lock.json ./
-COPY packages/document/package.json packages/document/
 COPY packages/editor/package.json packages/editor/
 COPY packages/render/package.json packages/render/
 COPY apps/web/package.json apps/web/

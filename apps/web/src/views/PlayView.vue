@@ -24,10 +24,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { OriBadge, OriButton, OriSurface } from '@oriui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { Editor, TOOLS, DEFAULT_STYLE, newId, renderToPNG } from '@justpaint/editor'
-import type { ToolId } from '@justpaint/editor'
-import type { Document } from '@justpaint/document'
-import { DOC_VERSION } from '@justpaint/document'
+import { DEFAULT_STYLE, DOC_VERSION, Editor, newId, renderToPNG, TOOLS } from '@justpaint/editor'
+import type { Document, ToolId } from '@justpaint/editor'
 import { useThemeColor } from '@oriui/headless/vue'
 import {
     useSessionStore,

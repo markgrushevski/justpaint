@@ -1,5 +1,5 @@
-import type { Document } from '@justpaint/document'
-import { roundDocument } from '@justpaint/document'
+import type { Document } from '@justpaint/editor'
+import { roundDocument } from '@justpaint/editor'
 import { request } from './http'
 
 /**

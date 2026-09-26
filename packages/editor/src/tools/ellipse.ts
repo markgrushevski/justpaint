@@ -1,5 +1,5 @@
 // packages/editor/src/tools/ellipse.ts — the ellipse tool (DOCUMENT-FORMAT §5.6).
-import type { EllipseStroke } from '@justpaint/document'
+import type { EllipseStroke } from '../document'
 import type { StrokeTool } from '../types'
 
 /**

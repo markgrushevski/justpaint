@@ -1,4 +1,4 @@
-import { BRUSH_DEFAULTS } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from './document'
 import type { ToolStyle } from './types'
 
 /**

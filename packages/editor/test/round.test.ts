@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Document } from '../src/index'
-import { roundDocument } from '../src/index'
+import type { Document } from '../src/document'
+import { roundDocument } from '../src/document'
 
 const doc: Document = {
     version: 1,

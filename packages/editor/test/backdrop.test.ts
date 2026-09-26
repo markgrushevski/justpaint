@@ -14,8 +14,8 @@
 import 'konva/canvas-backend'
 import Konva from 'konva'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BRUSH_DEFAULTS } from '@justpaint/document'
-import type { Document, FreehandStroke, Layer } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '../src/document'
+import type { Document, FreehandStroke, Layer } from '../src/document'
 import { Editor } from '../src/editor'
 import { fitView, type ViewState } from '../src/view'
 

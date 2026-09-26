@@ -15,7 +15,7 @@
  * Commands are keyed by stroke/layer `id`, never by array position, so they stay
  * correct as the document is edited around them (DOCUMENT-FORMAT §8).
  */
-import type { Document, Layer, Stroke } from '@justpaint/document'
+import type { Document, Layer, Stroke } from './document'
 
 /** A reversible mutation of a {@link Document}. */
 export interface Command {

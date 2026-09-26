@@ -12,7 +12,7 @@
  */
 import 'konva/canvas-backend'
 import { describe, expect, it, afterEach } from 'vitest'
-import type { Document, LineStroke, Op } from '@justpaint/document'
+import type { Document, LineStroke, Op } from '../src/document'
 import { Editor } from '../src/editor'
 import { addLayerCommand, addStrokeCommand, compositeCommand } from '../src/history'
 import type { Command } from '../src/history'

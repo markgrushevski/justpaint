@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BRUSH_DEFAULTS } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '../src/document'
 import { triangleTool } from '../src/tools/triangle'
 import type { LogicalPoint, ToolContext } from '../src/types'
 

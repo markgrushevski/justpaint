@@ -25,10 +25,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { OriBadge, OriButton, OriSpinner, OriSurface } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
-import { DEFAULT_STYLE, Editor, newId, TOOLS } from '@justpaint/editor'
-import type { ToolId } from '@justpaint/editor'
-import type { Document } from '@justpaint/document'
-import { DOC_VERSION } from '@justpaint/document'
+import { DEFAULT_STYLE, DOC_VERSION, Editor, newId, TOOLS } from '@justpaint/editor'
+import type { Document, ToolId } from '@justpaint/editor'
 import {
     icons,
     isAuthError,

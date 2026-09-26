@@ -1,4 +1,4 @@
-import { BRUSH_DEFAULTS } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '../src/document'
 import { describe, expect, it } from 'vitest'
 // Import the tool DIRECTLY (not the barrel) so the test never pulls in Konva.
 import { ellipseTool } from '../src/tools/ellipse'

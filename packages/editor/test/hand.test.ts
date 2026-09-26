@@ -18,7 +18,7 @@ import Konva from 'konva'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Editor } from '../src/editor'
 import { TOOLS } from '../src/tools/index'
-import type { Document, Layer } from '@justpaint/document'
+import type { Document, Layer } from '../src/document'
 
 // --- headless stubs (plain node env; installed once, before any Editor) -----
 

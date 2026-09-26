@@ -9,7 +9,7 @@
  * (`destination-out`) can never punch through it.
  */
 import Konva from 'konva'
-import { toFreehandOptions } from '@justpaint/document'
+import { toFreehandOptions } from './document'
 import type {
     Composite,
     Document,
@@ -20,7 +20,7 @@ import type {
     PolygonStroke,
     RectStroke,
     Stroke
-} from '@justpaint/document'
+} from './document'
 import { getStroke } from 'perfect-freehand'
 
 /** Konva's blend attr is the document `composite` value verbatim. */

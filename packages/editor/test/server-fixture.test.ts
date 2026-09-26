@@ -1,5 +1,5 @@
-import { BRUSH_DEFAULTS, DOC_VERSION, roundDocument } from '@justpaint/document'
-import type { Document, Stroke } from '@justpaint/document'
+import { BRUSH_DEFAULTS, DOC_VERSION, roundDocument } from '../src/document'
+import type { Document, Stroke } from '../src/document'
 import { describe, expect, it } from 'vitest'
 import { ellipseTool } from '../src/tools/ellipse'
 import { eraserTool } from '../src/tools/eraser'

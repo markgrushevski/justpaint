@@ -1,5 +1,5 @@
 // packages/editor/src/types.ts — the FROZEN contract every tool implements.
-import type { BrushOptions, Stroke } from '@justpaint/document'
+import type { BrushOptions, Stroke } from './document'
 
 /** Ids of the stroke-producing drawing tools (see {@link StrokeTool}). */
 export type StrokeToolId = 'pen' | 'eraser' | 'line' | 'rect' | 'ellipse' | 'triangle'

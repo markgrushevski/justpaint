@@ -1,9 +1,8 @@
 import type { BrushOptions } from './types'
 
 /**
- * Minimal shape of perfect-freehand's `getStroke()` options. Declared locally so
- * this contract package stays dependency-free; the renderer passes the result to
- * the pinned perfect-freehand.
+ * perfect-freehand's `getStroke()` options with every field required, so no pinned
+ * option falls back to a library default.
  */
 export interface FreehandStrokeOptions {
     size: number

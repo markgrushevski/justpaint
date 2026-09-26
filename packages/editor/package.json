@@ -21,7 +21,6 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@justpaint/document": "*",
         "konva": "^10.3.0",
         "perfect-freehand": "^1.2.3"
     },

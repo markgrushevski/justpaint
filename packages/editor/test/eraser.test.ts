@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BRUSH_DEFAULTS } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '../src/document'
 
 // Import the tool DIRECTLY (not via the barrel) so the test never pulls Konva in.
 import { eraserTool } from '../src/tools/eraser'

@@ -1,9 +1,6 @@
 /**
- * `@justpaint/document` — the canonical vector-document contract (v1).
- *
- * One schema shared by three consumers: the editor (render + edit, Konva), the
- * Go backend (store as jsonb, validate), and the judge (render → PNG to score).
- * See `docs/DOCUMENT-FORMAT.md` for the spec.
+ * The vector document (v1): types, constants and the helpers every renderer shares.
+ * Spec: docs/DOCUMENT-FORMAT.md.
  */
 export type {
     BBox,
@@ -50,4 +47,3 @@ export { computeFitTransform } from './fit'
 export type { FitTransform } from './fit'
 
 export { toFreehandOptions } from './freehand'
-export type { FreehandStrokeOptions } from './freehand'

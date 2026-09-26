@@ -1,4 +1,4 @@
-import type { DocSummary, Op } from '@justpaint/document'
+import type { DocSummary, Op } from '@justpaint/editor'
 import { request } from './http'
 
 /**

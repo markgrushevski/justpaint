@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { BRUSH_DEFAULTS } from '@justpaint/document'
-import type { RectStroke } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '../src/document'
+import type { RectStroke } from '../src/document'
 import type { ToolContext } from '../src/types'
 // Import the tool DIRECTLY (not the barrel) so the test never pulls in Konva.
 import { rectTool } from '../src/tools/rect'
