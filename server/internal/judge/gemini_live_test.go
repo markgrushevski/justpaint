@@ -11,27 +11,22 @@ import (
 	"time"
 )
 
-// TestGeminiJudge_Live calls the REAL Generative Language API.
+// TestGeminiJudge_Live calls the real Generative Language API.
 //
-// Everything else in this package asserts what we SEND, against a local
-// stand-in. That proves our request is the one we meant to build; it cannot
-// prove Google accepts it. The wire types were written from documentation, and
-// three choices in them were reconstructions (field-name casing, where
-// systemInstruction sits, the schema enum spelling). This is the test that
-// settled them, and it has been run: against the real API with a live key, the
-// request shape is confirmed. (This used to cite an ISSUES-INNER id for those
-// three reconstructions. The id was recycled for an unrelated defect and the
-// entry is now closed, so the pointer is dropped rather than repaired.)
+// Everything else in this package asserts what we send, against a local
+// stand-in — it cannot prove Google accepts it. This test settles three
+// choices reconstructed from documentation: field-name casing, where
+// systemInstruction sits, and the schema enum spelling.
 //
-// Opt-in on purpose, and NOT merely gated on the key being present: a key that
-// happens to be in the environment must never quietly spend a daily quota the
-// free tier caps at 20 requests per model (measured from a 429 body — see
-// internal/platform/config). Run it deliberately:
+// Opt-in on purpose, and not merely gated on the key being present: a key
+// that happens to be in the environment must never quietly spend a daily
+// quota the free tier caps at 20 requests per model (measured from a 429
+// body — see internal/platform/config). Run it deliberately:
 //
 //	GEMINI_LIVE=1 GEMINI_API_KEY=… go test ./internal/judge/ -run Live -v
 //
-// GEMINI_MODEL and GEMINI_BASE_URL override the defaults, which is the point of
-// their being configurable at all.
+// GEMINI_MODEL and GEMINI_BASE_URL override the defaults, which is the point
+// of their being configurable at all.
 func TestGeminiJudge_Live(t *testing.T) {
 	if os.Getenv("GEMINI_LIVE") != "1" {
 		t.Skip("set GEMINI_LIVE=1 (and GEMINI_API_KEY) to call the real API — it spends daily quota")
@@ -44,7 +39,7 @@ func TestGeminiJudge_Live(t *testing.T) {
 	base := envOr("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
 
 	// A prompt we can actually satisfy in code, so the assertion is about whether
-	// the model LOOKED at the pixels — not about our drawing talent. One image
+	// the model looked at the pixels — not about our drawing talent. One image
 	// depicts the prompt; the other is an empty canvas, which §2 says is a 0.
 	const prompt = "a large black circle in the middle of the page"
 	circle := pngCircle(t)

@@ -8,33 +8,18 @@ import (
 	"unicode/utf8"
 )
 
-// --- THIS IS OURS, AND IT IS NOT THE EXTERNAL JUDGE'S CONTRACT ---------------
-//
-// Everything above in this package mirrors docs/JUDGE.md, which is FROZEN: it is
-// an agreement with an external ML judge service, it takes TWO images and answers
-// a comparative question (scoreA / scoreB / winner), and it does not change
-// unilaterally.
-//
-// Practice asks a different question — "how well does this ONE drawing depict the
-// prompt?" — for a player who has no opponent (docs/GAME.md §10: the duel needs
-// two people and, until there is a player base, that makes the product unplayable
-// by its first visitor). Squeezing that into Judge would mean either sending the
-// same image twice and reading scoreA (a lie the winner field then has to
-// answer), or widening the frozen interface. So it gets its own, small, LOCAL
-// seam instead.
-//
-// The external ML judge implements Judge. It does NOT implement Critic — that
-// endpoint does not exist — which is precisely why JUDGE_MODE=http leaves
-// practice unconfigured rather than silently faking it.
-
-// maxFeedbackLen bounds the player-facing critique. Same number as the duel's
-// reason cap and for the same reason (it is one or two sentences on a result
-// screen), but a separate constant: this contract is ours to move, and JUDGE.md's
-// is not.
+// maxFeedbackLen bounds the player-facing critique. Same number as the
+// duel's reason cap, but a separate constant: this contract is ours to
+// move, JUDGE.md's is not.
 const maxFeedbackLen = 500
 
-// Critic scores ONE drawing against the prompt it was drawn for. Ours, not the
-// external judge's — see the note above.
+// Critic is a second, local seam — ours to move, not part of the frozen
+// external-judge contract above. It scores ONE drawing against the prompt it
+// was drawn for, answering practice's "how well does this depict the
+// prompt" instead of Judge's comparative question (JUDGE.md §8.2 owns why a
+// wider Judge was rejected). The external judge does not implement it,
+// which is why JUDGE_MODE=http leaves practice unconfigured rather than
+// faking it.
 type Critic interface {
 	Critique(ctx context.Context, req CritiqueRequest) (Critique, error)
 }

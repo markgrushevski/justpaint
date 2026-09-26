@@ -316,7 +316,7 @@ func TestGeminiJudge_Score_WinnerIsAuthoritative(t *testing.T) {
 }
 
 // A 429 is the free tier's daily budget running out. It must be legible as
-// exactly that, and must NOT be retried — the quota does not refill in 250ms.
+// exactly that, and must not be retried — the quota does not refill in 250ms.
 func TestGeminiJudge_Score_QuotaExhausted(t *testing.T) {
 	const body = `{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}`
 	j, stub := newGeminiTestJudge(t, func(_ int, w http.ResponseWriter) {
@@ -392,13 +392,10 @@ func TestGeminiJudge_Score_NoRetryOn4xx(t *testing.T) {
 	}
 }
 
-// An over-long reason is CLAMPED, not rejected. It is the one place this impl
-// normalizes instead of failing, and the asymmetry is deliberate: the scores and
-// the winner decide the duel and are validated strictly, while the rationale is
-// display text from a model we prompted in prose. Throwing away a duel both
-// players finished, over forty characters of rationale, is the worse outcome.
-// (HTTPJudge rejects the same overrun, because there it is a peer service
-// breaking the agreed contract.)
+// An over-long reason is clamped, not rejected — the scores and winner
+// decide the duel and are validated strictly, while the rationale is display
+// text from a model we prompted in prose. HTTPJudge rejects the same overrun
+// instead, because there it is a peer service breaking the contract.
 func TestGeminiJudge_Score_ClampsAnOverlongReason(t *testing.T) {
 	long := strings.Repeat("blah ", 200) + "final word"
 	j, _ := newGeminiTestJudge(t, func(_ int, w http.ResponseWriter) {

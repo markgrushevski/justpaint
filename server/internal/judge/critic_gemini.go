@@ -9,30 +9,20 @@ import (
 	"time"
 )
 
-// GeminiCritic is the real critic behind single-player practice: ONE
-// generateContent call, one authoritative raster, and the model's structured JSON
-// as a Critique. It shares GeminiClient with GeminiJudge — same endpoint, same
-// credential handling, same §7 retry policy, same ErrQuotaExhausted — so a
-// practice run and a duel fail the same way and are fixed the same way.
+// GeminiCritic is the real critic behind single-player practice: one
+// generateContent call, one raster, and the model's structured JSON as a
+// Critique. Shares GeminiClient with GeminiJudge — same endpoint, credential
+// handling, retry policy, ErrQuotaExhausted (JUDGE.md §8.2) — so a practice
+// run and a duel fail and get fixed the same way.
 //
-// # What differs from GeminiJudge
+// Unlike GeminiJudge there is no second drawing to compare against, so the
+// instruction pins the scale explicitly: a practice score must mean what it
+// means in a duel, not get graded on a curve for lacking an opponent.
 //
-// The question. A duel asks which of two pictures depicts the prompt better;
-// practice asks how well THIS one does, for a player with no opponent. There is
-// no winner field to fill and nothing to compare against, so the instruction has
-// to be explicit that the absent second drawing is not a licence to grade on a
-// curve: the number must mean what it means in a duel, or "0.72 in practice" and
-// "0.72 in a duel" quietly become two different things.
-//
-// # Prompt-injection surface
-//
-// Identical in kind to GeminiJudge's (see its note): the prompt text is ours, the
-// IMAGE is player-drawn, a player can draw words, and the system instruction
-// telling the model that everything inside the image is drawing and never
-// instruction narrows that surface without being a security boundary. The blast
-// radius here is smaller still — a practice score touches no ladder, no Elo and
-// no opponent. The worst a successful injection buys is a flattering number and a
-// silly sentence on the player's own screen.
+// Same untrusted-image posture as GeminiJudge (JUDGE.md §8.2): the image is
+// player-drawn, the prompt is not, and the blast radius of a successful
+// injection is smaller here — no ladder, no Elo, no opponent, just a
+// flattering number on the player's own screen.
 type GeminiCritic struct {
 	GeminiClient
 }
@@ -65,7 +55,7 @@ func (g *GeminiCritic) Critique(ctx context.Context, req CritiqueRequest) (Criti
 	return parseGeminiCritique(out)
 }
 
-// --- the instruction, which is the actual quality of this feature ------------
+// --- the system instruction ---------------------------------------------
 
 // geminiCritiqueInstruction is the critic's whole character. Like the judge's, it
 // lives in the system turn rather than the user turn so the player-drawn image

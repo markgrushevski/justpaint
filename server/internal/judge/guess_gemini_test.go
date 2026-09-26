@@ -122,7 +122,7 @@ func TestGeminiGuesser_Guess_HappyPath(t *testing.T) {
 		}
 	}
 
-	// The rules reach the model, and exactly ONE drawing is attached.
+	// The rules reach the model, and exactly one drawing is attached.
 	sysParts := geminiArr(t, geminiObj(t, body["systemInstruction"], "systemInstruction")["parts"], "systemInstruction.parts")
 	if len(sysParts) == 0 {
 		t.Fatal("no system instruction was sent")
@@ -172,7 +172,7 @@ func TestGeminiGuesser_Guess_HappyPath(t *testing.T) {
 	}
 }
 
-// The runner-ups arrive as two OPTIONAL strings, which over a structured-output
+// The runner-ups arrive as two optional strings, which over a structured-output
 // wire means blanks and restatements far more often than absent keys. Both are
 // dropped before they can become a hole or a duplicate row on the player's screen.
 func TestGeminiGuesser_Guess_Alternatives(t *testing.T) {
@@ -210,11 +210,9 @@ func TestGeminiGuesser_Guess_Alternatives(t *testing.T) {
 			want:   []string{"a fox"},
 		},
 		{
-			// A restatement of the label the player SEES, which is the clamped one. The
-			// dedupe used to run against the raw label, so an over-long label survived as
-			// its own runner-up — the one shape where the list really did read as the
-			// same thing twice. The label here is 100 unbroken runes, so clampText cuts
-			// at 79 and appends the ellipsis, deterministically.
+			// Dedupe runs against the clamped label — the one the player sees
+			// — not the raw one. The label here is 100 unbroken runes, so
+			// clampText cuts at 79 and appends the ellipsis, deterministically.
 			name: "a restatement of the CLAMPED label is dropped",
 			output: `{"label":"` + strings.Repeat("a", 100) + `","confidence":0.6,` +
 				`"alternative1":"` + strings.Repeat("a", 79) + `…","alternative2":"a fox"}`,
@@ -276,7 +274,7 @@ func TestGeminiGuesser_Guess_RejectsContractViolations(t *testing.T) {
 }
 
 // A 429 is the free tier's daily budget running out. It must be legible as exactly
-// that, and must NOT be retried — the quota does not refill in 250ms.
+// that, and must not be retried — the quota does not refill in 250ms.
 func TestGeminiGuesser_Guess_QuotaExhausted(t *testing.T) {
 	const body = `{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}`
 	g, stub := newGeminiTestGuesser(t, func(_ int, w http.ResponseWriter) {
@@ -295,7 +293,7 @@ func TestGeminiGuesser_Guess_QuotaExhausted(t *testing.T) {
 	}
 }
 
-// An over-long label is CLAMPED, not rejected, for the same reason the duel's
+// An over-long label is clamped, not rejected, for the same reason the duel's
 // reason is: the answer is worth keeping, and nothing here decides anything.
 func TestGeminiGuesser_Guess_ClampsOverlongLabel(t *testing.T) {
 	long := strings.Repeat("a cat and ", 30) + "a hat"
