@@ -8,21 +8,13 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
-// FakeAssist is the zero-dependency default (docs/ASSIST.md §3, §6), mirroring
-// render.StubRenderer / judge.FakeJudge: in-process and prompt-independent. It
-// ignores the prompt and the doc summary and returns a fixed "house" op batch —
-// an add_layer plus a rect body, a polygon roof, two rect windows, and a door —
-// sized for the ~1080² editor canvas. The batch SHAPE is constant, but every call
-// gets FRESH ids (a per-instance counter suffixed onto the layer + stroke ids,
-// e.g. ai-house-3 / ai-house-3-body) so that after a user accepts one batch the
-// next request — whose doc summary now carries the accepted layer id — does not
-// collide on the single id namespace (document.ValidateOpBatch → duplicate id).
-// The batch is self-contained (it creates its own layer) and passes
-// document.ValidateOpBatch against any summary that does not already use its ids
-// (verified in fake_test.go), so the whole client flow — prompt → ghost preview →
-// accept → prompt again — is demonstrable with zero API dependency.
+// FakeAssist is the zero-dependency default (docs/ASSIST.md §3, §6): in-process,
+// prompt-independent, always the same canned "house" batch. Every call still
+// gets fresh ids (seq suffixed onto the layer and stroke ids) so that after a
+// user accepts one batch, the next request — whose doc summary now carries
+// that layer id — doesn't collide with it in the single id namespace.
 type FakeAssist struct {
-	seq atomic.Uint64 // monotonic per-instance suffix source; keeps ids unique across calls
+	seq atomic.Uint64 // per-instance suffix source; keeps ids unique across calls
 }
 
 // NewFakeAssist returns the in-process fake assist.
@@ -30,11 +22,10 @@ func NewFakeAssist() *FakeAssist { return &FakeAssist{} }
 
 var _ Assist = (*FakeAssist)(nil)
 
-// GenerateOps implements Assist. It ignores ctx and req; the returned ops honor
-// the Op contract exactly (single id namespace, non-freehand strokes, intra-batch
-// layer references resolved in array order), so the handler's re-validation is a
-// no-op for the fake and the accept path is fully exercised. Each call advances
-// the instance counter so successive batches carry disjoint ids.
+// GenerateOps implements Assist. It ignores ctx and req and returns a batch
+// that already honors the Op contract (single id namespace, no freehand,
+// layer references resolved in array order), so the handler's re-validation
+// is a no-op here.
 func (f *FakeAssist) GenerateOps(_ context.Context, _ Request) (Result, error) {
 	n := f.seq.Add(1)
 	return Result{Ops: houseBatch(n), Note: houseNote}, nil
@@ -42,11 +33,9 @@ func (f *FakeAssist) GenerateOps(_ context.Context, _ Request) (Result, error) {
 
 const houseNote = "Drew a house: a rectangular body, a polygon roof, two windows, and a door (fake assist)."
 
-// houseBatch builds the canned batch fresh on each call so a caller mutating the
-// returned slice can't corrupt a shared instance. The structure and geometry are
-// constant; only the ids vary — layerID is ai-house-<n> and every stroke id is
-// suffixed onto it (ai-house-<n>-body, …), keeping the whole batch inside the
-// single id namespace while staying unique across calls.
+// houseBatch builds the canned batch fresh on each call so a caller mutating
+// the result can't corrupt a shared instance. Only the ids vary: layerID is
+// ai-house-<n>, and every stroke id is suffixed onto it (ai-house-<n>-body).
 func houseBatch(n uint64) []document.Op {
 	layerID := "ai-house-" + strconv.FormatUint(n, 10)
 	sid := func(part string) string { return layerID + "-" + part }
@@ -60,7 +49,6 @@ func houseBatch(n uint64) []document.Op {
 
 	return []document.Op{
 		&document.AddLayerOp{Kind: document.OpAddLayer, ID: layerID, Name: "AI House"},
-		// Body.
 		&document.AddStrokeOp{Kind: document.OpAddStroke, LayerID: layerID, Stroke: &document.RectStroke{
 			StrokeBase:  document.StrokeBase{ID: sid("body"), Type: document.StrokeRect, Composite: document.CompositeSourceOver},
 			X:           340,
@@ -71,7 +59,6 @@ func houseBatch(n uint64) []document.Op {
 			Stroke:      &frame,
 			StrokeWidth: f64(6),
 		}},
-		// Roof (triangle over the body).
 		&document.AddStrokeOp{Kind: document.OpAddStroke, LayerID: layerID, Stroke: &document.PolygonStroke{
 			StrokeBase:  document.StrokeBase{ID: sid("roof"), Type: document.StrokePolygon, Composite: document.CompositeSourceOver},
 			Points:      []document.Point{{300, 560}, {540, 380}, {780, 560}},
@@ -79,7 +66,6 @@ func houseBatch(n uint64) []document.Op {
 			Stroke:      &roofEdge,
 			StrokeWidth: f64(6),
 		}},
-		// Left window.
 		&document.AddStrokeOp{Kind: document.OpAddStroke, LayerID: layerID, Stroke: &document.RectStroke{
 			StrokeBase:  document.StrokeBase{ID: sid("window-left"), Type: document.StrokeRect, Composite: document.CompositeSourceOver},
 			X:           400,
@@ -90,7 +76,6 @@ func houseBatch(n uint64) []document.Op {
 			Stroke:      &frame,
 			StrokeWidth: f64(4),
 		}},
-		// Right window.
 		&document.AddStrokeOp{Kind: document.OpAddStroke, LayerID: layerID, Stroke: &document.RectStroke{
 			StrokeBase:  document.StrokeBase{ID: sid("window-right"), Type: document.StrokeRect, Composite: document.CompositeSourceOver},
 			X:           590,
@@ -101,7 +86,6 @@ func houseBatch(n uint64) []document.Op {
 			Stroke:      &frame,
 			StrokeWidth: f64(4),
 		}},
-		// Door.
 		&document.AddStrokeOp{Kind: document.OpAddStroke, LayerID: layerID, Stroke: &document.RectStroke{
 			StrokeBase:  document.StrokeBase{ID: sid("door"), Type: document.StrokeRect, Composite: document.CompositeSourceOver},
 			X:           505,

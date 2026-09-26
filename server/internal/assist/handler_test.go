@@ -187,11 +187,8 @@ func TestGenerateOps(t *testing.T) {
 			wantCode:   "validation_failed",
 		},
 		{
-			// The provider ran out before our own ceiling did. A 500 would invite a
-			// retry that cannot succeed until the provider's window rolls, so it gets
-			// the refusal the global ceiling would have written — exactly as practice
-			// and guess do. Assist could not answer this way until it had an impl that
-			// reached a provider at all.
+			// Mirrors practice/guess: a spent provider quota gets the same refusal
+			// our own budget would write, not a 500 that invites a hopeless retry.
 			name:       "429 when the provider's own quota is spent",
 			impl:       errAssist{err: fmt.Errorf("assist: gemini: %w (429)", judge.ErrQuotaExhausted)},
 			withCookie: true,
@@ -235,9 +232,9 @@ func TestGenerateOps(t *testing.T) {
 	}
 }
 
-// TestGenerateOps_RateLimited drives the per-user bucket: with burst=1 the second
-// request is throttled with 429 rate_limited AND a Retry-After header (set before
-// web.Error, per the ordering gotcha).
+// TestGenerateOps_RateLimited drives the per-user bucket: with burst=1 the
+// second request gets 429 rate_limited plus a Retry-After header (set before
+// web.Error, per the ordering trap in NOTES.md).
 func TestGenerateOps_RateLimited(t *testing.T) {
 	h := NewHandler(NewFakeAssist(), NewRateLimiter(1, time.Minute), nil, nil, slog.New(slog.DiscardHandler))
 	cookie := mintCookie(t, "u1")
@@ -258,16 +255,14 @@ func TestGenerateOps_RateLimited(t *testing.T) {
 	}
 }
 
-// TestGenerateOps_DailyBudget drives the OTHER ceiling on this endpoint — the
-// durable daily one, as opposed to the in-process token bucket above. The two
-// answer different questions (a rate versus a day's quota) and both land as 429
-// rate_limited, which is the layering docs/API.md §3.1 already documents for
-// POST /api/matches.
+// TestGenerateOps_DailyBudget drives the other ceiling on this endpoint: the
+// durable daily budget, as opposed to the in-process token bucket above. Both
+// land as 429 rate_limited, mirroring the layering docs/API.md §3.1 documents
+// for POST /api/matches.
 //
-// The order matters and is asserted here: the budget is consulted AFTER the cheap
-// request guards and BEFORE the call that costs money, and the call is RECORDED
-// before it is made — a provider request that fails still spent the quota, and a
-// failure the budget cannot see is what a broken impl drains it through.
+// Order is asserted here too: the budget is checked after the cheap guards
+// and before the paid call, and the call is recorded before it runs — a
+// failed call still spent the quota.
 func TestGenerateOps_DailyBudget(t *testing.T) {
 	t.Run("a refusal is a 429 naming assist, and no call is made", func(t *testing.T) {
 		called := false
@@ -311,11 +306,10 @@ func TestGenerateOps_DailyBudget(t *testing.T) {
 	})
 }
 
-// TestGenerateOps_SpendRefusalIs429 covers the refusal that arrives LATE: the
-// ledger's conditional insert enforces the per-user cap at the moment it writes,
-// so a caller whose check passed can still be refused by the write. It returns
-// the same *KindSpentError the check does, precisely so this needs no branch of
-// its own — and this test is what pins that it does not quietly become a 500.
+// TestGenerateOps_SpendRefusalIs429 pins that a refusal from the write itself
+// (the ledger's conditional insert enforces the cap at write time, so a passed
+// check can still be refused at spend) returns the same *KindSpentError as the
+// check and lands as 429, never a quietly-dropped 500.
 func TestGenerateOps_SpendRefusalIs429(t *testing.T) {
 	called := false
 	impl := callCountingAssist{onCall: func() { called = true }}
@@ -340,12 +334,9 @@ func TestGenerateOps_SpendRefusalIs429(t *testing.T) {
 	}
 }
 
-// TestCallsProvider is the fix for a bug that lived in the composition root: it
-// read the assist mode env as the answer to "who do we bill", while the impl that
-// mode selected was a scaffold returning an error without any network I/O. Every
-// request then wrote ledger rows for a call nobody made and answered 500.
-//
-// Whether an impl calls out is a fact about the impl, so the impl is asked.
+// TestCallsProvider pins that whether an impl calls out is a fact about the
+// impl, never derived from the mode: a scaffold that makes no network call
+// must not get billed as if it had.
 func TestCallsProvider(t *testing.T) {
 	tests := []struct {
 		name string

@@ -7,11 +7,9 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
-// TestFakeAssist_OpsValidate is the contract check called out in the build plan:
-// the canned batch MUST pass document.ValidateOpBatch, or the accept path would
-// reject the fake's own output. The fake ignores the summary, so it is validated
-// against an empty summary (a fresh document) — the batch is self-contained
-// (it creates its own layer).
+// TestFakeAssist_OpsValidate pins that the canned batch passes
+// document.ValidateOpBatch against an empty summary — the batch is
+// self-contained, so the accept path never rejects the fake's own output.
 func TestFakeAssist_OpsValidate(t *testing.T) {
 	f := NewFakeAssist()
 	res, err := f.GenerateOps(context.Background(), Request{Prompt: "draw a house with a red roof"})
@@ -64,17 +62,15 @@ func strokeType(t *testing.T, s document.Stroke) document.StrokeType {
 	}
 }
 
-// TestFakeAssist_Deterministic pins the batch SHAPE (not byte-identical ids —
-// each call now carries fresh ids so the accept-then-regenerate path stays clean).
-// Two calls must yield the same op kinds, count, and stroke types, and both must
-// validate. The house is: add_layer + rect body + polygon roof + 2 rect windows +
-// rect door.
+// TestFakeAssist_Deterministic pins the batch shape, not byte-identical ids —
+// each call carries fresh ids so the accept-then-regenerate path stays clean.
+// Two calls must yield the same op kinds, count, and stroke types, and both
+// must validate.
 func TestFakeAssist_Deterministic(t *testing.T) {
 	f := NewFakeAssist()
 	a, _ := f.GenerateOps(context.Background(), Request{})
 	b, _ := f.GenerateOps(context.Background(), Request{})
 
-	// Same op count across calls.
 	if len(a.Ops) != len(b.Ops) {
 		t.Fatalf("op count differs: a=%d b=%d", len(a.Ops), len(b.Ops))
 	}
@@ -110,11 +106,10 @@ func TestFakeAssist_Deterministic(t *testing.T) {
 	}
 }
 
-// TestFakeAssist_AcceptThenRegenerate is the repeatable-demo regression: after a
-// user accepts one batch, the accepted layer id lands in the next request's doc
-// summary. A SECOND generated batch must still validate against that summary — the
-// per-call id counter keeps the layer id disjoint, so the single id namespace does
-// not report a duplicate (which previously broke draw → accept → draw-again).
+// TestFakeAssist_AcceptThenRegenerate pins that after a user accepts one
+// batch, the accepted layer id lands in the next request's doc summary, and a
+// second generated batch still validates against it — the per-call id counter
+// keeps the layer id disjoint from what the summary already carries.
 func TestFakeAssist_AcceptThenRegenerate(t *testing.T) {
 	f := NewFakeAssist()
 

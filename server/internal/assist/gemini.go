@@ -15,84 +15,42 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
-// GeminiAssist is the real assist: a prompt actually becomes shapes. It is
-// selected by ASSIST_MODE=gemini and it is the first impl of this seam that reads
-// its argument at all — FakeAssist returns the same house whatever anybody types,
-// which is what production has been serving since Phase A (docs/ASSIST.md §3.2).
+// GeminiAssist is the real assist: a prompt actually becomes shapes. Selected
+// by ASSIST_MODE=gemini, it shares judge.GeminiClient with the judge, critic
+// and guesser — same endpoint, key, quota and retry policy — but takes only
+// the wire from that package: no Judge, no Critic, no judgement.
 //
-// It shares judge.GeminiClient with the judge, the critic and the guesser: same
-// endpoint, same credential in a header and never a URL, same §7 retry policy,
-// same judge.ErrQuotaExhausted. A drawing request, a guess and a duel therefore
-// fail the same way and are fixed the same way, and there is one place to change
-// when Google changes anything.
+// The model emits a flat list of shapes (a type, a few numbers, two colours),
+// never Ops: it never invents an id, names a layer reference, or picks a
+// composite, which makes "duplicate id" / "unknown layer id" failures
+// unreachable rather than merely unlikely. expand() and toStroke do that
+// mapping. Full rationale for the wire shape: docs/ASSIST.md §3.2.
 //
-// What it does NOT take from that package is any judgement: no Judge, no Critic,
-// no §2 contract. This file asks one question ("what shapes would draw this?") and
-// the only shared thing is the wire.
-//
-// # The response shape, and what it cost
-//
-// The model does not emit Ops. It emits a FLAT list of shapes — a type, a few
-// numbers, two colours — and this file expands that into the add_layer/add_stroke
-// batch of docs/ASSIST.md §2. Three consequences, all deliberate:
-//
-//   - The model never invents an id, never names a layer reference and never picks
-//     a composite. Those are the invariants that are ours to get right, and we do,
-//     so the whole class of "duplicate id" / "unknown layer id" failures cannot
-//     happen (document.ValidateOpBatch, checkID).
-//   - A stroke's points arrive as ONE FLAT number array, [x1,y1,x2,y2,…], reshaped
-//     here into pairs. The document's Point is a nested array and the schema could
-//     probably express that, but a flat list has one failure mode we can name
-//     exactly ("odd number of values") instead of an arity the schema cannot pin
-//     anyway (judge.GeminiSchema has no maxItems — see its doc comment).
-//   - The stroke union is flattened into ONE object with every geometry field
-//     optional, because the schema has no oneOf: a rect reads x/y/width/height and
-//     ignores cx/cy/rx/ry. The cost is a schema that lets the model fill a field
-//     its own shape type does not use, which we simply drop, and a description that
-//     has to say which fields belong to which type.
-//
-// The price of all that is paid here rather than by the model, which is the point:
-// what is left for it to get wrong is geometry and colour, and those fail loudly
-// in document.ValidateOpBatch and earn the retry below.
-//
-// # Prompt-injection surface
-//
-// This is the first seam in the service where the untrusted input is TEXT the user
-// wrote, not pixels they drew — a different and more direct surface, because text
-// is the channel the model takes instructions on. The prompt is delimited and the
-// system instruction says plainly that everything inside it is a description of a
-// picture and never an instruction.
-//
-// Be honest about what that buys. It narrows the surface; it is not a boundary,
-// and no instruction ever was one against sufficiently determined text. What
-// bounds this is the blast radius, and here it is unusually small: the model holds
-// no credentials, calls no tools, reads no database, and is shown nothing but the
-// user's own prompt and the size and layer names of their own canvas. Every op it
-// returns is re-validated against the document contract twice — once here, once in
-// the handler — before the client may apply it, and the client shows the result as
-// a GHOST the user has to accept. The worst a successful injection buys is a
-// drawing the person who typed the prompt did not want, on their own canvas, which
-// they can decline with one click.
+// Prompt-injection surface: this is the first seam where the untrusted input
+// is text the user wrote, not pixels — the channel a model takes instructions
+// on. The rules live in the system turn so the untrusted prompt necessarily
+// arrives after them, and the request is delimited and placed last in the
+// user turn (buildGeminiAssistPrompt). That narrows the surface, it does not
+// bound it — no instruction is safe against sufficiently determined text.
+// What actually bounds the blast radius: the model holds no credentials,
+// calls no tools, reads no database, and every op it returns is validated
+// against the document contract twice (here and in the handler) before the
+// client renders it as a ghost the user must accept.
 type GeminiAssist struct {
 	judge.GeminiClient
 
-	// newSuffix makes the unique middle of every id in one batch. It is a field
-	// rather than a call so a test can pin the ids and assert on a whole batch;
-	// production takes the random one, which is what keeps two batches (and a batch
-	// and an already-accepted layer) from colliding across restarts the way a
-	// process-local counter would.
+	// newSuffix makes the unique middle of every id in one batch. It's a field
+	// rather than a call so a test can pin the ids; production uses the random
+	// one, which avoids collisions across restarts that a process-local counter
+	// would not survive.
 	newSuffix func() string
 }
 
-// NewGeminiAssist builds the real assist over the shared Gemini client. apiKey is
-// server-side only and never reaches the client (docs/ASSIST.md §1); apiKey,
-// model and baseURL come from the same config the other Gemini seams read, so
-// assist meters on the same key and the same quota.
-//
-// timeout does NOT: it is ASSIST_TIMEOUT, not JUDGE_TIMEOUT, because composing a
-// picture is a longer answer from a model that reasons first where a verdict is
-// four scalars. It bounds ONE attempt, and the transport may make three
-// (docs/JUDGE.md §7) before the two batch attempts here even begin.
+// NewGeminiAssist builds the real assist over the shared Gemini client. apiKey
+// is server-side only. timeout is ASSIST_TIMEOUT, not JUDGE_TIMEOUT: composing
+// a picture takes longer than a four-scalar verdict, and this bounds only one
+// attempt — the transport may retry before the two batch attempts here even
+// begin (docs/JUDGE.md §7).
 func NewGeminiAssist(apiKey, model, baseURL string, timeout time.Duration) *GeminiAssist {
 	return &GeminiAssist{
 		GeminiClient: judge.NewGeminiClient("assist: gemini", apiKey, model, baseURL, timeout),
@@ -105,97 +63,62 @@ var (
 	_ ProviderCaller = (*GeminiAssist)(nil)
 )
 
-// CallsProvider reports true: unlike FakeAssist beside it, this impl really
-// reaches Google and really spends the quota, so assist finally has a provider
-// and therefore a real daily ceiling (docs/ASSIST.md §3.4).
+// CallsProvider reports true: unlike FakeAssist, this impl spends real quota,
+// so assist has a daily ceiling (docs/ASSIST.md §3.4).
 func (a *GeminiAssist) CallsProvider() bool { return true }
 
 const (
-	// geminiAssistAttempts is 1 try + 1 retry (docs/ASSIST.md §3.3). The retry is
-	// not a second roll of the dice — temperature is 0, so an unchanged prompt buys
-	// the same answer — it is the same question asked again with the validator's own
-	// complaint attached, which is the only thing that can change the outcome.
-	//
-	// It is two and not more because this is INSIDE one billed call: the ledger
-	// records one assist call per request whatever happens here, exactly as it
-	// records one duel per judging pass and not one per §7 retry. A generous retry
-	// budget would therefore spend quota the ceiling cannot see.
+	// geminiAssistAttempts is one try plus one retry (docs/ASSIST.md §3.3): the
+	// retry re-sends the prompt with the validator's complaint appended, the only
+	// lever at temperature 0. Capped at two because the ledger bills one assist
+	// call per request regardless of retries here.
 	geminiAssistAttempts = 2
 
-	// maxShapesPerBatch is what the instruction asks for, and it is NOT the
-	// contract's cap. document.MaxOpsPerBatch is 64 ops and one of ours is the
-	// add_layer, so 63 shapes would still validate; asking for at most this many is
-	// a quality request, not a limit — a recognisable drawing from a shape model
-	// comes from a dozen deliberate shapes, not from sixty small ones. A model that
-	// overruns the real cap is caught by ValidateOpBatch and told so on the retry.
-	//
-	// The instruction states this number in prose and the schema states it from
-	// here; a test asserts the two agree, which is the only thing keeping a
-	// hand-written paragraph in step with a constant.
+	// maxShapesPerBatch is a quality request, not document.MaxOpsPerBatch (64,
+	// one of which is the add_layer): a recognisable drawing comes from a dozen
+	// deliberate shapes, not sixty small ones. Stated in both the instruction
+	// and the schema; a test asserts the two numbers agree.
 	maxShapesPerBatch = 24
 
-	// maxNoteLen caps the human-facing note. It is model-authored prose influenced
-	// by user text, shown in the UI beside the preview, so it is clamped rather than
-	// trusted to honour the instruction's "one short sentence".
+	// maxNoteLen caps the model-authored note shown beside the preview; clamped
+	// rather than trusted to honor the instruction's length request.
 	maxNoteLen = 200
 
-	// maxLayerNameLen is the document's own layer-name cap (validate.go maxNameLen).
-	// Duplicated as a number rather than imported because document does not export
-	// it; the batch is re-validated against the real one either way, so the only
-	// cost of drift is a retry that says so.
+	// maxLayerNameLen mirrors document's own layer-name cap (not imported: the
+	// package doesn't export it). Drift only costs an extra retry, since the
+	// batch is re-validated against the real cap either way.
 	maxLayerNameLen = 64
 
-	// defaultLineColor / defaultLineWidth fill a line stroke's two REQUIRED channels
-	// when the model left them out. Unlike a shape's fill, a line has no valid
-	// "absent" spelling — document.LineStroke.Stroke is a Color and StrokeWidth a
-	// float64 that must be > 0 — so the choice is a default or a failed batch, and a
-	// visible black hairline is a better answer to "draw a line" than an error.
+	// defaultLineColor / defaultLineWidth fill a line's two required channels
+	// when the model omits them: unlike a fill, a line stroke has no valid
+	// "absent" spelling, so a visible hairline beats a failed batch.
 	defaultLineColor = "#1a1a1a"
 	defaultLineWidth = 4.0
 
-	// defaultLayerName names the layer when the model did not. The ops must carry
-	// one (1-64 chars) and an empty string is a validation failure, not a shrug.
+	// defaultLayerName names the layer when the model didn't; an empty name
+	// fails validation (1-64 chars required).
 	defaultLayerName = "AI drawing"
 
-	// geminiAssistMaxOutputTokens bounds the answer, and it is the one setting here
-	// that was found the hard way rather than reasoned out.
-	//
-	// Left unset, a thinking model spends its whole default output budget reasoning
-	// and runs out partway through the shape list; the API then CLOSES the JSON so it
-	// stays parseable, and what comes back is a syntactically perfect object whose
-	// last shape is half written. Measured live on 2026-09-20 against
-	// gemini-3.6-flash: `[{"type":"rect","x":0,"y":0` and then the closing brackets,
-	// which failed validation as a zero-area rect and looked for all the world like
-	// the model could not draw a house.
-	//
-	// The number is generous on purpose — 24 shapes of a dozen small numbers is a few
-	// thousand tokens at most, and the budget also pays for the model's thinking, so
-	// the cost of being too tight is this failure and the cost of being loose is
-	// nothing at all. docs/ASSIST.md §3.2 pinned 8000 for the same job on a different
-	// vendor.
+	// geminiAssistMaxOutputTokens must leave headroom for a thinking model's
+	// reasoning plus the full shape list, or the API truncates output that
+	// still parses as JSON — the last shape half-written, failing validation
+	// as if the model drew badly (docs/NOTES.md "Structured output can be
+	// truncated"). 24 shapes cost a few thousand tokens at most, so generous
+	// costs nothing.
 	geminiAssistMaxOutputTokens = 8192
 )
 
-// Thinking is deliberately LEFT ALONE, and that is a decision rather than an
-// omission. The API takes a thinkingConfig.thinkingBudget, it was tried, and it
-// measurably helped — gemini-3.7-flash spent 1338 thought tokens and 9s with the
-// default, 0 and 5s with the budget pinned to zero (2026-09-20).
-//
-// It was still dropped. Thinking was never the fault: the truncations came from
-// two decoding loops that the schema now forbids (geminiCoordType,
-// geminiAssistRequiredShapeFields), and with those fixed a whole house costs ~450
-// tokens against a budget of 8192, so there is room for the model to think as much
-// as it likes. What remained was the newest and least portable field we could put
-// on the wire, in a service whose operator is now invited to change models per kind
-// (AI_MODEL_PER_KIND) — and a model that refuses thinkingBudget rejects the whole
-// request, which would take the feature down for four seconds of latency.
+// Thinking is deliberately left alone (no thinkingConfig on the wire): the
+// newest, least portable field on this wire, in a service that lets its
+// operator swap models per kind — a model that rejects it fails the whole
+// request. Full reasoning: docs/ASSIST.md §3.2.
 
 // GenerateOps implements Assist: one prompt in, a validated op batch out.
 //
-// The batch is validated HERE as well as in the handler, and the two are not
-// redundant. The handler's pass is defense in depth against any impl; this one is
-// the retry's condition — it is what turns "the model emitted a zero-width
-// ellipse" into a second, better-informed question instead of a 400.
+// Validated here as well as in the handler: the handler's pass is defense in
+// depth against any impl, this one is the retry's condition — it turns "the
+// model emitted a zero-width ellipse" into a better-informed second question
+// instead of a 400.
 func (a *GeminiAssist) GenerateOps(ctx context.Context, req Request) (Result, error) {
 	// Guarded before it costs a request. The handler rejects an empty prompt too,
 	// but an impl that would ask a model to draw nothing should say so itself: on a
@@ -279,13 +202,12 @@ func (a *GeminiAssist) expand(v geminiAssistOutput, req Request) ([]document.Op,
 	}
 	layerID := "ai-" + suffix
 
-	// Always a NEW layer, even though the request may name a target.
-	// docs/ASSIST.md §3.1 calls targetLayerId a BIAS, and the client sends whatever
-	// layer happens to be active, so honouring it literally would mean the AI always
-	// drew into the user's current work. A batch that brings its own layer is also
-	// what makes the accept path clean: one composite command, one Ctrl+Z, and
-	// nothing of the user's is touched if they undo it. The target still reaches the
-	// model as context (see buildGeminiAssistPrompt) — which is what "bias" means.
+	// Always a new layer, even if the request names a target: targetLayerId is
+	// a bias (docs/ASSIST.md §3.1), not a destination — honoring it literally
+	// would mean the AI draws into the user's current work. It also keeps
+	// Accept clean: one composite command, one Ctrl+Z, nothing of the user's
+	// touched. The target still reaches the model as context, in
+	// buildGeminiAssistPrompt.
 	ops := []document.Op{&document.AddLayerOp{
 		Kind: document.OpAddLayer,
 		ID:   layerID,
@@ -306,22 +228,18 @@ func (a *GeminiAssist) expand(v geminiAssistOutput, req Request) ([]document.Op,
 	return ops, nil
 }
 
-// freshSuffix picks an id middle that collides with nothing the summary already
-// names. Random rather than counted: a per-process counter restarts with the
-// process, and the summary of a document whose last AI layer was accepted BEFORE
-// that restart would then carry exactly the id the counter is about to hand out
-// again (FakeAssist's counter has the same hole; its batch is a demo, this one
-// lands in real documents).
+// freshSuffix picks an id middle that collides with nothing the summary
+// already names. Random rather than counted: a per-process counter would
+// repeat an id after a restart if the document's last AI layer was accepted
+// before that restart (FakeAssist has the same hole; its batch is a demo).
 func (a *GeminiAssist) freshSuffix(summary document.DocSummary) (string, error) {
 	taken := make(map[string]struct{}, len(summary.Layers))
 	for _, l := range summary.Layers {
 		taken[l.ID] = struct{}{}
 	}
-	// A few tries, because "a random 48-bit value collided" and "the summary is full
-	// of ai-* ids by construction" are different problems and only the second can
-	// actually happen — a client replaying a crafted summary, say. Either way,
-	// giving up is right: it earns a retry, and a duplicate id would fail validation
-	// anyway with a worse message.
+	// A few tries: a random collision and a summary already full of ai-* ids
+	// (a crafted client, say) are different problems, but giving up is right
+	// either way — it earns a retry, same as a duplicate id would in validation.
 	for range 5 {
 		suffix := a.newSuffix()
 		if _, dup := taken["ai-"+suffix]; !dup {
@@ -461,17 +379,14 @@ const (
 	shapePolygon = "polygon"
 )
 
-// toStroke builds the document stroke for one shape, under an id WE chose.
+// toStroke builds the document stroke for one shape, under an id we chose.
 //
-// The normalizations here are narrow and each is a mapping rather than a repair,
-// which is the line this file holds: lowercasing a hex colour changes no meaning
-// (the contract's colours are lowercase and case was never a choice), an empty
-// colour string is how a structured-output wire spells "absent" and becomes a nil
-// channel, and a non-positive strokeWidth becomes absent because the contract's
-// way to say "no width of my own" is an absent field, not a zero. Anything beyond
-// that — a malformed colour, a zero-area rect, two points where three are needed —
-// is left to fail in document.ValidateOpBatch, which is the validator this file
-// must not become a second copy of.
+// Each normalization here is a mapping, not a repair: lowercasing a hex
+// colour changes no meaning, an empty colour string is the wire's spelling
+// for absent, and a non-positive strokeWidth becomes absent because the
+// contract spells "no width" as a missing field, not zero. Anything else — a
+// malformed colour, a zero-area rect, a bad point count — is left to fail in
+// document.ValidateOpBatch, which this file must not duplicate.
 func (s geminiAssistShape) toStroke(id string) (document.Stroke, error) {
 	base := func(t document.StrokeType) document.StrokeBase {
 		// source-over always: destination-out is the eraser, and an AI proposal that
@@ -598,52 +513,25 @@ func clampRunes(s string, limit int) string {
 	return strings.TrimRight(string([]rune(s)[:limit-1]), " ,;:") + "…"
 }
 
-// geminiCoordType is INTEGER, not NUMBER, for every geometry field — and that one
-// word is the difference between this feature working and not.
-//
-// A canvas coordinate is a pixel. Nothing downstream wants a fraction of one: the
-// document stores float64 because a human dragging a mouse produces fractions, not
-// because a composed rectangle needs them. So INTEGER costs nothing real.
-//
-// What it buys is an escape from a degenerate decoding loop, measured live on
-// 2026-09-20. Asked for a house at temperature 0, the model emitted
-//
-//	"y": 440.0000000000000640000000000000000000000000…
-//
-// and kept emitting zeros for 8176 tokens until the answer was truncated. Greedy
-// decoding cannot escape a run like that — the likeliest token after a zero is
-// another zero — so the retry could not have helped either, and the symptom
-// reaching validation was a rect with no width. INTEGER forbids the decimal point,
-// which makes the whole family of fractional runs unrepresentable rather than
-// merely unlikely.
-//
-// The alternative fix was a non-zero temperature. It was not taken: it would trade
-// a reproducible answer for a probabilistic escape from one specific loop, while
-// this removes the loop from the grammar.
+// geminiCoordType is INTEGER, not NUMBER, for every geometry field. At
+// temperature 0, NUMBER let greedy decoding loop on trailing zeros
+// (440.000...) until the answer was truncated; INTEGER forbids the decimal
+// point and removes the loop from the grammar rather than merely making it
+// unlikely. A canvas coordinate is a pixel, so nothing real is lost. See
+// docs/NOTES.md "At temperature 0 the schema is the grammar".
 const geminiCoordType = "INTEGER"
 
-// geminiAssistRequiredShapeFields is EVERY property of a shape, including the ones
-// its own kind ignores — a rect must still carry cx, and a line must still carry
-// width. That looks wasteful and it is the second half of what made this work.
+// geminiAssistRequiredShapeFields lists every shape property, including the
+// ones a given kind ignores (a rect still carries cx, a line still carries
+// width). An optional field over structured output is one the model is free
+// to skip, and at temperature 0 that produced repeated near-identical stub
+// objects until truncation; requiring all of them keeps objects distinct
+// enough to break the loop. The meaningless values are dropped in toStroke,
+// which already reads "" and 0 as absent. See docs/NOTES.md "At temperature 0
+// the schema is the grammar".
 //
-// The reasoning that produced the opposite answer first: a rect has no centre and
-// an outline-only shape has no fill, so requiring them would make the model write
-// something meaningless. True, and irrelevant beside what actually happened.
-// Measured live on 2026-09-20 with only "type" required, the model closed each
-// shape object after three fields and then repeated that same stub object until the
-// answer was truncated — 24 identical `{"type":"rect","x":340,"y":400}` and
-// counting. An "optional" field over structured output is not a field the model
-// weighs; it is one it is free to skip, and skipping most of them leaves objects so
-// alike that greedy decoding at temperature 0 simply loops.
-//
-// Required fields make each object complete and therefore different from its
-// neighbours, which is what breaks the loop. The meaningless values cost a few
-// tokens and are dropped by toStroke, which already reads "" as an absent colour
-// and 0 as an absent width — so the wasteful spelling was ALREADY the one this file
-// understood. The arity is left to the caps above and the validator.
-//
-// Listed in the schema's own field order rather than sorted, so a reader can check
-// it against the properties above line by line.
+// Listed in the schema's own field order so it can be checked against the
+// properties below line by line.
 func geminiAssistRequiredShapeFields() []string {
 	return []string{
 		"type", "points",
