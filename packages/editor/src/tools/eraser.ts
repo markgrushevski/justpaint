@@ -1,5 +1,5 @@
 // packages/editor/src/tools/eraser.ts — the eraser tool.
-import type { FreehandPoint, FreehandStroke } from '@justpaint/document'
+import type { FreehandPoint, FreehandStroke } from '../document'
 import type { LogicalPoint, StrokeTool, ToolContext } from '../types'
 
 /**

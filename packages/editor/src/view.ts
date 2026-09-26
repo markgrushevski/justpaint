@@ -5,7 +5,7 @@
  * position), never a CSS transform, so `getRelativePointerPosition` keeps
  * returning logical document coordinates (DOCUMENT-FORMAT §2 / NOTES).
  */
-import { computeFitTransform } from '@justpaint/document'
+import { computeFitTransform } from './document'
 
 /** Zoom + pan of the logical document within the viewport (stage) frame. */
 export interface ViewState {

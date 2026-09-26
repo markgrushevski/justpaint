@@ -1,5 +1,5 @@
-import type { Document } from '@justpaint/document'
-import { parseDocument } from '@justpaint/document'
+import type { Document } from '@justpaint/editor'
+import { roundDocument } from '@justpaint/editor'
 import { request } from './http'
 
 /**
@@ -97,17 +97,16 @@ export const auth = {
 
 export const drawings = {
     async create(doc: Document, name?: string): Promise<DrawingMeta> {
-        const body = name === undefined ? { document: doc } : { document: doc, name }
+        const rounded = roundDocument(doc)
+        const body = name === undefined ? { document: rounded } : { document: rounded, name }
         return (await request<DrawingMetaEnvelope>('/drawings', { method: 'POST', body })).drawing
     },
     async get(id: string): Promise<DrawingFull> {
-        const { drawing } = await request<DrawingFullEnvelope>('/drawings/' + id)
-        // The server validated on write; re-validate on read before it reaches
-        // the editor (loadDocument does NOT validate). Throws on a bad body.
-        return { ...drawing, document: parseDocument(drawing.document) }
+        return (await request<DrawingFullEnvelope>('/drawings/' + id)).drawing
     },
     async update(id: string, doc: Document, name?: string): Promise<DrawingMeta> {
-        const body = name === undefined ? { document: doc } : { document: doc, name }
+        const rounded = roundDocument(doc)
+        const body = name === undefined ? { document: rounded } : { document: rounded, name }
         return (await request<DrawingMetaEnvelope>('/drawings/' + id, { method: 'PUT', body })).drawing
     },
     async remove(id: string): Promise<void> {

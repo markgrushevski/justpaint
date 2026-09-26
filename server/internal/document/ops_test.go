@@ -8,9 +8,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
-// AI-assist op-batch contract (docs/ASSIST.md §2). This table is mirrored 1:1 —
-// identical case names — by packages/document/test/ops.test.ts. A schema change
-// lands in both validators AND both test tables together (keystone parity).
+// AI-assist op-batch contract (docs/ASSIST.md §2).
 
 // summaryWith builds a minimal summary with the given layer ids (each named after
 // its id, 0 strokes).
@@ -85,7 +83,7 @@ func TestValidateOpBatch(t *testing.T) {
 		{"add_layer name too long", summaryWith(),
 			`[{"kind":"add_layer","id":"x","name":"` + strings.Repeat("x", 65) + `"}]`, true},
 		{"unknown op kind", summaryWith(), `[{"kind":"delete_layer","id":"x"}]`, true},
-		// required keys must be physically present (keystone parity with the TS table).
+		// required keys must be physically present, not zero-filled.
 		{"missing required key: add_layer name", summaryWith(), `[{"kind":"add_layer","id":"x"}]`, true},
 		{"missing required key: add_stroke layerId", summaryWith("L1"),
 			`[{"kind":"add_stroke","stroke":` + rect("s1") + `}]`, true},

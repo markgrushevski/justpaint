@@ -71,9 +71,8 @@ func TestParseAndValidate(t *testing.T) {
 		{"freehand point wrong arity (2 elems)", docWith(`{"id":"s","type":"freehand","composite":"source-over","color":"#000000","points":[[1,1]],"brush":{"size":1,"thinning":0,"smoothing":0,"streamline":0,"simulatePressure":false,"taperStart":0,"taperEnd":0}}`), true},
 		{"line point wrong arity (3 elems)", docWith(`{"id":"s","type":"line","composite":"source-over","points":[[0,0,0],[1,1,1]],"stroke":"#000000","strokeWidth":1}`), true},
 
-		// --- required keys must be physically present (keystone parity: Go must
-		//     reject an absent required field, not zero-fill it the way struct
-		//     decoding does, so it accepts the same set of documents as TS) ---
+		// --- required keys must be physically present, not zero-filled the way
+		//     struct decoding does ---
 		{"missing layer visible", `{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","opacity":1,"strokes":[]}]}`, true},
 		{"missing layer opacity", `{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"strokes":[]}]}`, true},
 		{"missing layer strokes", `{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"L","visible":true,"opacity":1}]}`, true},

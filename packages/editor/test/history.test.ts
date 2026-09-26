@@ -1,5 +1,4 @@
-import { validateDocument } from '@justpaint/document'
-import type { Document, FreehandStroke, Layer } from '@justpaint/document'
+import type { Document, FreehandStroke, Layer } from '../src/document'
 import { describe, expect, it } from 'vitest'
 import {
     addLayerCommand,
@@ -57,11 +56,9 @@ describe('stroke commands', () => {
 
         cmd.apply(d)
         expect(d.layers[0]!.strokes.map((s) => s.id)).toEqual(['s1'])
-        expect(() => validateDocument(d)).not.toThrow()
 
         cmd.invert(d)
         expect(d.layers[0]!.strokes).toEqual([])
-        expect(() => validateDocument(d)).not.toThrow()
     })
 
     it('invert removes only the matching stroke, not its neighbours', () => {
@@ -83,7 +80,6 @@ describe('layer commands', () => {
 
         cmd.apply(d)
         expect(order(d)).toEqual(['A', 'C', 'B'])
-        expect(() => validateDocument(d)).not.toThrow()
 
         cmd.invert(d)
         expect(order(d)).toEqual(['A', 'B'])
@@ -196,11 +192,9 @@ describe('History', () => {
         h.execute(d, addLayerCommand(layer('B'), 1))
         h.execute(d, moveLayerCommand(d, 'A', 1))
         h.execute(d, setLayerOpacityCommand(d, 'B', 0.5))
-        expect(() => validateDocument(d)).not.toThrow()
 
         while (h.canUndo) {
             h.undo(d)
-            expect(() => validateDocument(d)).not.toThrow()
         }
         expect(order(d)).toEqual(before)
         expect(d.layers[0]!.strokes).toEqual([])

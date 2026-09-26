@@ -1,11 +1,10 @@
 /**
  * Bundle the render worker into a single self-contained ESM file that native
- * Node can run. The workspace packages (`@justpaint/editor`, `@justpaint/document`)
- * emit extensionless relative imports (fine for Vite/the browser app, NOT for
- * native Node ESM), so we bundle them in. `canvas` is a native addon and stays
- * external — resolved from node_modules at runtime. Konva is bundled but only
- * used after `konva/canvas-backend` registers node-canvas (import order in
- * render.mjs is preserved).
+ * Node can run. `@justpaint/editor` is TypeScript source with extensionless
+ * imports, which native Node ESM cannot load, so it is bundled in. `canvas` is a
+ * native addon and stays external — resolved from node_modules at runtime. Konva
+ * is bundled but only used after `konva/canvas-backend` registers node-canvas
+ * (import order in render.mjs is preserved).
  */
 import { build } from 'esbuild'
 

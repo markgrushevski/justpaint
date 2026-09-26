@@ -1,10 +1,7 @@
 /**
- * Canonical TypeScript types for the justpaint vector document (v1).
- *
- * This is the source of truth that the Go server (`server/internal/document`)
- * mirrors by hand. See `docs/DOCUMENT-FORMAT.md` — when code and that doc
- * disagree, the doc wins until amended there. Both sides validate against the
- * spec, not against each other's code.
+ * TypeScript types for the vector document (v1), written against
+ * `docs/DOCUMENT-FORMAT.md`. The server validates documents
+ * (`server/internal/document`); these types only describe them.
  */
 
 /** Bumped only on a breaking schema change. v1 = the current spec. */
@@ -170,8 +167,8 @@ export type Stroke = FreehandStroke | LineStroke | RectStroke | EllipseStroke | 
 // --- AI Assist ops (docs/ASSIST.md §2) ---
 // A derived, additive contract over Stroke/Layer: what the LLM is allowed to say.
 // The Op schema adds no new stroke invariants — it composes the existing ones —
-// but narrows the stroke subset (freehand excluded) and lives in both validators
-// 1:1, exactly like the Stroke contract.
+// but narrows the stroke subset (freehand excluded) and is validated by the
+// server (ValidateOpBatch).
 
 /** Op-eligible stroke-type subset. Freehand is excluded from AI ops (§2). */
 export type OpStrokeType = 'line' | 'rect' | 'ellipse' | 'polygon'

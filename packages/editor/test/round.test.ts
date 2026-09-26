@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Document } from '../src/index'
-import { DocumentValidationError, parseDocument, roundDocument, serializeDocument } from '../src/index'
+import type { Document } from '../src/document'
+import { roundDocument } from '../src/document'
 
 const doc: Document = {
     version: 1,
@@ -49,18 +49,9 @@ const doc: Document = {
     meta: { generator: 'justpaint-test', freehandVersion: '1.2.4' }
 }
 
-describe('serialize / parse round-trip', () => {
-    it('round-trips through canonical JSON (equal to the rounded document)', () => {
-        const back = parseDocument(serializeDocument(doc))
-        expect(back).toEqual(roundDocument(doc))
-    })
-
-    it('parses an already-parsed object too', () => {
-        expect(() => parseDocument(JSON.parse(serializeDocument(doc)))).not.toThrow()
-    })
-
-    it('rounds geometry to 2 dp and pressure to 3 dp on write', () => {
-        const json = JSON.parse(serializeDocument(doc)) as Document
+describe('roundDocument', () => {
+    it('rounds geometry to 2 dp and pressure to 3 dp', () => {
+        const json = JSON.parse(JSON.stringify(roundDocument(doc))) as Document
         const pen = json.layers[0]!.strokes[0]!
         if (pen.type !== 'freehand') throw new Error('expected freehand')
         expect(pen.points[0]).toEqual([420.12, 300.99, 0.427])
@@ -72,19 +63,46 @@ describe('serialize / parse round-trip', () => {
     })
 
     it('drops absent optional channels from the payload', () => {
-        const json = JSON.parse(serializeDocument(doc)) as Record<string, unknown>
-        const box = (json.layers as Document['layers'])[0]!.strokes[1]!
+        const json = JSON.parse(JSON.stringify(roundDocument(doc))) as Document
+        const box = json.layers[0]!.strokes[1]!
         expect('stroke' in box).toBe(false)
         expect('strokeWidth' in box).toBe(false)
     })
 
-    it('throws DocumentValidationError on malformed JSON', () => {
-        expect(() => parseDocument('{ not json')).toThrow(DocumentValidationError)
+    it('never rounds a size the server requires to be positive down to 0', () => {
+        const tiny: Document = {
+            ...doc,
+            layers: [
+                {
+                    ...doc.layers[0]!,
+                    strokes: [
+                        { id: 'r', type: 'rect', composite: 'source-over', x: 1, y: 1, width: 5, height: 0.004 },
+                        { id: 'e', type: 'ellipse', composite: 'source-over', cx: 1, cy: 1, rx: 0.0045, ry: 3 },
+                        {
+                            id: 'l',
+                            type: 'line',
+                            composite: 'source-over',
+                            points: [
+                                [0, 0],
+                                [5, 5]
+                            ],
+                            stroke: '#000000',
+                            strokeWidth: 0.001
+                        }
+                    ]
+                }
+            ]
+        }
+        const [rect, ellipse, line] = roundDocument(tiny).layers[0]!.strokes
+        expect(rect?.type === 'rect' && rect.height).toBe(0.01)
+        expect(ellipse?.type === 'ellipse' && ellipse.rx).toBe(0.01)
+        expect(line?.type === 'line' && line.strokeWidth).toBe(0.01)
     })
 
-    it('throws DocumentValidationError on a structurally invalid document', () => {
-        expect(() => parseDocument({ version: 1, width: 0, height: 10, background: null, layers: [] })).toThrow(
-            DocumentValidationError
-        )
+    it('leaves the input untouched', () => {
+        roundDocument(doc)
+        const pen = doc.layers[0]!.strokes[0]!
+        if (pen.type !== 'freehand') throw new Error('expected freehand')
+        expect(pen.points[0]).toEqual([420.123456, 300.987654, 0.426666])
     })
 })

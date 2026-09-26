@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BRUSH_DEFAULTS, validateDocument } from '@justpaint/document'
-import type { Document } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '../src/document'
 import { triangleTool } from '../src/tools/triangle'
 import type { LogicalPoint, ToolContext } from '../src/types'
 
@@ -17,25 +16,13 @@ const ctx: ToolContext = {
 
 const pt = (x: number, y: number): LogicalPoint => ({ x, y, pressure: 0.5 })
 
-/** Wrap a single stroke into a one-layer document for validation. */
-function wrap(stroke: unknown): Document {
-    return {
-        version: 1,
-        width: 100,
-        height: 100,
-        background: null,
-        layers: [{ id: 'L', name: 'L', visible: true, opacity: 1, strokes: [stroke] }]
-    } as Document
-}
-
 describe('triangleTool', () => {
     it("id is 'triangle'", () => {
         expect(triangleTool.id).toBe('triangle')
     })
 
-    // Test A: a normal gesture builds the expected apex-top triangle and the
-    // resulting one-layer document passes validateDocument.
-    it('builds the expected closed 3-point polygon and validates', () => {
+    // Test A: a normal gesture builds the expected apex-top triangle.
+    it('builds the expected closed 3-point polygon', () => {
         // Drag bottom-right → top-left to also exercise bbox normalization.
         const gesture: readonly LogicalPoint[] = [pt(60, 80), pt(20, 30)]
         const stroke = triangleTool.buildStroke(ctx, gesture)
@@ -59,8 +46,6 @@ describe('triangleTool', () => {
             [60, 80],
             [20, 80]
         ])
-
-        expect(() => validateDocument(wrap(stroke))).not.toThrow()
     })
 
     // Test B: a degenerate gesture (zero height) returns null.

@@ -2,6 +2,13 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-09-26 — One document validator, on the server; one TS package
+
+- **Why:** the TS validator re-checked documents the app had just built and data the server had already validated, and nothing validated before a submit. It cost a second implementation of every rule plus a mirrored test table, for no check the server wasn't already making.
+- **What:** `server/internal/document` is the only validator. The TS side keeps the types, `LIMITS` and the shared render helpers, now in `packages/editor/src/document`; `packages/document` is gone. The one guarantee the TS validator did give — the editor's output passes the server — is a fixture: an editor test builds a document with every tool and the layer commands into `server/internal/document/testdata/editor-document.json`, and `TestEditorDocument` validates it.
+- **Consumed from source:** `@justpaint/editor` exports `src/index.ts`, so the app, vue-tsc and the render worker's esbuild compile it directly — no package `dist/`; only the render worker's bundle is rebuilt after an editor change.
+- **Kept separate:** `packages/render`, because node-canvas is native and must stay out of the browser package.
+
 ## 2026-09-21 — A rendered-geometry test layer beside the rendered-a11y one
 
 - **Why:** the zoom island overlapping the bottom toolbar passed every existing gate. vue-tsc sees types, Vitest renders into happy-dom (no layout), stylelint reads declarations, axe reads the accessibility tree. None of them can see two boxes painted on top of each other, and only a rendered browser can.
@@ -247,7 +254,7 @@ The judged raster is rendered off the client from the validated vector document 
 - **The renderer is a seam, like the judge.** `render.Renderer` has an in-process `StubRenderer` (a deterministic 1024² PNG) as the default (`RENDER_MODE=stub`), so the server runs with no Node or canvas present. `RENDER_MODE=node` selects the real worker and requires `RENDER_CLI`, and boot fails fast when it is missing or the mode is unknown.
 - **One shared renderer.** The worker reuses `@justpaint/editor`'s `renderToStage`, the same Konva + perfect-freehand path the editor draws with (which is why `FREEHAND_VERSION` is pinned). A Go rasterizer would silently diverge. `renderToStage` is the DOM-free core, and the browser's `renderToPNG` and the worker are thin output layers over it.
 - **node-canvas + Konva 10**, with `konva/canvas-backend` imported before any Konva use. node-canvas installs from a prebuild, including on Windows.
-- **The worker is esbuild-bundled** (`packages/render/dist/render.mjs`). The workspace packages emit extensionless relative imports, which native Node ESM refuses. Bundling avoids churning the frozen contract package. `canvas` stays external.
+- **The worker is esbuild-bundled** (`packages/render/dist/render.mjs`). The editor is TypeScript source with extensionless imports, which native Node ESM refuses. `canvas` stays external.
 - **Spawn-per-render:** `render.NodeRenderer` pipes document JSON on stdin and reads a base64 PNG on stdout. That is right-sized for two renders per match. A resident worker is a later optimization.
 
 ## 2026-07-03 — Submit, judging and duel immutability

@@ -2,14 +2,14 @@
 
 > **The keystone contract.** One schema, shared by three consumers: the **editor** (render + edit, Konva), the **Go backend** (store as `jsonb`, validate), and the **judge** (render → PNG to score). Canonical, versioned, renderer-agnostic. This doc is the source of truth — if code and this disagree, the doc wins until amended here.
 >
-> **Status:** v1 spec, frozen — implemented 1:1 by both validators (`packages/document` + `server/internal/document`). Greenfield — no legacy to carry. Companion: `docs/DECISIONS.md` ("Vector document persisted as jsonb", "schema independent of Konva's internal JSON"). This file specifies the format that realizes those decisions; it does not relitigate them.
+> **Status:** v1 spec, frozen — validated by `server/internal/document`; the TS types in `packages/editor/src/document` mirror it. Greenfield — no legacy to carry. Companion: `docs/DECISIONS.md` ("Vector document persisted as jsonb", "schema independent of Konva's internal JSON"). This file specifies the format that realizes those decisions; it does not relitigate them.
 
 ## 1. Design goals & priorities
 
 In priority order — when they conflict, higher wins:
 
 1. **Deterministic raster export.** The same document renders byte-identically wherever it runs (editor preview, server worker, judge frame). The judge scores rasters; non-determinism = unfair matches. This forces: explicit coordinate space, explicit background, pinned `perfect-freehand`, pinned render math (§6, §10), store-input-not-output.
-2. **Trivial in both TS and Go.** Flat structs, one discriminated union, integer-friendly numbers, no clever polymorphism. The schema is the canonical TS source in `packages/document`; Go mirrors it (§7).
+2. **Trivial in both TS and Go.** Flat structs, one discriminated union, integer-friendly numbers, no clever polymorphism. The TS types (`packages/editor/src/document`) and the Go validator (§7) both follow this spec.
 3. **Per-object identity for undo/redo & realtime.** Every layer and stroke has a stable `id`. Undo/redo and (later) WS conflict resolution operate on ids, not array offsets.
 4. **Faithful replay.** Strokes are append-ordered; freehand keeps raw time-ordered input points. The persisted document alone replays *what* was drawn, in order. (Process-timing is an additive opt-in, §9.)
 5. **Forward-compatible versioning.** Mandatory integer `version`, first field, mirrored to a DB column. Additive evolution is the default; breaking changes bump the integer.
@@ -315,7 +315,7 @@ create table drawings (
 5. **DoS caps** (exact numbers pinned in `docs/API.md`). The **binding limit is total points** — that budget always trips before any reasonable per-layer stroke count, so size the validator around it: a global cap on **total input points** plus a cap on **total strokes** and **layers**. Don't advertise a per-layer stroke cap the point budget makes unreachable.
 6. **Set `doc_version`, `width`, `height` columns** from the validated doc.
 
-The canonical schema is the TS in `packages/document`; the Go validator mirrors it by hand for v1. A shared **JSON Schema** generated from the TS types is the clean way to keep both honest later. Both sides validate against *the spec*, not against each other's code.
+The Go validator is the only one: the client sends documents and the server checks them. The editor's output is held to it by a fixture — an editor test builds a document with every tool and the layer commands into `server/internal/document/testdata/editor-document.json`, and `TestEditorDocument` validates it.
 
 ## 8. `id` and `bbox`
 
@@ -326,7 +326,7 @@ The canonical schema is the TS in `packages/document`; the Go validator mirrors 
 
 - **`version`** is a mandatory monotonic integer, first field, mirrored to `doc_version`. v1 = this spec. Greenfield: we start at `1` with zero legacy, but the field and upcaster seam exist from day one.
 - **Additive changes do NOT bump it:** new optional fields, new `meta` keys, populating `bbox`. Consumers ignore unknown fields. This is the default evolution path — most growth lands here.
-- **Breaking changes bump it:** removing/renaming a field, changing units/semantics, adding/removing a `StrokeType`, changing the coordinate model, changing a pinned brush/render constant in a way that alters geometry. On bump, write an upcaster `vN → vN+1` in `packages/document`; the read path upcasts lazily in memory. For bulk rewrites a goose migration walks the jsonb column (rows found cheaply via the `doc_version` column without parsing).
+- **Breaking changes bump it:** removing/renaming a field, changing units/semantics, adding/removing a `StrokeType`, changing the coordinate model, changing a pinned brush/render constant in a way that alters geometry. On bump, the server upgrades stored documents: an upcaster `vN → vN+1` in `server/internal/document` on read, or a goose migration that rewrites the jsonb column (rows found cheaply via the `doc_version` column without parsing). The TS types move to the new version with it.
 - **Render contract = `version` + pinned perfect-freehand version + the pinned brush/fill/fit constants (§5.3, §6, §10).** All recorded or pinned in the lockfile; a brush-engine upgrade or a fit-math change that alters geometry is a render-contract change, coordinated across editor + worker and triggering re-render of cached PNGs.
 
 **v1 replay scope.** Goal #4 ("faithful replay") is **order-based** and bounded: reveal strokes sequentially in array order; freehand may sub-reveal its points in capture order; shapes appear **atomically** (no intra-shape animation); inter-stroke timing is a presentation choice (there are no timestamps in v1). True timed playback is a §9 seam below — don't expect it from a v1 doc.
@@ -346,11 +346,10 @@ The AI-assist **Op** schema (`add_layer` / `add_stroke`) is a derived, additive 
 
 ## 10. Serialize / deserialize / render → PNG
 
-**Canonical = this schema.** `packages/document` owns serialize/deserialize plus **one renderer** used in three places (editor preview, authoritative server raster, and thus the judge image) so they are byte-aligned by construction. Indicative API:
+**Canonical = this schema.** The editor owns **one renderer** used in three places (editor preview, authoritative server raster, and thus the judge image) so they are byte-aligned by construction. Indicative API:
 
 ```ts
-function parseDocument(json: unknown): Document;             // validate + upcast (§7, §9)
-function serializeDocument(doc: Document): string;           // canonical jsonb payload
+function roundDocument(doc: Document): Document;             // write precision (§2), applied on send
 function toKonva(doc: Document, Konva): Konva.Stage;         // projection for editor/preview
 function renderToPNG(doc: Document, opts: RenderOptions): Uint8Array;
 
@@ -386,7 +385,7 @@ Apply `translate(dx, dy)` then `scale(scale)`; **do not round `dx`/`dy`** (keep 
 
 **Two surfaces, one renderer:**
 - **Editor (browser, Konva):** `toKonva` → `stage.toDataURL({ pixelRatio, width, height })` for previews/thumbnails. Konva's own per-layer `<canvas>` gives the same per-layer isolation the algorithm mandates.
-- **Server/judge (headless):** the **Node render worker** `packages/render` (**built** — `RENDER_MODE=node`). It reuses the editor's own `renderToStage` (from `@justpaint/editor`, which pulls `packages/document`'s `computeFitTransform` + perfect-freehand) under `konva/canvas-backend` + `node-canvas`, emitting the fixed-size PNG via `stage.toDataURL()` — so it is literally the *same* renderer as the editor, not a second one. esbuild-bundled; the Go server spawns it (`server/internal/render.NodeRenderer`). A Go-native rasterizer is a *trap* (a second renderer to keep pixel-identical) — avoided by design.
+- **Server/judge (headless):** the **Node render worker** `packages/render` (**built** — `RENDER_MODE=node`). It reuses the editor's own `renderToStage` (from `@justpaint/editor`, with its `computeFitTransform` and perfect-freehand) under `konva/canvas-backend` + `node-canvas`, emitting the fixed-size PNG via `stage.toDataURL()` — so it is literally the *same* renderer as the editor, not a second one. esbuild-bundled; the Go server spawns it (`server/internal/render.NodeRenderer`). A Go-native rasterizer is a *trap* (a second renderer to keep pixel-identical) — avoided by design.
 
 **Trust boundary (game-critical):**
 - The client submits the **vector document, never a scored PNG.** A client thumbnail may ride along for instant UI — **advisory only**; a cheater could doctor it.
@@ -507,6 +506,6 @@ Open items consumed by (not changed by) this format, pinned elsewhere: judge res
 
 ## 12. Opinionated calls (what we bought, deferred, rejected)
 
-- **Bought:** mandatory `version` + DB mirror; per-object `id`s; store-input-not-output for freehand; explicit logical coordinate space + explicit `background`; per-stroke `composite` for erase (any type); pinned brush subset + fit/fill math as the render contract; per-layer surface isolation in the headless renderer; `render→PNG` as a first-class `packages/document` capability; pre-rendered PNGs to the judge; one renderer shared by editor/server/judge.
+- **Bought:** mandatory `version` + DB mirror; per-object `id`s; store-input-not-output for freehand; explicit logical coordinate space + explicit `background`; per-stroke `composite` for erase (any type); pinned brush subset + fit/fill math as the render contract; per-layer surface isolation in the headless renderer; `render→PNG` as one shared editor code path; pre-rendered PNGs to the judge; one renderer shared by editor/server/judge.
 - **Deferred (with seams, §9):** per-stroke multiplicative opacity (incl. translucent freehand); freehand cap/easing controls; `line` tension/dash/closed; blend modes; shape `transform` for post-creation editing; timed replay; text/images/gradients.
 - **Rejected:** persisting Konva `Stage.toJSON()` as storage; PNG-snapshot history; `bytea`/base64-PNG-per-layer; per-layer coordinate spaces; normalized `0..1` coords; multiple color formats; `DisallowUnknownFields`; a Go-native second renderer; storing the full perfect-freehand option set (curated subset + pinned constants instead).

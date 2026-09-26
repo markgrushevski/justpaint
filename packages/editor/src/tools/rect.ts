@@ -1,4 +1,4 @@
-import type { RectStroke } from '@justpaint/document'
+import type { RectStroke } from '../document'
 import type { StrokeTool } from '../types'
 
 /**

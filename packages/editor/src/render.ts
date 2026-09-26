@@ -9,8 +9,8 @@
  * unit-tested (no DOM in the Vitest runner).
  */
 import Konva from 'konva'
-import { computeFitTransform } from '@justpaint/document'
-import type { Document } from '@justpaint/document'
+import { computeFitTransform } from './document'
+import type { Document } from './document'
 import { stageConfig, toKonva } from './konva'
 
 export interface RenderOptions {

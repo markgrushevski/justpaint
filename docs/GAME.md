@@ -162,7 +162,7 @@ Rows are swept on a retention horizon of a week (`aibudget.RunSweeper`): **one p
 Game-critical, and inherited from `DOCUMENT-FORMAT.md` §10 / `ARCHITECTURE.md` §6:
 
 - **The client submits the vector `document`, never a scored PNG.** A client-side thumbnail may ride along for instant UI, but it is **advisory only** — never fed to the judge, never scored.
-- **The server renders the authoritative raster off the player's machine** from the submitted document, using the shared `packages/document` renderer (Node render worker — `ARCHITECTURE.md` §8/§9), producing the **square 1024×1024** judge frame with an **opaque (white) background** as pinned in `docs/JUDGE.md` / `DOCUMENT-FORMAT.md` §10 (`RenderOptions.background` overrides `doc.background`). This kills any "submit a doctored PNG" attack — the score is computed only over pixels the server itself produced from the validated document.
+- **The server renders the authoritative raster off the player's machine** from the submitted document, using the editor's own renderer (Node render worker — `ARCHITECTURE.md` §8/§9), producing the **square 1024×1024** judge frame with an **opaque (white) background** as pinned in `docs/JUDGE.md` / `DOCUMENT-FORMAT.md` §10 (`RenderOptions.background` overrides `doc.background`). This kills any "submit a doctored PNG" attack — the score is computed only over pixels the server itself produced from the validated document.
 - **Validation happens first.** The submitted document runs the full Go validator at the write edge (`DOCUMENT-FORMAT.md` §7, DoS caps in `docs/API.md`) before it is ever rendered or judged. An invalid/oversized doc is rejected (`400` / `413`) and the slot is **not** stamped.
 
 ## 7. Data tables & the A/B → player mapping

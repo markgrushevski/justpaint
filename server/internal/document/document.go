@@ -1,7 +1,5 @@
-// Package document is the Go mirror of the vector document schema
-// (docs/DOCUMENT-FORMAT.md): types, parsing, and write-edge validation. It is
-// the server-side half of the keystone contract; the canonical TS lives in
-// packages/document. Both validate against the spec, not each other's code.
+// Package document is the vector document (docs/DOCUMENT-FORMAT.md): types,
+// parsing, and the write-edge validator — the only one the format has.
 package document
 
 // StrokeType is the discriminant of the Stroke union.

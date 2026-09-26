@@ -25,10 +25,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { OriBadge, OriButton, OriSpinner, OriSurface } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
-import { DEFAULT_STYLE, Editor, newId, TOOLS } from '@justpaint/editor'
-import type { ToolId } from '@justpaint/editor'
-import type { Document } from '@justpaint/document'
-import { DOC_VERSION, parseDocument } from '@justpaint/document'
+import { DEFAULT_STYLE, DOC_VERSION, Editor, newId, TOOLS } from '@justpaint/editor'
+import type { Document, ToolId } from '@justpaint/editor'
 import {
     icons,
     isAuthError,
@@ -289,7 +287,7 @@ async function submit(): Promise<void> {
 function drawAgain(): void {
     revokeDrawingImage()
     run.value = null
-    editor?.loadDocument(parseDocument(blankGameDocument()))
+    editor?.loadDocument(blankGameDocument())
     syncEditorState()
     phase.value = 'drawing'
 }
@@ -299,7 +297,7 @@ function newPrompt(): void {
     revokeDrawingImage()
     run.value = null
     prompt.value = null
-    editor?.loadDocument(parseDocument(blankGameDocument()))
+    editor?.loadDocument(blankGameDocument())
     syncEditorState()
     void loadPrompt()
 }
@@ -411,7 +409,7 @@ onMounted(async () => {
     if (!container) return
     // The editor sizes its Konva stage to the container and fits the 1080²
     // document into it; a ResizeObserver keeps it fitted (never CSS-transforms).
-    editor = new Editor(container, parseDocument(blankGameDocument()))
+    editor = new Editor(container, blankGameDocument())
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
     editor.setCursorColor(cursorRingColor.value || null)

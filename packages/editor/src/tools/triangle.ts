@@ -1,4 +1,4 @@
-import type { PolygonStroke } from '@justpaint/document'
+import type { PolygonStroke } from '../document'
 import type { LogicalPoint, StrokeTool, ToolContext } from '../types'
 
 /**

@@ -1,4 +1,4 @@
-import type { FreehandStroke } from '@justpaint/document'
+import type { FreehandStroke } from '../document'
 import type { LogicalPoint, StrokeTool, ToolContext } from '../types'
 
 /**

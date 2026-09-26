@@ -19,7 +19,6 @@
         "test:layout": "playwright test tests/layout"
     },
     "dependencies": {
-        "@justpaint/document": "*",
         "@justpaint/editor": "*",
         "@oriui/css": "1.0.0-rc.18",
         "@oriui/headless": "1.0.0-rc.18",

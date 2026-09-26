@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { BRUSH_DEFAULTS, validateDocument } from '@justpaint/document'
-import type { Document, RectStroke } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '../src/document'
+import type { RectStroke } from '../src/document'
 import type { ToolContext } from '../src/types'
 // Import the tool DIRECTLY (not the barrel) so the test never pulls in Konva.
 import { rectTool } from '../src/tools/rect'
@@ -15,19 +15,8 @@ const ctx: ToolContext = {
     newId: () => 's1'
 }
 
-/** Wrap a single stroke in a minimal one-layer document. */
-function wrap(stroke: RectStroke): Document {
-    return {
-        version: 1,
-        width: 100,
-        height: 100,
-        background: null,
-        layers: [{ id: 'L', name: 'L', visible: true, opacity: 1, strokes: [stroke] }]
-    }
-}
-
 describe('rectTool', () => {
-    it('builds a normalized rect from a negative drag and validates', () => {
+    it('builds a normalized rect from a negative drag', () => {
         // Drag from bottom-right (30,40) to top-left (10,15): must normalize.
         const stroke = rectTool.buildStroke(ctx, [
             { x: 30, y: 40, pressure: 0.5 },
@@ -49,9 +38,6 @@ describe('rectTool', () => {
         expect(rect.fill).toBe('#cfe8ff')
         expect(rect.stroke).toBe('#1b1b1b')
         expect(rect.strokeWidth).toBe(4)
-
-        // The produced stroke passes the document validator in a one-layer doc.
-        expect(() => validateDocument(wrap(rect))).not.toThrow()
     })
 
     it('returns null for a degenerate (zero-area) gesture', () => {

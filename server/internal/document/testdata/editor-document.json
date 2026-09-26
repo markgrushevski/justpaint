@@ -1,0 +1,300 @@
+{
+  "version": 1,
+  "width": 1080,
+  "height": 1080,
+  "background": null,
+  "layers": [
+    {
+      "id": "stk_00000000-0000-4000-8000-000000000001",
+      "name": "Layer 1",
+      "visible": true,
+      "opacity": 1,
+      "strokes": [
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000003",
+          "type": "freehand",
+          "composite": "source-over",
+          "color": "#1b1b1b",
+          "points": [
+            [
+              100.12,
+              120.99,
+              0.432
+            ],
+            [
+              180.5,
+              210.25,
+              0.55
+            ],
+            [
+              260.33,
+              300.67,
+              0.61
+            ]
+          ],
+          "brush": {
+            "size": 16,
+            "thinning": 0.5,
+            "smoothing": 0.5,
+            "streamline": 0.5,
+            "simulatePressure": true,
+            "taperStart": 0,
+            "taperEnd": 0
+          }
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000004",
+          "type": "freehand",
+          "composite": "source-over",
+          "color": "#1b1b1b",
+          "points": [
+            [
+              540.5,
+              540.5,
+              0.5
+            ]
+          ],
+          "brush": {
+            "size": 16,
+            "thinning": 0.5,
+            "smoothing": 0.5,
+            "streamline": 0.5,
+            "simulatePressure": true,
+            "taperStart": 0,
+            "taperEnd": 0
+          }
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000005",
+          "type": "freehand",
+          "composite": "destination-out",
+          "color": "#1b1b1b",
+          "points": [
+            [
+              100.12,
+              120.99,
+              0.432
+            ],
+            [
+              180.5,
+              210.25,
+              0.55
+            ],
+            [
+              260.33,
+              300.67,
+              0.61
+            ]
+          ],
+          "brush": {
+            "size": 16,
+            "thinning": 0.5,
+            "smoothing": 0.5,
+            "streamline": 0.5,
+            "simulatePressure": true,
+            "taperStart": 0,
+            "taperEnd": 0
+          }
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000006",
+          "type": "freehand",
+          "composite": "destination-out",
+          "color": "#1b1b1b",
+          "points": [
+            [
+              540.5,
+              540.5,
+              0.5
+            ]
+          ],
+          "brush": {
+            "size": 16,
+            "thinning": 0.5,
+            "smoothing": 0.5,
+            "streamline": 0.5,
+            "simulatePressure": true,
+            "taperStart": 0,
+            "taperEnd": 0
+          }
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000007",
+          "type": "line",
+          "composite": "source-over",
+          "points": [
+            [
+              100.12,
+              120.99
+            ],
+            [
+              260.33,
+              300.67
+            ]
+          ],
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4,
+          "cap": "round",
+          "join": "round"
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000008",
+          "type": "line",
+          "composite": "source-over",
+          "points": [
+            [
+              260.33,
+              300.67
+            ],
+            [
+              100.12,
+              120.99
+            ]
+          ],
+          "stroke": "#1b1b1b",
+          "strokeWidth": 2,
+          "cap": "round",
+          "join": "round"
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000009",
+          "type": "rect",
+          "composite": "source-over",
+          "x": 100.12,
+          "y": 120.99,
+          "width": 160.21,
+          "height": 179.68,
+          "fill": "#cfe8ff",
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000010",
+          "type": "rect",
+          "composite": "source-over",
+          "x": 100.12,
+          "y": 120.99,
+          "width": 160.21,
+          "height": 179.68,
+          "fill": null,
+          "stroke": "#1b1b1b",
+          "strokeWidth": 2
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000011",
+          "type": "ellipse",
+          "composite": "source-over",
+          "cx": 180.23,
+          "cy": 210.83,
+          "rx": 80.1,
+          "ry": 89.84,
+          "fill": "#cfe8ff",
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000012",
+          "type": "ellipse",
+          "composite": "source-over",
+          "cx": 180.23,
+          "cy": 210.83,
+          "rx": 80.1,
+          "ry": 89.84,
+          "fill": null,
+          "stroke": "#1b1b1b",
+          "strokeWidth": 2
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000013",
+          "type": "polygon",
+          "composite": "source-over",
+          "points": [
+            [
+              180.23,
+              120.99
+            ],
+            [
+              260.33,
+              300.67
+            ],
+            [
+              100.12,
+              300.67
+            ]
+          ],
+          "fill": "#cfe8ff",
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4,
+          "join": "round"
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000014",
+          "type": "polygon",
+          "composite": "source-over",
+          "points": [
+            [
+              180.23,
+              120.99
+            ],
+            [
+              260.33,
+              300.67
+            ],
+            [
+              100.12,
+              300.67
+            ]
+          ],
+          "fill": null,
+          "stroke": "#1b1b1b",
+          "strokeWidth": 2,
+          "join": "round"
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000015",
+          "type": "rect",
+          "composite": "source-over",
+          "x": 10,
+          "y": 10,
+          "width": 20,
+          "height": 0.01,
+          "fill": null,
+          "stroke": "#1b1b1b",
+          "strokeWidth": 2
+        },
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000016",
+          "type": "ellipse",
+          "composite": "source-over",
+          "cx": 20,
+          "cy": 10,
+          "rx": 10,
+          "ry": 0.01,
+          "fill": null,
+          "stroke": "#1b1b1b",
+          "strokeWidth": 2
+        }
+      ]
+    },
+    {
+      "id": "stk_00000000-0000-4000-8000-000000000002",
+      "name": "Roof",
+      "visible": true,
+      "opacity": 0.5,
+      "strokes": [
+        {
+          "id": "stk_00000000-0000-4000-8000-000000000017",
+          "type": "rect",
+          "composite": "source-over",
+          "x": 100.12,
+          "y": 120.99,
+          "width": 160.21,
+          "height": 179.68,
+          "fill": "#cfe8ff",
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4
+        }
+      ]
+    }
+  ]
+}

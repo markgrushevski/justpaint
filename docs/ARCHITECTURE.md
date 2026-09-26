@@ -2,15 +2,14 @@
 
 > **System topology & boundaries.** How the pieces fit, which way dependencies point, and where the seams are. Companion to `docs/DECISIONS.md` (the "why" of each call) and `docs/DOCUMENT-FORMAT.md` (the keystone contract). This doc maps the *structure*; it does not relitigate the decisions that produced it.
 >
-> **Status:** the monorepo layout below **now exists** (Phases 1–3 and 5 done — see `docs/ROADMAP.md`). `apps/web`, `packages/document`, `packages/editor`, `packages/render` and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone. This doc maps the structure and the explicit triggers for when to split further (§9). The game modules all exist — `internal/judge`, `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) — and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live. The WS hub (`internal/ws`) is live, and the real judge client exists twice over — `HTTPJudge` against the external judge's contract (still waiting on that service to exist) and `GeminiJudge`, which decides duels in production today. The single-player modules (`internal/practice`, `internal/guess`) and the shared AI-call ledger (`internal/aibudget`) round out the game. §4 below is current, this header is the summary.
+> **Status:** the monorepo layout below **now exists** (Phases 1–3 and 5 done — see `docs/ROADMAP.md`). `apps/web`, `packages/editor`, `packages/render` and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone. This doc maps the structure and the explicit triggers for when to split further (§9). The game modules all exist — `internal/judge`, `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) — and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live. The WS hub (`internal/ws`) is live, and the real judge client exists twice over — `HTTPJudge` against the external judge's contract (still waiting on that service to exist) and `GeminiJudge`, which decides duels in production today. The single-player modules (`internal/practice`, `internal/guess`) and the shared AI-call ledger (`internal/aibudget`) round out the game. §4 below is current, this header is the summary.
 
 ## 1. One picture
 
 ```
 ┌───────────────────────────── apps/web (Vue 3 SPA) ─────────────────────────────┐
 │   /draw  (free editor)            /play  (the game: async duel first)           │
-│        └──────────── packages/editor (Konva + perfect-freehand) ───────────┐    │
-│                              └── packages/document (schema · (de)serialize · render→PNG)
+│        └──── packages/editor (document types · Konva · perfect-freehand)        │
 └────────────────────────────────────────┬───────────────────────────────────────┘
                                           │ HTTP/JSON + WS
                                           ▼
@@ -31,15 +30,14 @@ Everything left of the Judge box is ours, in one repo, shipping as **one Go bina
 ## 2. Monorepo layout & why package boundaries (not separate repos)
 
 ```
-packages/document/   # vector doc schema + (de)serialize + validate   — the contract
-packages/editor/     # Konva + perfect-freehand: tools, layers, history, renderToStage/PNG
+packages/editor/     # document types + Konva + perfect-freehand: tools, layers, history, renderToStage/PNG
 packages/render/     # headless Node render worker (reuses editor renderToStage; node-canvas; esbuild)
 apps/web/            # Vue app: /draw (free) + /play (game)
 server/              # Go modular monolith: auth + drawings + game + render + ws hub + judge client
 docs/                # specs & agreements (source of truth)
 ```
 
-**Reuse = package boundaries, not repos.** The editor is consumed by *both* `/draw` and `/play`; the document schema is consumed by the editor, the Go backend, and (via rendered PNGs) the judge. We express that shared-ness as **internal packages with explicit public APIs**, not as separate npm-published repos.
+**Reuse = package boundaries, not repos.** The editor is consumed by *both* `/draw` and `/play`; the document format is shared by the editor, the Go backend, and (via rendered PNGs) the judge. We express that shared-ness as **internal packages with explicit public APIs**, not as separate npm-published repos.
 
 Why not split into multiple repos now:
 - **One source of truth, atomic changes.** A change to the keystone document format touches the schema, the editor's renderer, and the Go validator in *one commit* — no cross-repo version dance, no "which repo is canonical" drift. The format is the contract; it must move as a unit.
@@ -53,16 +51,16 @@ The discipline is enforced by **dependency direction** (§3), not by repo walls.
 Dependencies point **toward the contract**, never back toward the app:
 
 ```
-apps/web ─▶ packages/editor ─▶ packages/document
-                                      ▲
-server/ (Go) ─────────── mirrors ─────┘   (independent reimplementation of the same spec)
+apps/web ────────▶ packages/editor ◀──────── packages/render
+                        │ document types
+                        ▼
+              docs/DOCUMENT-FORMAT.md ◀── server/internal/document (the validator)
 ```
 
-- **`packages/document`** depends on nothing internal. It is pure: types, (de)serialize, validation, and a `render→PNG` renderer. It must not import `editor`, `web`, or anything UI/transport.
-- **`packages/editor`** depends on `document` + Konva + perfect-freehand. It owns tools, layer UI, command-based undo/redo, and the `document → Konva` projection. It does **not** depend on `web` (no Vue, no router, no API client).
+- **`packages/editor`** depends on Konva + perfect-freehand only. `src/document` holds the document types, the caps the editor enforces (`LIMITS`), write-precision rounding and the helpers every renderer shares (the fit transform, the freehand options). The rest owns tools, layer UI, command-based undo/redo, and the `document → Konva` projection. It does **not** depend on `web` (no Vue, no router, no API client).
 - **`packages/render`** is the headless Node render worker (`RENDER_MODE=node`): it reuses `editor`'s `renderToStage` (the ONE shared projection) under `konva/canvas-backend` + node-canvas to produce the authoritative judged raster off the client. esbuild-bundled; the Go server spawns it (`internal/render.NodeRenderer`, document JSON in → base64 PNG out). Isolated so node-canvas (native) never touches the browser bundle. **The cap on concurrent worker subprocesses lives inside `NodeRenderer`** (a counting semaphore sized by `JUDGE_CONCURRENCY`), not at a caller: `internal/game` bounds its own judging passes, but `/api/guess` and `/api/practice` render inline on the request goroutine, so without it one IP's burst under the write tier is thirty node-canvas processes on a 512 MB host. A limiter in the renderer is inherited by every caller, including future ones; it blocks rather than refusing, and the wait ends with the caller's own context.
 - **`apps/web`** depends on `editor` and the HTTP client. It owns routes (`/draw`, `/play`), Pinia stores, TanStack Query, and the game UI flow.
-- **`server/` (Go)** does *not* import the TS packages. It **mirrors** the document spec (a hand-written validator for v1; a shared JSON Schema later). Both sides validate against *the spec*, not against each other's code — the spec in `docs/DOCUMENT-FORMAT.md` is the joint authority.
+- **`server/` (Go)** does *not* import the TS packages. `internal/document` is the only validator of the format, written against `docs/DOCUMENT-FORMAT.md`; the TS types mirror the same spec. An editor test builds a document with every tool and the layer commands into `server/internal/document/testdata/editor-document.json` and a Go test validates it, so a tool or layer command that starts producing something the server rejects fails a test.
 
 This is what makes `editor` genuinely reusable: because it can't reach into `web`, dropping it into a second consumer (the game vs. the free editor — or, later, a separate app) is mechanical.
 
@@ -76,7 +74,7 @@ server/
   internal/
     auth/        # signup/login, bcrypt, golang-jwt issue/verify, middleware           [done]
     drawings/    # CRUD over the vector document (jsonb); validate on write            [done]
-    document/    # the Go half of the vector-doc validator (mirrors packages/document) [done]
+    document/    # the vector-doc validator, the only one                            [done]
     db/          # sqlc-generated typed queries (+ queries/ SQL source)                [done]
     platform/    # shared infra: pgx pool, http server/router, config, slog, errors    [done]
     game/        # match lifecycle: create → both draw → submit → judge → result       [done: full loop]
@@ -135,7 +133,7 @@ Why this shape:
 
 ## 6. The document format as the shared contract
 
-`packages/document` is the **keystone** (full spec: `docs/DOCUMENT-FORMAT.md`). It is the single schema shared by three consumers with three different needs:
+The document format is the **keystone** (full spec: `docs/DOCUMENT-FORMAT.md`). It is the single schema shared by three consumers with three different needs:
 
 | Consumer | Needs from the document |
 |---|---|
@@ -145,7 +143,7 @@ Why this shape:
 
 Load-bearing properties (all specified in `DOCUMENT-FORMAT.md`):
 - **Canonical & versioned.** Mandatory integer `version`, first field, mirrored to a `doc_version` column. Renderer-agnostic — **never** Konva's `Stage.toJSON()` as storage (vendor lock; it's a dev-debug convenience only).
-- **Deterministic render→PNG is a first-class capability of `packages/document`**, used in three places so they are byte-aligned by construction: editor preview (browser/Konva), the authoritative **server render worker** (Node, importing `packages/document` + Konva-node/`node-canvas` + the pinned perfect-freehand), and therefore the judge image. The render contract pins the perfect-freehand version, the brush-option subset, the freehand fill method, the contain-fit transform, and per-layer surface isolation (DOCUMENT-FORMAT §5.3/§6/§10). A Go-native second rasterizer is a trap (a renderer to keep pixel-identical) — avoided.
+- **Deterministic render→PNG is one code path, the editor's `renderToStage`**, used in three places so they are byte-aligned by construction: editor preview (browser/Konva), the authoritative **server render worker** (Node, bundling the editor + Konva on `node-canvas` + the pinned perfect-freehand), and therefore the judge image. The render contract pins the perfect-freehand version, the brush-option subset, the freehand fill method, the contain-fit transform, and per-layer surface isolation (DOCUMENT-FORMAT §5.3/§6/§10). A Go-native second rasterizer is a trap (a renderer to keep pixel-identical) — avoided.
 - **Trust boundary (game-critical):** the client submits the **vector document, never a scored PNG**. A client thumbnail may ride along for instant UI but is advisory. The judged raster is rendered off the player's machine from the document, then handed to the judge.
 
 ## 7. Data-model sketch

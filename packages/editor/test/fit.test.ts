@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeFitTransform } from '../src/index'
+import { computeFitTransform } from '../src/document'
 
 describe('computeFitTransform (contain)', () => {
     it('is identity for an equal-size frame', () => {

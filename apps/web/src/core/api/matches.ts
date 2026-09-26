@@ -1,4 +1,5 @@
-import type { Document } from '@justpaint/document'
+import type { Document } from '@justpaint/editor'
+import { roundDocument } from '@justpaint/editor'
 import { request } from './http'
 
 /**
@@ -137,7 +138,10 @@ export const matches = {
     /** Submit the caller's vector document (validated + 1080²-checked server-side). */
     async submit(id: string, doc: Document): Promise<SubmitMatch> {
         return (
-            await request<SubmitEnvelope>('/matches/' + id + '/submit', { method: 'POST', body: { document: doc } })
+            await request<SubmitEnvelope>('/matches/' + id + '/submit', {
+                method: 'POST',
+                body: { document: roundDocument(doc) }
+            })
         ).match
     },
     /** The end-of-round verdict; poll until `ready`. The WS `result` frame carries the

@@ -34,10 +34,8 @@ function gridTile(dark: boolean): HTMLImageElement {
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { OriButton, OriInput, OriSurface, OriToaster, useToast } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
-import { Editor, TOOLS, DEFAULT_STYLE, newId } from '@justpaint/editor'
-import type { ToolId, LayerView } from '@justpaint/editor'
-import type { Document, DocSummary, Op } from '@justpaint/document'
-import { DEFAULT_CANVAS, DOC_VERSION, LIMITS, parseDocument } from '@justpaint/document'
+import { DEFAULT_CANVAS, DEFAULT_STYLE, DOC_VERSION, Editor, LIMITS, newId, TOOLS } from '@justpaint/editor'
+import type { Document, DocSummary, LayerView, Op, ToolId } from '@justpaint/editor'
 import {
     copyImage,
     copyText,
@@ -383,7 +381,7 @@ onMounted(() => {
     canvasHost = container
     // The editor sizes its Konva stage to the container and fits the document
     // into it (a ResizeObserver keeps it fitted); it never CSS-transforms canvas.
-    editor = new Editor(container, parseDocument(blankDocument()))
+    editor = new Editor(container, blankDocument())
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
     // useThemeColor resolves in ITS mounted hook (registered before this one),
@@ -546,9 +544,7 @@ function clearCanvas(w?: number, h?: number) {
     // describes the drawing that is about to be thrown away).
     clearAssistProposal()
     invalidateGuess()
-    // Validate the freshly built blank doc before loading (loadDocument does
-    // not validate). parseDocument throws DocumentValidationError on bad input.
-    editor.loadDocument(parseDocument(blankDocument(w, h)))
+    editor.loadDocument(blankDocument(w, h))
     currentId.value = null
     drawingName.value = DEFAULT_NAME
 }
@@ -706,7 +702,6 @@ async function load() {
                 toaster.info({ text: 'No saved drawings yet.', duration: TOAST_INFO })
                 return
             }
-            // full.document is already validated by drawings.get (parseDocument).
             editor?.loadDocument(full.document)
             // A pending AI proposal references the OLD document's layers — drop the
             // ghost before the incoming doc replaces it, and the guess with it (it

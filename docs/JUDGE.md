@@ -14,7 +14,7 @@ The judge is a **pure function over two images and a prompt**:
 judge(prompt, pngA, pngB) → { scoreA, scoreB, winner, reason }
 ```
 
-- **It scores rasters, not drawings.** It receives two **pre-rendered PNGs** that *we* produced authoritatively server-side from each player's vector document. It never sees the vector document, never imports `packages/document`, never runs `perfect-freehand`/`getStroke`. This deletes every cross-language determinism and version-coupling problem from the ML boundary (`DOCUMENT-FORMAT.md` §10 trust boundary; `ARCHITECTURE.md` §5).
+- **It scores rasters, not drawings.** It receives two **pre-rendered PNGs** that *we* produced authoritatively server-side from each player's vector document. It never sees the vector document, never imports the editor, never runs `perfect-freehand`/`getStroke`. This deletes every cross-language determinism and version-coupling problem from the ML boundary (`DOCUMENT-FORMAT.md` §10 trust boundary; `ARCHITECTURE.md` §5).
 - **It has no notion of users, matches, or ratings.** It speaks only in **positional `A`/`B`** over the two images it was handed. The `game` module maps `A`/`B`/`tie` to concrete player ids at submit time (§4, `GAME.md` §7.1).
 - **It is stateless and side-effect-free.** Same `(prompt, pngA, pngB)` ⇒ same result (the `FakeJudge` guarantees this; the real ML should aim for it — §9). It stores nothing, owns no database, and is the only external service in the system (`ARCHITECTURE.md` §1).
 
@@ -83,7 +83,7 @@ The images are produced by **us**, authoritatively, off the player's machine —
 - **Format: PNG**, 8-bit RGBA (the alpha is fully opaque after the background fill below).
 - **Opaque background, recommended white (`#ffffff`).** The render forces an opaque background for the judged raster via `RenderOptions.background`, which **replaces** the document's own `background` (`DOCUMENT-FORMAT.md` §10). Determinism + a known backdrop matters: a transparent or document-chosen background would make ink-coverage and contrast readings non-comparable across the two images. Both images use the **same** forced background.
 - **Fit: `contain`, centered.** The 1080² game canvas is scaled-to-fit and centered into the 1024² frame using the pinned contain transform (`DOCUMENT-FORMAT.md` §10). Aspect is preserved, never stretched. Because both are square the scale is uniform and the margin is ~0; the forced background fills any residual margin.
-- **Authoritative, never client-supplied.** The PNG is rendered server-side from the submitted **vector document** by the Node render worker that shares `packages/document` (`DOCUMENT-FORMAT.md` §10, `ARCHITECTURE.md` §8/§9). A client thumbnail may exist for instant UI but is **advisory only** — a cheater could doctor it; it is never sent to the judge (trust boundary, `DOCUMENT-FORMAT.md` §10, `GAME.md` §6).
+- **Authoritative, never client-supplied.** The PNG is rendered server-side from the submitted **vector document** by the Node render worker that shares the editor's renderer (`DOCUMENT-FORMAT.md` §10, `ARCHITECTURE.md` §8/§9). A client thumbnail may exist for instant UI but is **advisory only** — a cheater could doctor it; it is never sent to the judge (trust boundary, `DOCUMENT-FORMAT.md` §10, `GAME.md` §6).
 
 The judge can assume: **two same-size square PNGs, opaque background, drawing centered, no transparency to reason about.** It does not need to know our canvas size, fit math, or document format — only that it receives two comparable 1024² PNGs.
 

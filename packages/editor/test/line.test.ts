@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BRUSH_DEFAULTS, validateDocument } from '@justpaint/document'
-import type { Document } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '../src/document'
 
 // Import the tool DIRECTLY (not via the barrel) so the test never pulls Konva in.
 import { lineTool } from '../src/tools/line'
@@ -24,27 +23,8 @@ function makeCtx(): ToolContext {
     }
 }
 
-/** Wrap a single stroke in a one-layer document for validation. */
-function wrap(stroke: unknown): unknown {
-    return {
-        version: 1,
-        width: 100,
-        height: 100,
-        background: null,
-        layers: [
-            {
-                id: 'L',
-                name: 'L',
-                visible: true,
-                opacity: 1,
-                strokes: [stroke]
-            }
-        ]
-    }
-}
-
 describe('lineTool', () => {
-    it('A: builds a 2-point line from a normal gesture and validates', () => {
+    it('A: builds a 2-point line from a normal gesture', () => {
         const ctx = makeCtx()
         const gesture: LogicalPoint[] = [pt(10, 20), pt(40, 25), pt(80, 60)]
 
@@ -65,11 +45,6 @@ describe('lineTool', () => {
         expect(stroke.strokeWidth).toBe(4)
         expect(stroke.cap).toBe('round')
         expect(stroke.join).toBe('round')
-
-        // The stroke must pass the canonical validator inside a one-layer document.
-        const doc: Document = validateDocument(wrap(stroke))
-        expect(doc.layers[0]?.strokes[0]?.id).toBe('s1')
-        expect(() => validateDocument(wrap(stroke))).not.toThrow()
     })
 
     it('B: returns null for a zero-length (degenerate) gesture', () => {

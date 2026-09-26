@@ -27,8 +27,8 @@
  * BROWSER-ONLY: needs a real DOM container + Konva stage.
  */
 import Konva from 'konva'
-import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, LIMITS } from '@justpaint/document'
-import type { Document, Layer, Op, Stroke } from '@justpaint/document'
+import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, LIMITS } from './document'
+import type { Document, Layer, Op, Stroke } from './document'
 import { newId } from './ids'
 import {
     addLayerCommand,

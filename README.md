@@ -76,15 +76,14 @@ and every pull request.
 ## Layout
 
 ```
-packages/document/   the vector document: schema, validation, (de)serialization
-packages/editor/     the Konva editor: tools, layers, undo/redo, rendering
+packages/editor/     the vector document types and the Konva editor: tools, layers, undo/redo, rendering
 packages/render/     headless render worker for the judged raster
 apps/web/            the Vue app
 server/              the Go service
 docs/                contracts and decisions
 ```
 
-`server/internal/` is a modular monolith: `auth`, `drawings`, `document` (the Go twin of the TS
+`server/internal/` is a modular monolith: `auth`, `drawings`, `document` (the document
 validator), `game` (match lifecycle, deadline, Elo), `practice`, `guess`, `judge`, `assist`,
 `aibudget` (the AI-call ledger), `ratings`, `render`, `ws`, `db` (sqlc), `platform` (config, HTTP,
 Postgres, logging).
