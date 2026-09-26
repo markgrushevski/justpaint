@@ -34,14 +34,11 @@ jobs:
             - name: Prettier (format:check)
               run: npm run format:check
 
-            # Build first, on purpose: apps/web resolves @justpaint/document
-            # and @justpaint/editor through their built dist/, so a fresh clone
-            # cannot typecheck until the packages are built (docs/NOTES.md).
-            - name: Build (packages + SPA)
-              run: npm run build
-
             - name: Typecheck (tsc + vue-tsc)
               run: npm run types
+
+            - name: Build (SPA + render worker)
+              run: npm run build
 
             - name: Unit tests (Vitest)
               run: npm run test

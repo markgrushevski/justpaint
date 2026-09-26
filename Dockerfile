@@ -26,8 +26,7 @@ RUN npm ci --no-audit --no-fund
 COPY tsconfig.base.json ./
 COPY packages/ packages/
 COPY apps/ apps/
-# Fans out to every workspace: the document + editor dist/ the app compiles
-# against, the SPA bundle, and the esbuild-bundled render worker.
+# Builds the SPA bundle and the esbuild-bundled render worker.
 RUN npm run build
 
 # ---- 2. Go service ----------------------------------------------------------
