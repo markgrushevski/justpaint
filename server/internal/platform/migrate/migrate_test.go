@@ -14,13 +14,10 @@ import (
 )
 
 // TestRun_Idempotent_DB is the guarantee that makes migrating on every boot
-// safe: an already-applied migration is never executed twice. goose records each
-// applied version in goose_db_version and reconciles against it, so the second
-// run must apply exactly zero — otherwise every restart would replay DDL that
-// has already run (and, for a non-idempotent statement, fail).
+// safe: an already-applied migration is never executed twice, since goose
+// reconciles against goose_db_version rather than replaying.
 //
-// Skips without DATABASE_URL, like the other DB-backed tests; CI runs it for
-// real against the postgres service.
+// Skips without DATABASE_URL, like the other DB-backed tests.
 func TestRun_Idempotent_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {

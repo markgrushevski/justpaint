@@ -11,8 +11,8 @@ import (
 )
 
 // newTestLogger returns a JSON slog.Logger writing into a buffer so tests can
-// assert on the structured fields of a log line, the same envelope
-// docs/NOTES.md documents this middleware as producing.
+// assert on the structured log line docs/NOTES.md documents this middleware
+// as producing.
 func newTestLogger() (*slog.Logger, *bytes.Buffer) {
 	var buf bytes.Buffer
 	return slog.New(slog.NewJSONHandler(&buf, nil)), &buf
@@ -93,8 +93,6 @@ func TestLogRequests_DownstreamSeesTheSameRequestID(t *testing.T) {
 	}
 }
 
-// TestLogRequests_UntrustedProxyIgnoresInboundRequestID pins the trust gate:
-// an inbound X-Request-Id is only ever adopted when trustProxy is true.
 func TestLogRequests_UntrustedProxyIgnoresInboundRequestID(t *testing.T) {
 	logger, _ := newTestLogger()
 	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
@@ -110,8 +108,6 @@ func TestLogRequests_UntrustedProxyIgnoresInboundRequestID(t *testing.T) {
 	}
 }
 
-// TestLogRequests_TrustedProxyAdoptsInboundRequestID is the mirror image: a
-// trusted proxy's id rides through unchanged.
 func TestLogRequests_TrustedProxyAdoptsInboundRequestID(t *testing.T) {
 	logger, _ := newTestLogger()
 	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
@@ -127,9 +123,9 @@ func TestLogRequests_TrustedProxyAdoptsInboundRequestID(t *testing.T) {
 	}
 }
 
-// TestRecover_LogsRequestID pins that Recover — wrapped INSIDE LogRequests,
-// the documented composition — attributes its panic log line to the same
-// request id LogRequests assigned and echoed on the response.
+// TestRecover_LogsRequestID pins that Recover, wrapped inside LogRequests,
+// attributes its panic log line to the same request id LogRequests assigned
+// and echoed on the response.
 func TestRecover_LogsRequestID(t *testing.T) {
 	logger, buf := newTestLogger()
 	panicking := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {

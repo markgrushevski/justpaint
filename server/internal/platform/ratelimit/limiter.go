@@ -1,13 +1,10 @@
 // Package ratelimit provides an in-memory, per-key token-bucket rate limiter.
 //
-// It generalizes the pattern already used for the per-user AI-assist limiter
-// (internal/assist/ratelimit.go) — the same token-bucket math — but adds
-// bucket eviction. The assist limiter's map is keyed by user id, never shrinks,
-// and is explicitly documented as fine only for a small trusted keyspace
-// (docs/IDEAS.md "Rate-limit buckets are never evicted"). A limiter facing the
-// public internet is keyed by client IP instead: an attacker-influenced
-// keyspace that must not be allowed to grow the process's memory without
-// bound, so this package sweeps idle buckets and caps the map size.
+// It generalizes the token-bucket math already used for the per-user
+// AI-assist limiter (internal/assist/ratelimit.go), which is keyed by user id
+// and never evicts (docs/IDEAS.md). A limiter facing the public internet is
+// keyed by client IP instead — an attacker-influenced keyspace — so this
+// package also sweeps idle buckets and caps the map size.
 package ratelimit
 
 import (
@@ -17,11 +14,9 @@ import (
 )
 
 // Defaults for the eviction knobs, used by New when idleTTL/maxBuckets are
-// given as zero. Sized for an IP-keyed limiter: a bucket only needs to survive
-// long enough to remember a recent burst, so one that has been untouched for
-// 10 minutes has long since either fully refilled or been forgotten either
-// way, and 100,000 concurrently tracked keys is generously above any realistic
-// single-instance IP cardinality for this app.
+// zero. Sized for an IP-keyed limiter: a bucket untouched for 10 minutes has
+// either fully refilled or been forgotten either way, and 100,000 tracked
+// keys is generously above realistic single-instance IP cardinality.
 const (
 	DefaultIdleTTL    = 10 * time.Minute
 	DefaultMaxBuckets = 100_000
@@ -86,14 +81,12 @@ func (l *Limiter) Allow(key string) bool {
 		}
 		if len(l.buckets) >= l.maxBuckets {
 			// Still at capacity after sweeping idle entries: every tracked key
-			// is recently active, i.e. this is genuine sustained load (e.g. a
-			// flood of distinct source IPs), not just a stale map. Fail OPEN
-			// rather than closed — refusing to track (and thus to throttle) a
-			// brand-new key is safer than making the limiter itself the
-			// outage: a hard deny here would let an attacker who can generate
-			// enough distinct keys black-hole every OTHER caller's very first
-			// request. This one request rides through untracked instead; it
-			// simply isn't remembered for next time.
+			// is recently active — genuine sustained load, not a stale map.
+			// Fails open rather than closed: refusing to track a new key is
+			// safer than making the limiter itself the outage, since a hard
+			// deny here would let an attacker who can generate enough distinct
+			// keys block every other caller's first request. This request
+			// rides through untracked instead; it just isn't remembered.
 			return true
 		}
 		l.buckets[key] = &bucket{tokens: l.burst, last: now}
@@ -138,12 +131,11 @@ func (l *Limiter) evictIdleLocked(now time.Time) {
 	}
 }
 
-// RunSweeper periodically evicts idle buckets so a long-lived process's memory
-// tracks only recently-active keys, independent of whether Allow ever happens
-// to observe the map at capacity (the capacity check in Allow is a backstop,
-// not the primary eviction path). Mirrors internal/game's sweeper
-// (RunSweeper(ctx, interval)) — call it as `go limiter.RunSweeper(ctx,
-// interval)` once per Limiter instance; it returns when ctx is cancelled.
+// RunSweeper periodically evicts idle buckets so a long-lived process's
+// memory tracks only recently-active keys — Allow's capacity check is a
+// backstop, not the primary eviction path. Call as `go
+// limiter.RunSweeper(ctx, interval)` once per Limiter instance; it returns
+// when ctx is cancelled.
 func (l *Limiter) RunSweeper(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

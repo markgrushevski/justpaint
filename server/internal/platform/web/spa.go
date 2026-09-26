@@ -16,16 +16,12 @@ import (
 // /leaderboard is not a file, but it must answer with index.html rather than
 // 404, because the route only exists once the bundle boots.
 //
-// Why the Go binary serves the frontend at all: the session cookie and the
-// WebSocket upgrade are same-origin by design (docs/API.md §9.1 — the origin
-// check never allows "*"), and the service sets no CORS
-// headers whatsoever. Serving the SPA from a second origin would therefore break
-// every authenticated request unless something else re-unified the origins. One
-// binary serving both keeps the deployment a single unit: no proxy to configure,
-// nothing to get wrong.
+// The Go binary serves the frontend so the session cookie and the WebSocket
+// upgrade stay same-origin (docs/API.md §9.1) with no CORS headers needed —
+// one binary serving both keeps the deployment a single unit.
 //
-// In development this is unused — Vite serves the SPA on :7777 and proxies /api
-// here — so dir is empty and the route is never registered.
+// In development this is unused — Vite serves the SPA on :7777 and proxies
+// /api here — so dir is empty and the route is never registered.
 func SPA(dir string) (http.Handler, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
