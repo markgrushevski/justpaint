@@ -1,10 +1,7 @@
 /**
- * Canonical TypeScript types for the justpaint vector document (v1).
- *
- * This is the source of truth that the Go server (`server/internal/document`)
- * mirrors by hand. See `docs/DOCUMENT-FORMAT.md` — when code and that doc
- * disagree, the doc wins until amended there. Both sides validate against the
- * spec, not against each other's code.
+ * TypeScript types for the vector document (v1), written against
+ * `docs/DOCUMENT-FORMAT.md`. The server validates documents
+ * (`server/internal/document`); these types only describe them.
  */
 
 /** Bumped only on a breaking schema change. v1 = the current spec. */

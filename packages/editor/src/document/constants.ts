@@ -10,20 +10,13 @@ export const DEFAULT_CANVAS = { width: 1920, height: 1080 } as const
 export const DEFAULT_BACKGROUND = '#ffffff'
 
 /**
- * DoS + structural caps. These MUST stay in lockstep with the Go validator
- * (`server/internal/document/validate.go`) and `docs/API.md §6`. The binding
- * semantic cap is `maxTotalPoints`.
+ * The caps the editor enforces itself, each equal to the Go validator's
+ * (`server/internal/document/validate.go`). The other caps are the server's alone.
  */
 export const LIMITS = {
     maxCanvasDimension: 8192,
     maxLayers: 64,
-    maxStrokes: 5_000,
-    maxPointsPerStroke: 10_000,
-    maxTotalPoints: 100_000,
-    maxIdLen: 64,
-    maxNameLen: 64,
-    /** Max ops in one AI-assist batch (docs/ASSIST.md §2). Per-batch, not per-doc. */
-    maxOpsPerBatch: 64
+    maxNameLen: 64
 } as const
 
 /**

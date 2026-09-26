@@ -201,7 +201,7 @@ func requiredOpKeys(data []byte) error {
 // Only per-op and per-batch caps are enforced here (batch size; per-stroke point
 // count comes free from checkStroke). Whole-document caps (MaxLayers/MaxStrokes/
 // MaxTotalPoints) stay at the save write-edge — this validator has only the
-// summary, never the full document. Mirrors the TS validateOpBatch.
+// summary, never the full document.
 func ValidateOpBatch(ops []Op, summary DocSummary) error {
 	if len(ops) > MaxOpsPerBatch {
 		return invalid("too many ops: %d (max %d)", len(ops), MaxOpsPerBatch)

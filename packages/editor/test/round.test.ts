@@ -69,6 +69,36 @@ describe('roundDocument', () => {
         expect('strokeWidth' in box).toBe(false)
     })
 
+    it('never rounds a size the server requires to be positive down to 0', () => {
+        const tiny: Document = {
+            ...doc,
+            layers: [
+                {
+                    ...doc.layers[0]!,
+                    strokes: [
+                        { id: 'r', type: 'rect', composite: 'source-over', x: 1, y: 1, width: 5, height: 0.004 },
+                        { id: 'e', type: 'ellipse', composite: 'source-over', cx: 1, cy: 1, rx: 0.0045, ry: 3 },
+                        {
+                            id: 'l',
+                            type: 'line',
+                            composite: 'source-over',
+                            points: [
+                                [0, 0],
+                                [5, 5]
+                            ],
+                            stroke: '#000000',
+                            strokeWidth: 0.001
+                        }
+                    ]
+                }
+            ]
+        }
+        const [rect, ellipse, line] = roundDocument(tiny).layers[0]!.strokes
+        expect(rect?.type === 'rect' && rect.height).toBe(0.01)
+        expect(ellipse?.type === 'ellipse' && ellipse.rx).toBe(0.01)
+        expect(line?.type === 'line' && line.strokeWidth).toBe(0.01)
+    })
+
     it('leaves the input untouched', () => {
         roundDocument(doc)
         const pen = doc.layers[0]!.strokes[0]!

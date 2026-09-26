@@ -10,6 +10,15 @@ function roundOpt(v: number | undefined): number | undefined {
     return v === undefined ? undefined : round(v, COORD_DP)
 }
 
+// A size the server requires to be > 0 never rounds down to 0: a valid shape stays valid.
+function roundSize(n: number): number {
+    return n > 0 ? Math.max(round(n, COORD_DP), 10 ** -COORD_DP) : n
+}
+
+function roundSizeOpt(v: number | undefined): number | undefined {
+    return v === undefined ? undefined : roundSize(v)
+}
+
 function roundPoint([x, y]: Point): Point {
     return [round(x, COORD_DP), round(y, COORD_DP)]
 }
@@ -26,27 +35,27 @@ function roundStroke(s: Stroke): Stroke {
                 ])
             }
         case 'line':
-            return { ...s, points: s.points.map(roundPoint), strokeWidth: round(s.strokeWidth, COORD_DP) }
+            return { ...s, points: s.points.map(roundPoint), strokeWidth: roundSize(s.strokeWidth) }
         case 'polygon':
-            return { ...s, points: s.points.map(roundPoint), strokeWidth: roundOpt(s.strokeWidth) }
+            return { ...s, points: s.points.map(roundPoint), strokeWidth: roundSizeOpt(s.strokeWidth) }
         case 'rect':
             return {
                 ...s,
                 x: round(s.x, COORD_DP),
                 y: round(s.y, COORD_DP),
-                width: round(s.width, COORD_DP),
-                height: round(s.height, COORD_DP),
+                width: roundSize(s.width),
+                height: roundSize(s.height),
                 cornerRadius: roundOpt(s.cornerRadius),
-                strokeWidth: roundOpt(s.strokeWidth)
+                strokeWidth: roundSizeOpt(s.strokeWidth)
             }
         case 'ellipse':
             return {
                 ...s,
                 cx: round(s.cx, COORD_DP),
                 cy: round(s.cy, COORD_DP),
-                rx: round(s.rx, COORD_DP),
-                ry: round(s.ry, COORD_DP),
-                strokeWidth: roundOpt(s.strokeWidth)
+                rx: roundSize(s.rx),
+                ry: roundSize(s.ry),
+                strokeWidth: roundSizeOpt(s.strokeWidth)
             }
     }
 }
