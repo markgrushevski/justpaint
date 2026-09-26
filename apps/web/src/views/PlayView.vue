@@ -27,7 +27,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { Editor, TOOLS, DEFAULT_STYLE, newId, renderToPNG } from '@justpaint/editor'
 import type { ToolId } from '@justpaint/editor'
 import type { Document } from '@justpaint/document'
-import { DOC_VERSION, parseDocument } from '@justpaint/document'
+import { DOC_VERSION } from '@justpaint/document'
 import { useThemeColor } from '@oriui/headless/vue'
 import {
     useSessionStore,
@@ -752,7 +752,7 @@ function playAgain(): void {
     revokeYourRaster()
     revokeOpponentRaster()
     result.value = null
-    editor?.loadDocument(parseDocument(blankGameDocument()))
+    editor?.loadDocument(blankGameDocument())
     syncEditorState()
     void startMatch()
 }
@@ -856,7 +856,7 @@ onMounted(async () => {
     if (!container) return
     // The editor sizes its Konva stage to the container and fits the 1080²
     // document into it; a ResizeObserver keeps it fitted (never CSS-transforms).
-    editor = new Editor(container, parseDocument(blankGameDocument()))
+    editor = new Editor(container, blankGameDocument())
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
     editor.setCursorColor(cursorRingColor.value || null)

@@ -1,4 +1,5 @@
 import type { Document } from '@justpaint/document'
+import { roundDocument } from '@justpaint/document'
 import { request } from './http'
 
 /**
@@ -43,7 +44,7 @@ interface GuessEnvelope {
 export const guess = {
     /** Ask what the drawing is, and wait on the vision model (seconds). */
     async ask(doc: Document): Promise<Guess> {
-        const body = await request<GuessEnvelope>('/guess', { method: 'POST', body: { document: doc } })
+        const body = await request<GuessEnvelope>('/guess', { method: 'POST', body: { document: roundDocument(doc) } })
         return { ...body.guess, alternatives: body.guess.alternatives ?? [] }
     }
 }

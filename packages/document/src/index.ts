@@ -44,16 +44,7 @@ export {
     PRESSURE_DP
 } from './constants'
 
-export {
-    DocumentValidationError,
-    safeValidateDocument,
-    safeValidateOpBatch,
-    validateDocument,
-    validateOpBatch
-} from './validate'
-export type { OpValidationResult, ValidationResult } from './validate'
-
-export { parseDocument, roundDocument, serializeDocument } from './parse'
+export { roundDocument } from './round'
 
 export { computeFitTransform } from './fit'
 export type { FitTransform } from './fit'

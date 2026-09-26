@@ -1,5 +1,4 @@
-import { BRUSH_DEFAULTS, validateDocument } from '@justpaint/document'
-import type { Document } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '@justpaint/document'
 import { describe, expect, it } from 'vitest'
 // Import the tool DIRECTLY (not the barrel) so the test never pulls in Konva.
 import { ellipseTool } from '../src/tools/ellipse'
@@ -13,19 +12,8 @@ const ctx: ToolContext = {
 
 const p = (x: number, y: number): LogicalPoint => ({ x, y, pressure: 0.5 })
 
-/** Wrap a stroke in a one-layer document for validateDocument. */
-function wrap(stroke: NonNullable<ReturnType<typeof ellipseTool.buildStroke>>): Document {
-    return {
-        version: 1,
-        width: 100,
-        height: 100,
-        background: null,
-        layers: [{ id: 'L', name: 'L', visible: true, opacity: 1, strokes: [stroke] }]
-    }
-}
-
 describe('ellipseTool', () => {
-    it('builds the expected ellipse from a drag bbox and validates (A)', () => {
+    it('builds the expected ellipse from a drag bbox (A)', () => {
         // Drag from (10,20) to (50,80): w=40, h=60.
         const stroke = ellipseTool.buildStroke(ctx, [p(10, 20), p(30, 40), p(50, 80)])
         expect(stroke).not.toBeNull()
@@ -53,8 +41,6 @@ describe('ellipseTool', () => {
             expect(flipped.rx).toBe(20)
             expect(flipped.ry).toBe(30)
         }
-
-        expect(() => validateDocument(wrap(stroke))).not.toThrow()
     })
 
     it('returns null for a degenerate gesture (B)', () => {

@@ -1,4 +1,5 @@
 import type { Document } from '@justpaint/document'
+import { roundDocument } from '@justpaint/document'
 import { request } from './http'
 
 /**
@@ -49,6 +50,11 @@ export const practice = {
     },
     /** Submit a drawing against `promptId` and wait for the judge (seconds). */
     async run(promptId: string, doc: Document): Promise<PracticeRun> {
-        return (await request<RunEnvelope>('/practice', { method: 'POST', body: { promptId, document: doc } })).run
+        return (
+            await request<RunEnvelope>('/practice', {
+                method: 'POST',
+                body: { promptId, document: roundDocument(doc) }
+            })
+        ).run
     }
 }

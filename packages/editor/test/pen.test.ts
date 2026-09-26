@@ -1,4 +1,4 @@
-import { BRUSH_DEFAULTS, validateDocument } from '@justpaint/document'
+import { BRUSH_DEFAULTS } from '@justpaint/document'
 import { describe, expect, it } from 'vitest'
 import { penTool } from '../src/tools/pen'
 import type { LogicalPoint, ToolContext } from '../src/types'
@@ -14,24 +14,12 @@ const ctx: ToolContext = {
     newId: () => 's1'
 }
 
-/** Wrap a stroke in a minimal one-layer document for validation. */
-function wrap(stroke: unknown) {
-    return {
-        version: 1,
-        width: 100,
-        height: 100,
-        background: null,
-        layers: [{ id: 'L', name: 'L', visible: true, opacity: 1, strokes: [stroke] }]
-    }
-}
-
 describe('penTool', () => {
     it('id is pen', () => {
         expect(penTool.id).toBe('pen')
     })
 
-    // Test A: a normal multi-point gesture builds the expected freehand stroke,
-    // and the produced stroke passes validateDocument inside a one-layer document.
+    // Test A: a normal multi-point gesture builds the expected freehand stroke.
     it('builds a freehand source-over stroke from all gesture points', () => {
         const gesture: LogicalPoint[] = [
             { x: 10, y: 20, pressure: 0.4 },
@@ -57,8 +45,6 @@ describe('penTool', () => {
             [12.5, 24.1, 0.55],
             [30, 40, 0.61]
         ])
-
-        expect(() => validateDocument(wrap(stroke))).not.toThrow()
     })
 
     // Test B (pen variant): pen never returns null — a single-point gesture
@@ -73,7 +59,5 @@ describe('penTool', () => {
 
         expect(stroke.points).toEqual([[50, 50, 0.5]])
         expect(stroke.points).toHaveLength(1)
-
-        expect(() => validateDocument(wrap(stroke))).not.toThrow()
     })
 })

@@ -1,31 +1,5 @@
 import type { Document, FreehandPoint, Point, Stroke } from './types'
 import { COORD_DP, PRESSURE_DP } from './constants'
-import { DocumentValidationError, validateDocument } from './validate'
-
-/**
- * Parse + validate a document from JSON text or an already-parsed value. Throws
- * {@link DocumentValidationError} on any structural problem. This is the
- * client-side read/write guard; the Go server re-validates authoritatively.
- */
-export function parseDocument(input: string | unknown): Document {
-    let value: unknown = input
-    if (typeof input === 'string') {
-        try {
-            value = JSON.parse(input)
-        } catch (e) {
-            throw new DocumentValidationError(`malformed JSON: ${(e as Error).message}`)
-        }
-    }
-    return validateDocument(value)
-}
-
-/**
- * Serialize a document to its canonical jsonb payload, rounding coordinates to
- * the write-precision (§2): geometry to 2 dp, freehand pressure to 3 dp.
- */
-export function serializeDocument(doc: Document): string {
-    return JSON.stringify(roundDocument(doc))
-}
 
 function round(n: number, dp: number): number {
     const f = 10 ** dp
@@ -77,7 +51,11 @@ function roundStroke(s: Stroke): Stroke {
     }
 }
 
-/** Return a copy of `doc` with all coordinates rounded to write-precision. */
+/**
+ * A copy of `doc` with geometry rounded to 2 dp and pressure to 3 dp (§2). Applied
+ * on the way to the server, never to the live document: rounding the model would
+ * accumulate error.
+ */
 export function roundDocument(doc: Document): Document {
     return {
         ...doc,

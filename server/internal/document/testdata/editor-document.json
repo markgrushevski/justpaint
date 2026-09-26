@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "width": 1080,
+  "height": 1080,
+  "background": null,
+  "layers": [
+    {
+      "id": "layer_1",
+      "name": "Layer 1",
+      "visible": true,
+      "opacity": 1,
+      "strokes": [
+        {
+          "id": "stk_1",
+          "type": "freehand",
+          "composite": "source-over",
+          "color": "#1b1b1b",
+          "points": [
+            [
+              100.12,
+              120.99,
+              0.432
+            ],
+            [
+              180.5,
+              210.25,
+              0.55
+            ],
+            [
+              260.33,
+              300.67,
+              0.61
+            ]
+          ],
+          "brush": {
+            "size": 16,
+            "thinning": 0.5,
+            "smoothing": 0.5,
+            "streamline": 0.5,
+            "simulatePressure": true,
+            "taperStart": 0,
+            "taperEnd": 0
+          }
+        },
+        {
+          "id": "stk_2",
+          "type": "freehand",
+          "composite": "destination-out",
+          "color": "#1b1b1b",
+          "points": [
+            [
+              100.12,
+              120.99,
+              0.432
+            ],
+            [
+              180.5,
+              210.25,
+              0.55
+            ],
+            [
+              260.33,
+              300.67,
+              0.61
+            ]
+          ],
+          "brush": {
+            "size": 16,
+            "thinning": 0.5,
+            "smoothing": 0.5,
+            "streamline": 0.5,
+            "simulatePressure": true,
+            "taperStart": 0,
+            "taperEnd": 0
+          }
+        },
+        {
+          "id": "stk_3",
+          "type": "line",
+          "composite": "source-over",
+          "points": [
+            [
+              100.12,
+              120.99
+            ],
+            [
+              260.33,
+              300.67
+            ]
+          ],
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4,
+          "cap": "round",
+          "join": "round"
+        },
+        {
+          "id": "stk_4",
+          "type": "rect",
+          "composite": "source-over",
+          "x": 100.12,
+          "y": 120.99,
+          "width": 160.21,
+          "height": 179.68,
+          "fill": "#cfe8ff",
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4
+        },
+        {
+          "id": "stk_5",
+          "type": "ellipse",
+          "composite": "source-over",
+          "cx": 180.23,
+          "cy": 210.83,
+          "rx": 80.1,
+          "ry": 89.84,
+          "fill": "#cfe8ff",
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4
+        },
+        {
+          "id": "stk_6",
+          "type": "polygon",
+          "composite": "source-over",
+          "points": [
+            [
+              180.23,
+              120.99
+            ],
+            [
+              260.33,
+              300.67
+            ],
+            [
+              100.12,
+              300.67
+            ]
+          ],
+          "fill": "#cfe8ff",
+          "stroke": "#1b1b1b",
+          "strokeWidth": 4,
+          "join": "round"
+        }
+      ]
+    }
+  ]
+}

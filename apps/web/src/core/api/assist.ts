@@ -1,5 +1,4 @@
 import type { DocSummary, Op } from '@justpaint/document'
-import { safeValidateOpBatch } from '@justpaint/document'
 import { request } from './http'
 
 /**
@@ -29,15 +28,6 @@ export interface AssistOpsResponse {
 
 export const assist = {
     async ops(req: AssistOpsRequest): Promise<AssistOpsResponse> {
-        const res = await request<AssistOpsResponse>('/assist/ops', { method: 'POST', body: req })
-        // Trust edge (docs/REVIEW.md): the endpoint generated + validated the
-        // batch, but it arrived over the network, so re-validate it against the
-        // request's OWN docSummary before it reaches the editor — `previewOps`
-        // does NOT validate. Mirrors how `drawings.get` re-parses a fetched
-        // document. Throws a DocumentValidationError on a bad body, which the
-        // mutation's `onError` surfaces.
-        const result = safeValidateOpBatch(req.docSummary, res.ops)
-        if (!result.ok) throw result.error
-        return { ...res, ops: result.ops }
+        return request<AssistOpsResponse>('/assist/ops', { method: 'POST', body: req })
     }
 }

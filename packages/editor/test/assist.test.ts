@@ -12,7 +12,6 @@
  */
 import 'konva/canvas-backend'
 import { describe, expect, it, afterEach } from 'vitest'
-import { validateDocument } from '@justpaint/document'
 import type { Document, LineStroke, Op } from '@justpaint/document'
 import { Editor } from '../src/editor'
 import { addLayerCommand, addStrokeCommand, compositeCommand } from '../src/history'
@@ -102,11 +101,9 @@ describe('compositeCommand', () => {
         composite.apply(d)
         expect(d.layers.map((l) => l.id)).toEqual(['L1', 'NEW'])
         expect(d.layers[1]!.strokes.map((s) => s.id)).toEqual(['s1'])
-        expect(() => validateDocument(d)).not.toThrow()
 
         composite.invert(d)
         expect(d).toEqual(before)
-        expect(() => validateDocument(d)).not.toThrow()
     })
 
     it('invert runs children in REVERSE order', () => {
@@ -192,7 +189,6 @@ describe('Editor previewOps / acceptOps / rejectOps', () => {
         // add_stroke resolved "L1" (existing) and "b1" (batch layer) correctly.
         expect(base.strokes.map((s) => s.id)).toEqual(['s-base'])
         expect(roof.strokes.map((s) => s.id)).toEqual(['s-roof'])
-        expect(() => validateDocument(e.getDocument())).not.toThrow()
 
         expect(e.canUndo()).toBe(true)
         // A SINGLE undo removes the whole batch → back to the pre-accept document.
