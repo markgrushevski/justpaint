@@ -31,9 +31,9 @@ docs                contracts and decisions
 
 - **Stand on Konva.** Own the document model; never hand-write a render engine.
 - **The document has one validator,** `server/internal/document`, run at every write edge. The TS
-  types and `LIMITS` (`packages/editor/src/document`) mirror `docs/DOCUMENT-FORMAT.md` and the caps in
-  `docs/API.md`; a format change touches the spec, the Go validator and the TS types together. The
-  editor's output is checked by the server through one fixture, `testdata/editor-document.json`.
+  types (`packages/editor/src/document`) mirror `docs/DOCUMENT-FORMAT.md`; a format change touches the
+  spec, the Go validator and the TS types together. The editor's output is checked by the server
+  through one fixture, `testdata/editor-document.json`.
 - **Dependency direction:** `editor` ← `apps/web` and `render`, never back; the editor imports only
   Konva and perfect-freehand (ARCHITECTURE §3).
 - **Trust boundary:** client PNGs are advisory. Anything judged or persisted is derived server-side from

@@ -315,7 +315,7 @@ create table drawings (
 5. **DoS caps** (exact numbers pinned in `docs/API.md`). The **binding limit is total points** — that budget always trips before any reasonable per-layer stroke count, so size the validator around it: a global cap on **total input points** plus a cap on **total strokes** and **layers**. Don't advertise a per-layer stroke cap the point budget makes unreachable.
 6. **Set `doc_version`, `width`, `height` columns** from the validated doc.
 
-The Go validator is the only one: the client sends documents and the server checks them. The editor's output is held to it by a fixture — an editor test draws a document with every tool into `server/internal/document/testdata/editor-document.json`, and `TestEditorDocument` validates it.
+The Go validator is the only one: the client sends documents and the server checks them. The editor's output is held to it by a fixture — an editor test builds a document with every tool and the layer commands into `server/internal/document/testdata/editor-document.json`, and `TestEditorDocument` validates it.
 
 ## 8. `id` and `bbox`
 
@@ -326,7 +326,7 @@ The Go validator is the only one: the client sends documents and the server chec
 
 - **`version`** is a mandatory monotonic integer, first field, mirrored to `doc_version`. v1 = this spec. Greenfield: we start at `1` with zero legacy, but the field and upcaster seam exist from day one.
 - **Additive changes do NOT bump it:** new optional fields, new `meta` keys, populating `bbox`. Consumers ignore unknown fields. This is the default evolution path — most growth lands here.
-- **Breaking changes bump it:** removing/renaming a field, changing units/semantics, adding/removing a `StrokeType`, changing the coordinate model, changing a pinned brush/render constant in a way that alters geometry. On bump, write an upcaster `vN → vN+1` in `packages/editor/src/document`; the read path upcasts lazily in memory. For bulk rewrites a goose migration walks the jsonb column (rows found cheaply via the `doc_version` column without parsing).
+- **Breaking changes bump it:** removing/renaming a field, changing units/semantics, adding/removing a `StrokeType`, changing the coordinate model, changing a pinned brush/render constant in a way that alters geometry. On bump, the server upgrades stored documents: an upcaster `vN → vN+1` in `server/internal/document` on read, or a goose migration that rewrites the jsonb column (rows found cheaply via the `doc_version` column without parsing). The TS types move to the new version with it.
 - **Render contract = `version` + pinned perfect-freehand version + the pinned brush/fill/fit constants (§5.3, §6, §10).** All recorded or pinned in the lockfile; a brush-engine upgrade or a fit-math change that alters geometry is a render-contract change, coordinated across editor + worker and triggering re-render of cached PNGs.
 
 **v1 replay scope.** Goal #4 ("faithful replay") is **order-based** and bounded: reveal strokes sequentially in array order; freehand may sub-reveal its points in capture order; shapes appear **atomically** (no intra-shape animation); inter-stroke timing is a presentation choice (there are no timestamps in v1). True timed playback is a §9 seam below — don't expect it from a v1 doc.

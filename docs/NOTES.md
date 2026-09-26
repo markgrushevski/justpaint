@@ -49,7 +49,8 @@ render worker (`packages/render`) draw different outlines — and the worker's r
 
 Write precision (2 dp geometry, 3 dp pressure) is applied by `roundDocument`
 (`packages/editor/src/document/round.ts`) in the API clients, on every document the app sends.
-Rounding the live model or in tools accumulates error.
+Rounding the live model or in tools accumulates error. A size the server requires to be > 0 (rect
+width/height, ellipse radii, stroke widths) rounds to at least 0.01, never to 0.
 
 ### Ids share one namespace
 

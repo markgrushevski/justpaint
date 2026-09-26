@@ -2,7 +2,7 @@
 
 > **The design for AI inside the product, phase one.** A natural-language prompt ("draw a house with a red roof") goes to an LLM, the LLM emits a batch of **validated document operations**, and the batch is applied through the existing command seam (`packages/editor/src/history.ts`). This implements item (a) of `IDEAS.md` "AI inside the product" (text drawing commands); the canvas co-author and AI inpainting are later phases over the same seam. This document owns the Op contract, the `internal/assist` server module, the doc-summary shape, and the ghost-preview UX.
 >
-> **Ownership note.** The document schema and its invariants stay owned by `DOCUMENT-FORMAT.md` and the two validators; the HTTP envelope/status conventions by `API.md`; the command/undo model by `packages/editor`. This doc only defines what the LLM is allowed to say and how it gets applied.
+> **Ownership note.** The document schema and its invariants stay owned by `DOCUMENT-FORMAT.md` and the Go validator; the HTTP envelope/status conventions by `API.md`; the command/undo model by `packages/editor`. This doc only defines what the LLM is allowed to say and how it gets applied.
 >
 > `ASSIST_MODE=fake` (default) selects `FakeAssist`; `ASSIST_MODE=gemini` selects `GeminiAssist` (`server/internal/assist/gemini.go`), which reaches the same API — and the same key, quota and HTTP client — as the judge, the critic and the guesser (`judge.GeminiClient`, `JUDGE.md` §8.1).
 
@@ -181,7 +181,6 @@ Same playbook as the judge seam:
 - **Stand-in server tests for `GeminiAssist`** (`gemini_test.go`) — they assert what we *send* (the system turn, the untrusted request last and delimited, the schema) and how we read what comes back: the happy path, the retry carrying the validator's complaint, retry exhaustion → `ErrInvalidBatch`, a `MAX_TOKENS` answer saying so, `ErrQuotaExhausted` passed through, an empty prompt refused **without** spending a call, the line defaults, the note/layer-name clamps, and ids that dodge the summary's. No quota spent, so this is what runs in CI.
 - **One live test, opt-in** (`gemini_live_test.go`, `GEMINI_LIVE=1`) — the only thing that can prove Google accepts a two-deep `ARRAY` schema and that a model fills it with a drawing rather than a shrug. Read §3.2's verification note for which model that has and has not been run on.
 - **Vitest:** ops → composite `Command` mapping (apply/invert round-trip), ghost preview accept/reject.
-- **Contract-parity test** for the Op schema (TS vs Go) — mirrored test tables, exactly like the Stroke contract.
 
 ## 7. Phasing
 

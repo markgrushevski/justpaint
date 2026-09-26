@@ -38,8 +38,9 @@ The vector document ([DOCUMENT-FORMAT.md](DOCUMENT-FORMAT.md)) is validated by
       rect/ellipse positive dims; `strokeWidth > 0` when a stroke channel is present; point arity
       (freehand 3-tuple ≥ 1 / line 2-tuple ≥ 2 / polygon 2-tuple ≥ 3); id 1–64 chars, **unique
       across the single layers+strokes namespace**.
-- [ ] DoS caps identical in the validator, `LIMITS` and the spec: 8 MB body / 100k total points /
-      10k per stroke / 5k strokes / 64 layers ([API.md](API.md) §caps is authoritative).
+- [ ] DoS caps identical in the validator and the spec: 8 MB body / 100k total points / 10k per
+      stroke / 5k strokes / 64 layers ([API.md](API.md) §6 is authoritative); the three caps in
+      `LIMITS` equal the Go ones.
 - [ ] A new rule gets a case in the Go validator tests; an editor change keeps
       `testdata/editor-document.json` current and `TestEditorDocument` green.
 - [ ] A new stroke type is added in all three Go sites (struct+const, `unmarshalStroke`,
