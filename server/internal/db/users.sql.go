@@ -18,10 +18,10 @@ type ApplyRatingDeltaParams struct {
 	ID    string
 }
 
-// Atomically move a player's ladder rating by the match's Elo delta and return the
-// TRUE post-update rating. rating = rating + delta (never an absolute SET) so two
-// matches sharing a player resolving concurrently both land — the match-row lock
-// serializes per MATCH, not per USER (docs/NOTES.md).
+// Moves a player's rating by the match's Elo delta and returns the true
+// post-update value. `rating + delta`, never an absolute set, so two matches
+// sharing a player and resolving concurrently both land — the match row lock
+// serializes per match, not per user (docs/NOTES.md).
 func (q *Queries) ApplyRatingDelta(ctx context.Context, arg ApplyRatingDeltaParams) (int32, error) {
 	row := q.db.QueryRow(ctx, applyRatingDelta, arg.Delta, arg.ID)
 	var rating int32
@@ -120,18 +120,10 @@ type ListTopRatingsRow struct {
 	Losses      int32
 }
 
-// The leaderboard: the top-rated players with their win/loss record (docs/GAME.md §8,
-// docs/API.md §11). `login` is deliberately NOT selected — it may be an email, and the
-// leaderboard is world-readable to every authed user (privacy, same rule as
-// ListMatchPlayers). The INNER JOINs to match_players/matches mean only users with >=1
-// 'done' match appear, so players who have never finished a game fall out naturally —
-// no HAVING, no 0-games filter. status='done' counts forfeits (full-K Elo) and excludes
-// 'abandoned' (no Elo, no result) and resolution='aborted' (a round the judge never
-// scored: no winner, no Elo — counting it would inflate games_played and register as a
-// tie for both players). `is distinct from` so a null resolution still counts.
-// wins/losses derive from winner_player_id (null = tie); ties are games_played-wins-
-// losses, not a stored column. Tie-break on id asc because every account starts at
-// rating 1200, so a fresh ladder would otherwise order nondeterministically.
+// The leaderboard: top-rated players with their win/loss record (docs/GAME.md
+// §8, docs/API.md §11). `login` is deliberately not selected — same privacy rule
+// as ListMatchPlayers. `is distinct from 'aborted'` (not `!=`) so a null
+// resolution still counts.
 func (q *Queries) ListTopRatings(ctx context.Context, lim int32) ([]ListTopRatingsRow, error) {
 	rows, err := q.db.Query(ctx, listTopRatings, lim)
 	if err != nil {

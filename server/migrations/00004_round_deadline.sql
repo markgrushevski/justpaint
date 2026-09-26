@@ -1,20 +1,17 @@
 -- +goose Up
 
--- Server-authoritative round deadline + forfeit/abandon resolution (docs/GAME.md
--- §3/§4). Until now the 90s round timer lived only
--- on the client and a match whose opponent never submitted had NO exit from
--- `drawing` — this makes the deadline a real column the server stamps, enforces,
--- and sweeps.
+-- Server-authoritative round deadline plus forfeit/abandon resolution
+-- (docs/GAME.md §3/§4): a real column the server stamps, enforces, and sweeps,
+-- so a match whose opponent never submits has an exit from `drawing`.
 alter table matches
     add column drawing_deadline   timestamptz,                                    -- null while `open`; stamped now()+round at open→drawing
     add column resolution         text check (resolution in ('judged', 'forfeit')), -- how a `done` match ended; null for open/drawing/abandoned
     add column judge_attempts     int not null default 0,                          -- stuck-judging watchdog retry counter
     add column judging_started_at timestamptz;                                     -- start of the current judge attempt (staleness clock)
 
--- Backfill BEFORE indexing so no existing row is stranded or mistyped:
---   * a live `drawing` row with a null deadline would never be swept (immortal) —
---     give it one so it can still resolve.
---   * a historical `done` row must not present resolution=NULL to a non-null DTO field.
+-- Backfill before indexing, so no existing row is stranded: a live `drawing` row
+-- with a null deadline would never be swept, and a historical `done` row must
+-- not present resolution = null to a non-null DTO field.
 update matches set drawing_deadline = now() + interval '90 seconds'
     where status = 'drawing' and drawing_deadline is null;
 update matches set resolution = 'judged'

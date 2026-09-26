@@ -20,8 +20,7 @@ type AddMatchPlayerParams struct {
 	UserID  string
 }
 
-// Insert one roster slot. The composite PK (match_id, user_id) makes a double
-// join impossible.
+// The composite PK (match_id, user_id) makes a double join impossible.
 func (q *Queries) AddMatchPlayer(ctx context.Context, arg AddMatchPlayerParams) error {
 	_, err := q.db.Exec(ctx, addMatchPlayer, arg.MatchID, arg.UserID)
 	return err
@@ -33,8 +32,8 @@ values ($1)
 returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
 `
 
-// A fresh open async match with one prompt pinned; mode/status use their column
-// defaults ('async'/'open'). docs/GAME.md §4.1.
+// One prompt pinned per match; mode/status take their column defaults
+// ('async'/'open', docs/GAME.md §4.1).
 func (q *Queries) CreateMatch(ctx context.Context, promptID string) (Match, error) {
 	row := q.db.QueryRow(ctx, createMatch, promptID)
 	var i Match
@@ -100,10 +99,10 @@ limit 1
 for update skip locked
 `
 
-// The oldest open async match the caller is NOT already in — the auto-join
-// candidate (docs/GAME.md §4.1, docs/DECISIONS.md "Matchmaking"). FOR UPDATE
-// SKIP LOCKED lets concurrent joiners each grab a different match instead of
-// colliding on one (the loser skips the locked row and creates its own).
+// The oldest open async match the caller is not already in — the auto-join
+// candidate (docs/GAME.md §4.1, docs/DECISIONS.md 2026-07-03). `for update skip
+// locked` lets concurrent joiners each grab a different match instead of
+// colliding on one; the loser skips the locked row and creates its own.
 func (q *Queries) FindOpenMatchToJoin(ctx context.Context, userID string) (Match, error) {
 	row := q.db.QueryRow(ctx, findOpenMatchToJoin, userID)
 	var i Match
@@ -171,13 +170,11 @@ type GetMatchForUpdateRow struct {
 	ServerNow        time.Time
 }
 
-// Same as GetMatch but takes a row lock, serializing concurrent submits to one
-// match so the last-submit → judging flip is computed on a stable roster (two
-// players submitting at the same instant can't both miss "I'm last").
-//
-// Also returns the DB clock (`server_now` = the tx-start now()) so the caller
-// compares the round deadline against ONE clock authority — the database's — on
-// the path that rejects a late submit, not the Go host wall clock (§2.4).
+// Same as GetMatch but takes a row lock, so two simultaneous submits can't each
+// see the other as unsubmitted and both miss the last-submit → judging flip
+// (docs/NOTES.md). Also returns the DB clock (`server_now`, the tx-start now())
+// so a late-submit check compares against one clock authority — the database's,
+// not the Go host's wall clock.
 func (q *Queries) GetMatchForUpdate(ctx context.Context, id string) (GetMatchForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, getMatchForUpdate, id)
 	var i GetMatchForUpdateRow
@@ -215,12 +212,10 @@ type ListExhaustedJudgingMatchesParams struct {
 	Lim         int32
 }
 
-// The complement of ListStuckJudgingMatches: judging rows whose retries are USED UP
-// and whose last attempt is stale. Without this they would sit in `judging` forever
-// (the re-fire filter stops at the cap and nothing else moves them), losing the duel
-// with no recourse. They are swept to `done` + resolution 'aborted' — no winner, no
-// Elo (docs/GAME.md §4.1, docs/DECISIONS.md 2026-09-18). Same partial index
-// (matches_judging_stuck_idx), same stale window, so a row is in exactly one list.
+// The complement of ListStuckJudgingMatches: retries used up, last attempt
+// stale. Swept to `done` + resolution 'aborted', no winner, no Elo (docs/GAME.md
+// §4.1, docs/DECISIONS.md 2026-09-18). Same partial index and stale window, so a
+// row is in exactly one list.
 func (q *Queries) ListExhaustedJudgingMatches(ctx context.Context, arg ListExhaustedJudgingMatchesParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, listExhaustedJudgingMatches, arg.StaleSecs, arg.MaxAttempts, arg.Lim)
 	if err != nil {
@@ -382,12 +377,9 @@ type ListStuckJudgingMatchesParams struct {
 	Lim         int32
 }
 
-// Judging rows wedged past the stale window with retries left — a crashed/hung
-// judge attempt to re-fire. Staleness is measured
-// against judging_started_at (the current attempt), not updated_at. The rows this
-// filter excludes on judge_attempts are NOT dropped: ListExhaustedJudgingMatches
-// below is its exact complement (>= the same cap, same stale window) and sweeps
-// them to the terminal 'aborted' resolution instead (docs/GAME.md §4.1).
+// Judging rows wedged past the stale window with retries left, to re-fire
+// (docs/GAME.md §4.1). Staleness is measured against judging_started_at, the
+// current attempt, not updated_at. Exact complement: ListExhaustedJudgingMatches.
 func (q *Queries) ListStuckJudgingMatches(ctx context.Context, arg ListStuckJudgingMatchesParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, listStuckJudgingMatches, arg.StaleSecs, arg.MaxAttempts, arg.Lim)
 	if err != nil {
@@ -451,10 +443,9 @@ type SetMatchDrawingParams struct {
 	ID           string
 }
 
-// Start the round: the roster just filled, so flip open→drawing AND stamp the
-// server-authoritative deadline as now() + the round length (seconds). One clock
-// authority — the deadline every reader and the sweeper compare against is the
-// DB's own now() (docs/GAME.md §4.1).
+// Flips open→drawing and stamps the deadline as now() + the round length, off
+// the DB's own clock — the one authority every reader and the sweeper compare
+// against (docs/GAME.md §4.1).
 func (q *Queries) SetMatchDrawing(ctx context.Context, arg SetMatchDrawingParams) (Match, error) {
 	row := q.db.QueryRow(ctx, setMatchDrawing, arg.RoundSeconds, arg.ID)
 	var i Match
@@ -485,8 +476,8 @@ where id = $1
 returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
 `
 
-// Enter (or, for the stuck-judging watchdog, RE-enter) judging: stamp the start of
-// THIS attempt so staleness is measured per-attempt, and bump the retry counter.
+// Enter (or, for the stuck-judging watchdog, re-enter) judging: stamp the start
+// of this attempt so staleness is measured per-attempt, and bump the retry counter.
 func (q *Queries) SetMatchJudging(ctx context.Context, id string) (Match, error) {
 	row := q.db.QueryRow(ctx, setMatchJudging, id)
 	var i Match
