@@ -8,7 +8,7 @@ them locally before you push):
 # TypeScript workspaces (repo root)
 npm run types        # vue-tsc / tsc --noEmit across packages/* + apps/*
 npm run test         # Vitest across workspaces
-npm run build        # package dist/ + vite build
+npm run build        # the SPA bundle and the render worker
 
 # Go service (in server/)
 gofmt -l .           # must print nothing
@@ -29,26 +29,26 @@ exception is recorded in [DECISIONS.md](DECISIONS.md) — otherwise it's a findi
 
 ## Contract fidelity — the keystone
 
-The vector document ([DOCUMENT-FORMAT.md](DOCUMENT-FORMAT.md)) lives in **two validators** that must
-never drift — `packages/document` (TS) and `server/internal/document` (Go):
+The vector document ([DOCUMENT-FORMAT.md](DOCUMENT-FORMAT.md)) is validated by
+`server/internal/document`; the TS types in `packages/editor/src/document` mirror the spec:
 
-- [ ] Every invariant exists on **both** sides — known version (`== 1`); `1 ≤ width,height ≤ 8192`;
+- [ ] The validator enforces every invariant — known version (`== 1`); `1 ≤ width,height ≤ 8192`;
       lowercase hex color regex `^#([0-9a-f]{6}|[0-9a-f]{8})$`; composite ∈ {source-over,
       destination-out}; opacity/pressure ∈ [0,1]; NaN/Infinity rejected; sizes/tapers ≥ 0;
       rect/ellipse positive dims; `strokeWidth > 0` when a stroke channel is present; point arity
       (freehand 3-tuple ≥ 1 / line 2-tuple ≥ 2 / polygon 2-tuple ≥ 3); id 1–64 chars, **unique
       across the single layers+strokes namespace**.
-- [ ] DoS caps identical everywhere: 8 MB body / 100k total points / 10k per stroke / 5k strokes /
-      64 layers ([API.md](API.md) §caps is authoritative).
-- [ ] The TS `validate` test table and the Go validator tests stay **mirrored case-for-case**.
-- [ ] Discriminated-union `Stroke` decode matches (Go `UnmarshalJSON` ↔ TS parse); a new stroke type
-      is added in all three Go sites (struct+const, `unmarshalStroke`, `checkStroke`) and the TS
-      mirror, or not at all.
+- [ ] DoS caps identical in the validator, `LIMITS` and the spec: 8 MB body / 100k total points /
+      10k per stroke / 5k strokes / 64 layers ([API.md](API.md) §caps is authoritative).
+- [ ] A new rule gets a case in the Go validator tests; an editor change keeps
+      `testdata/editor-document.json` current and `TestEditorDocument` green.
+- [ ] A new stroke type is added in all three Go sites (struct+const, `unmarshalStroke`,
+      `checkStroke`) and the TS types, or not at all.
 - [ ] Render pins intact: `FREEHAND_VERSION` equals the **resolved installed** perfect-freehand
       version (currently 1.2.3, not the range floor `^1.2.0`); `computeFitTransform` (contain) and
       the `toFreehandOptions` constants unchanged — or the change is a recorded decision.
-- [ ] Write-precision rounding (2dp geometry / 3dp pressure) happens **only** in
-      `serializeDocument`, never in the model or a tool.
+- [ ] Write-precision rounding (2dp geometry / 3dp pressure) happens **only** in `roundDocument` on
+      the way to the server, never in the model or a tool.
 - [ ] The document payload stays **lax-decoded** (unknown fields tolerated for forward-compat); auth
       bodies stay strict-decoded. Don't unify them.
 - [ ] Any format change is additive and version-safe (DOCUMENT-FORMAT §9), and the spec is updated
@@ -92,15 +92,15 @@ never drift — `packages/document` (TS) and `server/internal/document` (Go):
 
 ## Frontend & packages
 
-- [ ] Dependency direction holds: `packages/document` imports **nothing** internal (pure contract);
-      `packages/editor` imports only document + Konva + perfect-freehand (never Vue/router/API);
+- [ ] Dependency direction holds: `packages/editor` imports only Konva + perfect-freehand (never
+      Vue/router/API);
       app concerns stay in `apps/web`.
 - [ ] Tools stay **pure**: `buildStroke(ctx, gesture) → Stroke | null` — no side effects, no Konva.
 - [ ] Konva lifecycle: every created `Stage` is `destroy()`ed (module-global registry — see NOTES);
       editors are torn down in `onBeforeUnmount`. Coords come from
       `stage.getRelativePointerPosition()`, never `pageX - offsetLeft`.
-- [ ] Documents are validated at trust edges (`parseDocument` on anything from the network or a user
-      file); `loadDocument` assumes already-valid input.
+- [ ] `loadDocument` gets only server documents (validated on write) or the app's own blank ones; a
+      new source, such as a file import, is validated by the server before it reaches the editor.
 - [ ] No `any` at a package boundary; server data flows through TanStack Query + the single typed
       `fetch` client (typed `ApiError`, including the `network` code); the api layer stays store-free
       (no api⇄store cycle). Don't reintroduce the legacy broken-axios pattern outside `/legacy`.

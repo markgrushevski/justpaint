@@ -2,6 +2,13 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-09-26 — One document validator, on the server; one TS package
+
+- **Why:** the TS validator re-checked documents the app had just built and data the server had already validated, and nothing validated before a submit. It cost a second implementation of every rule plus a mirrored test table, for no check the server wasn't already making.
+- **What:** `server/internal/document` is the only validator. The TS side keeps the types, `LIMITS` and the shared render helpers, now in `packages/editor/src/document`; `packages/document` is gone. The one guarantee the TS validator did give — the editor's output passes the server — is a fixture: an editor test draws a document with every tool into `server/internal/document/testdata/editor-document.json`, and `TestEditorDocument` validates it.
+- **Consumed from source:** `@justpaint/editor` exports `src/index.ts`, so the app, vue-tsc and the render worker's esbuild compile it directly — no package `dist/`, no rebuild after an edit.
+- **Kept separate:** `packages/render`, because node-canvas is native and must stay out of the browser package.
+
 ## 2026-09-21 — A rendered-geometry test layer beside the rendered-a11y one
 
 - **Why:** the zoom island overlapping the bottom toolbar passed every existing gate. vue-tsc sees types, Vitest renders into happy-dom (no layout), stylelint reads declarations, axe reads the accessibility tree. None of them can see two boxes painted on top of each other, and only a rendered browser can.

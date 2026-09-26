@@ -4,19 +4,19 @@ Non-obvious gotchas: traps in this codebase that are easy to step into and hard 
 Read the section for an area before changing it, and add a note when you find a new trap. Rationale
 lives in [DECISIONS.md](DECISIONS.md), the per-change bar in [REVIEW.md](REVIEW.md).
 
-## Document contract (TS ↔ Go)
+## Document contract
 
-### The two validators and their test tables must stay 1:1
+### The server validator is the only one
 
-The format is validated in `packages/document` (TS) and `server/internal/document` (Go). A rule added
-to one side only is a bug: the two sides then accept different documents. Add every new rejection to
-both test tables (`packages/document/test/validate.test.ts` ↔
-`server/internal/document/validate_test.go`).
+`server/internal/document` is the only check of the format; the TS types in
+`packages/editor/src/document` only describe it. Change the spec, the Go validator and the TS types
+together, then refresh the fixture (`npx vitest run -u` in `packages/editor`) so `TestEditorDocument`
+confirms the server still accepts what the editor draws.
 
 ### Go accepts absent required fields unless you check key presence
 
 `encoding/json` zero-fills a missing key (no `visible` → `false`, no `opacity` → `0`, no `brush` → the
-zero `BrushOptions`, no `background` → nil), so struct decoding alone accepts documents TS rejects.
+zero `BrushOptions`, no `background` → nil), so struct decoding alone accepts documents the spec rejects.
 `requiredKeys` (`parse.go`) and `requiredOpKeys` (`ops.go`) check presence on the raw JSON, which also
 keeps an explicit `null` background valid while an absent one fails. A new required field needs a
 presence check there too.
@@ -30,25 +30,26 @@ presence check there too.
 
 ### Colors are lowercase hex only
 
-Both sides use `^#([0-9a-f]{6}|[0-9a-f]{8})$`; `#FFFFFF` is a 400. The serializer does not normalize
-case, so any code that produces a color (a picker, AI output) must lowercase it.
+The validator uses `^#([0-9a-f]{6}|[0-9a-f]{8})$`; `#FFFFFF` is a 400. Nothing normalizes case, so
+any code that produces a color (a picker, AI output) must lowercase it.
 
-### Adding a stroke type touches three Go sites plus TS
+### Adding a stroke type touches three Go sites plus the TS types
 
 `Stroke` is a sealed interface (unexported `base()`), so it cannot be extended from outside the
 package. A new type needs the struct and const in `document.go`, the switch in `unmarshalStroke`
-(`parse.go`), the switch in `checkStroke` (`validate.go`), and the TS mirror.
+(`parse.go`), the switch in `checkStroke` (`validate.go`), and the TS types.
 
 ### `FREEHAND_VERSION` must equal the installed perfect-freehand
 
-`packages/document/src/constants.ts` pins the exact resolved version (`1.2.3`, from `^1.2.3` in
+`packages/editor/src/document/constants.ts` pins the exact resolved version (`1.2.3`, from `^1.2.3` in
 `packages/editor`), not the range floor. Bump it with the dependency, or the editor preview and the
 render worker (`packages/render`) draw different outlines — and the worker's raster is what gets judged.
 
-### Round only at serialization
+### Round only on the way to the server
 
-Write precision (2 dp geometry, 3 dp pressure) is applied only by `serializeDocument` /
-`roundDocument` (`packages/document/src/parse.ts`). Rounding in the model or in tools accumulates error.
+Write precision (2 dp geometry, 3 dp pressure) is applied by `roundDocument`
+(`packages/editor/src/document/round.ts`) in the API clients, on every document the app sends.
+Rounding the live model or in tools accumulates error.
 
 ### Ids share one namespace
 
@@ -59,12 +60,7 @@ Layer and stroke ids live in one `seen` set; a stroke id equal to a layer id is 
 `requiredOpKeys` checks `layerId` and `stroke`, not the fields inside the stroke. That is safe only
 because `freehand` (whose all-zero `brush` passes the stroke validator) is not allowed in ops
 (`docs/ASSIST.md` §2). If ops ever admit freehand, or a stroke type where a zero value is valid, extend
-the presence guard on both sides.
-
-### The two op validators take their arguments in opposite order
-
-TS `validateOpBatch(summary, ops)` vs Go `ValidateOpBatch(ops, summary)`. Known, not drift; don't
-"fix" one side.
+the presence guard in `ops.go`.
 
 ## Editor and rendering
 
@@ -98,7 +94,8 @@ window-level `pointerup`/`pointercancel` listeners end a gesture released outsid
 
 ### `Editor.loadDocument()` does not validate
 
-Callers run `parseDocument()` first (DrawView and the drawings query do).
+It trusts its input: documents come from the server, which validated them on write, or from the
+app's own blank-document builders.
 
 ### Undo covers the document, not editor state
 
@@ -129,9 +126,9 @@ worker has its own `selftest`.
 - `import 'konva/canvas-backend'` must be the first import in `packages/render/render.mjs`. Konva 10
   has no default Node backend and throws "unsupported environment" without it. `document` is not
   polyfilled, which is why `toKonva` guards on `typeof document`.
-- The worker is an esbuild bundle (`packages/render/dist/render.mjs`) because the packages emit
-  extensionless relative imports that native Node ESM refuses. The bundle embeds a copy of the editor:
-  rebuild it (`npm run build -w @justpaint/render`) after editing `packages/editor`, and on a fresh
+- The worker is an esbuild bundle (`packages/render/dist/render.mjs`) because the editor is
+  TypeScript with extensionless imports, which native Node ESM refuses. The bundle embeds a copy of
+  the editor: rebuild it (`npm run build -w @justpaint/render`) after editing `packages/editor`, and on a fresh
   clone before using `RENDER_MODE=node`.
 - `canvas` (node-canvas) is a native dependency, kept external. It normally installs from a prebuild; a
   platform without one needs Cairo/Pango and build tools.
@@ -153,13 +150,10 @@ the caller's context (`game.JudgePassBudget`, the practice/guess `RunBudget`).
 
 ## Frontend
 
-### Packages are consumed from their built `dist/`
+### The editor is consumed from source
 
-`apps/web` resolves `@justpaint/document` and `@justpaint/editor` through `dist/`, which is gitignored.
-A fresh clone cannot typecheck (`TS2307: Cannot find module '@justpaint/editor'`) until the packages are
-built, and an edit to package `src` does not reach the app until you rebuild — there is no HMR across
-the boundary. CI runs `npm run build` before `npm run types` for this reason; any new job that
-typechecks must build first.
+`@justpaint/editor` exports `src/index.ts`: Vite, vue-tsc and the render worker's esbuild compile it
+directly, so nothing needs building before a typecheck and edits hot-reload into the app.
 
 ### `apps/web` is type-checked less strictly than the packages
 

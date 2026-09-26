@@ -54,9 +54,8 @@ Run them locally before committing, because a red `main` is worse than a slow co
 ```sh
 # TypeScript side (repo root)
 npm run format:check # prettier, scoped by .prettierignore (docs/ and server/ are excluded)
-npm run build        # package dist/ + vite build — MUST precede types (apps/web resolves the
-                     # workspace packages through their gitignored dist/)
 npm run types        # vue-tsc / tsc --noEmit across packages/* + apps/*
+npm run build        # the SPA bundle and the render worker
 npm run test         # Vitest across workspaces
 npm run lint:ci -w @justpaint/web   # stylelint + eslint + contrast, check-mode (no --fix)
 

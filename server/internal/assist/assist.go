@@ -1,6 +1,6 @@
 // Package assist is the AI-assist seam (docs/ASSIST.md): a natural-language
 // prompt goes to an LLM, which emits a batch of validated document operations
-// (the packages/document Op contract). The handler depends on the Assist
+// (the Op contract). The handler depends on the Assist
 // interface, never a concrete impl, so the deterministic FakeAssist (the default
 // in dev/CI/tests) and the real GeminiAssist swap by config with no handler
 // change — exactly like the render (internal/render) and judge (internal/judge)

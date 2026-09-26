@@ -317,9 +317,8 @@ func (h *Handler) decodeSubmission(w http.ResponseWriter, r *http.Request) (docu
 }
 
 // ValidateSubmission is the ONE rule set for a drawing offered up to be scored:
-// the vector-document contract (the Go half of it — docs/DOCUMENT-FORMAT.md, kept
-// 1:1 with packages/document) plus the square game canvas both duelists share
-// (docs/GAME.md §2).
+// the vector-document contract (docs/DOCUMENT-FORMAT.md) plus the square game
+// canvas both duelists share (docs/GAME.md §2).
 //
 // Exported because single-player practice submits a drawing for exactly the same
 // purpose — a server-side render handed to a model — and must therefore accept

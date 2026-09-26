@@ -22,7 +22,7 @@ Hunt, grounded in `file:line`:
    a path "does not exist yet" when it now does, or a stale reference to `client/` / NestJS); ROADMAP
    open items vs reality (an item that already shipped is stale); `API.md` route
    list / error codes / status map / DoS numbers vs the Go handlers + validator;
-   `DOCUMENT-FORMAT.md` invariants vs both validators.
+   `DOCUMENT-FORMAT.md` invariants vs the Go validator and the TS types.
 2. **Single-owner integrity** — a fact restated (and now contradicting) across docs instead of
    referenced. Each of these has exactly one owner; every other mention must only cite it:
    the `jp_session` cookie flags + error envelope + DoS caps (`API.md`), the winner/tie representation

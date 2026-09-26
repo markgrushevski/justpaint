@@ -19,9 +19,8 @@ const (
 )
 
 // Op is a sealed union of AI-assist operations: only the concrete op types in
-// this package implement it (opKind() is unexported). The Go mirror of the TS
-// Op union (packages/document/src/types.ts); both validate against ASSIST.md §2,
-// not each other's code.
+// this package implement it (opKind() is unexported). Validated against
+// docs/ASSIST.md §2.
 type Op interface {
 	opKind() OpKind
 }
@@ -156,8 +155,7 @@ func unmarshalOp(data []byte) (Op, error) {
 // requiredOpKeys asserts every REQUIRED op key is physically present in the raw
 // JSON. encoding/json silently zero-fills an absent field — absent
 // add_layer.name → "", absent add_stroke.layerId → "" — so struct decoding alone
-// would let Go accept ops the TS validator rejects, breaking keystone parity
-// (mirrors requiredKeys in parse.go). Value/shape is left to ValidateOpBatch.
+// would accept ops the spec rejects (mirrors requiredKeys in parse.go). Value/shape is left to ValidateOpBatch.
 func requiredOpKeys(data []byte) error {
 	var raw []json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {

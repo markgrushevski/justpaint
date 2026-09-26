@@ -170,8 +170,8 @@ export type Stroke = FreehandStroke | LineStroke | RectStroke | EllipseStroke | 
 // --- AI Assist ops (docs/ASSIST.md §2) ---
 // A derived, additive contract over Stroke/Layer: what the LLM is allowed to say.
 // The Op schema adds no new stroke invariants — it composes the existing ones —
-// but narrows the stroke subset (freehand excluded) and lives in both validators
-// 1:1, exactly like the Stroke contract.
+// but narrows the stroke subset (freehand excluded) and is validated by the
+// server (ValidateOpBatch).
 
 /** Op-eligible stroke-type subset. Freehand is excluded from AI ops (§2). */
 export type OpStrokeType = 'line' | 'rect' | 'ellipse' | 'polygon'

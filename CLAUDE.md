@@ -20,8 +20,7 @@ The ML judge is an external service: this repo owns the `Judge` contract and its
 - **Render worker:** `packages/render`, Node, reusing the editor's `renderToStage`.
 
 ```
-packages/document   the vector document contract (TS)
-packages/editor     Konva editor — imports only document, Konva, perfect-freehand
+packages/editor     the vector document types and the Konva editor, consumed from source
 packages/render     headless worker that renders the judged raster
 apps/web            the Vue app
 server              Go modular monolith (internal/*)
@@ -31,10 +30,12 @@ docs                contracts and decisions
 ## Hard rules
 
 - **Stand on Konva.** Own the document model; never hand-write a render engine.
-- **The document contract lives in two validators** — `packages/document` (TS) and
-  `server/internal/document` (Go) — kept 1:1 with `docs/DOCUMENT-FORMAT.md` and the caps in
-  `docs/API.md`. A format change touches the spec, both validators and both test tables together.
-- **Dependency direction:** `document` ← `editor` ← `apps/web`, never back (ARCHITECTURE §3).
+- **The document has one validator,** `server/internal/document`, run at every write edge. The TS
+  types and `LIMITS` (`packages/editor/src/document`) mirror `docs/DOCUMENT-FORMAT.md` and the caps in
+  `docs/API.md`; a format change touches the spec, the Go validator and the TS types together. The
+  editor's output is checked by the server through one fixture, `testdata/editor-document.json`.
+- **Dependency direction:** `editor` ← `apps/web` and `render`, never back; the editor imports only
+  Konva and perfect-freehand (ARCHITECTURE §3).
 - **Trust boundary:** client PNGs are advisory. Anything judged or persisted is derived server-side from
   the validated document, and the judged raster comes from `packages/render` — never a Go rasterizer,
   never a client image. Every query is ownership-scoped: a foreign row answers 404, never 403.
@@ -54,8 +55,6 @@ docs                contracts and decisions
   `server/`).
 - **Web:** `npm run dev -w @justpaint/web` (:7777) · `lint:all` / `lint:ci` · `test:a11y` ·
   `test:layout` — the last two need the dev server running.
-- **Packages:** `apps/web` imports each package's built `dist/`, so rebuild after editing a package's
-  `src` (`npm run build -w @justpaint/<name>`).
 - **Go** (in `server/`): `go run ./cmd/server` (:8080) needs `ENV`, `DATABASE_URL` and `JWT_SECRET`
   exported — there is no `.env` autoload. `gofmt -l .` · `go vet ./...` · `go test ./...`.
 - **DB:** `docker compose up -d`; `goose` and `sqlc` (`server/sqlc.yaml`) are external CLIs.

@@ -146,8 +146,8 @@ func ParseAndValidate(data []byte) (Document, error) {
 // requiredKeys asserts every REQUIRED object key is physically present in the raw
 // JSON. encoding/json silently zero-fills an absent required field — absent
 // "visible" → false, "opacity" → 0.0, "brush" → the zero BrushOptions, "strokes"
-// → nil, "background" → nil — so struct decoding alone would let Go accept
-// documents the TS validator rejects, breaking keystone parity (docs/NOTES.md).
+// → nil, "background" → nil — so struct decoding alone would accept
+// documents the spec rejects (docs/NOTES.md).
 // Presence is checked on the raw bytes so an explicit null still counts as
 // "present" (background may legitimately be null = transparent). Shape/type of the
 // values is left to Validate; this only guards presence.
