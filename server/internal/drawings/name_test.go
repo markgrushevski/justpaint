@@ -13,7 +13,7 @@ import (
 )
 
 // TestNormalizeName pins the drawing-name rules (docs/API.md §7): trim, blank ⇒
-// nil (SQL defaults it on create / keeps it on update), cap at 64 RUNES —
+// nil (SQL defaults it on create / keeps it on update), cap at 64 runes —
 // multibyte names count characters, not bytes, mirroring the document
 // validator's layer-name cap.
 func TestNormalizeName(t *testing.T) {

@@ -12,15 +12,10 @@ import (
 )
 
 // StubRenderer is the zero-dependency stand-in for the real (Konva +
-// perfect-freehand) Node render worker, mirroring judge.FakeJudge. It does NOT
-// reproduce the drawing pixel-for-pixel — it emits a deterministic 1024² opaque
-// PNG whose INK COVERAGE scales with how much was drawn (total stroke count), so
-// the ink-coverage FakeJudge yields a document-derived, non-trivial verdict and
-// the whole submit → render → judge → result loop runs end-to-end today. The real
-// worker swaps in behind Renderer with no loop change.
-//
-// NOT pixel-authoritative: do not treat its output as the true rendering of the
-// document (see docs/NOTES.md). It exists to prove the loop, not the art.
+// perfect-freehand) Node render worker, mirroring judge.FakeJudge: it emits a
+// deterministic 1024² PNG whose ink coverage scales with stroke count, not the
+// actual drawing (docs/NOTES.md). It exists to prove the submit → render →
+// judge → result loop end-to-end, not to reproduce the art.
 type StubRenderer struct{}
 
 // NewStubRenderer returns the in-process stub renderer.

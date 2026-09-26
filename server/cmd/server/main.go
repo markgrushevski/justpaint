@@ -36,8 +36,8 @@ import (
 )
 
 func main() {
-	// run() owns all cleanup via defer; main only maps an error to a non-zero
-	// exit code (so a failed bind is distinguishable from a clean shutdown).
+	// run owns cleanup via defer; main only turns its error into a non-zero exit
+	// code, so a failed bind is distinguishable from a clean shutdown.
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
@@ -63,10 +63,9 @@ func run() error {
 	defer pool.Close()
 	logger.Info("database connected")
 
-	// Before anything reads or writes: a database that exists but was never
-	// migrated is not an edge case on a host with no shell, it is the default
-	// first state. Failing here is loud; the alternative is a service that
-	// reports itself live and errors on every game query.
+	// A database that exists but was never migrated is the default first state on
+	// a host with no shell, not an edge case — fail loud here rather than run a
+	// service that reports itself live and errors on every game query.
 	if cfg.AutoMigrate {
 		migrateCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
@@ -90,10 +89,9 @@ func run() error {
 	// no loop change. RENDER_MODE=node uses the authoritative Konva worker.
 	var renderer render.Renderer
 	if cfg.RenderMode == config.RenderModeNode {
-		// JUDGE_CONCURRENCY bounds the node-canvas subprocesses too, not just judging
-		// passes: /api/guess and /api/practice render inline on the request goroutine,
-		// so without a bound INSIDE the renderer one burst under the write rate-limit
-		// tier is thirty simultaneous workers on a 512 MB host (internal/render/node.go).
+		// JUDGE_CONCURRENCY also bounds these node-canvas subprocesses: /api/guess
+		// and /api/practice render inline on the request goroutine, so without a cap
+		// here a write-rate burst forks dozens of workers on a small host.
 		renderer = render.NewNodeRenderer(cfg.RenderNodeBin, cfg.RenderCLI, cfg.JudgeConcurrency)
 		logger.Info("render: node worker (authoritative)", "cli", cfg.RenderCLI, "max_workers", cfg.JudgeConcurrency)
 	} else {
@@ -101,93 +99,66 @@ func run() error {
 		logger.Info("render: stub (set RENDER_MODE=node for the authoritative render)")
 	}
 
-	// Which MODEL each AI kind runs on. GEMINI_MODEL is the default for all of them
-	// and AI_MODEL_PER_KIND overrides it per kind, because the jobs differ: the duel
-	// judge compares two drawings and its number feeds Elo, so it has to be the
-	// steadiest; the practice critic scores one drawing against a prompt; the
-	// guesser only names what it sees and its mistakes cost nothing. Unknown kind
-	// names are refused here rather than at first use (internal/aibudget owns the
-	// valid set).
+	// Per-kind model override (docs/DECISIONS.md): GEMINI_MODEL is the default and
+	// AI_MODEL_PER_KIND swaps in a different model per kind. An unknown kind name
+	// fails here at boot, not at first use (internal/aibudget owns the valid set).
 	aiModelByKind, err := aibudget.Models(cfg.GeminiModel, cfg.AIModelPerKind)
 	if err != nil {
 		return err
 	}
 	logAIModels(logger, aiModelByKind, cfg.GeminiModel)
 
-	// --- the AI impls, and WHO each one bills -------------------------------
-	//
-	// Every impl below is chosen and, in the same breath, says whose quota it
-	// spends. The pairing is deliberate and it is the fix for a real bug: the
-	// provider map used to be a SECOND switch over the same mode envs, four
-	// independent switches that had to agree by hand, and they did not — an assist
-	// mode whose impl was a scaffold making no network call at all was still handed
-	// a provider, so every assist request wrote ledger rows and then 500'd.
-	// A provider is now a fact about the impl that was actually built: it is set
-	// beside the constructor that built it, travels in a local, and is read exactly
-	// once, by aibudget.Policies below. An empty provider means "this impl calls
-	// nobody", which is exactly what the budget wants to hear (internal/aibudget).
+	// The AI impls, and who each one bills: each constructor sets its provider
+	// fact in the same breath it is built, rather than a second switch inferring
+	// it from the mode. An empty provider means the impl calls nobody.
 
-	// Who actually decides the duel. The fake never reads the prompt, so it is a
-	// loop-prover, not a judge — the two real impls are the external ML judge over
-	// the JUDGE.md §6 contract, and a vision model scoring both rasters in one
-	// call. config.Load has already proven each mode's dependency exists, so
-	// nothing here can fail.
+	// The fake never reads the prompt, so it's a loop-prover, not a judge. The two
+	// real impls are the external ML judge (docs/JUDGE.md §6) and a vision model
+	// scoring both rasters. config.Load already proved each mode's dependency
+	// exists, so nothing here can fail.
 	var arbiter judge.Judge
 	var duelProvider aibudget.Provider
 	switch cfg.JudgeMode {
 	case config.JudgeModeHTTP:
 		arbiter = judge.NewHTTPJudge(cfg.JudgeBaseURL, cfg.JudgeTimeout)
-		// Its service, its quota — still worth a ceiling, because a bug here would
-		// hammer it and we cannot see how much of it is left. Bare, with no model
-		// attached: it is one service however many models sit behind it, and
-		// splitting the counter would only hide how much of it we are using.
+		// Bare, no model attached: one service behind however many models. Still
+		// worth a ceiling — a bug here would hammer it and we can't see what's left
+		// (docs/GAME.md §4.3).
 		duelProvider = aibudget.ProviderCollaborator
 		logger.Info("judge: http (external ML judge)", "base_url", cfg.JudgeBaseURL, "timeout", cfg.JudgeTimeout)
 	case config.JudgeModeGemini:
 		model := aiModelByKind[aibudget.KindDuel]
 		arbiter = judge.NewGeminiJudge(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
-		// Keyed to the MODEL, not to "google": the free tier meters per model, so two
-		// kinds on two models are two separate quota pools and one counter across both
-		// would refuse calls against a budget neither had spent (aibudget.WithModel).
+		// Keyed to the model, not just the provider: the free tier meters per model,
+		// so two kinds on two models need two separate pools (docs/GAME.md §4.3,
+		// aibudget.WithModel).
 		duelProvider = aibudget.ProviderGoogle.WithModel(model)
-		// The key is deliberately absent from this line: it is server-side only.
+		// No key here — it stays server-side, out of logs.
 		logger.Info("judge: gemini vision", "model", model, "timeout", cfg.JudgeTimeout)
 	default:
 		arbiter = judge.NewFakeJudge()
 		logger.Info("judge: fake (ink coverage — it never reads the prompt; set JUDGE_MODE for a real verdict)")
 	}
-	// A real judge on the stub renderer scores a rectangle, not a drawing: the stub
-	// paints ink coverage proportional to stroke count and never reproduces the
-	// art (internal/render/stub.go). The pairing WORKS, which is exactly why it is
-	// dangerous — the verdicts are confident and meaningless. Not a boot error,
-	// because it is a legitimate way to exercise the wiring in dev.
+	// A real judge on the stub renderer scores ink coverage, not the drawing
+	// (docs/NOTES.md) — confident, meaningless verdicts, since the pairing works.
+	// Not a boot error: still legitimate for exercising the wiring in dev.
 	if cfg.JudgeMode != config.JudgeModeFake && cfg.RenderMode != config.RenderModeNode {
 		logger.Warn("judge: a real judge is scoring STUB rasters, which are ink-coverage blocks and not the drawings — set RENDER_MODE=node",
 			"judge_mode", cfg.JudgeMode, "render_mode", cfg.RenderMode)
 	}
-	// The judge retries up to 3 times (docs/JUDGE.md §7), and the whole pass — both
-	// renders included — has to fit inside game.JudgePassBudget. A JUDGE_TIMEOUT
-	// generous enough to overflow it would not fail; it would silently truncate the
-	// last attempt, which is the kind of misconfiguration that only shows up as an
+	// The judge retries up to 3 times inside game.JudgePassBudget (docs/JUDGE.md
+	// §7). A JUDGE_TIMEOUT loose enough to overflow that budget won't fail
+	// outright — it silently truncates the last attempt, showing up only as an
 	// occasional lost duel.
 	if envelope := 3 * cfg.JudgeTimeout; envelope >= game.JudgePassBudget {
 		logger.Warn("judge: JUDGE_TIMEOUT leaves no room for its own retries inside the judging pass",
 			"timeout", cfg.JudgeTimeout, "retry_envelope", envelope, "pass_budget", game.JudgePassBudget)
 	}
 
-	// Single-player practice (internal/practice). It exists because a duel needs two
-	// people at once and, without a player base, the first visitor waits alone and
-	// gets an abandoned match — the product is unplayable by the person most likely
-	// to try it. Every part needed to score ONE drawing already exists here: prompts,
-	// the same renderer, the same quota.
-	//
-	// The critic is a seam of OURS (judge.Critic), NOT the external judge's frozen
-	// two-image contract, and it follows JUDGE_MODE so a real judge and a real critic
-	// are never mismatched. JUDGE_MODE=http is the one mode with no critic: the
-	// external judge service answers "which of these two is better" and has no
-	// critique endpoint. Practice then refuses honestly rather than quietly falling
-	// back to the fake — a made-up score presented as a real one is worse than a 500,
-	// because the player cannot tell.
+	// Single-player practice (internal/practice, docs/GAME.md §10) scores one
+	// drawing alone on the same prompts, renderer and quota. Its critic
+	// (judge.Critic) follows JUDGE_MODE like the judge; JUDGE_MODE=http has none,
+	// so practice refuses honestly rather than fake a score (docs/JUDGE.md §8.2).
 	var critic judge.Critic
 	var practiceProvider aibudget.Provider
 	switch cfg.JudgeMode {
@@ -197,25 +168,16 @@ func run() error {
 		practiceProvider = aibudget.ProviderGoogle.WithModel(model)
 		logger.Info("practice: gemini critic (scores one drawing against its prompt)", "model", model)
 	case config.JudgeModeHTTP:
-		// No critic at all, so no calls and no quota to protect — the empty provider
-		// is not a special case here, it is the same rule as a fake.
+		// No critic, no calls, no quota — the empty provider here is the same rule as a fake.
 		logger.Warn("practice: DISABLED — JUDGE_MODE=http has no critique endpoint (docs/JUDGE.md §2 is a two-image contract); /api/practice answers 500 until JUDGE_MODE is fake or gemini")
 	default:
 		critic = judge.NewFakeCritic()
 		logger.Info("practice: fake critic (ink coverage — it never reads the prompt; set JUDGE_MODE=gemini for a real critique)")
 	}
 
-	// "What did I draw?" on /draw — the third vision seam off JUDGE_MODE, beside the
-	// judge (two images, comparative) and the critic (one image against a prompt).
-	// This one has no prompt at all: nobody supplied an answer, so there is nothing
-	// to score and the model is simply asked what it sees.
-	//
-	// It follows JUDGE_MODE for the same reason practice does, and is unavailable
-	// under http for the same reason: the external judge service answers one frozen
-	// comparative question and has no endpoint for this. A nil guesser refuses
-	// honestly rather than quietly answering with the fake, whose "guess" is a
-	// canned string — a made-up answer presented as the AI's is a lie the player
-	// cannot detect.
+	// "What did I draw?" on /draw (internal/guess, docs/JUDGE.md §8.3): the third
+	// vision seam off JUDGE_MODE, with no prompt to score against, only to
+	// describe. JUDGE_MODE=http has no endpoint, so a nil guesser refuses honestly.
 	var guesser judge.Guesser
 	var guessProvider aibudget.Provider
 	switch cfg.JudgeMode {
@@ -231,46 +193,33 @@ func run() error {
 		logger.Info("guess: fake (a canned answer that never looks at the drawing; set JUDGE_MODE=gemini for a real one)")
 	}
 
-	// AI assist is a seam like render/judge (docs/ASSIST.md §3): the deterministic
-	// FakeAssist runs the whole client flow with zero API dependency, and the real
-	// GeminiAssist swaps in by ASSIST_MODE with no handler change. The endpoint is
-	// stateless (no DB) and rate-limited per user (each call can cost API money).
-	//
-	// ASSIST_MODE is read independently of JUDGE_MODE on purpose. They share a key
-	// and a quota but not a decision: a deployment may well want a real prompt box
-	// on /draw while the duel still runs on the fake judge.
+	// AI assist is a seam like render/judge (docs/ASSIST.md §3), swapped by
+	// ASSIST_MODE with no handler change. Stateless and rate-limited per user
+	// since each call can cost API money; read independently of JUDGE_MODE.
 	assistLimiter := assist.NewRateLimiter(assist.DefaultBurst, assist.DefaultRefillInterval)
 	var assistImpl assist.Assist
-	// The provider a mode WOULD bill, paired with the constructor that chose it —
-	// same discipline as the judge above. It is only adopted below if the impl
-	// confirms it really calls anybody.
+	// The provider a mode would bill, set beside the constructor that chose it,
+	// same discipline as the judge above — adopted below only if the impl confirms
+	// it really calls anybody.
 	var assistVendor aibudget.Provider
 	switch cfg.AssistMode {
 	case config.AssistModeGemini:
 		model := aiModelByKind[aibudget.KindAssist]
-		// Its OWN timeout, not the judge's: composing a picture takes tens of seconds
-		// on a thinking model, where a verdict takes one or two (config.AssistTimeout).
+		// Its own timeout, not the judge's: composing a picture takes tens of
+		// seconds on a thinking model, where a verdict takes one or two.
 		assistImpl = assist.NewGeminiAssist(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.AssistTimeout)
 		assistVendor = aibudget.ProviderGoogle.WithModel(model)
 		logger.Info("assist: gemini (a prompt really becomes shapes)", "model", model, "timeout", cfg.AssistTimeout)
 	default:
 		assistImpl = assist.NewFakeAssist()
-		// Worth naming what the fake actually is. It returns the same canned house
-		// whatever the user typed, which is a prompt box that ignores the prompt — fine
-		// in dev and CI, a lie in production.
+		// Returns the same canned house whatever the user typed — a prompt box that
+		// ignores the prompt. Fine in dev and CI, a lie in production.
 		logger.Info("assist: fake (the same canned ops for every prompt; set ASSIST_MODE=gemini for a real one)")
 	}
-	// The impl is ASKED whether it calls anybody rather than inferred from the mode
-	// (assist.CallsProvider). Gemini answers true, which is what gives assist a real
-	// daily ceiling; the fake answers false and stays unbudgeted, which is the truth
-	// about an impl that never leaves the process.
-	//
-	// No impl trips the Warn below today — every mode either calls out or names no
-	// provider. It stays because it is the one place the two facts can be seen to
-	// disagree, and they have: a scaffold that returned an error with no network I/O
-	// was once handed a provider by a mode switch and billed for calls nobody made.
-	// The seam is an interface precisely so another impl can arrive (the
-	// external ML judge), and the next one to arrive may be a scaffold first too.
+	// The impl is asked whether it calls anybody (assist.CallsProvider), rather
+	// than inferred from the mode: Gemini answers true, giving assist a real daily
+	// ceiling; the fake answers false and stays unbudgeted. The Warn below guards
+	// against a future impl whose provider and behavior disagree.
 	var assistProvider aibudget.Provider
 	if assist.CallsProvider(assistImpl) {
 		assistProvider = assistVendor
@@ -279,10 +228,9 @@ func run() error {
 			"assist_mode", cfg.AssistMode)
 	}
 
-	// The daily AI-call budget (internal/aibudget). The per-IP write limiter bounds
-	// the request RATE; this bounds the scarce thing BEHIND the requests — a free
-	// tier's per-DAY quota, one call per request. Each consumer below gets anonymous
-	// funcs and never learns its own kind's name.
+	// The daily AI-call budget (internal/aibudget): the per-IP write limiter bounds
+	// request rate, this bounds the scarce thing behind it — a provider's per-day
+	// quota. Each consumer gets anonymous funcs and never learns its own kind.
 	aiPolicyByKind, err := aibudget.Policies(map[aibudget.Kind]aibudget.Provider{
 		aibudget.KindDuel:     duelProvider,
 		aibudget.KindPractice: practiceProvider,
@@ -294,31 +242,26 @@ func run() error {
 	}
 	aiBudget := aibudget.New(queries, aiPolicyByKind, cfg.AIDailyGlobal, logger)
 	logAIBudget(logger, aiPolicyByKind, cfg.AIDailyGlobal)
-	// A ceiling configured for a feature that calls nobody is inert, not wrong — but
-	// an inert ceiling and an enforced one look identical from the outside, which is
-	// how an operator ends up believing a number that nothing reads.
+	// A configured allowance for a feature that calls nobody is inert, not wrong —
+	// but it looks identical to an enforced one from the outside, and an operator
+	// can end up trusting a number that nothing reads.
 	for _, kind := range aibudget.InertAllowances(aiPolicyByKind, cfg.AIDailyPerUser) {
 		logger.Warn("ai budget: AI_DAILY_PER_USER sets an allowance for a kind whose impl calls no provider — nothing reads it",
 			"kind", kind, "per_user", aiPolicyByKind[kind].PerUser)
 	}
 
 	gameSvc := game.NewServiceWithConcurrency(pool, queries, renderer, arbiter, logger, cfg.JudgeConcurrency)
-	// One advisory check plus TWO billing ports, because a duel's two ledger facts
-	// happen at different moments: the players are granted their round when the
-	// second seat fills, and the judge request is billed at each entry into judging
-	// — never for a round that ended abandoned or forfeited, and once more each time
-	// the stuck-judging sweep re-fires a wedged attempt.
+	// Duel billing has two ports because its ledger has two moments: players are
+	// billed when their round starts, the provider each time judging is entered
+	// (docs/GAME.md §4.3) — including a stuck-judging re-fire.
 	duelCheck, _ := aiBudget.For(aibudget.KindDuel)
 	billDuelPlayers, billDuelProvider := aiBudget.ForSplit(aibudget.KindDuel)
 	gameSvc.SetBudget(duelCheck, billDuelPlayers, billDuelProvider)
 	gameHandler := game.NewHandler(gameSvc, logger)
 
-	// Practice has its own per-player allowance, and — whenever its critic and the
-	// judge are backed by the same provider, which is every mode where both exist —
-	// the same global ceiling, counted by ONE rule for both rather than by
-	// per-feature copies that drift (internal/aibudget, docs/GAME.md §4.3). Practice
-	// no longer reaches into the game module to ask: solo mode owed the duel nothing
-	// but that one function.
+	// Practice has its own per-player allowance, and — wherever its critic and the
+	// judge share a provider — the same global ceiling, counted once rather than
+	// by per-feature copies that drift (docs/GAME.md §4.3).
 	practiceCheck, practiceSpend := aiBudget.For(aibudget.KindPractice)
 	practiceHandler := practice.NewHandler(
 		practice.NewService(queries, renderer, critic, practiceCheck, practiceSpend, logger), logger)
@@ -327,28 +270,21 @@ func run() error {
 	guessHandler := guess.NewHandler(
 		guess.NewService(renderer, guesser, guessCheck, guessSpend, logger), logger)
 
-	// Assist gains the durable half of its ceiling. Its token bucket bounds the
-	// RATE and lives in this process, so the host has been resetting it on every
-	// deploy and every wake from idle; the daily quota lives in Postgres and
-	// therefore actually holds.
+	// Assist's token bucket bounds request rate and lives in this process, so it
+	// resets on every deploy; the daily quota lives in Postgres and actually holds
+	// (docs/ASSIST.md §3.4).
 	assistCheck, assistSpend := aiBudget.For(aibudget.KindAssist)
 	assistHandler := assist.NewHandler(assistImpl, assistLimiter, assistCheck, assistSpend, logger)
 
-	// The leaderboard is a read-only Phase 4 slice (docs/API.md §11): a small
-	// single-route module over the shared queries, like assist — a global top-N
-	// read, sharing nothing with the match lifecycle, so it does NOT live on game.
+	// The leaderboard is a read-only slice (docs/API.md §11): a small single-route
+	// module over the shared queries, like assist — a global top-N read that shares
+	// nothing with the match lifecycle, so it does not live on game.
 	ratingsHandler := ratings.NewHandler(ratings.NewService(queries), logger)
 
-	// Live realtime (Phase 3 back-half): the in-memory WS hub pushes committed match
-	// transitions to both duelists, Postgres stays authoritative, the poll loop is the
-	// fallback. The hub implements game.Publisher and is injected via SetPublisher, so
-	// game never imports ws (no cycle). Runs on the shutdown ctx — cancel drains it,
-	// same as the sweeper (docs/GAME.md §9).
-	//
-	// background tracks the long-lived goroutines (hub, sweeper) so shutdown can
-	// wait for them. srv.Shutdown only drains in-flight HTTP handlers; without
-	// this the process could exit while the hub was mid-fan-out or the sweeper
-	// mid-transition.
+	// The WS hub (docs/GAME.md §9) implements game.Publisher via SetPublisher so
+	// game never imports ws, and runs on the shutdown ctx like the sweeper below.
+	// background tracks both long-lived goroutines so shutdown can wait for them:
+	// srv.Shutdown only drains in-flight HTTP handlers, not background work.
 	var background sync.WaitGroup
 
 	hub := ws.NewHub(gameSvc, logger)
@@ -359,21 +295,19 @@ func run() error {
 		HeartbeatInterval: cfg.WSHeartbeatInterval,
 		MaxConns:          cfg.WSMaxConns,
 		MaxConnsPerIP:     cfg.WSMaxConnsPerIP,
-		// Same notion of "who is this client" as the HTTP rate limiter: behind a
-		// proxy, keying the per-IP cap on the peer would make every visitor share
-		// one bucket and turn MaxConnsPerIP into a far lower global cap.
+		// Same client-IP notion as the HTTP rate limiter (docs/NOTES.md) — behind a
+		// proxy this decides whether MaxConnsPerIP means one visitor or all of them.
 		TrustProxy: cfg.TrustProxy,
 	})
 
 	// Background deadline sweeps (forfeit / abandon / stuck-judging re-fire /
-	// stale-open reaper) on the shutdown-cancellable context, so a round resolves
-	// even if no client is polling (docs/GAME.md §4.1). Boot-drains the
-	// backlog, then ticks every 3s; returns when ctx is cancelled.
+	// stale-open reaper, docs/GAME.md §4.1) so a round resolves even with nobody
+	// polling. Drains the backlog at boot, then ticks every 3s until ctx cancels.
 	background.Go(func() { gameSvc.RunSweeper(ctx, 3*time.Second) })
 
-	// Ledger retention. Nothing is READ past the rolling 24h window; rows are kept
-	// a week so "why was I refused last Tuesday" has an answer, and swept after so
-	// the two partial indexes stay at working-set size.
+	// Ledger retention: a week's worth of rows, swept hourly (docs/GAME.md §4.3) —
+	// enough to answer "why was I refused last Tuesday" without the table growing
+	// unbounded.
 	background.Go(func() { aiBudget.RunSweeper(ctx, aibudget.DefaultSweepInterval) })
 
 	mux := http.NewServeMux()
@@ -384,17 +318,16 @@ func run() error {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	// Readiness: can this instance actually serve? Every route below needs
-	// Postgres, so an unreachable database is a 503 here — that is the signal a
-	// load balancer (or an uptime pinger keeping a free-tier dyno awake) should
-	// read, not the liveness probe above.
+	// Readiness: can this instance actually serve? Every route needs Postgres, so
+	// an unreachable database is a 503 here — the signal a load balancer (or an
+	// uptime pinger keeping a free instance awake) should read, not liveness above.
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		readyCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		w.Header().Set("Content-Type", "application/json")
-		// "Reachable" is not "usable": a database that exists but was never
-		// migrated accepts connections and fails every real query, which is the
-		// one state a probe must not call healthy.
+		// "Reachable" isn't "usable": a database that exists but was never migrated
+		// accepts connections and fails every real query — the one state this probe
+		// must not call healthy.
 		if err := postgres.Ready(readyCtx, pool, "matches"); err != nil {
 			dependency := "database"
 			if errors.Is(err, postgres.ErrSchemaMissing) {
@@ -408,10 +341,9 @@ func run() error {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	// The built SPA, when this instance is the one origin serving both (prod).
-	// Registered last and on "/" so it is the catch-all: Go 1.22 ServeMux gives
-	// every API pattern above precedence, and anything left over is a client-side
-	// route that gets the shell.
+	// The built SPA, when this instance serves both API and client (prod).
+	// Registered last on "/" as the catch-all: Go 1.22 ServeMux gives every API
+	// pattern above precedence, so anything left over gets the client-side shell.
 	if cfg.StaticDir != "" {
 		spa, err := web.SPA(cfg.StaticDir)
 		if err != nil {
@@ -430,13 +362,8 @@ func run() error {
 	guessHandler.Routes(mux, authHandler.RequireAuth)
 	wsHandler.Routes(mux, authHandler.RequireAuth)
 
-	// Abuse protection, keyed by client IP (docs/DECISIONS.md, docs/IDEAS.md: due
-	// before any public deploy). Three tiers, each with its OWN limiter so one
-	// tier's traffic cannot drain another's budget:
-	//   auth    — bcrypt is expensive and login is the credential-stuffing target;
-	//   writes  — a match creates work (render + judge), a drawing costs storage;
-	//   default — everything else, including the SPA's own asset fetches, so a
-	//             normal page load never comes close.
+	// Abuse protection, keyed by client IP (docs/API.md §3.1). Three tiers, each
+	// with its own limiter so one tier's traffic can't drain another's budget.
 	// Rows are first-match-wins, so the catch-all must stay last.
 	authLimiter := ratelimit.New(10, 6*time.Second, 0, 0)
 	writeLimiter := ratelimit.New(30, 2*time.Second, 0, 0)
@@ -448,41 +375,34 @@ func run() error {
 		{Name: "auth-strict", Match: web.MethodPrefix("/api/auth/", http.MethodPost), Limiter: authLimiter},
 		{Name: "matches-write", Match: web.MethodPrefix("/api/matches", http.MethodPost, http.MethodPut, http.MethodDelete), Limiter: writeLimiter},
 		{Name: "drawings-write", Match: web.MethodPrefix("/api/drawings", http.MethodPost, http.MethodPut, http.MethodDelete), Limiter: writeLimiter},
-		// A practice run costs a render AND a judge call — the same work a duel
-		// submission costs, from one player instead of two. It belongs in the write
-		// tier, not the generous default. GET /api/practice/prompt is a cheap read and
-		// is left to the catch-all: this row matches POST only.
+		// A cheap GET is left to the catch-all; only the scoring POST costs a
+		// render and a judge call (docs/API.md §3.1).
 		{Name: "practice-write", Match: web.MethodPrefix("/api/practice", http.MethodPost), Limiter: writeLimiter},
-		// A guess costs a render too, so it belongs in the same tier for the same
-		// reason. The daily budget is NOT a substitute here: under JUDGE_MODE=fake
-		// guess has no provider and is therefore unbudgeted by design, which would
-		// leave the catch-all tier as the only thing between an authenticated caller
-		// and 5 renders a second — and under RENDER_MODE=node each of those forks a
-		// node-canvas subprocess. The ceiling guards a provider's quota; this guards
-		// our own machine.
+		// The daily AI budget doesn't cover this route under JUDGE_MODE=fake (no
+		// provider, unbudgeted by design) — this tier is what stops an authenticated
+		// caller from forking a node-canvas render per request (docs/API.md §3.1).
 		{Name: "guess-write", Match: web.MethodPrefix("/api/guess", http.MethodPost), Limiter: writeLimiter},
 		{Name: "default", Match: func(*http.Request) bool { return true }, Limiter: defaultLimiter},
 	}
 	if !cfg.TrustProxy {
-		// Worth saying out loud at boot: behind a proxy this collapses every
-		// client into one bucket, which looks like a working limiter and is not.
+		// Behind a proxy this collapses every client into one bucket, which looks
+		// like a working limiter and is not (docs/NOTES.md).
 		logger.Info("rate limiting keyed by the direct peer address (TRUST_PROXY=false)")
 	}
 
 	srv := &http.Server{
 		Addr: cfg.Addr,
-		// Order matters. Recover must sit INSIDE LogRequests so a panic still
-		// logs with its request id, and the limiter sits inside both so a
-		// throttled request is still logged and still recovered.
+		// Order matters: Recover sits inside LogRequests so a panic still logs
+		// with its request id, and the limiter sits inside both so a throttled
+		// request is still logged and recovered.
 		Handler: web.LogRequests(logger, cfg.TrustProxy,
 			web.Recover(logger,
 				web.RateLimit(cfg.TrustProxy, policies, logger)(mux))),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// WriteTimeout bounds slow-reading clients. It does NOT cut the WS upgrades:
-		// websocket.Accept hijacks the connection, and net/http's Hijack clears the
-		// conn deadlines (server.go: rwc.SetDeadline(time.Time{})), so the long-lived
-		// socket runs on the hub's own ctx-based timeouts, not this one.
+		// WriteTimeout bounds slow-reading clients but doesn't cut WS upgrades:
+		// websocket.Accept hijacks the connection and net/http's Hijack clears the
+		// conn deadlines, so the long-lived socket runs on the hub's own timeouts.
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
@@ -508,10 +428,10 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 
-	// ctx is already cancelled here (that is what woke us), so the hub and the
-	// sweeper are unwinding; wait for them before the deferred pool.Close runs,
-	// or a final transition can lose its connection mid-write. Bounded, so a
-	// wedged goroutine delays the exit instead of blocking it forever.
+	// The hub and sweeper are unwinding now that ctx is cancelled; wait for them
+	// before the deferred pool.Close, or a final transition can lose its
+	// connection mid-write. Bounded so a wedged goroutine delays exit rather than
+	// blocking it forever.
 	drained := make(chan struct{})
 	go func() {
 		background.Wait()
@@ -527,19 +447,10 @@ func run() error {
 	return nil
 }
 
-// logAIModels states which model each AI kind RESOLVED to, before anything is
-// built with it.
-//
-// It exists because AI_MODEL_PER_KIND fails quietly in the one direction that
-// matters: a kind whose override never took — a name that parsed, a value that
-// looked plausible — keeps working perfectly on the default model, and the only
-// symptom is a bill or a quality level that is not the one the operator chose.
-// Naming the resolved model per kind makes that a one-line check instead of a
-// reading of this file.
-//
-// Kinds are listed in a stable order so two boots are diffable, and the common
-// case — every kind on the default — says so in one line rather than four
-// identical pairs.
+// logAIModels logs which model each AI kind resolved to (docs/DECISIONS.md): an
+// override that silently didn't apply would otherwise keep working on the
+// default, with only a bill or quality level as the symptom. Kinds are listed
+// in a stable order so two boots are diffable.
 func logAIModels(logger *slog.Logger, models map[aibudget.Kind]string, defaultModel string) {
 	pairs := make([]any, 0, 2*len(models))
 	overridden := false
@@ -557,9 +468,9 @@ func logAIModels(logger *slog.Logger, models map[aibudget.Kind]string, defaultMo
 	logger.Info("ai models: resolved per kind", append([]any{"default", defaultModel}, pairs...)...)
 }
 
-// logAIBudget states the ceiling at boot, per kind, because an unenforced budget
-// and an enforced one look identical from the outside until the day the quota
-// runs out. Kinds are listed in a stable order so two boots are diffable.
+// logAIBudget logs the ceiling at boot, per kind: an unenforced budget and an
+// enforced one look identical from the outside until the quota runs out. Kinds
+// are listed in a stable order so two boots are diffable.
 func logAIBudget(logger *slog.Logger, policies map[aibudget.Kind]aibudget.Policy, global int) {
 	enforced := make([]any, 0, 2*len(policies))
 	var unbilled []string
@@ -569,10 +480,9 @@ func logAIBudget(logger *slog.Logger, policies map[aibudget.Kind]aibudget.Policy
 			continue // a kind with no feature wired yet
 		}
 		if p.Provider == "" {
-			// A fake, an impl that is not built yet, or a mode with no impl for this
-			// kind at all — three roads to the same fact, which is that nobody's quota
-			// is at stake. "Calls no provider" is the fact; which road it took is the
-			// business of the per-impl line above.
+			// A fake, an unbuilt impl, or a mode with no impl for this kind — three
+			// roads to the same fact: nobody's quota is at stake. Which road it took
+			// is the per-impl line above's business.
 			unbilled = append(unbilled, string(kind))
 			continue
 		}
@@ -582,9 +492,9 @@ func logAIBudget(logger *slog.Logger, policies map[aibudget.Kind]aibudget.Policy
 		logger.Info("ai budget: nothing enforced (no AI impl here calls a provider, so there is no external quota to protect)")
 		return
 	}
-	// "per provider" is now literally per provider AND MODEL where the provider
-	// meters that way (aibudget.Provider.WithModel), which each kind's value below
-	// spells out — so the number and the pools it applies to are read together.
+	// "per provider" is really per provider and model where the provider meters
+	// that way (aibudget.Provider.WithModel) — each kind's value below spells out
+	// which pool it draws from.
 	logger.Info("ai budget: per rolling 24h", append([]any{"global_per_provider_pool", global}, enforced...)...)
 	if len(unbilled) > 0 {
 		logger.Info("ai budget: not enforced — these impls call no provider", "kinds", strings.Join(unbilled, ","))

@@ -56,8 +56,8 @@ func (s *Service) Get(ctx context.Context, ownerID, id string) (db.Drawing, erro
 }
 
 // Update replaces an owned free drawing's document. name nil (absent/blank in
-// the request) KEEPS the stored name — the query coalesces, so no read-modify-
-// write round trip is needed; non-nil REPLACES it.
+// the request) keeps the stored name — the query coalesces, so no read-modify-
+// write round trip is needed; non-nil replaces it.
 func (s *Service) Update(ctx context.Context, ownerID, id string, name *string, doc document.Document, raw []byte) (db.Drawing, error) {
 	d, err := s.q.UpdateDrawing(ctx, db.UpdateDrawingParams{
 		ID:         id,
@@ -77,7 +77,7 @@ func (s *Service) Update(ctx context.Context, ownerID, id string, name *string, 
 	return d, err
 }
 
-// Delete removes an owned FREE drawing and reports whether a row was actually
+// Delete removes an owned free drawing and reports whether a row was actually
 // deleted (false ⇒ not found / not owned ⇒ the handler answers 404). A submitted
 // duel drawing is immutable ⇒ ErrDuelLocked (→ 409).
 func (s *Service) Delete(ctx context.Context, ownerID, id string) (bool, error) {

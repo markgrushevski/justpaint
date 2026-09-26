@@ -54,7 +54,7 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 
 type documentRequest struct {
 	Document json.RawMessage `json:"document"`
-	// Name is optional drawing METADATA (never part of the vector document).
+	// Name is optional drawing metadata (never part of the vector document).
 	// Absent/blank ⇒ default "new art" on create, keep the current name on
 	// update (docs/API.md §7).
 	Name string `json:"name"`
@@ -252,7 +252,7 @@ func (h *Handler) decodeAndValidate(w http.ResponseWriter, r *http.Request) (doc
 // normalizeName canonicalizes the user-supplied drawing name: surrounding
 // whitespace is trimmed; absent/blank collapses to nil (⇒ the SQL default
 // 'new art' on create, keep-current on update). Over-cap names are rejected —
-// the cap counts RUNES, mirroring the document validator's layer-name cap.
+// the cap counts runes, mirroring the document validator's layer-name cap.
 func normalizeName(raw string) (*string, error) {
 	name := strings.TrimSpace(raw)
 	if name == "" {

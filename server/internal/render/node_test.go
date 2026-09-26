@@ -16,20 +16,11 @@ func aDoc() document.Document {
 	return document.Document{Version: 1, Width: 10, Height: 10}
 }
 
-// TestNodeRenderer_ConcurrencyBound pins the bound that keeps this renderer from
-// taking the process down.
-//
-// Every Render call forks a node-canvas worker, tens of megabytes each. game
-// bounds its own judging passes, but /api/guess and /api/practice render inline
-// on the request goroutine, so without a bound INSIDE the renderer one caller's
-// burst under the write rate-limit tier (30 requests in 2s) is thirty
-// simultaneous workers on a 512 MB host.
-//
-// The test takes the only slot and then asserts that the next caller WAITS for it
-// rather than forking anyway: the renderer is pointed at a binary that does not
-// exist, so a call that reached the fork would fail with an exec error instead of
-// the context error. That distinction is the whole assertion — and it needs no
-// node on PATH, so it runs in CI.
+// TestNodeRenderer_ConcurrencyBound pins that Render blocks for a free slot
+// rather than forking past it. The binary doesn't exist, so a call that reached
+// the fork would fail with an exec error instead of the context's deadline —
+// that distinction is the whole assertion, and it needs no node on PATH to run
+// in CI.
 func TestNodeRenderer_ConcurrencyBound(t *testing.T) {
 	r := NewNodeRenderer("definitely-not-a-real-binary-for-tests", "nowhere.mjs", 1)
 	if got := cap(r.slots); got != 1 {
@@ -54,14 +45,13 @@ func TestNodeRenderer_ConcurrencyBound(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v, want the caller's own context error", err)
 	}
-	// And it says WHY it waited, so a slow render is not mistaken for a broken
-	// worker by whoever reads the log.
+	// It also says why it waited, so a slow render isn't mistaken for a broken worker.
 	if !strings.Contains(err.Error(), "worker slot") {
 		t.Errorf("err = %q, want it to name the wait for a slot", err)
 	}
 
-	// Freed, the next caller gets through — as far as the fork, which is where a
-	// binary that does not exist finally fails. Proves the slot is RETURNED.
+	// Freed, the next caller gets through as far as the fork, where the fake
+	// binary fails — proving the slot was returned.
 	<-r.slots
 	if _, err := r.Render(context.Background(), aDoc()); err == nil {
 		t.Fatal("Render succeeded against a nonexistent binary")

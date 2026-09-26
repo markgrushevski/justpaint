@@ -30,9 +30,9 @@ func TestListTopRatings_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	// Close via Cleanup, NOT defer: a test-body defer runs BEFORE t.Cleanup callbacks,
+	// Close via Cleanup, not defer: a test-body defer runs before t.Cleanup callbacks,
 	// so a deferred Close would shut the pool before the row cleanup below. Registered
-	// first, this runs LAST (Cleanup is LIFO), after the row cleanup.
+	// first, this runs last (Cleanup is LIFO), after the row cleanup.
 	t.Cleanup(func() { pool.Close() })
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("postgres unreachable: %v", err)
@@ -41,7 +41,7 @@ func TestListTopRatings_DB(t *testing.T) {
 	q := db.New(pool)
 
 	// --- fixtures ---------------------------------------------------------
-	// Cleanup registered BEFORE any row is created (slices captured by reference), so
+	// Cleanup registered before any row is created (slices captured by reference), so
 	// a mid-setup t.Fatalf still tears down whatever landed. FK order: match_players,
 	// then matches, then users.
 	var userIDs, matchIDs []string
@@ -108,7 +108,7 @@ func TestListTopRatings_DB(t *testing.T) {
 	mkMatch("done", &a, a, b)          // done judged: A beats B
 	mkMatch("done", &a, a, c)          // done forfeit-shaped: A beats C (resolution is irrelevant to the count)
 	mkMatch("done", nil, b, c)         // done tie: B vs C, no winner
-	mkMatch("abandoned", nil, a, zero) // abandoned: must NOT count for A or Zero
+	mkMatch("abandoned", nil, a, zero) // abandoned: must not count for A or Zero
 
 	// --- run --------------------------------------------------------------
 	// A large limit so all eligible users are returned; assertions are scoped to the
@@ -145,7 +145,7 @@ func TestListTopRatings_DB(t *testing.T) {
 				tag, r.GamesPlayed, r.Wins, r.Losses, games, wins, losses)
 		}
 	}
-	// A: 2 done matches, both wins (the abandoned one is NOT counted → games=2, not 3).
+	// A: 2 done matches, both wins (the abandoned one is not counted → games=2, not 3).
 	assertRow("A", a, 2, 2, 0)
 	// B: the loss to A + the tie with C → 2 games, 0 wins, 1 loss (the tie is neither).
 	assertRow("B", b, 2, 0, 1)

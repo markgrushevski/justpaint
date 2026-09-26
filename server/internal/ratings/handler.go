@@ -53,10 +53,9 @@ type leaderboardResponse struct {
 }
 
 // List: GET /api/leaderboard?limit=20 — the top-rated players (auth: required).
-// `limit` is clamped (default 20, max 100), never 400 — the only client error is the
-// 401 from RequireAuth. This deliberately deviates from the §7 keyset-cursor
-// convention: rank is an absolute position a keyset can't carry, so the leaderboard
-// is top-N by `limit` only (docs/API.md §11).
+// limit is clamped, never 400 (parseLimit). Deliberately deviates from the §7
+// keyset-cursor convention: rank is an absolute position a keyset can't carry,
+// so the leaderboard is top-N by limit only (docs/API.md §11).
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"))
 
