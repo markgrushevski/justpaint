@@ -1,18 +1,13 @@
 <script lang="ts" setup>
 /**
- * IconButton — the single toolbar/island icon action for the whole app. Wraps
- * `OriButton` so EVERY state comes from oriui props — `variant` / `pressed` /
- * `disabled`, the focus ring, the aria wiring, and the icon-mode square/circle
- * sizing (the public `ori-button_icon` class). It NEVER hand-rolls a `--active`
- * class, an `opacity` disable, or a `color-mix` of a brand role — that is the
- * whole point (docs/DESIGN-SYSTEM.md §2–§4). It renders the app icon set
- * (`ToolIcon`) so a cluster of these is always one glyph size.
- *
- * Defaults: `variant="text"` + `color="surface"` = a neutral ghost glyph. A
- * SELECTED/ON state passes `color="primary"` + `pressed` (the one place brand
- * colour enters a toggle); a PRIMARY action is a fill `OriButton`, not this.
- * `label` is the accessible name and the tooltip text (always shown — every
- * icon action gets a tooltip).
+ * IconButton — the single toolbar/island icon action for the whole app: wraps
+ * `OriButton` so every state comes from oriui props (`variant`/`pressed`/
+ * `disabled`, focus ring, aria wiring, icon-mode sizing) rather than a
+ * hand-rolled `--active` class, `opacity` disable, or brand `color-mix`
+ * (docs/DESIGN-SYSTEM.md §2). Defaults to a neutral ghost glyph
+ * (`variant="text"` + `color="surface"`); a selected/on state passes
+ * `color="primary"` + `pressed`, and a primary action is a fill `OriButton`,
+ * not this. `label` doubles as the accessible name and the tooltip text.
  */
 import { OriButton, OriTooltip } from '@oriui/vue'
 import type { Variant, ThemeColor, RadiusSize, AnchoredPlacement } from '@oriui/vue'
@@ -26,11 +21,9 @@ withDefaults(
         /** Accessible name + tooltip text (required — an icon needs a label). */
         label: string
         /**
-         * Toggle state, for a button that IS a toggle (a panel opener). A real
-         * boolean makes oriui render `aria-pressed` BOTH ways; leaving it
-         * undefined means "not a toggle" and emits no ARIA state at all, which
-         * is why it has no default. Replaces the `active` look plus a
-         * hand-wired `aria-pressed` (oriui rc.18).
+         * Toggle state for a button that is a toggle (a panel opener). Leaving
+         * it undefined means "not a toggle" and emits no `aria-pressed` at
+         * all, which is why it has no default.
          */
         pressed?: boolean
         disabled?: boolean
@@ -40,7 +33,6 @@ withDefaults(
         color?: ThemeColor
         /** `md` = rounded square (default), `rounded` = circle. */
         radius?: RadiusSize
-        /** Tooltip side. */
         placement?: AnchoredPlacement
     }>(),
     { disabled: false, variant: 'text', color: 'surface', radius: 'md', placement: 'top' }

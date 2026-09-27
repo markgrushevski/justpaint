@@ -20,9 +20,9 @@ const emit = defineEmits<{
     close: []
 }>()
 
-// Display top layer first: the document orders layers bottom→top (layers[0] is
-// the bottom), but a layers panel reads top-down. `index` in each row is the
-// real document z-index; the up/down arrows move toward the top/bottom.
+// Top layer first: the document orders layers bottom→top (layers[0] is the
+// bottom), but a layers panel reads top-down. `index` in each row is the real
+// document z-index; the up/down arrows move toward the top/bottom.
 function rows() {
     return props.layers.map((layer, index) => ({ layer, index })).reverse()
 }
@@ -31,9 +31,9 @@ function onRename(id: string, e: Event) {
     emit('rename', id, (e.target as HTMLInputElement).value)
 }
 
-// Full keyboard operability of the row list. The name <input> lives inside the
-// same <li>, so bail out on any INPUT target — otherwise typing a layer name
-// (arrows to move the caret, Backspace to erase, Space) would be hijacked.
+// The name <input> lives inside the same <li>, so bail out on any INPUT
+// target — otherwise typing a layer name (arrows, Backspace, Space) would be
+// hijacked as a row command.
 function onRowKey(e: KeyboardEvent, id: string) {
     if ((e.target as HTMLElement).tagName === 'INPUT') return
 
@@ -48,8 +48,7 @@ function onRowKey(e: KeyboardEvent, id: string) {
         case 'ArrowDown':
         case 'ArrowUp': {
             // Rows render top-visual-first, so the next DOM sibling is the row
-            // visually below. Both siblings are the neighbouring <li> (the list
-            // has no other element children); do nothing past the ends.
+            // visually below; do nothing past the ends.
             const sibling = (
                 e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling
             ) as HTMLElement | null
@@ -122,10 +121,10 @@ const top = () => props.layers.length - 1
                 </div>
 
                 <div class="layers__row layers__row--controls" @click.stop>
-                    <!-- Opacity commits on release via OriSlider's `change` emit (settled
-                    value, not every drag tick), so a whole slider drag collapses into a
-                    single undo step — unlike the toolbar width slider, which isn't
-                    recorded in history. -->
+                    <!-- Opacity commits on release via OriSlider's `change` emit
+                         (settled value, not every drag tick), so a whole drag
+                         collapses into one undo step — unlike the toolbar width
+                         slider, which isn't recorded in history. -->
                     <OriSlider
                         class="layers__opacity"
                         :model-value="Math.round(layer.opacity * 100)"

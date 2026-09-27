@@ -1,13 +1,10 @@
 <script lang="ts" setup>
 /**
- * SubmitButton — the one accent action of a live round: lock in your drawing to
- * be rendered + judged. It occupies the top-right slot that /draw gives to Save
- * (DECISIONS 2026-07-04: one design, game chrome on top), so a duel reads as the
- * same shell wearing game clothes.
- *
- * Presentational: emits `submit`; the host view (PlayView / PracticeView) owns
- * disabled/loading and the actual server submit. Kept as the sole filled-primary
- * control on the page.
+ * SubmitButton — the one accent action of a live round: lock the drawing in
+ * to be rendered and judged, in the top-right slot that /draw gives to Save,
+ * so a duel reads as the same shell wearing game clothes. Presentational:
+ * emits `submit`; the host view owns disabled/loading and the actual submit.
+ * The sole filled-primary control on the page.
  */
 import { computed } from 'vue'
 import { OriButton } from '@oriui/vue'
@@ -17,12 +14,10 @@ const props = withDefaults(defineProps<{ disabled?: boolean; loading?: boolean; 
     disabled: false,
     loading: false,
     /**
-     * `solo` swaps the glyph, the third of the shared game components to carry
-     * this flag (GamePromptBanner, JudgingOverlay). The action is genuinely the
-     * same in both modes — lock the drawing in to be rendered and scored — so the
-     * component stays one; only the crossed swords are a claim practice cannot
-     * make, since there is nobody to cross them with. The bullseye is practice's
-     * own glyph everywhere else it is named.
+     * `solo` swaps the glyph only: the action is the same in both modes (lock
+     * the drawing in to be scored), but crossed swords are a claim practice
+     * can't make — there's nobody to cross them with. The bullseye is
+     * practice's own glyph everywhere else it's named.
      */
     solo: false
 })

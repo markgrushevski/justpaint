@@ -1,14 +1,14 @@
 <script lang="ts" setup>
 /**
- * The sign-in modal — the ONE place an anonymous visitor is asked to
- * authenticate. Mounted once at the app root, so every route can raise it, and
- * opened only through `useAuthGate`, because the action that needed the session
- * is waiting on the gate's promise and has to be resumed or released.
+ * The sign-in modal — the one place an anonymous visitor authenticates.
+ * Mounted once at the app root so every route can raise it, opened only
+ * through `useAuthGate` since the action that needed the session is waiting
+ * on the gate's promise and must be resumed or released.
  *
- * `v-if` on the form is not a detail: `OriDialog` keeps its <dialog> in the DOM
- * whether open or not, so without it a typed-and-abandoned password, and a
- * failed attempt's error, would still be sitting there the next time the gate
- * raises the dialog for something else entirely.
+ * `v-if` on the form matters: `OriDialog` keeps its <dialog> in the DOM
+ * whether open or not, so without it a typed-and-abandoned password, or a
+ * failed attempt's error, would still be sitting there next time the gate
+ * raises the dialog for something else.
  */
 import { OriDialog } from '@oriui/vue'
 import { useAuthGate } from '@core'

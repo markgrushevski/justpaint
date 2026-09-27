@@ -11,15 +11,14 @@ export interface SegmentOption {
 
 <script lang="ts" setup>
 /**
- * SegmentedControl — a single-select segmented button group (a compact settings
- * picker like the theme Light/Dark/Auto). It COMPOSES oriui: `.ori-join` collapses
- * the segments' adjacent borders/radii into one unit, and each segment is an
- * `OriButton` (selected = `fill`, others = `outline` — the colour comes from
- * props, never a hand-rolled `--active` class or a brand `color-mix`, §1). What it
- * adds over a bare `OriJoin` is the single-select model + radiogroup a11y
- * (`role="radiogroup"` / `role="radio"` segments, `aria-checked`, roving tabindex,
- * Arrow-key selection). oriui also ships `OriRadioGroup` (native radio-circle
- * single-select), but that's the wrong VISUAL here — we want a segmented button
+ * SegmentedControl — a single-select segmented button group (a compact
+ * settings picker like the theme Light/Dark/Auto). It composes oriui:
+ * `.ori-join` collapses the segments' adjacent borders/radii into one unit and
+ * each segment is an `OriButton` (selected = `fill`, others = `outline`,
+ * never a hand-rolled `--active` or `color-mix`), adding the single-select
+ * model and radiogroup a11y (`role="radiogroup"`/`radio`, `aria-checked`,
+ * roving tabindex, arrow-key selection) that a bare `OriJoin` lacks.
+ * `OriRadioGroup` exists but is the wrong visual here — a segmented button
  * look (docs/DESIGN-SYSTEM.md §4).
  */
 import { ref } from 'vue'
@@ -85,9 +84,9 @@ function onKeydown(e: KeyboardEvent, index: number): void {
 </template>
 
 <style scoped>
-/* `.ori-join` (oriui) collapses the segments' adjacent borders + radii into one
-   segmented unit — the selected one fills, the rest are outlined. We only stretch
-   it to full width and make the segments share the space equally. */
+/* `.ori-join` (oriui) collapses the segments' adjacent borders + radii into
+   one segmented unit — the selected one fills, the rest are outlined. This
+   only stretches it to full width and shares the space equally. */
 .seg {
     display: flex;
     width: 100%;

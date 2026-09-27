@@ -1,10 +1,8 @@
 <script lang="ts" setup>
 /**
- * Shared sign-in form (login ⇄ register) — the tabs/fields/submit button,
- * extracted so every surface that needs a session renders the SAME one: the
- * app-root `AuthDialog` (raised from any route through `useAuthGate`) and
- * LeaderboardView's inline 401 branch. /draw and /play reach it through that
- * modal instead of duplicating the markup or punting anonymous visitors to /draw.
+ * Shared sign-in form (login ⇄ register) — extracted so every surface that
+ * needs a session renders the same one: the app-root `AuthDialog` (raised via
+ * `useAuthGate`) and LeaderboardView's inline 401 branch.
  */
 import { computed, ref } from 'vue'
 import { OriButton, OriField, OriInput, OriTabs } from '@oriui/vue'
