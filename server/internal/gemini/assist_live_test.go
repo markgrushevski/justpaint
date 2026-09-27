@@ -22,7 +22,8 @@ import (
 //
 //	GEMINI_LIVE=1 GEMINI_API_KEY=… go test ./internal/gemini/ -run TestAssist_Live -v
 //
-// GEMINI_MODEL, GEMINI_BASE_URL and ASSIST_LIVE_PROMPT override the defaults.
+// GEMINI_MODEL, GEMINI_BASE_URL and ASSIST_LIVE_PROMPT override the defaults;
+// ASSIST_LIVE_OUT, if set, receives the drawing as a document.
 func TestAssist_Live(t *testing.T) {
 	if os.Getenv("GEMINI_LIVE") != "1" {
 		t.Skip("set GEMINI_LIVE=1 (and GEMINI_API_KEY) to call the real API — it spends daily quota")
@@ -62,6 +63,10 @@ func TestAssist_Live(t *testing.T) {
 	// contract it's applied under.
 	if err := document.ValidateOpBatch(res.Ops, summary); err != nil {
 		t.Errorf("live batch violates the document contract: %v", err)
+	}
+	if out := os.Getenv("ASSIST_LIVE_OUT"); out != "" {
+		writeWithProposal(t, out, document.Document{Version: 1, Width: 1080, Height: 1080,
+			Layers: []document.Layer{{ID: "l1", Name: "Layer 1", Visible: true, Opacity: 1}}}, res.Ops)
 	}
 	if len(res.Ops) < 2 {
 		t.Errorf("got %d ops — a drawing is a layer plus at least one shape", len(res.Ops))
