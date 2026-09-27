@@ -83,9 +83,8 @@ func TestFakeGuesser_Guess(t *testing.T) {
 			if math.Abs(got.Confidence-tt.coverage) > 0.05 {
 				t.Errorf("confidence = %.3f, want ~%.3f (ink coverage)", got.Confidence, tt.coverage)
 			}
-			// The whole reason this type is allowed to exist: it must never let a player
-			// believe a label came from looking at the picture. The disclaimer lives in
-			// the LABEL because that is the one field the player is guaranteed to read.
+			// The disclaimer lives in the label, the one field the player is
+			// guaranteed to read.
 			if !strings.Contains(got.Label, "sees ink, not meaning") {
 				t.Errorf("label %q must say the fake never looked at the drawing", got.Label)
 			}

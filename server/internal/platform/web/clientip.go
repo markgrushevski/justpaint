@@ -13,34 +13,16 @@ const ForwardedForHeader = "X-Forwarded-For"
 // ClientIP resolves the caller's IP address, for logging and for keying the
 // rate limiter (docs/DECISIONS.md "Rate limiting").
 //
-// When trustProxy is false (no reverse proxy in front of us, or one we have
-// not explicitly vetted), X-Forwarded-For is NEVER read: on a request that
-// reaches us directly, the header is just more attacker-controlled input, and
-// trusting it would be worse than the coarse-but-honest RemoteAddr — it would
-// let one caller evade an IP-keyed rate limit entirely by sending a fresh
-// X-Forwarded-For on every request.
-//
-// When trustProxy is true (the deployment sits behind exactly ONE reverse
-// proxy we control — e.g. Render's or Fly's edge load balancer terminating
-// TLS directly in front of the app; that single-hop topology is what this
-// resolves for), we read X-Forwarded-For but take the RIGHTMOST entry, not
-// the leftmost. X-Forwarded-For is built by each hop APPENDING the address of
-// whoever it received the connection from, so the leftmost entry is "the
-// original client, as claimed by the first hop" — correct with a well-behaved
-// chain, but that same leftmost slot is exactly what a client can forge by
-// sending its OWN X-Forwarded-For before ever reaching our proxy (e.g.
-// "X-Forwarded-For: 1.2.3.4"). Our trusted proxy then APPENDS its own
-// observed peer rather than overwriting, so the header becomes
-// "1.2.3.4, <real-client-ip>" — attacker-chosen entries only ever get
-// prepended to the LEFT. The rightmost entry is always the one hop WE trust:
-// the address our own proxy read off the raw TCP connection, which the client
-// cannot forge. (A deployment that adds a SECOND chained proxy in front of the
-// app — e.g. a CDN in front of the LB — would need to trust the
-// second-from-right entry instead; out of scope today, see docs/NOTES.md.)
+// trustProxy gates whether X-Forwarded-For is read at all: false treats it as
+// attacker-controlled input and uses RemoteAddr instead, since trusting it
+// would let a caller evade an IP-keyed limit by sending a fresh value on
+// every request. True trusts only the rightmost entry — the hop our own
+// proxy appended, which a client can only ever prepend forged entries in
+// front of. Full rule, including the chained-proxy limit: docs/NOTES.md
+// "TRUST_PROXY decides what the client IP is".
 //
 // Falls back to RemoteAddr whenever the header is absent, empty, or its
-// rightmost entry doesn't parse as an IP — treating an unexpected shape as
-// "no proxy" is safer than trusting garbage.
+// rightmost entry doesn't parse as an IP.
 func ClientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
 		if xff := r.Header.Get(ForwardedForHeader); xff != "" {

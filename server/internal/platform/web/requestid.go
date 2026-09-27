@@ -14,7 +14,7 @@ import (
 // (docs/IDEAS.md "Request-id correlation").
 const RequestIDHeader = "X-Request-Id"
 
-// maxInboundRequestID bounds an ADOPTED inbound id (see resolveRequestID) —
+// maxInboundRequestID bounds an adopted inbound id (see resolveRequestID) —
 // generous for a uuid or a typical proxy/CDN trace id, small enough to keep a
 // hostile header value out of the logs and the echoed response header.
 const maxInboundRequestID = 128
@@ -31,9 +31,8 @@ var validRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 type requestIDCtxKey struct{}
 
 // RequestID returns the id LogRequests assigned to r's context, if any. Other
-// packages that want to attribute their own log line to the same request read
-// it from here rather than re-deriving or re-generating one (docs/IDEAS.md
-// "Request-id correlation"). internal/platform/web.Recover is the first such
+// packages read it here rather than re-deriving or re-generating one
+// (docs/IDEAS.md "Request-id correlation"); Recover is the first such
 // consumer.
 func RequestID(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(requestIDCtxKey{}).(string)
@@ -41,10 +40,10 @@ func RequestID(ctx context.Context) (string, bool) {
 }
 
 // resolveRequestID picks the id for one request: an inbound X-Request-Id is
-// adopted ONLY when trustProxy is true AND the value looks like a sane token
-// — an untrusted client could otherwise inject an arbitrary id (e.g. to make
+// adopted only when trustProxy is true and the value looks like a sane token
+// — an untrusted client could otherwise inject an arbitrary id, e.g. to make
 // its own abusive requests appear correlated with an unrelated past request
-// in our logs, or to smuggle an oversized/odd value into them). Every other
+// in our logs, or to smuggle an oversized/odd value into them. Every other
 // case gets a freshly generated uuid.
 func resolveRequestID(r *http.Request, trustProxy bool) string {
 	if trustProxy {

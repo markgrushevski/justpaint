@@ -11,8 +11,7 @@ import (
 
 // TestLimiter_Burst pins the token-bucket shape across several burst sizes:
 // exactly `burst` requests pass back-to-back, the next is throttled, and a
-// different key has its own independent bucket (mirrors
-// internal/assist/ratelimit.go's TestRateLimiter_Allow).
+// different key has its own independent bucket.
 func TestLimiter_Burst(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -90,9 +89,9 @@ func TestLimiter_RetryAfter(t *testing.T) {
 }
 
 // TestLimiter_Eviction covers the capacity guard Allow falls back on when the
-// map is full of new keys: an idle bucket is swept to make room, and — the
-// documented tradeoff — a key is let through untracked (fail OPEN) rather than
-// denied when every existing bucket is still recently active.
+// map is full of new keys: an idle bucket is swept to make room, and a key is
+// let through untracked (fails open) rather than denied when every existing
+// bucket is still recently active.
 func TestLimiter_Eviction(t *testing.T) {
 	t.Run("idle buckets are swept to make room for a new key", func(t *testing.T) {
 		l := New(1, time.Minute, time.Minute, 2) // maxBuckets=2, idleTTL=1m
@@ -127,7 +126,7 @@ func TestLimiter_Eviction(t *testing.T) {
 		}
 
 		// No time has passed — a and b are both still fresh, so a sweep finds
-		// nothing to evict. A brand-new key must still be ALLOWED (fail open),
+		// nothing to evict. A brand-new key must still be allowed (fail open),
 		// but the map must not grow past maxBuckets.
 		if !l.Allow("c") {
 			t.Fatal("Allow(c) should fail OPEN (allow) when the limiter is at capacity with no idle buckets")
@@ -141,8 +140,7 @@ func TestLimiter_Eviction(t *testing.T) {
 // TestLimiter_RunSweeper drives the background sweeper end-to-end: buckets
 // idle past idleTTL are evicted on the sweeper's own schedule (not merely as a
 // side effect of Allow), and the goroutine returns promptly once ctx is
-// cancelled (mirrors internal/game's sweeper tests, e.g. TestDrain's
-// cancellation case).
+// cancelled.
 func TestLimiter_RunSweeper(t *testing.T) {
 	l := New(1, time.Minute, 20*time.Millisecond, 0) // idleTTL=20ms
 	var clock atomic.Int64

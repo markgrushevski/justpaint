@@ -1,14 +1,9 @@
 <script lang="ts" setup>
 /**
- * The /draw empty-state card — an Excalidraw-inspired warm welcome shown
- * centered on a blank canvas (it replaces the old `.draw__hint` pill). A quick
- * launcher for what justpaint does: free-draw here, a duel on /play, or a solo
- * run on /practice. Presentational — every action is an emit or a RouterLink;
- * the host (DrawView) owns the actual behavior and decides when to show/hide
- * the card.
- *
- * The card sits on the shared `OriSurface` island language (surface + 1px
- * outline + soft shadow), same as the toolbar/zoom/layers chrome.
+ * The /draw empty-state card — a launcher shown centered on a blank canvas:
+ * free-draw here, a duel on /play, or a solo run on /practice. Presentational:
+ * every action is an emit or a RouterLink, and the host (DrawView) decides
+ * when to show or hide it.
  */
 import { OriButton, OriSurface } from '@oriui/vue'
 import { RouterLink } from 'vue-router'
@@ -43,9 +38,8 @@ const emit = defineEmits<{
                 />
             </li>
             <li>
-                <!-- Rendered AS a RouterLink (renders an <a>): color=primary gives
-                     the sanctioned AA role-as-text accent that oriui derives for
-                     ori-color_primary text/plain variants. -->
+                <!-- RouterLink renders an <a>; color="primary" is the AA-safe
+                     text-role accent oriui derives for text/plain variants. -->
                 <OriButton
                     class="empty__action"
                     :as="RouterLink"
@@ -60,14 +54,10 @@ const emit = defineEmits<{
                 />
             </li>
             <li>
-                <!-- Practice sits directly under the duel, in the same accent, as
-                     the other half of one offer: a duel needs two people at the
-                     same moment and there is no player base yet, so for most first
-                     visitors this is the row that actually pays off today.
-                     Deliberately NOT gated on `signedIn` (unlike Leaderboard
-                     below): /practice raises the shared sign-in modal itself and
-                     drops straight into a prompt, so an anonymous visitor lands
-                     somewhere real rather than on a 401. -->
+                <!-- Not gated on `signedIn` (unlike Leaderboard below): /practice
+                     raises the shared sign-in modal itself and drops into a
+                     prompt, so an anonymous visitor lands somewhere real
+                     instead of a 401. -->
                 <OriButton
                     class="empty__action"
                     :as="RouterLink"
@@ -82,10 +72,9 @@ const emit = defineEmits<{
                 />
             </li>
             <li v-if="props.signedIn">
-                <!-- Also a RouterLink (renders an <a>) — the ranked ladder. Neutral
-                     surface glyph like the other secondary entries. Signed-in only:
-                     /leaderboard is auth-required, so an anonymous visitor would
-                     land on a 401 (mirrors the "Sign in" row / SideMenu). -->
+                <!-- Signed-in only: /leaderboard requires a session, so an
+                     anonymous visitor would hit a 401 (mirrors the "Sign in"
+                     row / SideMenu). -->
                 <OriButton
                     class="empty__action"
                     :as="RouterLink"
@@ -112,8 +101,8 @@ const emit = defineEmits<{
                     @click="emit('signIn')"
                 />
             </li>
-            <!-- Desktop only: no hardware keyboard on phones (mirrors how DrawView
-                 hides .draw__chip-help <=600px). -->
+            <!-- Desktop only: no hardware keyboard on phones (mirrors DrawView
+                 hiding .draw__chip-help <=600px). -->
             <li class="empty__row--desktop">
                 <OriButton
                     class="empty__action"
@@ -133,10 +122,9 @@ const emit = defineEmits<{
 
 <style scoped>
 .empty {
-    /* OriSurface supplies the border / radius / shadow; override its surface to the
-       page background (white in light) so the brand wordmark clears the WCAG
-       large-text 3:1 bar — #ff5500 is 2.85:1 on the surface but 3.21:1 on the
-       background (matching how the card reads in the design mockup). */
+    /* Override OriSurface's surface color to the page background so the brand
+       wordmark clears the WCAG large-text 3:1 bar: #ff5500 is 2.85:1 on the
+       surface but 3.21:1 on the background. */
     background-color: var(--ori-color-background);
     width: 300px;
     max-width: calc(100vw - 2rem);
@@ -163,8 +151,7 @@ const emit = defineEmits<{
     font-size: var(--ori-font-size_sm, 0.875rem);
     line-height: 1.35;
     color: var(--ori-color-on-surface);
-    /* 0.7 keeps the muted line past WCAG AA on the surface (matches the side
-       menu's muted section hints). */
+    /* 0.7 keeps the muted line past WCAG AA on the surface. */
     opacity: 0.7;
 }
 
@@ -178,8 +165,8 @@ const emit = defineEmits<{
     gap: var(--ori-size-gap_xs, 0.125rem);
 }
 
-/* Left-align the icon+label inside each full-width row (oriui centers by
-   default). Unlayered, so it beats the layered .ori-button justify-content. */
+/* Left-aligns the icon+label; oriui centers by default. Unlayered, so it
+   beats the layered .ori-button justify-content. */
 .empty__action {
     justify-content: flex-start;
 }

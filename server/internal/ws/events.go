@@ -6,8 +6,8 @@ import (
 )
 
 // Server→client frame types — the wire protocol the frontend socket wrapper mirrors
-// EXACTLY (docs/API.md §9.2). Client→server carries only {"type":"ping"};
-// nothing authoritative crosses this channel (submit stays HTTP POST).
+// exactly (docs/API.md §9.2). Client→server carries only {"type":"ping"}; nothing
+// authoritative crosses this channel (submit stays HTTP POST).
 const (
 	frameMatchState           = "match_state"           // per-viewer: full matchDTO under "match"
 	frameOpponentSubmitted    = "opponent_submitted"    // shared: {userId} — clients ignore their own
@@ -34,10 +34,10 @@ const (
 	evAbandoned                        // → abandoned (shared)
 )
 
-// event is the internal hub message the Publisher methods enqueue. It carries ONLY
-// ids — never a ws or DTO type — so the hub rebuilds every per-viewer payload itself
-// via the game read seam. Small and copyable, so it rides the buffered publish
-// channel by value.
+// event is the internal hub message the Publisher methods enqueue. It carries only ids
+// — never a ws or DTO type — so the hub rebuilds every per-viewer payload itself via
+// the game read seam. Small and copyable, so it rides the buffered publish channel by
+// value.
 type event struct {
 	kind    eventKind
 	matchID string
@@ -65,10 +65,10 @@ type resultFrame struct {
 	Result json.RawMessage `json:"result"`
 }
 
-// The frame builders below marshal a fixed struct (with, for the per-viewer frames, a
-// pre-validated json.RawMessage produced by game's own json.Marshal) — so encoding
-// cannot realistically fail. On the impossible error we log and return nil, which
-// trySend treats as a no-op frame rather than shipping a corrupt one.
+// The builders below marshal a fixed struct — for the per-viewer frames, a
+// pre-validated json.RawMessage from game's own Marshal — so encoding can't
+// realistically fail. On the impossible error, log and return nil; trySend treats nil
+// as a no-op.
 
 func marshalFrame(logger *slog.Logger, v any) []byte {
 	b, err := json.Marshal(v)

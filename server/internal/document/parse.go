@@ -78,14 +78,10 @@ func unmarshalStroke(data []byte) (Stroke, error) {
 	return s, nil
 }
 
-// UnmarshalJSON enforces point arity that fixed-size arrays alone do not:
-// encoding/json silently zero-fills a short array and drops extra elements, so
-// without this a 2-element freehand point or a 4-element one would be accepted.
-// DOCUMENT-FORMAT §7 requires rejecting mismatched arity.
-// Decoded into []*float64, not []float64: encoding/json coerces a null element to
-// the zero value (so [null,1] would silently become [0,1]), whereas the TS
-// validator rejects a non-finite coordinate — a null element must be a nil pointer
-// we can reject, to keep the two point decoders at parity.
+// UnmarshalJSON enforces point arity that a fixed-size array alone can't:
+// encoding/json zero-fills a short array and drops extra elements, and would
+// coerce a null element to 0 rather than reject it. Decoded into []*float64 so
+// a null coordinate is a nil pointer we can catch (docs/NOTES.md).
 func (p *FreehandPoint) UnmarshalJSON(data []byte) error {
 	var raw []*float64
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -143,14 +139,11 @@ func ParseAndValidate(data []byte) (Document, error) {
 	return doc, nil
 }
 
-// requiredKeys asserts every REQUIRED object key is physically present in the raw
-// JSON. encoding/json silently zero-fills an absent required field — absent
-// "visible" → false, "opacity" → 0.0, "brush" → the zero BrushOptions, "strokes"
-// → nil, "background" → nil — so struct decoding alone would accept
-// documents the spec rejects (docs/NOTES.md).
-// Presence is checked on the raw bytes so an explicit null still counts as
-// "present" (background may legitimately be null = transparent). Shape/type of the
-// values is left to Validate; this only guards presence.
+// requiredKeys checks every required object key is physically present in the
+// raw JSON, since encoding/json silently zero-fills an absent field instead of
+// erroring (docs/NOTES.md). Checked on raw bytes so an explicit null still
+// counts as present — background may legitimately be null. Shape/type is
+// Validate's job; this only checks presence.
 func requiredKeys(data []byte) error {
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(data, &doc); err != nil {

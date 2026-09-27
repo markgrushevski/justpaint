@@ -16,18 +16,17 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
-// TestAbortExhaustedJudging_DB exercises the terminal fallback for a match whose
-// judging retries are used up (sweepExhaustedJudging → abortJudging) against a real
-// Postgres: the match leaves `judging` for `done` + resolution 'aborted' with NO
-// winner and NO rating change, a match still under the cap is left for the re-fire
-// sweep, and a verdict that already landed is never overwritten. It also pins the
-// reachability property the whole fix rests on — the retry cap must not hide a row
-// from the sweeper: ListExhaustedJudgingMatches is the exact complement of
+// TestAbortExhaustedJudging_DB exercises the terminal fallback for a match
+// whose judging retries are used up (sweepExhaustedJudging → abortJudging)
+// against a real Postgres: the match leaves `judging` for `done` + 'aborted'
+// with no winner and no rating change, a match still under the cap is left for
+// the re-fire sweep, and a verdict that already landed is never overwritten. It
+// also pins that ListExhaustedJudgingMatches is the exact complement of
 // ListStuckJudgingMatches, so every wedged row is in exactly one of them.
 //
-// Needs a migrated DATABASE_URL (docker compose up + goose up — including migration
-// 00005, which widens the resolution check constraint); skips otherwise, matching
-// deadline_db_test.go, including its pool-close-via-t.Cleanup ordering.
+// Needs a migrated DATABASE_URL (including migration 00005, which widens the
+// resolution check constraint); skips otherwise, matching deadline_db_test.go's
+// pool-close-via-t.Cleanup ordering.
 func TestAbortExhaustedJudging_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -39,8 +38,8 @@ func TestAbortExhaustedJudging_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	// Close via Cleanup, NOT defer: a test-body defer runs BEFORE t.Cleanup callbacks,
-	// so a deferred Close would shut the pool before the row cleanup below.
+	// Close via Cleanup, not defer: a test-body defer runs before t.Cleanup
+	// callbacks, so a deferred Close would shut the pool before the row cleanup below.
 	t.Cleanup(func() { pool.Close() })
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("postgres unreachable: %v", err)
@@ -52,9 +51,8 @@ func TestAbortExhaustedJudging_DB(t *testing.T) {
 	rec := &recordingPublisher{}
 	svc.SetPublisher(rec)
 
-	// Cleanup registered BEFORE any row is created (slices captured by reference), so
-	// a mid-setup t.Fatalf still tears down whatever landed. FK order: match_players,
-	// then drawings, then matches, then users.
+	// Cleanup registered before any row is created (slices captured by reference),
+	// so a mid-setup t.Fatalf still tears down whatever landed.
 	var userIDs, matchIDs []string
 	t.Cleanup(func() {
 		for _, mid := range matchIDs {
@@ -87,10 +85,9 @@ func TestAbortExhaustedJudging_DB(t *testing.T) {
 		t.Fatalf("pick prompt (is the DB migrated + seeded? migration 00002): %v", err)
 	}
 
-	// mkJudging seats two fresh players, submits a drawing for BOTH (a `judging` match
-	// always has a full roster — that is what makes an unscored abort a real loss),
-	// forces the status, and backdates the attempt clock by staleSecs with attempts
-	// already spent. Returns the match id and its two players.
+	// mkJudging seats two fresh players, submits a drawing for both (a `judging`
+	// match always has a full roster, so an unscored abort is a real loss), forces
+	// the status, and backdates the attempt clock by staleSecs.
 	mkJudging := func(status string, attempts, staleSecs int) (string, string, string) {
 		t.Helper()
 		a, b := mkUser("a"), mkUser("b")

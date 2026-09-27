@@ -79,17 +79,12 @@ func Ready(ctx context.Context, pool *pgxpool.Pool, table string) error {
 }
 
 // connectHint turns a dial failure that is really a deployment mismatch into
-// something actionable, or returns "" when it has nothing to add.
-//
-// The case worth naming: managed providers increasingly publish their direct
-// database host as IPv6-only (an IPv4 address is a paid add-on) while plenty of
-// hosting platforms still egress IPv4-only. The result is `connect: network is
-// unreachable` against a raw IPv6 literal — technically precise and useless
-// unless you already know the shape of the problem. The fix is nearly always to
-// use the provider's pooler endpoint, which is IPv4.
-//
-// Matching on the error text is crude, but this only ever decorates an error
-// that has already failed; a miss costs nothing but the hint.
+// something actionable, or returns "" when it has nothing to add: managed
+// providers increasingly publish their database host as IPv6-only while many
+// hosting platforms egress IPv4-only, producing a "network is unreachable"
+// dial error against a raw IPv6 literal that gives no hint of the real cause.
+// Matching on error text is crude, but this only decorates an already-failed
+// error, so a miss costs nothing.
 func connectHint(err error) string {
 	msg := err.Error()
 	if !strings.Contains(msg, "network is unreachable") && !strings.Contains(msg, "no route to host") {

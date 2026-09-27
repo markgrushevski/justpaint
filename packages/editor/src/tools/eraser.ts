@@ -1,21 +1,15 @@
-// packages/editor/src/tools/eraser.ts — the eraser tool.
 import type { FreehandPoint, FreehandStroke } from '../document'
 import type { LogicalPoint, StrokeTool, ToolContext } from '../types'
 
 /**
  * Eraser — a freehand stroke that erases earlier content on its own layer.
+ * Identical to the pen except `composite`: the eraser is `destination-out`
+ * (cuts pixels) where the pen is `source-over` (paints). The renderer ignores
+ * `color` for `destination-out` strokes, but it's still set from
+ * `ctx.style.color` so every freehand stroke has the same shape (§5.3).
  *
- * Identical to the pen in every respect EXCEPT `composite`: the eraser is
- * `destination-out` (cuts pixels) where the pen is `source-over` (paints). The
- * renderer ignores `color` for `destination-out` strokes, but we still set it
- * from `ctx.style.color` so every freehand stroke has the same shape (§5.3).
- *
- * PURE: derives the stroke entirely from `ctx` + `gesture`. No Konva, no
- * module-level state, no rounding (serialization owns precision, §2).
- *
- * Like the pen, the eraser never produces a degenerate stroke that must be
- * discarded — a single sample is a valid 1-point dot (§5.3, "a dot is valid").
- * Only a truly empty gesture (zero samples) yields `null`.
+ * Like the pen, only a truly empty gesture (zero samples) returns `null` — a
+ * single sample is a valid 1-point dot (§5.3).
  */
 export const eraserTool: StrokeTool = {
     kind: 'stroke',

@@ -21,13 +21,12 @@ func TestParseKind(t *testing.T) {
 		{"practice", "practice", KindPractice, true},
 		{"guess", "guess", KindGuess, true},
 		{"assist", "assist", KindAssist, true},
-		// The boot-time job: a typo must not quietly configure an allowance nothing
-		// reads, leaving the feature it was meant to bound running unbudgeted.
+		// A typo must not quietly configure an allowance nothing reads.
 		{"typo", "duels", "", false},
 		{"empty", "", "", false},
 		{"unknown feature", "inpaint", "", false},
-		// Case is the caller's to normalize (config.Load lowercases every other mode
-		// env before it compares), so this package stays strict about it.
+		// Case is the caller's to normalize (config.Load lowercases every other
+		// mode env before comparing), so this package stays strict about it.
 		{"wrong case", "Duel", "", false},
 		{"padded", " duel ", "", false},
 	}
@@ -44,10 +43,8 @@ func TestParseKind(t *testing.T) {
 	}
 }
 
-// TestAllKindsIsComplete guards the three places a Kind must appear together. A
-// kind that AllKinds omits is one an operator cannot configure and a boot error
-// cannot name; one that DefaultPerUser omits ships with a zero allowance, which
-// would refuse every call the day a real provider is wired.
+// TestAllKindsIsComplete guards the three places a Kind must appear together:
+// AllKinds, DefaultPerUser and kindNouns.
 func TestAllKindsIsComplete(t *testing.T) {
 	kinds := AllKinds()
 	if len(kinds) == 0 {
@@ -66,9 +63,7 @@ func TestAllKindsIsComplete(t *testing.T) {
 		if n, ok := DefaultPerUser[k]; !ok || n < 1 {
 			t.Errorf("DefaultPerUser[%q] = %d, %v — want a default of at least 1", k, n, ok)
 		}
-		// A kind with no noun of its own refuses in the generic sentence, which is a
-		// worse message than the one it could have had. One template means the noun is
-		// the ONLY per-kind word left, so it is the only one that can go missing.
+		// A kind with no noun of its own refuses in the generic sentence.
 		if noun := k.Noun(); noun == fallbackNoun {
 			t.Errorf("Kind(%q).Noun() falls back to %q — every shipped kind should name itself", k, fallbackNoun)
 		}
@@ -94,12 +89,10 @@ func TestKindSpentErrorUnwrapsToPerUserSpent(t *testing.T) {
 		t.Run(string(k), func(t *testing.T) {
 			var err error = &KindSpentError{Kind: k, Cap: 7}
 
-			// The kind-agnostic test every caller uses.
 			if !errors.Is(err, ErrPerUserSpent) {
 				t.Errorf("errors.Is(%v, ErrPerUserSpent) = false, want true", err)
 			}
-			// The two halves must never be confused for each other: they are different
-			// news and get different copy.
+			// The two halves must never be confused for each other.
 			if errors.Is(err, ErrGlobalSpent) {
 				t.Error("a per-user refusal reports as the global one")
 			}
@@ -131,9 +124,7 @@ func TestWriteRefusal(t *testing.T) {
 		wantMsg     string
 	}{
 		{
-			// Every kind now names its own cap: one template, one noun per kind, and no
-			// feature that is told "all of your duels" while another is told "all 2".
-			// The number is the player's OWN and they could have counted it themselves.
+			// Every kind names its own cap: one template, one noun per kind.
 			name:        "duel per-user names the cap",
 			err:         &KindSpentError{Kind: KindDuel, Cap: 20, Noun: KindDuel.Noun()},
 			wantHandled: true,
@@ -158,9 +149,7 @@ func TestWriteRefusal(t *testing.T) {
 			wantMsg:     "you have used all 40 of your AI drawing requests for today — new ones unlock as the day rolls over",
 		},
 		{
-			// A Policy built by hand carries no noun (only Policies fills it), and the
-			// message must still read like the configured one: http.go falls back to the
-			// same table.
+			// A hand-built Policy carries no noun; http.go falls back to Kind.Noun.
 			name:        "no noun falls back to the kind's own word",
 			err:         &KindSpentError{Kind: KindGuess, Cap: 2},
 			wantHandled: true,
@@ -248,13 +237,12 @@ func TestWriteRefusal(t *testing.T) {
 	}
 }
 
-// TestUnbudgetedKindIsNeverCounted is the escape hatch: a kind with no policy, or
-// one whose impl is a fake (no provider), must clear without asking the database
-// anything. The nil *db.Queries IS the assertion — any read or write would panic.
+// TestUnbudgetedKindIsNeverCounted: a kind with no policy, or one whose impl
+// is a fake (no provider), must clear without asking the database anything.
+// The nil *db.Queries is the assertion — any read or write would panic.
 func TestUnbudgetedKindIsNeverCounted(t *testing.T) {
 	b := New(nil, map[Kind]Policy{
-		// Configured, generous, but fake-backed: nothing to protect, so nothing to
-		// enforce and nothing worth recording.
+		// Configured, generous, but fake-backed: nothing to enforce or record.
 		KindPractice: {PerUser: 20},
 	}, 200, nil)
 
@@ -275,9 +263,8 @@ func TestUnbudgetedKindIsNeverCounted(t *testing.T) {
 			if err := spend(ctx, "11111111-1111-1111-1111-111111111111"); err != nil {
 				t.Errorf("Spend = %v, want nil", err)
 			}
-			// The duel's shape: two players granted a round in a transaction the caller
-			// owns, and a provider billed separately at each entry into judging. Both
-			// ports must skip an unbudgeted kind, or a fake judge would fill the ledger.
+			// Both split ports must also skip an unbudgeted kind, or a fake judge
+			// would fill the ledger.
 			billPlayers, billProvider := b.ForSplit(tt.kind)
 			if err := billPlayers(ctx, nil,
 				"11111111-1111-1111-1111-111111111111",

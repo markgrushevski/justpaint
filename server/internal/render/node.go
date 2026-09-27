@@ -13,40 +13,31 @@ import (
 )
 
 // NodeRenderer produces the authoritative judged raster by spawning the bundled
-// Node render worker (packages/render/dist/render.mjs), which renders the
-// document with the SAME Konva + perfect-freehand projection as the editor — so
-// the judged raster matches the editor preview (docs/GAME.md §6, DECISIONS
-// "one shared renderer"). The document JSON goes in on stdin; the PNG comes back
-// base64 on stdout (base64 keeps the pipe text-safe across platforms).
+// Node render worker (packages/render/dist/render.mjs), which shares the
+// editor's Konva + perfect-freehand projection so the judged raster matches the
+// preview (docs/GAME.md §6). Document JSON goes in on stdin, a base64 PNG comes
+// back on stdout (docs/NOTES.md).
 //
-// Every Render call spawns a node-canvas process, which is tens of megabytes of
-// resident memory, so the number of them in flight at once is the one thing about
-// this renderer that can take down the whole binary on a 512 MB host. The bound
-// lives HERE rather than at a caller, because it has to hold across callers:
-// internal/game bounds its own judging passes, but /api/guess and /api/practice
-// render inline on the request goroutine, so one IP's burst under the write
-// rate-limit tier (30 in 2s) is 30 concurrent subprocesses with nothing between
-// them and the OOM killer. A limiter inside the renderer is inherited by every
-// caller, present and future, including the ones nobody has written yet.
+// A semaphore, sized by JUDGE_CONCURRENCY, bounds concurrent worker
+// subprocesses so a write-rate burst on /api/guess or /api/practice — which
+// render inline, outside the judging-pass limiter — can't fork enough of them
+// to OOM a small host (docs/NOTES.md).
 type NodeRenderer struct {
 	nodeBin string // node executable (default "node")
 	cliPath string // bundled worker entry (packages/render/dist/render.mjs)
-	// slots is a counting semaphore: a token is taken for the duration of one
-	// subprocess and returned after it exits. Buffered channel rather than
-	// golang.org/x/sync/semaphore because that is a dependency for eight lines, and
-	// rather than sync.Mutex because the bound is N, not one.
+	// slots is a counting semaphore: a token is taken for one subprocess and
+	// returned when it exits. A buffered channel avoids a dependency for eight
+	// lines; sync.Mutex would only bound N=1.
 	slots chan struct{}
 }
 
-// NewNodeRenderer builds the renderer. nodeBin defaults to "node"; cliPath is the
-// path to the bundled worker (required — validated at config load).
+// NewNodeRenderer builds the renderer. nodeBin defaults to "node"; cliPath is
+// the bundled worker's path (required, validated at config load).
 //
-// concurrency is the ceiling on simultaneous worker subprocesses. It is the same
-// number as the judging bound (JUDGE_CONCURRENCY, config.DefaultJudgeConcurrency)
-// because it bounds the same scarce thing from the other side — that one counts
-// judging PASSES, each of which renders twice in sequence, while this one counts
-// the processes those renders and every inline render share. A non-positive value
-// is clamped to 1: a renderer that can run nothing is not a safer renderer.
+// concurrency bounds simultaneous worker subprocesses; callers pass the same
+// JUDGE_CONCURRENCY that bounds judging passes, since each pass renders twice
+// while this counts every process those renders and inline renders share.
+// Non-positive is clamped to 1 — a renderer that can run nothing helps nobody.
 func NewNodeRenderer(nodeBin, cliPath string, concurrency int) *NodeRenderer {
 	if nodeBin == "" {
 		nodeBin = "node"
@@ -82,26 +73,22 @@ func (w *capBuffer) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
-// Render marshals the validated document back to JSON, pipes it to the worker,
-// and decodes the base64 PNG. ctx bounds the subprocess (the caller's judging
-// timeout applies via exec.CommandContext) and the wait for a free slot.
+// Render marshals the document to JSON, pipes it to the worker, and decodes the
+// base64 PNG. ctx bounds both the subprocess and the wait for a free slot.
 //
-// It BLOCKS while every slot is busy rather than refusing. Every caller already
-// arrived through a bound of its own — the per-IP write rate-limit tier on the
-// inline endpoints, the judging-concurrency limiter on the duel — so the queue in
-// front of this is short and made of work somebody already said yes to, and the
-// honest answer to "the machine is busy" is a slower render rather than a lost
-// duel. The wait is not unbounded either: it ends when the caller's own context
-// does (game.JudgePassBudget, practice/guess RunBudget), and the resulting error
-// names the wait so it is not mistaken for a worker fault.
+// It blocks rather than refuses when every slot is busy: every caller already
+// passed a bound of its own (the write rate limiter, the judging-concurrency
+// limiter), so a slower render beats a lost duel. The wait ends with ctx
+// (docs/NOTES.md), and the resulting error names the wait so it isn't mistaken
+// for a worker fault.
 func (r *NodeRenderer) Render(ctx context.Context, doc document.Document) ([]byte, error) {
 	docJSON, err := json.Marshal(doc)
 	if err != nil {
 		return nil, fmt.Errorf("render: marshal document: %w", err)
 	}
 
-	// Taken before the fork and returned after the process has exited (cmd.Run
-	// waits), so the token really does cover the memory it is bounding.
+	// Taken before the fork and returned after the process exits (cmd.Run waits),
+	// so the token covers the memory it is meant to bound.
 	select {
 	case r.slots <- struct{}{}:
 		defer func() { <-r.slots }()

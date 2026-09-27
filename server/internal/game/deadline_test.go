@@ -41,8 +41,8 @@ func TestIsExpiredDrawing(t *testing.T) {
 }
 
 // TestDecideExpiry covers the outcome selection by submitted-count and — the
-// load-bearing assertion — that a forfeit maps the WIN to the submitter and the LOSS
-// to the non-submitter by user_id, NOT by seat order.
+// load-bearing assertion — that a forfeit maps the win to the submitter and the
+// loss to the non-submitter by user_id, not by seat order.
 func TestDecideExpiry(t *testing.T) {
 	at := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
 	submitted := func(id string, rating int32) db.GetMatchPlayersForResolveRow {
@@ -67,7 +67,7 @@ func TestDecideExpiry(t *testing.T) {
 	})
 
 	t.Run("one submitted → forfeit; the submitter wins regardless of seat", func(t *testing.T) {
-		// Forfeiter is seat 0, submitter seat 1 — and the submitter is the LOWER-rated
+		// Forfeiter is seat 0, submitter seat 1 — and the submitter is the lower-rated
 		// underdog. A seat-order mapping would crown the forfeiter; user_id mapping
 		// crowns the submitter.
 		out, fr := decideExpiry([]db.GetMatchPlayersForResolveRow{
@@ -106,7 +106,7 @@ func TestDecideExpiry(t *testing.T) {
 	})
 
 	t.Run("malformed single-seat roster → judging (defensive), no panic", func(t *testing.T) {
-		// One submitted, ZERO missing (a degenerate non-two-player roster). The forfeit
+		// One submitted, zero missing (a degenerate non-two-player roster). The forfeit
 		// branch requires len(missing)==1, so this must fall to the judging default
 		// rather than indexing missing[0] out of range.
 		out, _ := decideExpiry([]db.GetMatchPlayersForResolveRow{submitted("solo", 1200)})

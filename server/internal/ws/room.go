@@ -1,10 +1,10 @@
 package ws
 
 // room is one match's live membership: userID → set of that user's clients (duplicate
-// tabs/devices allowed). It is a PLAIN struct with NO goroutine and NO mutex — every
-// field is touched only inside the hub's single select loop, which is the whole point
-// of the actor model (docs/API.md §9.1). The room never blocks:
-// fan-out is non-blocking-send, and a client that can't keep up is force-closed.
+// tabs/devices allowed). It is a plain struct with no goroutine and no mutex — every
+// field is touched only inside the hub's single select loop, the actor model
+// (docs/API.md §9.1). The room never blocks: fan-out is non-blocking-send, and a client
+// that can't keep up is force-closed.
 type room struct {
 	matchID string
 	conns   map[string]map[*client]struct{}
@@ -67,7 +67,7 @@ func (rm *room) empty() bool {
 	return len(rm.conns) == 0
 }
 
-// broadcast non-blocking-sends one already-marshaled SHARED frame (identical for both
+// broadcast non-blocking-sends one already-marshaled shared frame (identical for both
 // viewers: opponent_submitted / judging / abandoned / presence / pong) to every client.
 // A client whose buffer is full is force-closed, never waited on — one slow socket must
 // not stall the room. Called only inside the hub loop.
@@ -82,7 +82,7 @@ func (rm *room) broadcast(frame []byte) {
 }
 
 // userConns is a snapshot of one user's clients, taken in the hub loop so the per-viewer
-// fan-out (which does a DB read to build that user's redacted DTO) can run OFF the loop
+// fan-out (which does a DB read to build that user's redacted DTO) can run off the loop
 // without touching the rooms map.
 type userConns struct {
 	userID  string

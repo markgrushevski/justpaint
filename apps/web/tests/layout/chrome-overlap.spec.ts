@@ -1,43 +1,23 @@
 import { test, expect, type Page } from '@playwright/test'
 
 /**
- * Geometry guard for the editor shell's floating chrome.
+ * Geometry guard for the editor shell's floating chrome: absolutely-positioned
+ * islands can overlap with every other gate green (docs/NOTES.md, "Only a
+ * rendered browser catches overlapping chrome"), so this suite asserts one
+ * invariant, in a real browser, at the widths where the layout changes shape:
+ * no two bottom islands intersect.
  *
- * The shell parks its islands in six absolutely-positioned regions around the
- * canvas. Absolute positioning means nothing pushes anything else out of the
- * way: two islands can be painted on top of each other and every other gate in
- * this repo still passes. vue-tsc sees types, vitest renders into happy-dom
- * (no layout at all), stylelint reads declarations, and axe reads the
- * accessibility tree — none of them has a pixel to look at. That blind spot is
- * how this overlap bug survived: the zoom island sat on top of the toolbar across the
- * ENTIRE 601-1180px band (measured 9580px^2 at 768x1024) because the lift that
- * moves it out of the way was keyed to the phone breakpoint, while the toolbar
- * stays wide enough to reach it up to ~1169px.
+ * Deliberately generic (compares rendered CONTENT, not `/draw`'s class names)
+ * so it also catches pairs nobody expected; `/draw` is the probe because
+ * `/play` and `/practice` share the same shell and CSS.
  *
- * So this suite asserts one thing, in a real browser, at the widths where the
- * layout actually changes its mind: NO two bottom islands intersect.
- *
- * Deliberately generic — it compares the regions' rendered CONTENT, not
- * `/draw`'s own class names, so it keeps working when a view renames its
- * islands, and it covers pairs nobody has thought about yet (the bottom-left
- * coordinate readout only exists once the pointer has been over the canvas;
- * when it is absent it is skipped rather than faked).
- *
- * `/draw` is the probe because it is the one route that renders the full shell
- * without a session or a live match. `/play` and `/practice` slot into the very
- * same regions with the same CSS, so a fix here is a fix there.
- *
- * Run: `npm run test:layout -w @justpaint/web` (needs the Vite dev server; the
- * Playwright config starts or reuses one on :7777).
+ * Run: `npm run test:layout -w @justpaint/web` (needs the Vite dev server).
  */
 
 /**
- * Widths where the chrome changes shape, plus one on each side of every
- * threshold. 600/601 is the phone breakpoint — the toolbar switches from its
- * compact form (290px) to its full one (769px) there, which is exactly what
- * made the old lift threshold wrong. 1200/1201 is the lift threshold itself.
- * The landscape phone is in the table because it is a viewport people actually
- * hold and nobody designs against.
+ * Widths bracketing each threshold: 600/601 is the phone breakpoint (toolbar
+ * goes compact 290px -> full 769px), 1200/1201 is the zoom-island lift
+ * threshold. Landscape phone is included because people hold it that way.
  */
 const VIEWPORTS = [
     { name: 'phone portrait', width: 375, height: 812 },
@@ -59,11 +39,9 @@ const BOTTOM_REGIONS = ['bottom-left', 'bottom-center', 'bottom-right'] as const
 type Box = { left: number; top: number; right: number; bottom: number }
 
 /**
- * The rendered box of a region's CONTENT, not the region wrapper. The centre
- * region is a full-width strip (it centres its child without an offset
- * transform — see EditorShell), so measuring the wrapper would report an
- * overlap with everything on the row and mean nothing. `null` when the region
- * is absent or renders nothing.
+ * A region's CONTENT box, not its wrapper — the centre region is a full-width
+ * strip (see EditorShell), so the wrapper would "overlap" everything on the
+ * row and the check would mean nothing. `null` when the region renders nothing.
  */
 async function contentBox(page: Page, region: string): Promise<Box | null> {
     return page.evaluate((name) => {
@@ -89,8 +67,8 @@ for (const viewport of VIEWPORTS) {
         await page.setViewportSize({ width: viewport.width, height: viewport.height })
         await page.goto('/draw')
 
-        // The toolbar is the last of the three to settle (it carries the tool
-        // buttons); waiting on it means every box below is final.
+        // The toolbar is the last of the three to settle, so waiting on it
+        // means every box below is final.
         await page.locator('.shell__region--bottom-center').first().waitFor({ state: 'visible' })
 
         const boxes = new Map<string, Box>()
@@ -99,9 +77,7 @@ for (const viewport of VIEWPORTS) {
             if (box) boxes.set(region, box)
         }
 
-        // Two islands have to exist for the assertion to mean anything; if the
-        // shell ever stops rendering them this should fail loudly rather than
-        // pass by vacuum.
+        // Fail loudly if fewer than two islands render, rather than pass by vacuum.
         expect(
             boxes.size,
             `expected at least two bottom islands to be rendered, saw ${[...boxes.keys()].join(', ') || 'none'}`

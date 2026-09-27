@@ -1,17 +1,13 @@
 <script lang="ts" setup>
 /**
- * GamePromptBanner — the shared duel target, revealed centred above the canvas.
- * While the roster is still filling (`revealed = false`) it shows a redacted
- * "waiting for opponent" shimmer so neither player can pre-draw; once the match
- * enters the drawing phase (`revealed = true`) it reveals the single prompt both
- * duelists must draw (GAME.md §5 — same prompt, revealed at the same moment).
- *
- * Presentational: PlayView owns the phase and flips `revealed`. The pill is
- * `pointer-events: none` so a stroke can still start on the canvas beneath it.
- *
- * Both states are always mounted, stacked in one grid cell, and cross-faded by
- * the `banner--revealed` class (pure CSS) — no Vue <Transition mode="out-in">,
- * which can stall waiting on a leave and strand the wrong text on screen.
+ * GamePromptBanner — the shared duel target, revealed centred above the
+ * canvas: while the roster fills (`revealed = false`) it shows a redacted
+ * "waiting for opponent" shimmer so neither player can pre-draw, and once
+ * `drawing` starts (`revealed = true`) it reveals the prompt both duelists
+ * must draw (docs/GAME.md §5). Presentational: PlayView owns the phase and
+ * flips `revealed`; both states stay mounted and cross-fade via inline
+ * opacity, not Vue `<Transition>`, which can stall on a leave and strand the
+ * wrong text.
  */
 import { OriSurface } from '@oriui/vue'
 
@@ -21,12 +17,10 @@ defineProps<{
     /** false → redacted "waiting…"; true → the prompt text is shown. */
     revealed: boolean
     /**
-     * No opponent exists for this banner, so the waiting layer must not either.
-     * A duel cross-fades out of "waiting for opponent" because its roster fills
-     * before the prompt does; practice has no roster, mounts the banner only once
-     * it HAS a prompt, and would otherwise carry an invisible layer announcing a
-     * duel that is not pending — invisible to the eye and to assistive tech, but
-     * still there for find-in-page, a text dump, or anyone reading the DOM.
+     * No opponent exists for this banner, so the waiting layer must not either:
+     * practice mounts the banner only once it has a prompt, and an unused
+     * "waiting for opponent" layer would still be in the DOM for find-in-page
+     * or a screen reader even while visually hidden.
      */
     solo?: boolean
 }>()
@@ -34,10 +28,8 @@ defineProps<{
 
 <template>
     <OriSurface class="banner" role="status" aria-live="polite">
-        <!-- Both states stay mounted, stacked in one grid cell, cross-faded by an
-             inline opacity bound straight to `revealed` — no descendant-combinator
-             cascade, no Vue <Transition> to stall; the fade is the CSS transition
-             on `.banner__layer`. -->
+        <!-- Stacked in one grid cell; each layer's opacity binds straight to
+             `revealed`, faded by the CSS transition on `.banner__layer`. -->
         <div
             v-if="!solo"
             class="banner__layer banner__layer--waiting"
@@ -111,7 +103,7 @@ defineProps<{
 
     font-size: var(--ori-font-size_sm, 0.875rem);
     font-weight: 600;
-    /* 0.7 keeps the muted line past WCAG AA on the surface (matches the shell). */
+    /* 0.7 keeps the muted line past WCAG AA on the surface. */
     opacity: 0.7;
 }
 

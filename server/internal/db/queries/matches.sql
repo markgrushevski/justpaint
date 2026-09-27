@@ -1,6 +1,6 @@
 -- name: CreateMatch :one
--- A fresh open async match with one prompt pinned; mode/status use their column
--- defaults ('async'/'open'). docs/GAME.md §4.1.
+-- One prompt pinned per match; mode/status take their column defaults
+-- ('async'/'open', docs/GAME.md §4.1).
 insert into matches (prompt_id)
 values ($1)
 returning *;
@@ -10,13 +10,11 @@ select * from matches
 where id = $1;
 
 -- name: GetMatchForUpdate :one
--- Same as GetMatch but takes a row lock, serializing concurrent submits to one
--- match so the last-submit → judging flip is computed on a stable roster (two
--- players submitting at the same instant can't both miss "I'm last").
---
--- Also returns the DB clock (`server_now` = the tx-start now()) so the caller
--- compares the round deadline against ONE clock authority — the database's — on
--- the path that rejects a late submit, not the Go host wall clock (§2.4).
+-- Same as GetMatch but takes a row lock, so two simultaneous submits can't each
+-- see the other as unsubmitted and both miss the last-submit → judging flip
+-- (docs/NOTES.md). Also returns the DB clock (`server_now`, the tx-start now())
+-- so a late-submit check compares against one clock authority — the database's,
+-- not the Go host's wall clock.
 select *, now()::timestamptz as server_now from matches
 where id = $1
 for update;
@@ -37,10 +35,10 @@ where id = $1
 returning *;
 
 -- name: FindOpenMatchToJoin :one
--- The oldest open async match the caller is NOT already in — the auto-join
--- candidate (docs/GAME.md §4.1, docs/DECISIONS.md "Matchmaking"). FOR UPDATE
--- SKIP LOCKED lets concurrent joiners each grab a different match instead of
--- colliding on one (the loser skips the locked row and creates its own).
+-- The oldest open async match the caller is not already in — the auto-join
+-- candidate (docs/GAME.md §4.1, docs/DECISIONS.md 2026-07-03). `for update skip
+-- locked` lets concurrent joiners each grab a different match instead of
+-- colliding on one; the loser skips the locked row and creates its own.
 select * from matches
 where status = 'open'
   and mode = 'async'
@@ -64,8 +62,7 @@ order by m.created_at asc
 limit 1;
 
 -- name: AddMatchPlayer :exec
--- Insert one roster slot. The composite PK (match_id, user_id) makes a double
--- join impossible.
+-- The composite PK (match_id, user_id) makes a double join impossible.
 insert into match_players (match_id, user_id)
 values ($1, $2);
 
@@ -88,10 +85,9 @@ where mp.match_id = $1
 order by mp.submitted_at asc nulls last, mp.user_id asc;
 
 -- name: SetMatchDrawing :one
--- Start the round: the roster just filled, so flip open→drawing AND stamp the
--- server-authoritative deadline as now() + the round length (seconds). One clock
--- authority — the deadline every reader and the sweeper compare against is the
--- DB's own now() (docs/GAME.md §4.1).
+-- Flips open→drawing and stamps the deadline as now() + the round length, off
+-- the DB's own clock — the one authority every reader and the sweeper compare
+-- against (docs/GAME.md §4.1).
 update matches
 set status = 'drawing',
     drawing_deadline = now() + make_interval(secs => sqlc.arg('round_seconds')::int),
@@ -100,8 +96,8 @@ where id = sqlc.arg('id')
 returning *;
 
 -- name: SetMatchJudging :one
--- Enter (or, for the stuck-judging watchdog, RE-enter) judging: stamp the start of
--- THIS attempt so staleness is measured per-attempt, and bump the retry counter.
+-- Enter (or, for the stuck-judging watchdog, re-enter) judging: stamp the start
+-- of this attempt so staleness is measured per-attempt, and bump the retry counter.
 update matches
 set status = 'judging',
     judging_started_at = now(),
@@ -129,12 +125,9 @@ limit $1
 for update skip locked;
 
 -- name: ListStuckJudgingMatches :many
--- Judging rows wedged past the stale window with retries left — a crashed/hung
--- judge attempt to re-fire. Staleness is measured
--- against judging_started_at (the current attempt), not updated_at. The rows this
--- filter excludes on judge_attempts are NOT dropped: ListExhaustedJudgingMatches
--- below is its exact complement (>= the same cap, same stale window) and sweeps
--- them to the terminal 'aborted' resolution instead (docs/GAME.md §4.1).
+-- Judging rows wedged past the stale window with retries left, to re-fire
+-- (docs/GAME.md §4.1). Staleness is measured against judging_started_at, the
+-- current attempt, not updated_at. Exact complement: ListExhaustedJudgingMatches.
 select id from matches
 where status = 'judging'
   and judging_started_at <= now() - make_interval(secs => sqlc.arg('stale_secs')::int)
@@ -144,12 +137,10 @@ limit sqlc.arg('lim')::int
 for update skip locked;
 
 -- name: ListExhaustedJudgingMatches :many
--- The complement of ListStuckJudgingMatches: judging rows whose retries are USED UP
--- and whose last attempt is stale. Without this they would sit in `judging` forever
--- (the re-fire filter stops at the cap and nothing else moves them), losing the duel
--- with no recourse. They are swept to `done` + resolution 'aborted' — no winner, no
--- Elo (docs/GAME.md §4.1, docs/DECISIONS.md 2026-09-18). Same partial index
--- (matches_judging_stuck_idx), same stale window, so a row is in exactly one list.
+-- The complement of ListStuckJudgingMatches: retries used up, last attempt
+-- stale. Swept to `done` + resolution 'aborted', no winner, no Elo (docs/GAME.md
+-- §4.1, docs/DECISIONS.md 2026-09-18). Same partial index and stale window, so a
+-- row is in exactly one list.
 select id from matches
 where status = 'judging'
   and judging_started_at <= now() - make_interval(secs => sqlc.arg('stale_secs')::int)

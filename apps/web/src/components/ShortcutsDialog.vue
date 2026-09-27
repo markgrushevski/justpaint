@@ -1,12 +1,11 @@
 <script lang="ts" setup>
 /**
- * The keyboard-shortcuts cheat-sheet (DECISIONS 2026-07-04): a centered modal
- * floating island, opened with "?" or the top-right help chip. Built on
- * @oriui/vue's OriDialog (the alpha-11 controlled form: `open` prop +
- * `update:open`/`close` emits) — the native <dialog> supplies the focus trap,
- * scroll lock, Esc and ::backdrop dismissal for free, and its own header
- * renders the title + × close button. Tool rows come from TOOL_META (the
- * single hint source shared with the toolbar tooltips).
+ * The keyboard-shortcuts cheat-sheet: a centered modal, opened with "?" or the
+ * top-right help chip. Built on OriDialog's controlled form (`open` prop +
+ * `update:open`/`close` emits) — the native <dialog> gives focus trap, scroll
+ * lock, Esc and ::backdrop dismissal for free, and its own header renders the
+ * title + × close button. Tool rows come from TOOL_META, the hint source
+ * shared with the toolbar tooltips.
  */
 import { OriDialog, OriKbd } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'

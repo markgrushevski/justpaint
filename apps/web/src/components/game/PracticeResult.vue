@@ -1,9 +1,8 @@
 <script lang="ts">
 /**
- * Score bands, highest first. The judge hands back a number; a number alone is
- * not a verdict, so the card leads with the band and lets the percentage back it
- * up — the same reason the duel leads with "You win!" rather than "72% vs 64%".
- * The thresholds are copy, not contract: nothing downstream reads them.
+ * Score bands, highest first. A number alone isn't a verdict, so the card
+ * leads with the band and lets the percentage back it up. Copy, not contract:
+ * nothing downstream reads these thresholds.
  */
 const BANDS: { min: number; headline: string }[] = [
     { min: 0.85, headline: 'Nailed it' },
@@ -16,20 +15,12 @@ const BANDS: { min: number; headline: string }[] = [
 
 <script lang="ts" setup>
 /**
- * PracticeResult — the payoff screen for a single-player practice run. It wears
- * the duel reveal's visual language on purpose (the same 0–100% bar in the same
- * primary fill, the same white square canvas frame, the same card chrome) so a
- * practice score and a duel score read as the same thing being measured.
- *
- * What it deliberately does NOT have: an opponent, a winner, an Elo move. There
- * is one drawing and nobody to beat, and inventing any of the three would be a
- * lie the duel screen at least earns.
- *
- * The FEEDBACK is the point. In a duel the judge's reason explains who won; here
- * it is the entire product — the thing a player comes back for — so it gets the
- * widest block on the card, room to breathe, and typography that survives the
- * full 500 characters the contract allows on a phone.
- *
+ * PracticeResult — the payoff screen for a single-player practice run,
+ * wearing the duel reveal's visual language on purpose (same bar, frame,
+ * chrome) so a practice score and a duel score read as the same thing
+ * measured. It deliberately has no opponent, winner or Elo move; the judge's
+ * feedback is the primary content here, so it gets the widest block and
+ * typography that survives the full 500 characters the API allows.
  * Presentational: PracticeView owns the run and every navigation.
  */
 import { computed } from 'vue'
@@ -132,10 +123,10 @@ const topBand = computed(() => band.value === BANDS[0])
 </template>
 
 <style scoped>
-/* Centred card in the shell's pointer-events:none overlay — opt back in so the
-   card is interactive. Scrolls internally: 500 characters of feedback plus the
-   score row will outgrow a short phone, and the feedback must never be the thing
-   that gets cut. */
+/* Centred card in the shell's pointer-events:none overlay — opt back in so
+   it's interactive. Scrolls internally: 500 characters of feedback plus the
+   score row can outgrow a short phone, and feedback must never be what gets
+   cut. */
 .pr {
     display: flex;
     flex-direction: column;
@@ -235,8 +226,6 @@ const topBand = computed(() => band.value === BANDS[0])
     line-height: 1.1;
 }
 
-/* Bar geometry copied from the duel reveal on purpose (same height, same track,
-   same primary fill): two screens measuring the same thing should look it. */
 .pr__bar {
     height: 0.5rem;
     overflow: hidden;
@@ -258,8 +247,6 @@ const topBand = computed(() => band.value === BANDS[0])
     opacity: 0.7;
 }
 
-/* The hero block. Same accent rule as the duel's reason so the two read as one
-   voice, but full width and with room — this is what the player came for. */
 .pr__feedback {
     padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
 
@@ -300,7 +287,6 @@ const topBand = computed(() => band.value === BANDS[0])
 }
 
 .pr__action {
-    /* Share the row evenly; wrap to full width on a very narrow card. */
     flex: 1 1 10rem;
 }
 

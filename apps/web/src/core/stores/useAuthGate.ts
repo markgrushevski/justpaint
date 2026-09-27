@@ -3,11 +3,10 @@ import { ref } from 'vue'
 import { useSessionStore } from './useSessionStore.ts'
 
 /**
- * The one place the app says "this needs a signed-in visitor" (rationale in
- * docs/DECISIONS.md, 2026-09-18). The store holds only the intent;
- * `components/auth/AuthDialog.vue`, mounted once at the app root, renders it and
- * settles the promise. Nothing else may open that dialog — a local `ref` would
- * strand the caller waiting behind it.
+ * The one place the app says "this needs a signed-in visitor" (docs/DECISIONS.md).
+ * The store holds only the intent; `components/auth/AuthDialog.vue`, mounted
+ * once at the app root, renders it and settles the promise. Nothing else may
+ * open that dialog — a local `ref` would strand the caller waiting behind it.
  */
 export const useAuthGate = defineStore('authGate', () => {
     const session = useSessionStore()
@@ -33,8 +32,8 @@ export const useAuthGate = defineStore('authGate', () => {
         // exchanged for a session at app start.
         await session.ready()
         if (session.isLoggedIn) return true
-        // A second caller JOINS the open dialog rather than stacking another one
-        // — and must not repaint the reason out from under the first.
+        // A second caller joins the open dialog rather than stacking another one,
+        // and must not repaint the reason out from under the first.
         if (!open.value) hint.value = reason
         open.value = true
         return new Promise<boolean>((resolve) => waiting.push(resolve))

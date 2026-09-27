@@ -92,7 +92,7 @@ func TestRateLimit_ThrottlesOnMatchedPolicy(t *testing.T) {
 
 func TestRateLimit_NonMatchingRequestIsNeverThrottled(t *testing.T) {
 	logger, _ := newTestLogger()
-	zeroBurst := ratelimit.New(0, time.Minute, 0, 0) // would deny EVERY request it governs
+	zeroBurst := ratelimit.New(0, time.Minute, 0, 0) // would deny every request it governs
 	policies := []RatePolicy{
 		{Name: "auth-strict", Match: MethodPrefix("/api/auth/", http.MethodPost), Limiter: zeroBurst},
 	}

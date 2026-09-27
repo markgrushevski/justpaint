@@ -15,7 +15,7 @@ func testLogger() *slog.Logger {
 }
 
 // fakeSource is an in-memory stateSource: it returns per-viewer bytes keyed by viewerID,
-// so a room-level test can prove the hub sends each user THEIR OWN redacted frame without
+// so a room-level test can prove the hub sends each user their own redacted frame without
 // a database (the DB-backed proof of the redaction itself lives in internal/game).
 type fakeSource struct {
 	matchState map[string]json.RawMessage
@@ -37,10 +37,9 @@ func (f *fakeSource) ResultJSON(_ context.Context, viewerID, _ string) (json.Raw
 	return f.result[viewerID], nil
 }
 
-// newTestClient builds a client with no socket (conn nil) and a no-op cancel — enough to
-// exercise register/unregister/broadcast/fan-out, none of which touch the conn. The pumps
-// are never started, so the 0/0 heartbeat settings (disabled — conn_test.go covers that
-// pump) are never exercised here.
+// newTestClient builds a client with no socket and a no-op cancel — enough to exercise
+// register/unregister/broadcast/fan-out, none of which touch the conn or start the pumps
+// (heartbeat disabled; conn_test.go covers that pump).
 func newTestClient(id string) *client {
 	return newClient(id, nil, func() {}, testLogger(), 0, 0)
 }
@@ -76,7 +75,7 @@ func hasFrame(frames [][]byte, typ, userID string) bool {
 	return false
 }
 
-// TestPresence asserts that registering a user broadcasts opponent_connected to the OTHER
+// TestPresence asserts that registering a user broadcasts opponent_connected to the other
 // members, and unregistering the last of a user broadcasts opponent_disconnected.
 func TestPresence(t *testing.T) {
 	h := newHub(&fakeSource{}, testLogger())
@@ -94,27 +93,27 @@ func TestPresence(t *testing.T) {
 		t.Fatalf("bob did not receive opponent_connected{alice}; frames=%s", got)
 	}
 
-	// A second alice tab must NOT re-fire presence (alice already present).
+	// A second alice tab must not re-fire presence (alice already present).
 	alice2 := newTestClient("alice")
 	h.handleRegister(registration{matchID: match, client: alice2})
 	if got := drainFrames(bob); hasFrame(got, frameOpponentConnected, "alice") {
 		t.Fatalf("second alice tab wrongly re-fired opponent_connected; frames=%s", got)
 	}
 
-	// Disconnecting ONE alice tab (alice still has alice2) must NOT fire disconnect.
+	// Disconnecting one alice tab (alice still has alice2) must not fire disconnect.
 	h.handleUnregister(registration{matchID: match, client: alice})
 	if got := drainFrames(bob); hasFrame(got, frameOpponentDisconnected, "alice") {
 		t.Fatalf("disconnect fired while alice still had a tab; frames=%s", got)
 	}
 
-	// Disconnecting the LAST alice tab fires disconnect.
+	// Disconnecting the last alice tab fires disconnect.
 	h.handleUnregister(registration{matchID: match, client: alice2})
 	if got := drainFrames(bob); !hasFrame(got, frameOpponentDisconnected, "alice") {
 		t.Fatalf("bob did not receive opponent_disconnected{alice}; frames=%s", got)
 	}
 }
 
-// TestPerUserCap asserts the (N+1)th connection for one user force-closes the OLDEST and
+// TestPerUserCap asserts the (N+1)th connection for one user force-closes the oldest and
 // keeps the set at the cap, with no presence churn.
 func TestPerUserCap(t *testing.T) {
 	h := newHub(&fakeSource{}, testLogger())
@@ -151,8 +150,6 @@ func TestPerUserCap(t *testing.T) {
 	}
 }
 
-// TestFullBufferForceClosesNotBlocks asserts a client whose send buffer is full is
-// force-closed by a broadcast rather than blocking the hub.
 func TestFullBufferForceClosesNotBlocks(t *testing.T) {
 	h := newHub(&fakeSource{}, testLogger())
 	const match = "m1"
@@ -178,7 +175,7 @@ func TestFullBufferForceClosesNotBlocks(t *testing.T) {
 	}
 }
 
-// TestFanoutPerViewerRedaction asserts the hub sends each user their OWN per-viewer bytes:
+// TestFanoutPerViewerRedaction asserts the hub sends each user their own per-viewer bytes:
 // alice's frame carries alice's payload and never bob's, and vice versa (the wire-level
 // mirror of GAME.md §4.2, driven with a fake source).
 func TestFanoutPerViewerRedaction(t *testing.T) {

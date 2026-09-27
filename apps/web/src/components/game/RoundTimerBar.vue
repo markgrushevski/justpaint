@@ -1,14 +1,11 @@
 <script lang="ts" setup>
 /**
- * RoundTimerBar — the duel round countdown: a full-width thin progress rail
- * pinned to the very top edge of the viewport, plus a compact mm:ss readout
- * just beneath it. The rail drains green → orange → red as time runs out and
- * pulses in an alert state under ten seconds.
- *
- * Presentational only: PlayView owns the clock and ticks `remaining` down;
- * this component just renders. It is `position: fixed` (escapes the shell's
- * padded top-center region to touch the very top edge) and
- * `pointer-events: none`, so it never intercepts drawing on the canvas below.
+ * RoundTimerBar — the duel round countdown: a thin progress rail pinned to
+ * the top edge of the viewport, plus a compact mm:ss readout beneath it,
+ * draining green → orange → red and pulsing under ten seconds. Presentational
+ * only: PlayView ticks `remaining` down and this just renders. `position:
+ * fixed` escapes the shell's padded top-center region to touch the true edge;
+ * `pointer-events: none` keeps it from intercepting drawing.
  */
 import { computed } from 'vue'
 import { OriSurface } from '@oriui/vue'
@@ -55,10 +52,8 @@ const clock = computed(() => {
 </template>
 
 <style scoped>
-/* Fixed to the very top edge of the viewport — the shell's top-center region is
-   padded down 0.5rem, so a fixed bar is the only way to touch the true edge.
-   pointer-events:none keeps drawing live beneath it. The shell root has no
-   transform, so this anchors to (and is not clipped by) the viewport. */
+/* The shell root has no transform, so `position: fixed` here anchors to (and
+   isn't clipped by) the true viewport, not the shell. */
 .timer {
     position: fixed;
     top: 0;
@@ -89,8 +84,8 @@ const clock = computed(() => {
         background-color 0.4s ease;
 }
 
-/* Small centred readout tucked just under the rail. OriSurface gives it the shared
-   island chrome; the ink tracks the current severity colour. */
+/* OriSurface gives the readout the shared island chrome; ink tracks the
+   current severity colour. */
 .timer__clock {
     position: absolute;
     top: 0.5rem;

@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 /**
  * Headless Node render worker — the authoritative judged raster (trust boundary,
- * docs/GAME.md §6, DOCUMENT-FORMAT §10). Reads a validated vector document as JSON
- * on stdin and writes the rendered PNG as base64 on stdout (base64 keeps the pipe
- * text-safe across platforms). The Go server spawns this per submission
+ * docs/GAME.md §6, DOCUMENT-FORMAT.md §10). Reads a validated vector document as
+ * JSON on stdin and writes the rendered PNG as base64 on stdout (text-safe
+ * across platforms). The Go server spawns this per submission
  * (server/internal/render.NodeRenderer).
  *
- * It shares the editor's EXACT projection + fit path (`renderToStage` from
- * `@justpaint/editor`), so the judged raster matches the editor preview — no
- * second renderer to drift (docs/DECISIONS "one shared renderer"). The frame is
- * pinned by the judge contract: square 1024², opaque white background (JUDGE.md
- * §5). `import 'konva/canvas-backend'` MUST precede any Konva use — it registers
- * the node-canvas backend (Konva 10 dropped the default Node backend).
+ * Shares the editor's projection + fit path (`renderToStage`) so the judged
+ * raster matches the editor preview (docs/NOTES.md). The frame is pinned by the
+ * judge contract: square 1024², opaque white background (JUDGE.md §5).
+ * `import 'konva/canvas-backend'` must precede any Konva use (docs/NOTES.md).
  */
 import 'konva/canvas-backend'
 import { renderToStage } from '@justpaint/editor'

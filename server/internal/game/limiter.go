@@ -1,25 +1,19 @@
 package game
 
-// judgeLimiter bounds how many judging passes (authoritative render + judge call)
-// run at once. It is a plain counting semaphore — a buffered channel, no extra
-// dependency — because a judging pass is the single most expensive thing this
-// service does: under RENDER_MODE=node each pass spawns TWO OS child processes,
-// each rasterizing a 1024² canvas through node-canvas. Unbounded `go judgeMatch(id)`
-// is a fork bomb on a small instance the moment a boot drain dispatches a backlog
-// (up to sweepBatch matches) or a burst of final submits lands together.
+// judgeLimiter bounds how many judging passes (render + judge call) run at once:
+// a plain counting semaphore, because under RENDER_MODE=node each pass spawns
+// two OS child processes and an unbounded `go judgeMatch(id)` is a fork bomb
+// under a boot drain or a burst of final submits.
 //
-// Non-blocking by design: a caller that cannot get a slot is never parked and never
-// queues. The work is not lost — the match stays in `judging` and the stuck-judging
-// sweep re-claims it (sweeper.go), which is also why nothing here needs a shutdown
-// handshake: no goroutine ever waits on a slot, so cancelling the server context can
-// never deadlock against an in-flight pass.
+// Non-blocking by design: a caller that can't get a slot is never parked or
+// queued — the match stays `judging` for the stuck-judging sweep to re-claim
+// (sweeper.go), so shutdown can never deadlock against an in-flight pass.
 type judgeLimiter struct {
 	slots chan struct{}
 }
 
-// newJudgeLimiter builds a limiter admitting n concurrent passes. A non-positive n
-// is clamped to 1 rather than producing a limiter that admits nothing (a zero-cap
-// channel would wedge judging entirely) — the caller validates the configured bound.
+// newJudgeLimiter builds a limiter admitting n concurrent passes; a non-positive
+// n clamps to 1 (a zero-cap channel would wedge judging entirely).
 func newJudgeLimiter(n int) *judgeLimiter {
 	if n < 1 {
 		n = 1
@@ -44,10 +38,9 @@ func (l *judgeLimiter) tryAcquire() bool {
 // release returns a slot taken by tryAcquire.
 func (l *judgeLimiter) release() { <-l.slots }
 
-// goHeld runs fn in its own goroutine and releases an ALREADY-ACQUIRED slot when fn
-// returns (panic included, via defer). It exists for the caller that must take the
-// slot BEFORE committing the work it guards — the stuck-judging sweep acquires first
-// so it never burns a judge_attempts retry it cannot actually spend.
+// goHeld runs fn in its own goroutine, releasing an already-acquired slot when it
+// returns — for a caller (the stuck-judging sweep) that must acquire before
+// committing the work it guards.
 func (l *judgeLimiter) goHeld(fn func()) {
 	go func() {
 		defer l.release()

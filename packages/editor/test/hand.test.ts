@@ -1,16 +1,10 @@
 /**
  * The hand (pan) tool + Editor.toDocumentCoords.
  *
- * The hand routes pointerdown into the SAME pan path as the middle-button
- * drag — before the stroke-gesture pipeline, without the insideDocument gate —
- * so it can never produce a stroke or touch the history. toDocumentCoords is
- * the host-facing inverse of the stage transform (client → logical), for a
- * cursor-coordinates readout.
- *
  * Headless like backdrop.test.ts: node-canvas backs Konva via
- * "konva/canvas-backend" (import BEFORE any stage exists); the editor's own DOM
+ * "konva/canvas-backend" (import before any stage exists); the editor's own DOM
  * surfaces (container, window, ResizeObserver) are stubbed below — the window
- * stub here additionally CAPTURES listeners so the tests can dispatch the
+ * stub here additionally captures listeners so the tests can dispatch the
  * escape/pointerup fallbacks the editor registers.
  */
 import 'konva/canvas-backend'

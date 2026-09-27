@@ -60,10 +60,9 @@ func mintCookie(t *testing.T, userID string) *http.Cookie {
 	return &http.Cookie{Name: sessionCookieName, Value: signed}
 }
 
-// unconfiguredMux is the whole practice surface with NO critic — the
-// JUDGE_MODE=http shape. Every test below either fails before the service is
-// reached (the validation cases) or asserts the honest refusal, so a nil
-// *db.Queries here is never touched: that is the point of validating at the edge.
+// unconfiguredMux is the whole practice surface with no critic (JUDGE_MODE=http):
+// a nil *db.Queries here is never touched, since every case below either fails at
+// the edge or asserts the honest refusal.
 func unconfiguredMux(t *testing.T) *http.ServeMux {
 	t.Helper()
 	svc := NewService(nil, nil, nil, nil, nil, slog.New(slog.DiscardHandler))
@@ -99,8 +98,7 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return env.Error.Code
 }
 
-// Both routes require a session. RequireAuth owns this; asserted here so a future
-// Routes() edit that drops the wrapper is caught.
+// Asserted here so a future Routes() edit that drops RequireAuth is caught.
 func TestPractice_RequiresAuth(t *testing.T) {
 	mux := unconfiguredMux(t)
 
@@ -125,8 +123,7 @@ func TestPractice_RequiresAuth(t *testing.T) {
 	}
 }
 
-// The request edge, in one table. Every case here is refused before the service is
-// reached, which is why a service with no database can serve them.
+// Every case here is refused before the service is reached.
 func TestPracticeRun_RejectsBadRequests(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -200,8 +197,7 @@ func TestPracticeRun_RejectsBadRequests(t *testing.T) {
 	}
 }
 
-// The 8 MB document cap is the drawings/submit cap (docs/API.md §6) and answers
-// with its own code, not a generic 400.
+// The 8 MB cap (docs/API.md §6) answers with its own code, not a generic 400.
 func TestPracticeRun_RejectsOversizeBody(t *testing.T) {
 	body := `{"promptId":"` + testPromptID + `","document":{"version":1,"pad":"` +
 		strings.Repeat("x", maxRunBodyBytes) + `"}}`
@@ -214,10 +210,8 @@ func TestPracticeRun_RejectsOversizeBody(t *testing.T) {
 	}
 }
 
-// JUDGE_MODE=http: the external judge service scores two drawings against each
-// other and has no critique endpoint, so practice is unconfigured. It must refuse
-// — loudly and on BOTH routes — rather than quietly fall back to the ink-coverage
-// fake, whose number a player has no way to tell from a real one.
+// JUDGE_MODE=http has no critique endpoint, so both routes must refuse rather
+// than quietly fall back to the ink-coverage fake.
 func TestPractice_UnconfiguredRefusesHonestly(t *testing.T) {
 	mux := unconfiguredMux(t)
 

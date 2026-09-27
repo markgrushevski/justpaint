@@ -156,11 +156,11 @@ function backgroundLayer(color: string, width: number, height: number): Konva.La
 }
 
 /**
- * Map a document layer to a `Konva.Layer`, applying `opacity`/`visible`.
- * Layers are CLIPPED to the document rect (Figma-frame style, DECISIONS
- * 2026-07-04): a stroke may carry points past the edge, but pixels never render
- * outside the canvas. The clip is in layer-local (logical) coords, so it follows
- * any stage/layer transform (editor zoom, render-worker fit).
+ * Map a document layer to a `Konva.Layer`, applying `opacity`/`visible`. Layers
+ * are clipped to the document rect (docs/DECISIONS.md): a stroke may carry
+ * points past the edge, but pixels never render outside the canvas. The clip is
+ * in layer-local (logical) coords, so it follows any stage/layer transform
+ * (editor zoom, render-worker fit).
  */
 function toLayer(layer: Layer, width: number, height: number): Konva.Layer {
     const kLayer = new Konva.Layer({

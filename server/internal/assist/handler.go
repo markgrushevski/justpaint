@@ -14,25 +14,23 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 )
 
-// maxAssistBodyBytes caps the assist request body: a prompt plus the MINIMAL doc
-// summary (canvas + layer inventory, never the full document), so 64 KiB is
-// generous (docs/API.md §10).
+// maxAssistBodyBytes caps the assist request body: a prompt plus the minimal
+// doc summary (canvas + layer inventory, never the full document), so 64 KiB
+// is generous (docs/API.md §10).
 const maxAssistBodyBytes = 64 << 10 // 64 KiB
 
-// maxPromptBytes caps the natural-language prompt. Well under the body cap (which
-// also carries the doc summary), it rejects a runaway prompt before it reaches the
-// LLM impl — every assist call can cost real API money (docs/ASSIST.md §3.4).
+// maxPromptBytes caps the natural-language prompt, well under the body cap,
+// rejecting a runaway prompt before it reaches the LLM impl — every assist
+// call can cost real API money (docs/ASSIST.md §3.4).
 const maxPromptBytes = 8 << 10 // 8 KiB
 
 // ProviderCaller is implemented by an Assist impl whose GenerateOps really
 // reaches an external provider and so really spends a quota.
 //
-// It exists because "which impl was asked for" and "does that impl call anybody"
-// are different facts, and the composition root used to derive the second from
-// the first. It was wrong: the mode then selected a scaffold whose GenerateOps
-// returned an error without any network I/O, and the mode switch billed it anyway
-// — every request wrote ledger rows for a call that never happened and answered
-// 500. The impl is the only thing that knows, so the impl is what gets asked.
+// Which impl was asked for and whether it calls anybody are different facts:
+// deriving the second from the mode risks billing a ledger row for an impl
+// that made no call. The impl is the only thing that knows, so it is what
+// gets asked.
 type ProviderCaller interface {
 	// CallsProvider reports whether GenerateOps performs external API calls.
 	CallsProvider() bool
@@ -41,36 +39,25 @@ type ProviderCaller interface {
 // CallsProvider reports whether this impl spends a provider's quota, and so
 // whether the composition root should give assist a budget provider at all.
 //
-// An impl that does not implement ProviderCaller counts as making no external
-// call. That default is the safe one for the impls that exist — FakeAssist is
-// deterministic and offline — and the cost of the opposite mistake is asymmetric:
-// a real impl that forgets to say so under-counts a ceiling that already sits
-// below the provider's own quota, while billing an impl that makes no calls
-// charges players for nothing and empties a budget no provider ever saw.
+// An impl that doesn't implement ProviderCaller counts as making no external
+// call — the safe default, since billing an impl that makes no calls charges
+// players for nothing, while a real impl that forgets to say so under-counts
+// a ceiling that already sits below the provider's own quota.
 func CallsProvider(a Assist) bool {
 	pc, ok := a.(ProviderCaller)
 	return ok && pc.CallsProvider()
 }
 
 // The two budget ports are aibudget's own func types, bound to
-// aibudget.KindAssist at the composition root: aibudget.Check asks whether this
-// player may spend an AI call right now, aibudget.Spend records the one they just
-// spent (and refuses, with the same error Check returns, if the ledger finds them
-// at their cap by the time it writes). Nil means unbudgeted.
+// aibudget.KindAssist at the composition root: aibudget.Check asks whether
+// this player may spend an AI call right now, aibudget.Spend records the one
+// they just spent. Nil means unbudgeted.
 //
-// They used to be re-declared here as local BudgetCheck/BudgetSpend types, on the
-// stated grounds that this package then never imported aibudget. That was not
-// true — this file has always imported it for WriteRefusal — so the copies bought
-// a second name for one contract and a conversion at the wiring site, and nothing
-// else.
-//
-// They answer a DIFFERENT question from the limiter beside them. The token bucket
-// bounds the RATE — how fast one user may ask — and lives in this process, so the
-// host resets it on every deploy and every wake from idle. The budget bounds the
-// daily QUOTA, lives in Postgres, and therefore actually holds. Assist had only
-// the first from Phase A until the ledger landed, so its ceiling never survived a
-// restart; layering both on one endpoint is the pattern docs/API.md §3.1 already
-// documents for POST /api/matches.
+// They answer a different question from the limiter beside them: the token
+// bucket bounds the rate and lives in this process (reset on every deploy),
+// while the budget bounds the daily quota and lives in Postgres, so it
+// actually holds. Layering both on one endpoint mirrors POST /api/matches
+// (docs/API.md §3.1).
 
 // Handler is the HTTP layer for AI assist (docs/ASSIST.md §3, docs/API.md).
 type Handler struct {
@@ -100,10 +87,9 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context()) // RequireAuth guarantees presence
 
-	// Rate limit FIRST — before decoding or spending an LLM call. On exceed, set
-	// Retry-After BEFORE web.Error: web.Error → JSON → w.WriteHeader, and headers
-	// set after WriteHeader are silently dropped by net/http
-	// (docs/NOTES.md "AI assist").
+	// Rate limit first, before decoding or spending an LLM call. Set Retry-After
+	// before web.Error: web.Error calls WriteHeader, and net/http silently drops
+	// headers set after that (docs/NOTES.md "AI assist").
 	if !h.limiter.Allow(uid) {
 		secs := int(h.limiter.RetryAfter().Seconds())
 		w.Header().Set("Retry-After", strconv.Itoa(max(1, secs)))
@@ -119,9 +105,9 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Guard the prompt BEFORE spending an LLM call: an empty/whitespace-only prompt
-	// is nothing to draw, and an over-long one is rejected up front (defense against
-	// a runaway prompt sneaking under the 64 KiB body cap).
+	// Guard the prompt before spending an LLM call: empty/whitespace is nothing
+	// to draw, and an over-long prompt is rejected here in case it sneaks under
+	// the body cap.
 	if strings.TrimSpace(req.Prompt) == "" {
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "prompt must not be empty")
 		return
@@ -131,9 +117,9 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The daily ceiling, last of the guards and immediately before the only
-	// expensive line: everything above is free to re-run, and the whole point of a
-	// quota is to refuse BEFORE the call, never after paying for it.
+	// The daily ceiling is last of the guards, right before the one expensive
+	// line: everything above is free to re-run, and a quota must refuse before
+	// the call, not after paying for it.
 	if h.budget != nil {
 		if err := h.budget(r.Context(), uid); err != nil {
 			if aibudget.WriteRefusal(w, err) {
@@ -144,14 +130,11 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Recorded BEFORE the call, never after it: a call that fails still spent the
-	// provider's quota, and a failure the budget cannot see is exactly what a
-	// broken impl drains it through (the rule practice states in full).
-	//
-	// The write is also the tighter of the two per-user gates — it refuses on the
-	// count as it stands at the instant of writing, where the check above read one
-	// before the body was even decoded — and it refuses with the same error the
-	// check does, so the same branch answers both.
+	// Recorded before the call, never after: a call that fails still spent the
+	// provider's quota. This write is also the tighter of the two per-user
+	// gates — it refuses on the count as it stands at the instant of writing,
+	// where the check above read one before the body was even decoded — and
+	// it answers with the same error, so one branch covers both.
 	if h.spend != nil {
 		if err := h.spend(r.Context(), uid); err != nil {
 			if aibudget.WriteRefusal(w, err) {
@@ -166,18 +149,16 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 	res, err := h.assist.GenerateOps(r.Context(), req)
 	if err != nil {
 		// Retry-exhaustion is a client-visible outcome, not a server fault:
-		// 400 validation_failed, never 422 (docs/API.md:68). Anything else is internal.
+		// 400 validation_failed, never 422 (docs/API.md §3). Anything else is internal.
 		if errors.Is(err, ErrInvalidBatch) {
 			web.Error(w, http.StatusBadRequest, web.CodeValidationFailed,
 				"could not generate a valid drawing for that prompt")
 			return
 		}
 		// The provider ran out before our own ceiling did — the same news for the
-		// user, from the other end. Answering it as a 500 invites a retry that cannot
-		// succeed until the provider's own window rolls, so it gets the refusal the
-		// global ceiling would have written. The cause still reaches the log, where it
-		// is an operator's problem and a real one. Practice and guess do exactly this;
-		// assist could not until it had an impl that reached a provider at all.
+		// user, from the other end. Answering 500 would invite a retry that can't
+		// succeed until the provider's window rolls, so this gets the same refusal
+		// the global ceiling would have written; the cause still reaches the log.
 		if errors.Is(err, judge.ErrQuotaExhausted) {
 			h.logger.Error("assist: provider quota exhausted — every drawing request fails until it resets", "err", err)
 			aibudget.WriteRefusal(w, aibudget.ErrGlobalSpent)

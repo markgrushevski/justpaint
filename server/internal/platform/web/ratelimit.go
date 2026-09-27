@@ -45,13 +45,13 @@ func MethodPrefix(prefix string, methods ...string) func(*http.Request) bool {
 }
 
 // RateLimit builds a rate-limiting middleware keyed by client IP
-// (ClientIP(r, trustProxy)) — the abuse-protection pass docs/DECISIONS.md and
-// docs/IDEAS.md record as required before any public deploy: credential
-// stuffing / bcrypt-cost DoS against auth, and unthrottled writes elsewhere.
+// (ClientIP(r, trustProxy)) — the abuse-protection pass docs/DECISIONS.md
+// records as required before any public deploy: credential stuffing /
+// bcrypt-cost DoS against auth, and unthrottled writes elsewhere.
 //
-// Policies are tried IN ORDER; the first matching row is authoritative for
+// Policies are tried in order; the first matching row is authoritative for
 // that request — put narrow/strict rows before broad/generous ones. A
-// request matching NO row is never throttled, so a table meaning "everything
+// request matching no row is never throttled, so a table meaning "everything
 // gets at least a generous ceiling" must end with a catch-all row
 // (Match: func(*http.Request) bool { return true }). Read-only GETs stay
 // cheap by simply not being matched by a strict/moderate row (Allow is O(1)

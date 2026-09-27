@@ -1,19 +1,17 @@
 /**
- * Command-based undo/redo over the canonical {@link Document} — the replacement
- * for the old raster app's PNG-snapshot history (ROADMAP Phase 2 / cross-cutting
- * cleanups). History is **runtime-only**: commands mutate the in-memory document
- * and are never persisted (the jsonb payload is always the current document, no
- * frames).
+ * Command-based undo/redo over the canonical {@link Document}. History is
+ * runtime-only: commands mutate the in-memory document and are never
+ * persisted — the jsonb payload is always the current document.
  *
  * A {@link Command} is a reversible mutation. `apply` performs (or re-performs,
  * on redo) it; `invert` undoes it. Each command captures whatever it needs to
- * invert **at construction time** (the removed layer, the old name, the source
- * index), so `apply`/`invert` are deterministic no matter when they run. Commands
- * that snapshot prior state take the live `doc` as their first constructor
- * argument and must be built immediately before being executed.
+ * invert at construction time (the removed layer, the old name, the source
+ * index), so `apply`/`invert` are deterministic no matter when they run.
+ * Commands that snapshot prior state take the live `doc` as their first
+ * constructor argument and must be built immediately before being executed.
  *
- * Commands are keyed by stroke/layer `id`, never by array position, so they stay
- * correct as the document is edited around them (DOCUMENT-FORMAT §8).
+ * Commands are keyed by stroke/layer `id`, never by array position, so they
+ * stay correct as the document is edited around them (DOCUMENT-FORMAT.md §8).
  */
 import type { Document, Layer, Stroke } from './document'
 
@@ -21,9 +19,7 @@ import type { Document, Layer, Stroke } from './document'
 export interface Command {
     /** Short human label (for debugging / a future history panel). */
     readonly label: string
-    /** Perform the mutation (also used for redo). */
     apply(doc: Document): void
-    /** Reverse the mutation. */
     invert(doc: Document): void
 }
 
@@ -151,12 +147,12 @@ export function setLayerOpacityCommand(doc: Document, layerId: string, opacity: 
 }
 
 /**
- * Bundle several commands into ONE reversible unit (an accepted AI-assist batch,
- * ASSIST.md §5). `apply` runs `children` left-to-right; `invert` runs them
- * RIGHT-to-left — an `add_layer` then an `add_stroke` on that layer must invert
- * stroke-before-layer, so the stroke's invert never runs against a document that
- * no longer holds its target layer. Because it is a single {@link Command},
- * {@link History.execute} treats the whole batch as one undo entry (one Ctrl+Z).
+ * Bundle several commands into a single reversible {@link Command} (an accepted
+ * AI-assist batch, ASSIST.md §5), so {@link History.execute} treats it as one
+ * undo entry. `apply` runs `children` left-to-right; `invert` runs them
+ * right-to-left — an `add_layer` then an `add_stroke` on that layer must invert
+ * stroke-before-layer, or the stroke's invert runs against a document that no
+ * longer holds its target layer.
  */
 export function compositeCommand(children: Command[], label: string): Command {
     return {
@@ -179,7 +175,6 @@ export class History {
     private readonly undoStack: Command[] = []
     private readonly redoStack: Command[] = []
 
-    /** The most recent command's undo point, for a future history label. */
     get canUndo(): boolean {
         return this.undoStack.length > 0
     }

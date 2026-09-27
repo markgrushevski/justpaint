@@ -2,17 +2,12 @@ import { request } from './http'
 
 /**
  * Typed client for the ratings leaderboard (docs/API.md §11), on the shared
- * cookie-session `fetch` plumbing (`./http`). Mirrors the drawings/matches house
- * style: the Go DTO is the source of truth for the shape (camelCase, exact;
- * `displayName` nullable), and this module carries only the wire types + the
- * endpoint. Unlike drawings' imperative CRUD this is a cached READ — the query
- * binding lives in `./queries` (`useLeaderboard`), not a mutation. Store-free
- * (no api⇄store cycle).
+ * `fetch` plumbing (`./http`). Unlike drawings' imperative CRUD this is a
+ * cached read — the query binding lives in `./queries` (`useLeaderboard`), not
+ * a mutation.
  */
 
-/* ------------------------------------------------------------------ */
-/* Wire types (camelCase, exact from the Go DTO struct).              */
-/* ------------------------------------------------------------------ */
+// Wire types (camelCase, exact from the Go DTO struct).
 
 /** One ranked player row (docs/API.md §11). `rank` is 1-based, server-assigned. */
 export interface LeaderboardEntry {

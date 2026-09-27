@@ -7,10 +7,11 @@ import (
 	"time"
 )
 
-// Recover turns a panic in any handler into a logged 500 error-envelope response
-// instead of a bare stack trace and a dropped connection. Wrap it INSIDE
-// LogRequests so the access log sees the 500 it writes, and so the request id
-// LogRequests already assigned is in r's context by the time we read it here.
+// Recover turns a panic in any handler into a logged 500 error-envelope
+// response instead of a bare stack trace and a dropped connection. Wrap it
+// inside LogRequests so the access log sees the 500 it writes, and so the
+// request id LogRequests already assigned is in r's context by the time we
+// read it here.
 func Recover(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -29,14 +30,12 @@ func Recover(logger *slog.Logger, next http.Handler) http.Handler {
 // status, duration, request_id, client_ip). Logs via defer so a panic is
 // still recorded.
 //
-// It also OWNS request-id assignment for the whole handler chain: it resolves
-// (or, when trustProxy is true, adopts an inbound X-Request-Id) an id, echoes
-// it on the response header, and stores it in the request context BEFORE
-// calling next — so every downstream handler (including Recover, meant to
-// wrap INSIDE this) can read the same id via RequestID(ctx). trustProxy gates
-// both that adoption and the client-ip resolution (ClientIP): both read
-// headers that only a trusted reverse proxy in front of us should be allowed
-// to set (docs/NOTES.md; docs/IDEAS.md "Request-id correlation").
+// It also owns request-id assignment for the whole handler chain: it resolves
+// (or, when trustProxy is true, adopts an inbound X-Request-Id), echoes it on
+// the response header, and stores it in the context before calling next, so
+// downstream handlers including Recover can read the same id via
+// RequestID(ctx). trustProxy also gates ClientIP, since both read headers
+// only a trusted reverse proxy should be allowed to set (docs/NOTES.md).
 func LogRequests(logger *slog.Logger, trustProxy bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -73,11 +72,12 @@ func (s *statusRecorder) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
-// Unwrap exposes the wrapped ResponseWriter so callers that need an optional interface
-// the recorder doesn't itself implement can reach the real writer — via the Go 1.20+
-// Unwrap convention (http.ResponseController, and coder/websocket's hijacker follow it).
-// Critically this restores http.Hijacker for the WS upgrade: without it websocket.Accept
-// cannot hijack the connection and the handshake fails 501 (docs/NOTES.md "WS realtime").
+// Unwrap exposes the wrapped ResponseWriter so callers that need an optional
+// interface the recorder doesn't itself implement can reach the real writer,
+// via the Go 1.20+ Unwrap convention (http.ResponseController and
+// coder/websocket's hijacker follow it). This restores http.Hijacker for the
+// WS upgrade: without it, websocket.Accept cannot hijack the connection and
+// the handshake fails 501 (docs/NOTES.md "WS realtime").
 func (s *statusRecorder) Unwrap() http.ResponseWriter {
 	return s.ResponseWriter
 }

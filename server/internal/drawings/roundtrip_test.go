@@ -33,9 +33,9 @@ func TestNameRoundtrip_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	// Close via Cleanup, NOT `defer`: a test-body defer runs BEFORE t.Cleanup, so a
+	// Close via Cleanup, not defer: a test-body defer runs before t.Cleanup, so a
 	// deferred Close would shut the pool before the fixture cleanup below runs,
-	// silently leaving rows behind. Registered first, this runs LAST (Cleanup LIFO).
+	// silently leaving rows behind. Registered first, this runs last (Cleanup is LIFO).
 	t.Cleanup(func() { pool.Close() })
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("postgres unreachable: %v", err)
@@ -84,7 +84,7 @@ func TestNameRoundtrip_DB(t *testing.T) {
 		t.Errorf("create→get roundtrip: name = %q, want %q", got.Name, "sunset study")
 	}
 
-	// Update WITH a name → replaced.
+	// Update with a name → replaced.
 	upd, err := svc.Update(ctx, owner.ID, named.ID, strptr("dawn study"), doc, raw)
 	if err != nil {
 		t.Fatalf("update (named): %v", err)
@@ -93,7 +93,7 @@ func TestNameRoundtrip_DB(t *testing.T) {
 		t.Errorf("update with name: name = %q, want %q", upd.Name, "dawn study")
 	}
 
-	// Update WITHOUT a name → the existing name is kept, not clobbered.
+	// Update without a name → the existing name is kept, not clobbered.
 	kept, err := svc.Update(ctx, owner.ID, named.ID, nil, doc, raw)
 	if err != nil {
 		t.Fatalf("update (name absent): %v", err)

@@ -1,8 +1,8 @@
 -- name: CreateDrawing :one
--- `name` is user-editable metadata, NOT part of the vector document (the
--- validators never see it — docs/API.md §7). A null name takes the default
--- 'new art' (same value as the column default) via coalesce, so callers with
--- no name concept — game submit — simply pass nil.
+-- `name` is user-editable metadata, not part of the vector document — the
+-- validators never see it (docs/API.md §7). A null name takes the default
+-- 'new art' via coalesce, so a caller with no name concept (game submit) just
+-- passes nil.
 insert into drawings (owner_id, match_id, name, doc_version, width, height, document, thumbnail_url)
 values (sqlc.arg('owner_id'),
         sqlc.narg('match_id'),
@@ -19,15 +19,13 @@ select * from drawings
 where id = $1 and owner_id = $2;
 
 -- name: UpdateDrawing :one
--- `match_id is null` makes a submitted duel drawing immutable via CRUD (it is
--- locked once submitted — docs/API.md §7). A match-linked row matches nothing
--- here; the service turns that miss into 409, not a silent 404.
--- thumbnail_url is intentionally NOT set here: it is a server-generated cached-PNG
--- URL (the render worker owns it — DOCUMENT-FORMAT §7), never a client field, so a
--- document CRUD update must leave it untouched rather than clobber it to NULL.
--- `name` uses coalesce so a null (name absent/blank in the request) KEEPS the
--- existing name instead of clobbering it — an update is a document replace, not
--- necessarily a rename (docs/API.md §7).
+-- `match_id is null` keeps a submitted duel drawing immutable via CRUD
+-- (docs/API.md §7): a match-linked row matches nothing here, and the service
+-- turns that miss into 409, not a silent 404. thumbnail_url is never set here —
+-- it's the render worker's cached-PNG URL (docs/DOCUMENT-FORMAT.md §7), so an
+-- update must leave it untouched rather than null it out. `name` uses coalesce
+-- so a null request name keeps the existing name, since an update replaces the
+-- document, not necessarily the name.
 update drawings
 set name        = coalesce(sqlc.narg('name')::text, name),
     doc_version = sqlc.arg('doc_version'),

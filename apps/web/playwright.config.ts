@@ -1,18 +1,10 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Real-browser accessibility layer (@playwright/test + @axe-core/playwright).
- *
- * This catches RENDERED a11y issues — contrast in context, accessible names,
- * roles, focus — that the token-contrast lint (`lint:contrast`) and the
- * happy-dom unit tests structurally can't see. It is deliberately NOT wired
- * into `lint:all`: a headless browser run is heavy, so it stays its own
- * command (`npm run test:a11y`). See `tests/a11y/draw.spec.ts`.
- *
- * `tests/layout/` rides the same harness for a different blind spot: rendered
- * GEOMETRY. Absolutely-positioned chrome can be painted on top of itself with
- * every other gate green, and only a real browser has the pixels to
- * say so. Its own command (`npm run test:layout`) — same reason.
+ * Real-browser layer for what static gates can't see: rendered a11y
+ * (`tests/a11y`, docs/DECISIONS.md) and rendered geometry (`tests/layout`,
+ * docs/NOTES.md). Both need a live dev server, so both stay their own local
+ * commands (`test:a11y`, `test:layout`) rather than joining `lint:all`.
  */
 export default defineConfig({
     testDir: 'tests',

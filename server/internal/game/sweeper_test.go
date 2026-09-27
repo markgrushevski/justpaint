@@ -8,11 +8,11 @@ import (
 )
 
 // TestDrain covers the boot-pass drain loop with an injected phase closure. drain
-// never dereferences the Service, so a zero-value &Service{} with nil deps is enough
-// (the closure never touches them). It pins the fix that a phase returns its
-// handled-WITHOUT-error count: drain keeps passing while a batch comes back full,
-// stops once a batch is short (drained) OR handles zero (a persistently-failing
-// batch must not hot-loop), and honors ctx cancellation.
+// never dereferences the Service, so a zero-value &Service{} with nil deps is
+// enough. It pins that a phase returns its handled-without-error count: drain
+// keeps passing while a batch comes back full, stops once a batch is short
+// (drained) or handles zero (a persistently-failing batch must not hot-loop),
+// and honors ctx cancellation.
 func TestDrain(t *testing.T) {
 	svc := &Service{} // drain touches no fields
 

@@ -1,12 +1,11 @@
 <script lang="ts" setup>
 /**
- * The right-side slide-in menu, deliberately NON-MODAL: always mounted, slides
- * in from the right over the canvas with no backdrop and no focus trap, so the
- * canvas stays interactive behind it.
- * Toggled from DrawView (the toggler lives there, not here). Holds the
- * drawing title (inline rename), copy actions, file actions, canvas settings,
- * and — at the bottom, since unregistered users are the /draw priority —
- * the profile / one entry point into the shared sign-in modal.
+ * The right-side slide-in menu — deliberately non-modal: always mounted,
+ * slides in over the canvas with no backdrop and no focus trap, so the canvas
+ * stays interactive behind it. Toggled from DrawView (the toggler lives
+ * there). Holds the drawing title (inline rename), copy/file actions, canvas
+ * settings, and — at the bottom, since unregistered users are the /draw
+ * priority — the profile / sign-in entry point.
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -41,11 +40,8 @@ const session = useSessionStore()
 const theme = useThemeStore()
 const gate = useAuthGate()
 
-// --------------------------------------------------------------- appearance
-
-// Theme lives here now (moved out of the /draw actions island). The reusable
-// SegmentedControl (ui/) binds to the theme store's writable `mode`: assigning
-// applies + persists through useThemeStore (the single source of truth).
+// SegmentedControl binds to the theme store's writable `mode`: assigning
+// applies and persists through useThemeStore, the single source of truth.
 const THEME_OPTIONS: { value: ThemeMode; label: string; icon: IconName }[] = [
     { value: 'light', label: 'Light', icon: 'sun' },
     { value: 'dark', label: 'Dark', icon: 'moon' },
@@ -56,8 +52,6 @@ const THEME_OPTIONS: { value: ThemeMode; label: string; icon: IconName }[] = [
 function selectTheme(mode: string): void {
     theme.mode = mode as ThemeMode
 }
-
-// ---------------------------------------------------------------- title row
 
 const TITLE_MAX = 64
 const displayTitle = computed(() => props.title.slice(0, TITLE_MAX))
@@ -79,8 +73,6 @@ function onTitleEnter(e: KeyboardEvent) {
     e.preventDefault()
     ;(e.target as HTMLElement).blur()
 }
-
-// ----------------------------------------------------------- canvas section
 
 // Screen dimensions for the "Screen" preset label — refreshed on open so a
 // rotated phone / resized window shows current numbers.
@@ -132,8 +124,6 @@ function onToggleGrid(on: boolean | undefined) {
     emit('toggleGrid', on === true)
 }
 
-// ---------------------------------------------------- panel focus management
-
 // Reset transient form state and move focus into the panel whenever the menu
 // opens — without focus inside, Esc (keydown on the panel tree) never fires.
 const panelRef = ref<HTMLElement | null>(null)
@@ -161,10 +151,9 @@ async function logout() {
     await session.logout()
 }
 
-// The bulky inline auth form was moved out of the drawer (2026-09-18) —
-// hand off to the shared modal instead. Close the drawer first: AuthDialog is a
-// true modal with its own backdrop, so leaving the drawer's Save/Load/Canvas/
-// Appearance sections slid out behind it would just double up on chrome.
+// Close the drawer first: AuthDialog is a true modal with its own backdrop,
+// so leaving the drawer's other sections slid out behind it would just
+// double up on chrome.
 const signIn = () => {
     emit('close')
     void gate.ensure()
@@ -197,8 +186,8 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
     <Teleport to="body">
-        <!-- Always mounted; open/closed is pure transform (the legacy mechanic).
-             `inert` while closed keeps the off-screen panel out of the Tab order. -->
+        <!-- Always mounted; open/closed is pure transform. `inert` while closed
+             keeps the off-screen panel out of the Tab order. -->
         <aside
             ref="panelRef"
             class="menu"
@@ -209,7 +198,6 @@ function onKeydown(e: KeyboardEvent) {
             :inert="!props.open"
             @keydown="onKeydown"
         >
-            <!-- Title row: the drawing name (inline rename when allowed) -->
             <header class="menu__title-row">
                 <span
                     class="menu__title menu__title--editable"
@@ -224,7 +212,8 @@ function onKeydown(e: KeyboardEvent) {
                 <OriIcon :icon="icons.mdiRename" class="menu__title-pencil" />
             </header>
 
-            <!-- Copy row: stays open after copying (legacy behavior) -->
+            <!-- Copy actions: the drawer stays open after copying (unlike file
+                 actions below). -->
             <div class="menu__copy">
                 <OriButton
                     text="Copy as text"
@@ -278,22 +267,14 @@ function onKeydown(e: KeyboardEvent) {
                 </div>
             </section>
 
-            <!-- Play — the way OUT of /draw into the game. It sits here, above the
-                 fold and outside the profile block, because the drawer is the only
-                 durable route to the game: the /draw welcome card carries the same
-                 links but disappears on the first stroke and never returns, so a
-                 visitor who drew one line used to lose the product's main mode.
-                 Duel and practice are open to anonymous visitors (both views gate
-                 on mount, so the sign-in prompt arrives with a reason attached);
-                 the ladder is not, because GET /api/leaderboard requires a session
-                 and an anonymous click would only earn a 401.
+            <!-- Play: the drawer is the only durable route out of /draw into the
+                 game — the welcome card carries the same links but disappears
+                 after the first stroke. Duel and practice are open to anonymous
+                 visitors (both gate on mount); the ladder isn't, since
+                 GET /api/leaderboard requires a session.
 
-                 `tonal`, not `outline`: outline with no colour resolves to the same
-                 maroon hairline as Load/New/Export three rows above, so the
-                 product's MAIN mode read as "File, part two". DESIGN-SYSTEM §2
-                 keeps tonal for grouped mid-emphasis, which is exactly what a
-                 navigation trio is — distinct from the file actions without
-                 stealing the single `fill` that belongs to Save. -->
+                 `tonal`, not `outline`, which would read as more file actions
+                 here (docs/DESIGN-SYSTEM.md §2: tonal for grouped mid-emphasis). -->
             <section class="menu__section" aria-label="Play">
                 <h2 class="menu__section-title">Play</h2>
                 <div class="menu__stack">
@@ -333,7 +314,6 @@ function onKeydown(e: KeyboardEvent) {
                 </div>
             </section>
 
-            <!-- Canvas settings -->
             <section class="menu__section" aria-label="Canvas">
                 <h2 class="menu__section-title">Canvas</h2>
                 <OriSelect v-model="sizeChoice" label="Canvas size" :options="sizeOptions" fluid />
@@ -345,8 +325,8 @@ function onKeydown(e: KeyboardEvent) {
                 <OriSwitch label="Checkerboard" :model-value="props.backdropGrid" @update:model-value="onToggleGrid" />
             </section>
 
-            <!-- Appearance: theme (moved here from the /draw actions island). The
-                 store's writable `mode` applies + persists on assignment. -->
+            <!-- Appearance: the store's writable `mode` applies and persists on
+                 assignment. -->
             <section class="menu__section" aria-label="Appearance">
                 <h2 class="menu__section-title">Appearance</h2>
                 <SegmentedControl
@@ -370,9 +350,6 @@ function onKeydown(e: KeyboardEvent) {
                 <div class="menu__rating">
                     Rating <b>{{ session.user?.rating }}</b>
                 </div>
-                <!-- Navigation used to live here, which is why an anonymous visitor
-                     saw no game at all. It moved to the Play section above; this
-                     block is now only who-you-are and how-to-leave. -->
                 <OriButton text="Log out" variant="outline" radius="md" :icon="icons.mdiLogout" @click="logout" />
             </section>
 

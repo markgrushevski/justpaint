@@ -152,10 +152,11 @@ func unmarshalOp(data []byte) (Op, error) {
 	}
 }
 
-// requiredOpKeys asserts every REQUIRED op key is physically present in the raw
-// JSON. encoding/json silently zero-fills an absent field — absent
-// add_layer.name → "", absent add_stroke.layerId → "" — so struct decoding alone
-// would accept ops the spec rejects (mirrors requiredKeys in parse.go). Value/shape is left to ValidateOpBatch.
+// requiredOpKeys checks every required op key is physically present in the raw
+// JSON, since encoding/json silently zero-fills an absent field — absent
+// add_layer.name → "", absent add_stroke.layerId → "" — so struct decoding
+// alone would accept ops the spec rejects (mirrors requiredKeys in parse.go).
+// Value/shape is left to ValidateOpBatch.
 func requiredOpKeys(data []byte) error {
 	var raw []json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -188,20 +189,13 @@ func requiredOpKeys(data []byte) error {
 	return nil
 }
 
-// ValidateOpBatch validates a decoded op batch against a doc summary. It seeds
-// the single shared id namespace from the summary's layer ids, then validates
-// each op IN ARRAY ORDER:
-//   - add_layer: checkID against the shared namespace (collision with a summary
-//     id or an intra-batch duplicate → error) + the checkStroke/validateLayer
-//     name rule; then the id becomes a resolvable layer ref.
-//   - add_stroke: layerId must resolve to a summary layer id or an add_layer id
-//     appearing EARLIER in this batch (a dangling or forward reference → error);
-//     then the stroke is validated by the reused checkStroke, freehand rejected.
+// ValidateOpBatch validates a decoded op batch against a doc summary, seeding
+// the shared id namespace from the summary's layer ids and applying each op in
+// array order — an add_stroke's layerId must resolve to a summary layer or an
+// earlier add_layer in the same batch (docs/ASSIST.md §2).
 //
-// Only per-op and per-batch caps are enforced here (batch size; per-stroke point
-// count comes free from checkStroke). Whole-document caps (MaxLayers/MaxStrokes/
-// MaxTotalPoints) stay at the save write-edge — this validator has only the
-// summary, never the full document.
+// Only per-op and per-batch caps are enforced here; whole-document caps live at
+// the save write-edge, since this validator only ever sees the summary.
 func ValidateOpBatch(ops []Op, summary DocSummary) error {
 	if len(ops) > MaxOpsPerBatch {
 		return invalid("too many ops: %d (max %d)", len(ops), MaxOpsPerBatch)

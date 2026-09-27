@@ -1,14 +1,9 @@
 // Package ratings is the read-only leaderboard slice of Phase 4 (docs/GAME.md §8,
-// docs/API.md §11): one endpoint that returns the top-rated players and their
-// win/loss records. It mirrors the small single-route shape of internal/assist —
-// a Service over *db.Queries plus an HTTP Handler — rather than living on
-// internal/game, because the leaderboard is a pure global read that shares nothing
+// docs/API.md §11): one endpoint returning the top-rated players and their
+// win/loss records. It mirrors internal/assist's small single-route shape — a
+// Service over *db.Queries plus an HTTP Handler — rather than living on
+// internal/game, since the leaderboard is a pure global read sharing nothing
 // with the match lifecycle.
-//
-// The Service is READ-ONLY: it takes only *db.Queries (never the pool), owns no
-// transaction, and performs no write. The whole aggregate + sort happens in one
-// query (ListTopRatings); there is no in-memory ranking beyond assigning the
-// row-number rank in the handler.
 package ratings
 
 import (

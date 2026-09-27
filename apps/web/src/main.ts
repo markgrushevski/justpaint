@@ -37,7 +37,7 @@ const pinia = createPinia()
 const app = createApp(App).use(router).use(VueQueryPlugin).use(pinia)
 
 // The composition root, where the store-free fetch client meets the store: any
-// 401 forgets the session, everywhere, once. Asking for a NEW one stays a UI
+// 401 forgets the session, everywhere, once. Asking for a new one stays a UI
 // decision (docs/DECISIONS.md) — a background poll must not raise a modal.
 setUnauthorizedHandler(() => useSessionStore(pinia).clear())
 

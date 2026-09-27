@@ -29,22 +29,15 @@ export const icons = {
     mdiKeyboard:
         'M19,10H17V8H19M19,13H17V11H19M16,10H14V8H16M16,13H14V11H16M16,17H8V15H16M7,10H5V8H7M7,13H5V11H7M8,11H10V13H8M8,8H10V10H8M11,11H13V13H11M11,8H13V10H11M20,5H4C2.89,5 2,5.89 2,7V17A2,2 0 0,0 4,19H20A2,2 0 0,0 22,17V7C22,5.89 21.1,5 20,5Z',
     mdiArrowLeft: 'M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z',
-    // Self-authored podium/ranking glyph (a 2nd-1st-3rd block trio) for the
-    // leaderboard nav. NOT prefixed `mdi`: the rest of this set is ported @mdi/js
-    // paths, but @mdi/js isn't installed, this metaphor is simple enough to draw
-    // by hand, and the real upstream mdiPodium is a differently-shaped glyph — so
-    // this hand-authored one must not borrow that name.
-    //
-    // Drawn to the SET's optical size, which is what an mdi glyph assumes and
-    // what nothing enforces: 2..22 on both axes (20 of 24 units), matching
-    // `target` exactly and `mdiSwordCross`'s ~20.7. The first draft spanned 13
-    // units tall and read visibly smaller than its two neighbours stacked beside
-    // it in the drawer's Play section. Three 6-wide blocks with 1-unit gaps, all
-    // on the y=22 baseline; heights 20/12/8 keep the 1st-2nd-3rd proportions.
+    // Self-authored podium glyph (2nd-1st-3rd blocks) for the leaderboard nav —
+    // not prefixed `mdi`: @mdi/js isn't installed, and the real mdiPodium is a
+    // differently-shaped glyph. Sized to the set's optical size (2..22 on both
+    // axes, matching `target` and `mdiSwordCross`) so it doesn't read smaller
+    // than its neighbours in the drawer's Play section.
     podium: 'M2,10H8V22H2V10M9,2H15V22H9V2M16,14H22V22H16V14Z',
     // Self-authored bullseye for practice — five concentric circles with
     // alternating sweep flags, so the default nonzero fill-rule punches the gaps
-    // out and leaves two rings plus a centre dot. Hand-drawn for the same reason
-    // as `podium` above (no @mdi/js here), and likewise NOT prefixed `mdi`.
+    // out, leaving two rings plus a centre dot. Not prefixed `mdi`, same reason
+    // as `podium` above.
     target: 'M2,12a10,10 0 1,0 20,0a10,10 0 1,0-20,0M4.25,12a7.75,7.75 0 1,1 15.5,0a7.75,7.75 0 1,1-15.5,0M6.5,12a5.5,5.5 0 1,0 11,0a5.5,5.5 0 1,0-11,0M8.75,12a3.25,3.25 0 1,1 6.5,0a3.25,3.25 0 1,1-6.5,0M10.75,12a1.25,1.25 0 1,0 2.5,0a1.25,1.25 0 1,0-2.5,0'
 } as const

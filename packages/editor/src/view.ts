@@ -1,9 +1,9 @@
 /**
- * Pure viewport math for the editor's zoom/pan — the "fit to viewport" surface
- * (ROADMAP Phase 2). Kept side-effect-free and DOM-free so it's unit-testable;
- * the {@link Editor} applies the result to the Konva **stage** (size + scale +
- * position), never a CSS transform, so `getRelativePointerPosition` keeps
- * returning logical document coordinates (DOCUMENT-FORMAT §2 / NOTES).
+ * Pure viewport math for the editor's zoom/pan. Side-effect-free and DOM-free so
+ * it's unit-testable; the {@link Editor} applies the result to the Konva stage
+ * (size + scale + position), never a CSS transform, so
+ * `getRelativePointerPosition` keeps returning logical document coordinates
+ * (DOCUMENT-FORMAT.md §2, docs/NOTES.md).
  */
 import { computeFitTransform } from './document'
 

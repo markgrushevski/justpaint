@@ -6,16 +6,11 @@ import (
 )
 
 // FakeGuesser is the zero-ML default for /draw's guess button, mirroring
-// FakeCritic: it "reads" the drawing by INK COVERAGE — the fraction of
-// non-background pixels in the authoritative raster — so the whole loop (render →
-// guess → answer) runs with no API key, no quota and no network. Deterministic in
-// the bytes.
-//
-// It never looks at the picture, and the LABEL says so in as many words, in the
-// one field the player is guaranteed to read. That sentence is the point of this
-// type, not an apology for it: "a cat wearing a hat" from something that only
-// counted dark pixels is a lie a player cannot detect, and it would quietly teach
-// them the feature works. The fake proves the loop; only a real guesser guesses.
+// FakeCritic: it "reads" the drawing by ink coverage, so the whole loop runs
+// with no API key, quota or network, deterministic in the bytes. It never
+// looks at the picture, and the label says so in the one field the player is
+// guaranteed to read — a real-sounding guess from counted pixels would be a
+// lie a player cannot detect.
 type FakeGuesser struct{}
 
 // NewFakeGuesser returns the in-process fake guesser.
@@ -23,19 +18,11 @@ func NewFakeGuesser() *FakeGuesser { return &FakeGuesser{} }
 
 var _ Guesser = (*FakeGuesser)(nil)
 
-// Guess implements Guesser. It ignores the context; the result honors the
-// contract exactly (a valid confidence, a label within the cap) so every consumer
-// path is exercised.
-//
-// Confidence is the ink coverage, exactly as FakeCritic's score is — the same
-// trick, so the same document produces a non-trivial, non-constant number and a
-// UI that renders a confidence bar has something to render. It is ink wearing a
-// confidence's clothes, which is exactly why the label refuses to let anyone read
-// it as anything else.
-//
-// No alternatives, ever: a guesser that never looked at the picture has no second
-// opinion, because it never had a first one. Zero runner-ups is a legal shape and
-// this is the honest occupant of it.
+// Guess implements Guesser. Confidence is the ink coverage — the same trick
+// as FakeCritic's score, so the UI's confidence bar has something non-trivial
+// to render — and the label is what keeps it from being read as a real
+// answer. No alternatives, ever: a guesser that never looked has no second
+// opinion to offer.
 func (FakeGuesser) Guess(_ context.Context, img []byte) (Guess, error) {
 	cov, err := inkCoverage(img)
 	if err != nil {

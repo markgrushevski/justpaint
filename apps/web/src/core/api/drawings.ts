@@ -3,16 +3,12 @@ import { roundDocument } from '@justpaint/editor'
 import { request } from './http'
 
 /**
- * Typed client for the Go backend's auth + drawings API (docs/API.md), on native
- * `fetch` (no axios). The shared cookie-session `fetch` plumbing lives in
- * `./http` (BASE, the `ApiError` envelope, `request`); this module carries only
- * the drawings/auth wire types + endpoints. Session STATE lives in
- * `useSessionStore`; both are store-free (no api⇄store cycle).
+ * Typed client for the Go backend's auth + drawings API (docs/API.md), on the
+ * shared `fetch` plumbing (`./http`). Session state lives in `useSessionStore`;
+ * this module stays store-free.
  */
 
-/* ------------------------------------------------------------------ */
-/* Wire types (camelCase, exact from the Go DTO structs).             */
-/* ------------------------------------------------------------------ */
+// Wire types (camelCase, exact from the Go DTO structs).
 
 export interface User {
     id: string
@@ -59,9 +55,7 @@ interface DrawingFullEnvelope {
     drawing: DrawingFull
 }
 
-/* ------------------------------------------------------------------ */
-/* Auth.                                                              */
-/* ------------------------------------------------------------------ */
+// Auth.
 
 export interface RegisterBody {
     login: string
@@ -89,11 +83,9 @@ export const auth = {
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Drawings CRUD. Body is `{ document: <vector doc>, name? }` — name  */
-/* omitted when undefined (server defaults create to 'new art' and    */
-/* keeps the existing name on update).                                */
-/* ------------------------------------------------------------------ */
+// Drawings CRUD. Body is `{ document: <vector doc>, name? }` — name omitted
+// when undefined (server defaults create to 'new art' and keeps the existing
+// name on update).
 
 export const drawings = {
     async create(doc: Document, name?: string): Promise<DrawingMeta> {

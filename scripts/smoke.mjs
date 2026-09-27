@@ -1,30 +1,24 @@
 /**
- * Post-deploy smoke: drive a whole duel through a running deployment.
+ * Post-deploy smoke: drives a whole duel through a running deployment.
  *
  *     npm run smoke                                  # the local stack (default)
  *     npm run smoke -- https://justpaint.onrender.com # a real deployment
  *
- * Default to the local stack: `docker compose up -d` + `go run ./cmd/server`.
- * Pointing it at production is a deliberate act, not the easy path — read the
- * cleanup note below before you do.
- *
- * CI proves the image boots and serves; this proves the PRODUCT works — auth and
- * the session cookie's flags, matchmaking, prompt reveal, the document validator
- * at the submit edge, the authoritative server-side render (RENDER_MODE=node,
- * two node-canvas child processes — the most fragile thing in a small
- * deployment), the judge, Elo, the post-result reveal, and the 404-not-403
- * boundary a non-player must hit.
- *
- * IT CREATES REAL ACCOUNTS. Against a public deployment they appear on the
- * leaderboard until removed. There is no delete-user endpoint by design, so
- * clean up in SQL (order matters — nothing cascades):
+ * Defaults to the local stack (`docker compose up -d` + `go run ./cmd/server`).
+ * Pointing it at production is a deliberate act, not the easy path: it CREATES
+ * REAL ACCOUNTS that appear on the leaderboard until removed (there's no
+ * delete-user endpoint by design). Clean up in SQL, in this order — nothing
+ * cascades:
  *
  *     delete from match_players where user_id in (select id from users where login like 'smoke-%');
  *     delete from drawings      where owner_id in (select id from users where login like 'smoke-%');
- *     -- every match now missing both seats is one of the above; a real match
- *     -- always keeps at least its creator, so this cannot reach a live one.
+ *     -- a real match always keeps its creator, so this can't reach one:
  *     delete from matches       where id not in (select match_id from match_players);
  *     delete from users         where login like 'smoke-%';
+ *
+ * Covers what CI's boot check doesn't: auth and the session cookie's flags,
+ * matchmaking, prompt reveal, the document validator, the server-side render
+ * (RENDER_MODE=node), the judge, Elo, and the 404-not-403 ownership boundary.
  */
 const BASE = (process.argv[2] ?? 'http://localhost:8080').replace(/\/$/, '')
 const stamp = Date.now().toString(36)
@@ -36,7 +30,7 @@ const ok = (label, cond, detail = '') => {
     if (!cond) failures++
     console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`)
 }
-/** Not asserted here, and SAYING so — a silent pass would be a lie. */
+/** Explicitly not asserted — a silent pass would be a lie. */
 const skip = (label, why) => {
     skipped++
     console.log(`SKIP  ${label} — ${why}`)
@@ -44,12 +38,10 @@ const skip = (label, why) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * Two checks below only hold for a production-shaped deployment: the Secure
- * cookie flag (ENV=dev drops it so http://localhost can hold a session at all)
- * and the served SPA shell (a dev server sets no STATIC_DIR and leaves the SPA
- * to Vite on :7777). Against the DEFAULT localhost target both failed on every
- * run — which teaches you to read a red line as normal, the one habit a smoke
- * test must never build. Asserted against https; reported as skipped otherwise.
+ * The Secure cookie flag (dropped when ENV=dev, so http://localhost can hold a
+ * session) and the served SPA shell (a dev server leaves that to Vite on :7777)
+ * only hold for a production-shaped deployment. Asserted against https; skipped
+ * (not silently passed) otherwise, so a red line never becomes the normal read.
  */
 const prodShaped = new URL(BASE).protocol === 'https:'
 
@@ -178,8 +170,8 @@ let result = null
 const startedAt = Date.now()
 for (let i = 0; i < 45 && !result; i++) {
     const res = await call(a, 'GET', `/api/matches/${matchId}/result`)
-    // The payload is nested under `result`; reading `ready` off the envelope is
-    // how an early version of this script accused production of hanging.
+    // The payload nests under `result` — reading `ready` off the envelope
+    // directly always reads undefined.
     const payload = res.json?.result ?? res.json
     if (payload?.ready) result = payload
     else await sleep(2000)
@@ -205,9 +197,8 @@ if (result) {
         players.map((p) => p.score?.toFixed(4)).join(' vs ')
     )
 
-    // Elo is only *required* to move when the duel had a winner. A tie between
-    // equal ratings must leave both untouched — asserting "it moved" there is
-    // asserting the formula is wrong.
+    // Elo only has to move on a real winner; a tie between equal ratings must
+    // leave both untouched — asserting movement there would assert the formula is wrong.
     const [p1, p2] = players
     const delta = (p) => p.ratingAfter - p.ratingBefore
     if (result.isTie && p1?.ratingBefore === p2?.ratingBefore) {

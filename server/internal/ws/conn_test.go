@@ -86,10 +86,9 @@ func (f *fakeConn) pingCount() int {
 	return f.pingCalls
 }
 
-// waitFor polls cond until it's true or the deadline (a safety net against a hung
-// test, exactly like the existing hub_test.go time.After(2*time.Second) pattern) —
-// never the mechanism driving the timing under test, which is the injected few-
-// millisecond readIdleTimeout/heartbeatInterval below.
+// waitFor polls cond until it's true or the deadline — a safety net against a hung
+// test, never the mechanism driving the timing under test (the injected
+// few-millisecond readIdleTimeout/heartbeatInterval below).
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -105,7 +104,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 }
 
 // TestHeartbeatEvictsIdleConnection asserts that a connection whose heartbeat probes
-// NEVER succeed (a black-holed peer that answers neither app-level pings nor
+// never succeed (a black-holed peer that answers neither app-level pings nor
 // protocol-level ones) is evicted once readIdleTimeout elapses, closed with the
 // idle-timeout code, and that readPump unblocks as a result (proving forceClose really
 // tore the connection down, not just heartbeatLoop's own view of it).
@@ -146,7 +145,7 @@ func TestHeartbeatEvictsIdleConnection(t *testing.T) {
 
 // TestHeartbeatKeepsQuietHealthyConnectionAlive asserts that a connection which sends
 // no app-level frames at all, but whose protocol-level pings always succeed (a
-// healthy peer, e.g. a duelist mid-drawing with a long silent stretch), is NOT evicted
+// healthy peer, e.g. a duelist mid-drawing with a long silent stretch), is not evicted
 // even after several multiples of readIdleTimeout have elapsed — proving the server
 // heartbeat, not just client traffic, keeps a quiet connection alive.
 func TestHeartbeatKeepsQuietHealthyConnectionAlive(t *testing.T) {

@@ -1,17 +1,11 @@
 <script lang="ts" setup>
 /**
- * A generic, product-agnostic confirmation modal — "are you sure?" before a
- * destructive or irreversible action. Built on @oriui/vue's OriDialog (the
- * alpha-11 controlled form: `open` prop + `update:open`/`close` emits) — the
- * native <dialog> supplies the focus trap, scroll lock, Esc and ::backdrop
- * dismissal for free.
- *
- * The parent owns `open` and reacts to `confirm` / `cancel`; this component
- * never mutates the prop. A user-initiated dismiss (Esc / backdrop / ×) maps
- * to `cancel` — controlled mode is optimistic, so the dialog has already
- * closed by the time `update:open(false)` fires; we just mirror it outward.
- * Used by /draw — /play and /practice went live with their own overlay cards
- * instead — so it stays free of any product-specific copy or wiring.
+ * Generic confirm modal on OriDialog's controlled form; the native <dialog>
+ * gives focus trap, scroll lock, Esc and ::backdrop dismissal for free. The
+ * parent owns `open` and never mutates it — controlled mode is optimistic, so
+ * a user dismiss has already closed the dialog by the time `update:open(false)`
+ * fires, and `onOpenChange` just maps that to `cancel`. /draw only: /play and
+ * /practice use their own overlay cards.
  */
 import { OriButton, OriDialog } from '@oriui/vue'
 
@@ -56,7 +50,6 @@ function onOpenChange(open: boolean) {
     opacity: 0.85;
 }
 
-/* Cancel then Confirm, right-aligned. */
 .confirm__actions {
     display: flex;
     justify-content: flex-end;

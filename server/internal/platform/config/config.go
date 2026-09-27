@@ -19,31 +19,27 @@ type Config struct {
 	Env          string // "dev" | "prod" — required, never defaulted
 	CookieSecure bool   // Secure flag on the session cookie
 
-	// TrustProxy says whether an X-Forwarded-For / X-Request-Id header may be
-	// believed. It is a real fork, not a formality: left false behind a proxy,
-	// every client collapses into the proxy's own IP — one shared rate-limit
-	// bucket and useless abuse logs; set true anywhere NOT behind exactly one
-	// trusted hop, a client can forge the header and evade per-IP limits
-	// entirely. Default false — the safe half.
+	// TrustProxy says whether X-Forwarded-For / X-Request-Id may be trusted.
+	// Left false, every client behind a proxy collapses into the proxy's own
+	// IP, breaking per-IP rate limits and abuse logs. Set true only behind
+	// exactly one trusted hop — otherwise a client can forge the header and
+	// evade per-IP limits entirely.
 	TrustProxy bool
 
-	// AutoMigrate applies the embedded goose migrations at boot. On by default
-	// because the deployment target has no shell — a one-off command against the
-	// production database is a paid feature there, so "migrate, then roll the
-	// binary" is not a sequence anyone can perform. Set false where a human (or a
-	// pipeline) owns migrations and the server must never touch the schema.
+	// AutoMigrate applies the embedded goose migrations at boot. Default true
+	// because the deploy target has no shell to run migrations separately. Set
+	// false where a human or pipeline owns the schema instead.
 	AutoMigrate bool
 
-	// StaticDir is the built SPA (apps/web/dist) the server also serves, making
-	// the API and the frontend one origin — required, since the session cookie
-	// and the WS upgrade are same-origin and no CORS headers are sent. Empty
-	// (the dev default) disables it: Vite serves the SPA and proxies /api here.
+	// StaticDir is the built SPA (apps/web/dist) the server also serves,
+	// keeping API and frontend same-origin — required since the session
+	// cookie and the WS upgrade are same-origin with no CORS headers sent.
+	// Empty in dev, where Vite serves the SPA and proxies /api here.
 	StaticDir string
 
-	// DBMaxConns bounds the pgx pool. pgx would default to max(4, NumCPU), which
-	// is sized to the app host and knows nothing about the database's own
-	// max_connections budget — on a small managed Postgres a few app instances
-	// can exhaust it. Explicit and small by default.
+	// DBMaxConns bounds the pgx pool. pgx's own default scales with host CPU
+	// count, not with the database's max_connections, which a few app
+	// instances can exhaust on a small managed Postgres.
 	DBMaxConns int32
 
 	// RenderMode selects the judge-raster renderer: "stub" (default; in-process,
@@ -54,62 +50,31 @@ type Config struct {
 	RenderCLI string
 	// RenderNodeBin is the node executable (default "node").
 	RenderNodeBin string
-	// JudgeConcurrency bounds two things, and the second one was added after a
-	// review found the first was not enough.
-	//
-	// It bounds how many judging passes (authoritative render + judge call) run at
-	// once — under RenderMode "node" each pass spawns OS child processes rasterizing
-	// a 1024² canvas, so an unbounded backlog drain is a fork bomb on a small
-	// instance. It ALSO sizes the semaphore inside the node renderer itself
-	// (internal/render), which is what bounds the SYNCHRONOUS renders on
-	// /api/guess and /api/practice: those two render inside the request and have no
-	// pass-level limiter of their own, so without it one client's request burst is
-	// one subprocess per request.
+	// JudgeConcurrency bounds concurrent judging passes (authoritative render +
+	// judge call), avoiding a fork bomb under RenderMode "node" (each pass
+	// forks OS processes for a 1024x1024 render). It also sizes the render
+	// semaphore that bounds inline synchronous renders on /api/guess and
+	// /api/practice.
 	JudgeConcurrency int
 
-	// AIDailyGlobal and AIDailyPerUser cap how many AI calls a rolling 24h window
-	// may spend. They guard a resource the per-IP rate limiter cannot see: a free
-	// tier's binding limit is requests per DAY, one call is one request, and a
-	// duel is only ~4 write requests — so a single IP inside the write limiter can
-	// burn a daily quota in the hundreds within minutes, after which NOBODY gets
-	// served. The per-user half is what keeps one abuser from denying service to
-	// everyone.
-	//
-	// AIDailyGlobal is applied PER PROVIDER AND MODEL, not once across all of them:
-	// Google running dry must never refuse a feature served by the external ML judge's
-	// own service, which has its own quota entirely, and — since Google meters its
-	// free tier per MODEL — a kind pinned to one model must not be refused because
-	// a different kind emptied a different model's pool. Which provider and model
-	// back which kind is decided at the composition root from JUDGE_MODE /
-	// ASSIST_MODE and AIModelPerKind, never configured here.
-	//
-	// AIDailyPerUser maps an AI-call kind ("duel", "practice", …) to that kind's
-	// own per-player ceiling; a kind absent from the map keeps its code default.
-	// The kind NAMES are not validated here — the valid set belongs to
-	// internal/aibudget and grows with the code, and config must stay free of
-	// domain imports — so the composition root rejects an unknown one at boot,
-	// which is the same instant with a better error.
-	//
-	// There is deliberately no "unlimited" sentinel: an AI call always has a
-	// budget, and an operator who wants effectively none sets a large number.
-	// Every value is rejected below 1 at boot.
+	// AIDailyGlobal and AIDailyPerUser cap AI calls over a rolling 24h window —
+	// a resource the per-IP rate limiter cannot see, since a provider's quota
+	// is metered per day, not per request rate. AIDailyGlobal applies per
+	// provider and model; AIDailyPerUser maps a call kind ("duel", "practice",
+	// …) to its own per-player ceiling, and a kind absent from the map keeps
+	// its code default. Kind names are not validated here — internal/aibudget
+	// owns the valid set, and config stays free of domain imports — so the
+	// composition root rejects an unknown kind at boot. No value may be below
+	// 1; there is no "unlimited" sentinel. Full rule: docs/GAME.md §4.3.
 	AIDailyGlobal  int
 	AIDailyPerUser map[string]int
 
-	// AIModelPerKind overrides, per AI-call kind ("duel", "guess", …), the model
-	// that kind runs on; GeminiModel is the default for every kind that names no
-	// override. It exists because the kinds' jobs differ in difficulty — the duel
-	// judge's number feeds Elo and has to be the steadiest, while the guesser only
-	// names what it sees and its mistakes cost nothing — so one model id for all of
-	// them is either an overpay or an underserve.
-	//
-	// It takes the SAME kind=value comma-list shape as AIDailyPerUser, on purpose:
-	// one person maintains this, and two env vars about the same set of kinds
-	// reading the same way is worth more than either being shorter.
-	//
-	// Like AIDailyPerUser, the kind NAMES are not validated here — the valid set
-	// belongs to internal/aibudget and grows with the code — so the composition root
-	// rejects an unknown one at boot, which is the same instant with a better error.
+	// AIModelPerKind overrides, per AI-call kind, the model that kind runs on;
+	// GeminiModel is the default for a kind with no override. Kinds differ in
+	// how much accuracy matters — the duel judge's number feeds Elo, the
+	// guesser's mistakes cost nothing — so one model for all of them is either
+	// an overpay or an underserve. Same kind=value comma-list shape and the
+	// same unvalidated-name handling as AIDailyPerUser.
 	AIModelPerKind map[string]string
 
 	// JudgeMode selects the judge impl (docs/JUDGE.md): "fake" (default; the
@@ -120,17 +85,17 @@ type Config struct {
 	// JudgeBaseURL is the external ML judge's service root, required for JudgeMode
 	// "http" (§7).
 	JudgeBaseURL string
-	// JudgeTimeout bounds ONE judging call, retries excluded (§7 pins 10s). The
+	// JudgeTimeout bounds one judging call, retries excluded (§7 pins 10s). The
 	// critic and the guesser share it — all three ask a vision model one short
 	// question and get a handful of scalars back. Assist does not; see AssistTimeout.
 	JudgeTimeout time.Duration
 	// GeminiAPIKey is the server-side key for JudgeMode "gemini". Never reaches
 	// the client. Required when that mode is selected.
 	GeminiAPIKey string
-	// GeminiModel is the DEFAULT model id for every Gemini-backed kind (judge,
-	// critic, guesser, assist). Configurable rather than hardcoded because Google's
-	// free-tier model names and quotas move faster than our releases — a changed
-	// name must not need a code change. AIModelPerKind overrides it per kind.
+	// GeminiModel is the default model id for every Gemini-backed kind (judge,
+	// critic, guesser, assist); AIModelPerKind overrides it per kind.
+	// Configurable because Google's free-tier model names and quotas move
+	// faster than releases here.
 	GeminiModel string
 	// GeminiBaseURL is the API root, overridable for the same reason and so a
 	// test can point at an httptest server.
@@ -138,25 +103,19 @@ type Config struct {
 
 	// AssistMode selects the AI-assist impl (docs/ASSIST.md): "fake" (default;
 	// deterministic canned ops that ignore the prompt, zero API dependency) or
-	// "gemini" (the real impl — a prompt really becomes shapes). Mirrors the
-	// RenderMode mode-switch.
+	// "gemini" (the real impl — a prompt becomes shapes). Mirrors the
+	// RenderMode switch.
 	//
-	// Assist deliberately has no model knob of its own. It takes its model from
-	// the same place every other Gemini seam does — GeminiModel, overridden for
-	// this kind alone by AIModelPerKind["assist"] — because that is also where its
-	// quota is counted (per provider AND model), and a second knob could only ever
-	// disagree with the budget key.
+	// Assist has no model knob of its own: it takes GeminiModel, overridden
+	// for this kind alone by AIModelPerKind["assist"], because that is also
+	// where its quota is counted (per provider and model).
 	AssistMode string
 
-	// AssistTimeout bounds ONE assist call, retries excluded. It is separate from
-	// JudgeTimeout, which every other AI seam shares, because the work is not
-	// comparable: a verdict is four scalars, while composing a picture is a list of
-	// shapes from a model that reasons first. Measured 4-9s healthy and far longer
-	// when Google is busy (2026-09-20), against a judge that answers in one or two.
-	//
-	// Folding it into JUDGE_TIMEOUT was the first attempt and it was wrong in both
-	// directions: the 10s default leaves no headroom at all for the slow case, and
-	// raising the shared knob to fit would hand the duel a retry envelope that no
+	// AssistTimeout bounds one assist call, retries excluded. Separate from
+	// JudgeTimeout because the work is not comparable: a verdict is four
+	// scalars, while composing a picture is a list of shapes from a model
+	// that reasons first. Folding it into JUDGE_TIMEOUT would leave no
+	// headroom for the slow case, or hand the duel a retry envelope that no
 	// longer fits inside game.JudgePassBudget.
 	AssistTimeout time.Duration
 
@@ -174,14 +133,14 @@ type Config struct {
 	WSMaxConns      int
 	WSMaxConnsPerIP int
 
-	// WSAllowedOrigins are extra Origin hosts authorized for the WebSocket handshake
-	// (coder/websocket path.Match patterns against the Origin header host, e.g.
-	// "app.example.com" or "localhost:*"). The request Host is ALWAYS authorized, so a
-	// true same-origin deployment needs no entry — this exists only for the split-host
-	// case: the dev Vite proxy sets changeOrigin, so the backend sees Host=:8080 while
-	// the browser Origin is :7777, which the default same-origin check would reject.
-	// NEVER contains "*" (that would open the socket to cross-site CSRF via the auto-
-	// attached cookie) — docs/API.md §9.1.
+	// WSAllowedOrigins are extra Origin hosts authorized for the WebSocket
+	// handshake (coder/websocket path.Match patterns against the Origin
+	// header host, e.g. "app.example.com" or "localhost:*"). The request Host
+	// is always authorized, so a true same-origin deployment needs no entry;
+	// this exists only for a split-host deployment, where the dev Vite proxy's
+	// changeOrigin makes the backend see Host=:8080 while the browser Origin
+	// is :7777. Never "*" — that would let a cross-site page open a socket
+	// riding the auto-attached cookie. docs/API.md §9.1.
 	WSAllowedOrigins []string
 }
 
@@ -201,29 +160,18 @@ const DefaultDBMaxConns = 10
 // forks two node-canvas processes and the target instance is memory-poor.
 const DefaultJudgeConcurrency = 2
 
-// DefaultAIDailyGlobal is the per-provider daily ceiling, in AI calls per rolling
-// 24h window. The per-KIND player ceilings live in internal/aibudget beside the
-// kinds they bound, since adding a kind must not mean editing config.
+// DefaultAIDailyGlobal is the per-provider-and-model daily ceiling, in AI
+// calls per rolling 24h window. Per-kind player ceilings live in
+// internal/aibudget beside the kinds they bound, so adding a kind never means
+// editing config.
 //
-// It used to be 200, chosen against an UNVERIFIED belief about the free tier. On
-// 2026-09-20 the API answered the question itself, in a 429 body:
-//
-//	"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
-//	"quotaDimensions": {"model": "gemini-3.6-flash"},
-//	"quotaValue": "20"
-//
-// Twenty requests a day, per project, PER MODEL — which is also why the provider
-// key carries the model (aibudget.Provider.WithModel): the two numbers are only
-// comparable when they count the same thing.
-//
-// So 15, and be honest about what it does and does not buy. On a free key it is
-// not the ceiling that binds; Google's is, and it arrives as ErrQuotaExhausted,
-// which every synchronous handler now turns into the same calm refusal our own
-// ceiling produces. Nor is 15 "safe": the ledger records one row per judging
-// PASS, while a pass may retry up to geminiMaxAttempts times inside the seam, so
-// 15 rows can be anywhere from 15 to 45 real requests. The honest reading is that
-// this number keeps ONE player from spending the day's quota in a burst, and that
-// the operator is expected to raise it the moment the key is not a free one.
+// Google's free tier grants 20 requests/day per project per model
+// (aibudget.Provider.WithModel keys the ledger the same way), so 15 leaves
+// margin without being the number that actually binds — a free key's real
+// ceiling is Google's own quota, surfaced as ErrQuotaExhausted. The ledger
+// also counts one row per judging pass, and a pass may retry, so 15 rows can
+// be more than 15 real requests. Raise this once the key is not a free one.
+// Full rule: docs/GAME.md §4.3.
 const DefaultAIDailyGlobal = 15
 
 // WebSocket hardening defaults. The idle timeout clears the client's 25s ping
@@ -256,24 +204,18 @@ const (
 // and a vision LLM are both slow; JUDGE_TIMEOUT overrides it.
 const DefaultJudgeTimeout = 10 * time.Second
 
-// DefaultAssistTimeout bounds one assist call. Six times the judge's, because the
-// work is: a verdict is four scalars, a drawing is a list of shapes composed by a
-// model that thinks first.
-//
-// A healthy call measured 4-9s live (2026-09-20, gemini-3.1-flash-lite), so this is
-// deliberately loose rather than tuned. The cost of loose is a wedged call holding
-// a request goroutine for a minute; the cost of tight is a feature that fails
-// whenever Google is slow, which is the failure nobody can diagnose from the
-// outside. ASSIST_TIMEOUT overrides it.
+// DefaultAssistTimeout bounds one assist call. Six times the judge's, because
+// a verdict is four scalars while a drawing is a list of shapes composed by a
+// model that thinks first, and it runs measurably slower. Deliberately loose:
+// the cost of loose is a wedged call holding a request goroutine for a
+// minute; the cost of tight is a feature that fails whenever Google is slow,
+// which is undiagnosable from outside. ASSIST_TIMEOUT overrides it.
 const DefaultAssistTimeout = 60 * time.Second
 
-// DefaultGeminiModel is a PINNED version, deliberately, not the floating
-// "gemini-flash-latest" alias. A judge decides ratings, so a model that changes
-// under us without a word is worse than one that stops: a pin is retired LOUDLY
-// — verified 2026-09-19, when the previous default answered "models/
-// gemini-2.5-flash is no longer available to new users" and named its own
-// replacement, which is about as good as a deprecation gets. Override
-// GEMINI_MODEL rather than editing this.
+// DefaultGeminiModel is pinned deliberately, not the floating
+// "gemini-flash-latest" alias: a judge decides ratings, so a model that
+// changes under us silently is worse than one that stops answering and names
+// its replacement. Override GEMINI_MODEL rather than editing this.
 const DefaultGeminiModel = "gemini-3.6-flash"
 
 // DefaultGeminiBaseURL is the public Generative Language API root.
@@ -282,16 +224,11 @@ const DefaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 // Load reads configuration from the environment and fails fast on any missing
 // required value.
 //
-// ENV, JWT_SECRET and DATABASE_URL are mandatory: the server refuses to start
-// without them rather than falling back to an empty signing secret (a known red
-// flag — an empty secret lets anyone forge a session), a nil database, or a
-// silently insecure cookie.
-//
-// ENV deliberately has NO default. It used to default to "dev", which made
-// CookieSecure default to false: forgetting ENV=prod on a deploy downgraded the
-// session cookie to non-Secure and the server booted happily, so the mistake was
-// invisible until someone read the Set-Cookie header. A missing ENV is now a
-// boot error — the one failure mode you cannot miss.
+// ENV, JWT_SECRET and DATABASE_URL are mandatory: refusing to start beats
+// falling back to an empty signing secret (anyone could forge a session), a
+// nil database, or a silently insecure cookie. ENV has no default for the
+// same reason — CookieSecure derives from it, so a missing ENV must be a
+// boot error rather than a cookie that quietly becomes non-Secure.
 func Load() (Config, error) {
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
 	cfg := Config{
@@ -454,11 +391,9 @@ func Load() (Config, error) {
 	switch cfg.AssistMode {
 	case AssistModeFake:
 	case AssistModeGemini:
-		// Same key, same quota and same API as the Gemini judge — deliberately, since
-		// they meter together — so the same fail-fast applies. Note that this is
-		// INDEPENDENT of JUDGE_MODE: a deployment may want a real assist while the
-		// duel still runs on the fake judge, and nothing about the two decisions is
-		// the same decision.
+		// Same key, quota and API as the Gemini judge, so the same fail-fast
+		// applies. Independent of JUDGE_MODE: a deployment can run a real
+		// assist while the duel still uses the fake judge.
 		if cfg.GeminiAPIKey == "" {
 			return Config{}, fmt.Errorf("config: GEMINI_API_KEY is required when ASSIST_MODE=%s", AssistModeGemini)
 		}
@@ -476,14 +411,11 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-// validateDatabaseURL rejects a DATABASE_URL that is not a Postgres DSN at all,
-// with a message that says what to paste instead.
-//
-// The mistake this exists for is specific and easy to make: a managed provider's
-// dashboard shows a project URL (https://<ref>.supabase.co) next to the actual
-// connection string, and pasting the former gets you a parse error from deep
-// inside the driver — "failed to parse as keyword/value" — which reads like a
-// bug in the app rather than a wrong value in one env var.
+// validateDatabaseURL rejects a DATABASE_URL that is not a Postgres DSN, with
+// a message that says what to paste instead: a managed provider's dashboard
+// often shows a project URL (https://<ref>.supabase.co) next to the actual
+// connection string, and pasting the former fails deep inside the driver with
+// a message that reads like an app bug rather than a wrong env var.
 func validateDatabaseURL(dsn string) error {
 	switch {
 	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
@@ -508,37 +440,16 @@ func firstRunes(s string, n int) string {
 	return string(r[:n])
 }
 
-// loadAIBudget reads the daily AI-call ceilings: one global number applied per
-// provider, plus an optional per-kind map of player ceilings.
+// loadAIBudget reads the daily AI-call ceilings: one global number applied
+// per provider and model, plus an optional per-kind map of player ceilings.
+// Zero or negative is a boot error, not a synonym for "off" — the mode where
+// the budget does not apply is a fake impl, which needs no sentinel because
+// there is no external quota to protect. A per-user cap above the global one
+// is allowed: that is how an operator says "no real per-player limit".
 //
-// Zero or negative is a boot error rather than a synonym for "off": a 0 here
-// would read as "no budget" to an operator and behave as "refuse everything" to
-// the code, and the mode where the budget genuinely does not apply is a fake impl
-// (JUDGE_MODE=fake, ASSIST_MODE=fake), which needs no sentinel because there is
-// no external quota to protect. Same fail-fast shape, and the same reasoning, as
-// JUDGE_CONCURRENCY.
-//
-// A per-user cap ABOVE the global one is allowed on purpose: that is how you say
-// "effectively no per-player limit, the global budget is the only ceiling".
-//
-// # The legacy names
-//
-// JUDGE_DAILY_BUDGET and JUDGE_DAILY_PER_USER predate the per-kind budget and are
-// live in deployed environments that are edited BY HAND. They keep working, and
-// they keep meaning exactly what they meant, so the deploy that lands this changes
-// no behaviour until an operator opts in:
-//
-//   - JUDGE_DAILY_BUDGET is a straight alias of AI_DAILY_GLOBAL. Both set to
-//     DIFFERENT values is a boot error naming both — the two cannot be reconciled
-//     and guessing which was meant is how a ceiling ends up at a number nobody
-//     chose.
-//   - JUDGE_DAILY_PER_USER seeds the player ceiling for "duel" and "practice"
-//     ONLY — the two kinds that existed when it was named, which shared one number.
-//     It deliberately does NOT reach kinds invented later: an operator who set it
-//     to 20 was not consenting to 20 AI guesses a day for a feature that did not
-//     exist, and a new kind quietly inheriting an old number is the failure this
-//     whole per-kind split exists to prevent. Newer kinds take their code default
-//     until AI_DAILY_PER_USER names them.
+// JUDGE_DAILY_BUDGET and JUDGE_DAILY_PER_USER are pre-per-kind aliases kept
+// for already-deployed environments; server/.env.example documents what they
+// alias and which kinds they seed.
 func loadAIBudget(cfg *Config) error {
 	global, from, err := getenvIntAliased("AI_DAILY_GLOBAL", "JUDGE_DAILY_BUDGET", DefaultAIDailyGlobal)
 	if err != nil {
@@ -579,11 +490,8 @@ func loadAIBudget(cfg *Config) error {
 		perUser[kind] = v
 	}
 
-	// The per-kind MODEL map, in the same shape for the same reason the ceilings are
-	// per kind: the kinds' jobs differ in difficulty, so pinning them all to one
-	// model is either an overpay for the cheap ones or an underserve for the duel,
-	// whose number feeds Elo. Values are model ids and are used verbatim — the kind
-	// names are checked at the composition root, where the valid set lives.
+	// Values are model ids used verbatim; the kind names are checked at the
+	// composition root, where the valid set lives.
 	perKindModel, err := parseKindList("AI_MODEL_PER_KIND", "duel=gemini-3.6-pro,guess=gemini-3.6-flash-lite")
 	if err != nil {
 		return err
@@ -595,19 +503,11 @@ func loadAIBudget(cfg *Config) error {
 	return nil
 }
 
-// parseKindList reads a "kind=value" comma-separated env var into a map, which is
-// the shape BOTH per-kind knobs use (AI_DAILY_PER_USER, AI_MODEL_PER_KIND). One
-// parser rather than two so the two variables cannot diverge on whitespace,
-// duplicate keys or what counts as an empty entry — a single maintainer should
-// have to learn the form once.
-//
-// It only produces strings. What a value MEANS is the caller's business: one wants
-// an integer in a range, the other a model id used verbatim, and folding either
-// meaning in here would make the parser answer a question it cannot see.
-//
-// example is shown in the syntax error, so the message names the variable the
-// operator actually set and shows a line that would have worked. Duplicate keys
-// resolve last-wins, matching how an operator reads a list left to right.
+// parseKindList reads a "kind=value" comma-separated env var into a map, the
+// shape both per-kind knobs use (AI_DAILY_PER_USER, AI_MODEL_PER_KIND), so the
+// two cannot diverge on whitespace, duplicate keys or empty entries. It only
+// produces strings — what a value means is the caller's business. Duplicate
+// keys resolve last-wins; example is shown in the syntax error.
 func parseKindList(key, example string) (map[string]string, error) {
 	out := map[string]string{}
 	for _, entry := range splitList(os.Getenv(key)) {
@@ -627,14 +527,11 @@ func parseKindList(key, example string) (map[string]string, error) {
 	return out, nil
 }
 
-// getenvIntAliased reads an integer that answers to two names, one current and
-// one kept alive for already-deployed environments. Both set to the SAME value is
-// fine (an operator mid-migration); both set to different values is a boot error,
-// because silently preferring one would put a bound at a number nobody chose.
-//
-// It also returns WHICH name supplied the value, so a later range check can blame
-// the variable the operator actually wrote. When neither is set that is the
-// current name, since a default out of range would be our bug, not theirs.
+// getenvIntAliased reads an integer that answers to two names, one current
+// and one kept alive for already-deployed environments. Both set to the same
+// value is fine; different values is a boot error, since silently preferring
+// one would put a bound at a number nobody chose. It also returns which name
+// supplied the value, so a later range check can blame the right one.
 func getenvIntAliased(current, legacy string, fallback int) (value int, from string, err error) {
 	cur := strings.TrimSpace(os.Getenv(current))
 	old := strings.TrimSpace(os.Getenv(legacy))
@@ -649,11 +546,8 @@ func getenvIntAliased(current, legacy string, fallback int) (value int, from str
 		return v, current, err
 	}
 
-	// Both set. "The same value" is a question about the NUMBERS, not about the
-	// spelling: 100 and 0100 are the same bound, and refusing to boot over a
-	// leading zero would be a fault report about nothing. Each is parsed through
-	// the same helper as the single-name cases, so a non-integer is still named
-	// after the variable that carries it.
+	// "The same value" compares the parsed numbers, not the spelling — 100 and
+	// 0100 are the same bound.
 	curVal, err := getenvInt(current, fallback)
 	if err != nil {
 		return 0, current, err

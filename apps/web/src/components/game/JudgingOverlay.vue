@@ -1,19 +1,11 @@
 <script lang="ts" setup>
 /**
- * JudgingOverlay — the pending state shown between submit and result: a centred
+ * JudgingOverlay — the pending state between submit and result: a centred
  * skeleton card that foreshadows the result layout while the server renders
- * authoritative rasters and awaits the judge (GAME.md §4, `judging`).
- *
- * `solo` switches it to the single-player practice wait: one skeleton frame and
- * copy that doesn't mention an opponent. The two modes share this component
- * because the moment IS the same one — the judge is looking at a drawing — and a
- * second copy of the scrim would drift; the only thing practice must not do is
- * render an opponent frame for a player who has none.
- *
- * Presentational: the view shows it while its own phase says judging. It renders
- * a full-bleed scrim (pointer-events:auto) so stray taps don't reach the canvas
- * mid-judging; the shell's overlay layer is pointer-events:none, so opting back
- * in here is required.
+ * authoritative rasters and awaits the judge (docs/GAME.md §4). `solo`
+ * switches it to the single-player wait (one skeleton frame, no opponent
+ * copy) since it's the same moment in both modes — the judge looking at a
+ * drawing — so a second copy of the scrim would drift.
  */
 import { OriSkeleton, OriSpinner, OriSurface } from '@oriui/vue'
 
@@ -49,8 +41,8 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
 </template>
 
 <style scoped>
-/* Full-bleed scrim within the shell's pointer-events:none overlay layer — opt
-   back into pointer events so the canvas is inert while judging. */
+/* Opts back into pointer events (the shell's overlay layer is
+   pointer-events:none) so the canvas is inert while judging. */
 .judging {
     position: absolute;
     inset: 0;

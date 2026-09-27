@@ -1,47 +1,36 @@
 <script lang="ts" setup>
 /**
- * EditorShell — the shared editor LAYOUT SKELETON for /draw, /play and /practice
- * (DECISIONS 2026-07-04: one design, game chrome on top). It owns ONLY the
- * full-bleed desk/letterbox surface, the Konva canvas MOUNT element, and the
- * absolutely-positioned floating regions; every piece of chrome is a caller
- * slot. The parent constructs the Editor into the exposed `canvasEl` (in its own
- * onMounted) and fills the regions with its own (draw, play or practice) chrome.
+ * EditorShell — the shared editor layout skeleton for /draw, /play and
+ * /practice: it owns only the full-bleed desk/letterbox surface, the Konva
+ * canvas mount, and the absolutely-positioned floating regions (`#top-left
+ * #top-center #top-right #bottom-left #bottom-center #bottom-right`,
+ * `#overlay`, `#drawer`), leaving every piece of chrome to a caller slot. The
+ * parent constructs the Editor into the exposed `canvasEl` in its own
+ * `onMounted`. The `*-center` strips and `#overlay` are `pointer-events: none`
+ * so their empty area never intercepts canvas drawing; interactive slotted
+ * content opts back in with `pointer-events: auto`.
  *
- * Regions: `#top-left #top-center #top-right #bottom-left #bottom-center
- * #bottom-right` are positioned wrappers; `#overlay` is the centered
- * dialog/empty-state layer; `#drawer` and the default slot render as direct
- * children of the root for self-positioned / body-teleported chrome.
- *
- * The `*-center` strips + `#overlay` set `pointer-events: none` so their empty
- * area never intercepts canvas drawing — slotted content that must be
- * interactive opts back in with `pointer-events: auto`. The `#bottom-left` is a
- * passive-readout corner (also `pointer-events: none`).
- *
- * Stacking: the root is `position: relative` with NO z-index/transform, so it is
- * NOT a stacking context — the region z-indexes and any body-teleported overlays
- * (the side drawer, the dialogs) all compare in the ONE root stacking context,
- * exactly as the old `.draw` wrapper did. Do NOT add z-index/transform/opacity/
- * filter/isolation to `.shell` or a corner-pinned control (e.g. /draw's z-110
- * menu toggler) would fall behind the z-100 teleported drawer.
+ * Stacking: the root is `position: relative` with no z-index/transform, so it
+ * is not a stacking context — region z-indexes and body-teleported overlays
+ * (the drawer, the dialogs) all compare in the one root stacking context. Do
+ * not add z-index/transform/opacity/filter/isolation to `.shell`, or a
+ * corner-pinned control (e.g. /draw's z-110 menu toggler) would fall behind
+ * the z-100 teleported drawer.
  */
 import { ref } from 'vue'
 
 withDefaults(defineProps<{ mode?: 'draw' | 'play' }>(), { mode: 'draw' })
 
 // The Konva mount element, exposed so the parent can `new Editor(canvasEl, …)`
-// in its own onMounted (the editor sizes its stage to this box and fits the
-// document into it; a ResizeObserver keeps it fitted). Exposed as the ref — the
-// parent reads `shell.value.canvasEl` (Vue's expose proxy unwraps it to the
-// element).
+// in its own onMounted — the editor sizes its stage to this box and a
+// ResizeObserver keeps it fitted. The parent reads `shell.value.canvasEl`
+// (Vue's expose proxy unwraps the ref to the element).
 const canvasEl = ref<HTMLDivElement | null>(null)
 defineExpose({ canvasEl })
 </script>
 
 <template>
     <div class="shell" :class="`shell--${mode}`" :data-mode="mode">
-        <!-- The Editor sizes its Konva stage to this full-bleed mount and fits the
-             document into it (zoom/pan via the stage transform). Everything else
-             floats above it through the region slots. -->
         <div ref="canvasEl" class="shell__canvas"></div>
 
         <div v-if="$slots['top-left']" class="shell__region shell__region--top-left">
@@ -63,22 +52,20 @@ defineExpose({ canvasEl })
             <slot name="bottom-right" />
         </div>
 
-        <!-- The side drawer (self-teleports/positions) rendered BEFORE the overlay
-             so a body-teleported drawer stays behind the equally-ranked (z-100)
-             body-teleported dialogs, exactly as the old markup ordered them. -->
+        <!-- Rendered before the overlay so the body-teleported drawer stays
+             behind the equally-ranked (z-100) body-teleported dialogs. -->
         <slot name="drawer" />
 
-        <!-- Centered overlay layer (empty-state / dialogs). pointer-events:none so
-             it never blocks drawing; interactive slotted content opts back in.
-             z-11 keeps it above the bottom-center toolbar (z-10). -->
+        <!-- pointer-events:none so it never blocks drawing; interactive slotted
+             content opts back in. z-11 keeps it above the bottom-center toolbar
+             (z-10). -->
         <div v-if="$slots.overlay" class="shell__overlay">
             <slot name="overlay" />
         </div>
 
         <!-- Free-floating, self-positioned chrome the caller owns (e.g. /draw's
-             corner menu toggler, mobile history island, layers panel + scrim).
-             Direct children of the non-stacking-context root, so their own
-             z-index / absolute positioning resolve against the shell as before. -->
+             corner menu toggler, mobile history island, layers panel + scrim) —
+             direct children of the non-stacking-context root. -->
         <slot />
     </div>
 </template>
@@ -99,8 +86,6 @@ defineExpose({ canvasEl })
     position: absolute;
     inset: 0;
 }
-
-/* --- floating regions (positioned wrappers; the caller fills each slot) ------ */
 
 .shell__region {
     position: absolute;
@@ -136,9 +121,9 @@ defineExpose({ canvasEl })
     max-width: calc(100vw - var(--ori-size-gap_md, 0.5rem) * 2);
 }
 
-/* Full-width centering strip (NOT left:50% + translate: an offset absolute box
-   shrink-to-fits against the REMAINING half of the viewport and wraps on
-   phones). The strip must not eat canvas events — content opts back in. */
+/* Full-width centering strip, not left:50% + translate — an offset absolute
+   box shrink-to-fits against the remaining half of the viewport and wraps on
+   phones. Must not eat canvas events — content opts back in. */
 .shell__region--top-center,
 .shell__region--bottom-center {
     left: 0;
@@ -195,8 +180,6 @@ defineExpose({ canvasEl })
 .shell__overlay :deep(dialog) {
     pointer-events: auto;
 }
-
-/* --- small screens ----------------------------------------------------------- */
 
 /* The zoom island and the toolbar share the bottom row, and the island has to
    move ABOVE the toolbar for every width where the toolbar is wide enough to

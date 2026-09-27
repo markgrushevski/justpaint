@@ -1,6 +1,6 @@
 <script lang="ts">
 /** One player's judged outcome — a 0..100 score and the rendered raster (or
- *  null: the opponent's canvas is fetched and rendered AFTER the reveal opens,
+ *  null: the opponent's canvas is fetched and rendered after the reveal opens,
  *  and a forfeiter has no submitted drawing to fetch at all). */
 export interface DuelSide {
     /** Similarity score, 0..100 (clamped for display). */
@@ -16,22 +16,18 @@ export interface DuelResult {
     you: DuelSide
     /** The opponent side plus their safe display label (never a login). */
     opponent: DuelSide & { name: string }
-    /** Verdict from the judge, mapped to the local player (GAME.md §7.1).
-     *  `none` is not a draw — it means no verdict applies at all, which is the
-     *  aborted case below. It exists as its own value so an unscored round can
-     *  never fall through into tie copy or tie styling by accident. */
+    /** Verdict from the judge, mapped to the local player (docs/GAME.md §7.1).
+     *  `none` is not a draw — it means no verdict applies (the aborted case
+     *  below), so an unscored round can never fall through into tie copy. */
     winner: 'you' | 'opponent' | 'tie' | 'none'
     /** The judge's reason string, shown verbatim. */
     reason: string
-    /** How the match was decided — `forfeit` means one side never submitted before
-     *  the deadline (no judge run, scores are meaningless), `aborted` means both
-     *  sides drew but judging failed outright, so nobody was scored and no rating
-     *  moved (docs/GAME.md §3). The reveal branches its copy on this instead of the
-     *  normal score comparison (docs/API.md §8.4). */
+    /** How the match was decided (docs/GAME.md §3): `forfeit`/`aborted` mean
+     *  no judge ran, so scores are meaningless — the reveal branches on this
+     *  rather than comparing scores (docs/API.md §8, result). */
     resolution: 'judged' | 'forfeit' | 'aborted'
     /** Elo delta applied to the local player (may be negative). */
     eloDelta: number
-    /** The local player's rating before this match. */
     ratingBefore: number
 }
 </script>
@@ -39,10 +35,10 @@ export interface DuelResult {
 <script lang="ts" setup>
 /**
  * ResultReveal — the duel payoff screen: both canvases revealed side by side
- * (GAME.md §4.2 — only now, once the match is done), each with a 0–100% score
+ * (docs/GAME.md §4.2 — only once the match is done), each with a 0–100% score
  * bar, a winner marker over the victor, the judge's reason, and an Elo pop
- * showing the rating move. Presentational: PlayView passes the result and owns
- * "Play again".
+ * showing the rating move. Presentational: PlayView passes the result and
+ * owns "Play again".
  */
 import { computed } from 'vue'
 import { OriButton, OriCard, OriSurface } from '@oriui/vue'
@@ -55,13 +51,13 @@ const tie = computed(() => props.result.winner === 'tie')
 const winnerIsOpp = computed(() => props.result.winner === 'opponent')
 const isForfeit = computed(() => props.result.resolution === 'forfeit')
 const isAborted = computed(() => props.result.resolution === 'aborted')
-/** Only a judged round has scores to show; the other two never ran the judge, so
- *  every score bar, percentage and rating move is suppressed rather than rendered
- *  as a truthful-looking 0%. */
+/** Only a judged round has scores to show; the other two never ran the judge,
+ *  so every score bar, percentage and rating move is suppressed rather than
+ *  rendered as a truthful-looking 0%. */
 const scored = computed(() => props.result.resolution === 'judged')
 const headline = computed(() => {
-    // Neither of these ran the judge, so lead with what actually happened rather
-    // than a normal win/lose framing (docs/API.md §8.4).
+    // Neither of these ran the judge, so lead with what actually happened
+    // rather than a normal win/lose framing (docs/API.md §8, result).
     if (isAborted.value) return 'Round couldn’t be scored'
     if (isForfeit.value) return youWon.value ? 'Opponent forfeited — you win' : 'You forfeited — no submission in time'
     return tie.value ? 'It’s a tie' : youWon.value ? 'You win!' : 'You lose'
@@ -162,7 +158,7 @@ function scoreText(score: number): string {
             </span>
         </div>
 
-        <!-- Post-duel is peak intent to check standings — the ONLY path a /play
+        <!-- Post-duel is peak intent to check standings — the only path a /play
              user reaches the ladder (PlayView has no drawer). Presentational: emit
              and let PlayView route. -->
         <div class="result__actions">
@@ -232,10 +228,10 @@ function scoreText(score: number): string {
 }
 
 .result__side {
-    /* Winner tint is now owned by OriCard's variant/color props (tonal+primary vs
-       outline+surface) — no local border/background here. A hardcoded border would
-       double up with OriCard's own variant border and always win (unlayered component
-       styles beat oriui's @layer rules), silently forcing the outline variant transparent. */
+    /* Winner tint is owned by OriCard's variant/color props (tonal+primary vs
+       outline+surface) — no local border/background here. A hardcoded border
+       would double up with OriCard's own variant border and always win, since
+       unlayered styles beat oriui's @layer rules. */
     position: relative;
 
     display: flex;
@@ -273,7 +269,7 @@ function scoreText(score: number): string {
     overflow: hidden;
 
     border-radius: var(--ori-size-radius_sm, 4px);
-    /* An opaque white frame — the judged raster is rendered on white (GAME.md §6). */
+    /* An opaque white frame — the judged raster is rendered on white (docs/GAME.md §6). */
     background-color: #ffffff;
 }
 
@@ -416,7 +412,6 @@ function scoreText(score: number): string {
 
 .result__again,
 .result__leaderboard {
-    /* Share the row evenly; wrap to full width on a very narrow card. */
     flex: 1 1 10rem;
 }
 

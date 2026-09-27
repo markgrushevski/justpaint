@@ -18,11 +18,11 @@ select count(*) from match_players
 where match_id = $1 and submitted_at is null;
 
 -- name: GetSubmissionsForJudging :many
--- The two submissions with each player's live rating and their drawing document,
--- ordered by (submitted_at, user_id) — the stable A/B ordering (docs/GAME.md §7.1):
--- row 0 = image A, row 1 = image B. No `nulls last` (unlike ListMatchPlayers): the
--- INNER JOIN on drawings admits only stamped rows, so submitted_at is never null
--- here. Don't switch this to a LEFT JOIN or the A/B bind becomes nondeterministic.
+-- The two submissions with rating and drawing document, ordered by
+-- (submitted_at, user_id) for the stable A/B mapping (docs/GAME.md §7.1): row 0
+-- = image A, row 1 = image B. No `nulls last` (unlike ListMatchPlayers): the
+-- inner join admits only stamped rows, so submitted_at is never null here. A
+-- left join would make the order nondeterministic.
 select mp.user_id,
        mp.drawing_id,
        mp.submitted_at,
@@ -42,16 +42,11 @@ set score = $3, rating_before = $4, rating_after = $5
 where match_id = $1 and user_id = $2;
 
 -- name: GetMatchPlayerDrawing :one
--- The vector document a match participant (`target_user_id`) submitted, revealed
--- to a FELLOW participant (`viewer_user_id`) ONLY once the match is `done`. One
--- row folds three trust gates; any miss yields no row, which the service maps to a
--- hidden 404 that never says which gate failed:
---   * viewer_user_id must be a player of this match      (IDOR)
---   * the match must be `done`                           (no peeking at the opponent mid-duel, GAME.md §4.2)
---   * target_user_id must be a submitted player of it    (enumeration; the INNER JOIN needs a non-null drawing_id)
--- The ownership-scoped GetDrawing can't serve this (it 404s a non-owner), so
--- match membership is the authorization here (docs/IDEAS.md) — no object storage
--- needed, the caller renders the returned document client-side.
+-- The document a match participant (`target_user_id`) submitted, revealed to a
+-- fellow participant (`viewer_user_id`) once the match is `done` — the
+-- membership-gated reveal endpoint (docs/DECISIONS.md 2026-07-11). One row folds
+-- three trust gates (viewer is a player, match is done, target is a submitted
+-- player); any miss yields no row, so the service can't leak which gate failed.
 select d.document
 from drawings d
          join match_players tp

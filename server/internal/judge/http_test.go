@@ -175,10 +175,10 @@ func TestHTTPJudge_Score_RejectsContractViolations(t *testing.T) {
 	}
 }
 
-// TestHTTPJudge_Score_AttemptTimeout proves the timeout is applied PER ATTEMPT
-// (internal/platform/config's JudgeTimeout doc comment): a server slower than
-// the timeout makes every one of the 3 attempts fail fast, well short of the
-// server's own delay, rather than one attempt eating the whole budget.
+// TestHTTPJudge_Score_AttemptTimeout proves the timeout applies per attempt:
+// a server slower than the timeout makes every one of the 3 attempts fail
+// fast, well short of the server's own delay, rather than one attempt
+// eating the whole budget.
 func TestHTTPJudge_Score_AttemptTimeout(t *testing.T) {
 	// The delay only needs to comfortably exceed the 20ms per-attempt timeout
 	// below — it is deliberately NOT seconds-long, because a canceled client
@@ -213,10 +213,10 @@ func TestHTTPJudge_Score_AttemptTimeout(t *testing.T) {
 	}
 }
 
-// TestHTTPJudge_Score_CallerCancellationWins proves the OUTER ctx — not just
-// our own per-attempt timeout — aborts promptly and is never retried: the
-// per-attempt timeout here is deliberately much larger than the ctx, so only
-// the caller's own cancellation can be what stops this.
+// TestHTTPJudge_Score_CallerCancellationWins proves the caller's own ctx —
+// not just the per-attempt timeout — aborts promptly and is never retried:
+// the per-attempt timeout here is deliberately much larger than the ctx, so
+// only the caller's own cancellation can be what stops this.
 func TestHTTPJudge_Score_CallerCancellationWins(t *testing.T) {
 	// Comfortably longer than the 30ms outer ctx below but still short, for
 	// the same server.Close()-blocks-on-lingering-handlers reason as the

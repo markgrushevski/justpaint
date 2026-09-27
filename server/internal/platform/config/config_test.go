@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// requireBaseEnv sets the always-mandatory env so Load() reaches the assist
-// mode-switch. ENV is mandatory and set to dev here, which relaxes the JWT length
-// check, so a short secret is fine.
+// requireBaseEnv sets the mandatory env so Load() reaches the assist
+// mode-switch. ENV=dev also relaxes the JWT length check.
 func requireBaseEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("ENV", EnvDev)
@@ -17,9 +16,8 @@ func requireBaseEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/justpaint?sslmode=disable")
 }
 
-// TestLoad_AssistMode pins the ASSIST_MODE mode-switch, mirroring the RENDER_MODE
-// fail-fast: gemini demands GEMINI_API_KEY at boot, an unknown mode is rejected,
-// and fake is the default.
+// TestLoad_AssistMode pins the ASSIST_MODE switch: fake is the default,
+// gemini demands GEMINI_API_KEY at boot, and an unknown mode is rejected.
 func TestLoad_AssistMode(t *testing.T) {
 	t.Run("default is fake", func(t *testing.T) {
 		requireBaseEnv(t)
@@ -32,8 +30,6 @@ func TestLoad_AssistMode(t *testing.T) {
 		}
 	})
 
-	// The mode that finally makes assist real. It takes the same key and the same
-	// quota as the Gemini judge, so it takes the same fail-fast.
 	t.Run("gemini without a key is a boot error", func(t *testing.T) {
 		requireBaseEnv(t)
 		t.Setenv("ASSIST_MODE", "gemini")
@@ -47,9 +43,6 @@ func TestLoad_AssistMode(t *testing.T) {
 		}
 	})
 
-	// Independent of JUDGE_MODE on purpose: a deployment may want a real assist
-	// while the duel still runs on the fake judge, and nothing about the two
-	// decisions is the same decision.
 	t.Run("gemini with a key loads, whatever the judge is doing", func(t *testing.T) {
 		requireBaseEnv(t)
 		t.Setenv("ASSIST_MODE", "gemini")
@@ -74,10 +67,6 @@ func TestLoad_AssistMode(t *testing.T) {
 		}
 	})
 
-	// Assist gets its OWN deadline. Sharing JUDGE_TIMEOUT was wrong in both
-	// directions: at its 10s default every assist call times out, and raising the
-	// shared knob to fit would give the duel a retry envelope that no longer fits
-	// inside the judging pass.
 	t.Run("the assist deadline is its own, and far longer than the judge's", func(t *testing.T) {
 		requireBaseEnv(t)
 		cfg, err := Load()
@@ -116,14 +105,8 @@ func TestLoad_AssistMode(t *testing.T) {
 	})
 }
 
-// TestLoad_AIModelPerKind pins the per-kind model map. It reads exactly like
-// AI_DAILY_PER_USER on purpose — one person maintains this, and two env vars about
-// the same set of kinds should not need two grammars learned.
-//
-// The kind NAMES are not checked here: the valid set lives in internal/aibudget
-// and grows with the code, so config (stdlib only, no domain imports) parses the
-// shape and the composition root rejects a typo — which is the same instant with a
-// better error.
+// TestLoad_AIModelPerKind pins the per-kind model map, which shares
+// AI_DAILY_PER_USER's grammar and its unvalidated kind names.
 func TestLoad_AIModelPerKind(t *testing.T) {
 	t.Run("unset means every kind takes GEMINI_MODEL", func(t *testing.T) {
 		requireBaseEnv(t)
@@ -152,9 +135,8 @@ func TestLoad_AIModelPerKind(t *testing.T) {
 		}
 	})
 
-	// The two knobs share one parser, so they share one grammar. These are the same
-	// malformed entries AI_DAILY_PER_USER rejects, asserted against the model map so
-	// a future edit cannot quietly loosen one of them.
+	// Same malformed entries AI_DAILY_PER_USER rejects, asserted against the
+	// model map so a future edit cannot quietly loosen one of them.
 	rejected := []struct {
 		name  string
 		value string
@@ -179,10 +161,8 @@ func TestLoad_AIModelPerKind(t *testing.T) {
 	}
 }
 
-// TestLoad_Env pins ENV as mandatory and closed-valued. It decides CookieSecure,
-// the JWT-length floor and the WS origin default, and it used to default to
-// "dev" — so a deploy that forgot ENV=prod booted happily with a non-Secure
-// session cookie. A missing or misspelled ENV must be a boot error instead.
+// TestLoad_Env pins ENV as mandatory and closed-valued: it decides
+// CookieSecure, the JWT-length floor and the WS origin default.
 func TestLoad_Env(t *testing.T) {
 	base := func(t *testing.T) {
 		t.Helper()
@@ -227,10 +207,8 @@ func TestLoad_Env(t *testing.T) {
 	}
 }
 
-// TestLoad_DBMaxConns pins the pool ceiling: an explicit default (pgx's own
-// max(4, NumCPU) is sized to the app host, not to the database's connection
-// budget), an override, and a boot error rather than a silent fallback when the
-// value is unusable.
+// TestLoad_DBMaxConns pins the pool ceiling: a default, an override, and a
+// boot error rather than a silent fallback for an unusable value.
 func TestLoad_DBMaxConns(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -266,10 +244,8 @@ func TestLoad_DBMaxConns(t *testing.T) {
 	}
 }
 
-// TestLoad_TrustProxy pins the proxy-trust fork. It gates whether
-// X-Forwarded-For is believed, which decides what rate limiting is keyed on, so
-// an unparseable value must fail the boot rather than quietly resolve to false —
-// a security control that silently does nothing is worse than an obvious error.
+// TestLoad_TrustProxy pins the proxy-trust fork: an unparseable value is a
+// boot error, never a silent false.
 func TestLoad_TrustProxy(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -306,10 +282,8 @@ func TestLoad_TrustProxy(t *testing.T) {
 }
 
 // TestLoad_WSLimits pins the WebSocket hardening knobs, including the two
-// combinations that would silently defeat what they claim to configure: a
-// heartbeat no more frequent than the idle timeout (a healthy but quiet socket
-// gets evicted between probes — mid-round, for a player who is simply drawing),
-// and a per-IP cap above the global one (it can never bind).
+// combinations that would silently defeat them: a heartbeat no more frequent
+// than the idle timeout, and a per-IP cap above the global one.
 func TestLoad_WSLimits(t *testing.T) {
 	t.Run("defaults are sane and ordered", func(t *testing.T) {
 		requireBaseEnv(t)
@@ -368,10 +342,9 @@ func TestLoad_WSLimits(t *testing.T) {
 	})
 }
 
-// TestLoad_DatabaseURLShape pins the boot-time shape check on DATABASE_URL. A
-// managed provider's dashboard shows a project URL right next to the connection
-// string, and pasting the wrong one used to surface as a driver parse error at
-// runtime ("failed to parse as keyword/value") — unreadable as a config mistake.
+// TestLoad_DatabaseURLShape pins the boot-time shape check on DATABASE_URL,
+// catching the common mistake of pasting a provider's project URL instead of
+// the actual connection string.
 func TestLoad_DatabaseURLShape(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -419,11 +392,8 @@ func TestLoad_DatabaseURLShape(t *testing.T) {
 	})
 }
 
-// TestLoad_JudgeMode pins the JUDGE_MODE mode-switch. Each non-fake mode depends
-// on something the process cannot invent — the external ML judge's URL, or a
-// server-side API key — and a mode missing its dependency would fail out of band
-// on the first duel, long after the deploy that broke it. Same fail-fast shape as
-// RENDER_CLI and the ASSIST_MODE switch.
+// TestLoad_JudgeMode pins the JUDGE_MODE switch: a non-fake mode missing its
+// dependency (base URL or API key) is a boot error, not a first-duel failure.
 func TestLoad_JudgeMode(t *testing.T) {
 	t.Run("default is fake with the pinned timeout", func(t *testing.T) {
 		requireBaseEnv(t)
@@ -514,11 +484,8 @@ func TestLoad_JudgeMode(t *testing.T) {
 	})
 }
 
-// TestLoad_AIBudget pins the daily AI-call ceilings. They guard a resource no
-// rate limiter can see — a free tier's per-DAY quota, one call per request — so a
-// mistyped or zeroed knob must be a boot error, not a budget quietly nobody set.
-// There is deliberately no "unlimited" sentinel: 0 reads as "off" to an operator
-// and would behave as "refuse everything" in the code.
+// TestLoad_AIBudget pins the daily AI-call ceilings: a mistyped or zeroed
+// knob is a boot error, and there is no "unlimited" sentinel.
 func TestLoad_AIBudget(t *testing.T) {
 	t.Run("defaults", func(t *testing.T) {
 		requireBaseEnv(t)
@@ -529,8 +496,7 @@ func TestLoad_AIBudget(t *testing.T) {
 		if cfg.AIDailyGlobal != DefaultAIDailyGlobal {
 			t.Errorf("AIDailyGlobal = %d, want %d", cfg.AIDailyGlobal, DefaultAIDailyGlobal)
 		}
-		// Empty, not populated: the per-kind ceilings live beside the kinds in
-		// internal/aibudget, so an unconfigured server carries no opinion here.
+		// Empty, not populated — per-kind ceilings live in internal/aibudget.
 		if len(cfg.AIDailyPerUser) != 0 {
 			t.Errorf("AIDailyPerUser = %v, want empty", cfg.AIDailyPerUser)
 		}
@@ -553,13 +519,10 @@ func TestLoad_AIBudget(t *testing.T) {
 		}
 	})
 
-	// The compatibility guarantee that makes this deployable without touching a
-	// live environment by hand: the pre-per-kind names keep working and keep
-	// meaning what they meant.
 	t.Run("the legacy names still work, and a per-user cap above the global one is allowed", func(t *testing.T) {
 		requireBaseEnv(t)
 		t.Setenv("JUDGE_DAILY_BUDGET", "50")
-		// Above the global budget on purpose: that is how an operator says "no
+		// Above the global budget on purpose: an operator's way of saying "no
 		// per-player limit, the global budget is the only ceiling".
 		t.Setenv("JUDGE_DAILY_PER_USER", "500")
 		cfg, err := Load()
@@ -575,10 +538,6 @@ func TestLoad_AIBudget(t *testing.T) {
 		}
 	})
 
-	// The whole point of splitting the ceiling per kind. An operator who set
-	// JUDGE_DAILY_PER_USER=20 back when it governed duels and practice was not
-	// consenting to 20 daily calls of a kind that did not exist yet — so the
-	// legacy name must not reach one.
 	t.Run("the legacy per-user cap does not leak into kinds invented later", func(t *testing.T) {
 		requireBaseEnv(t)
 		t.Setenv("JUDGE_DAILY_PER_USER", "20")
@@ -620,10 +579,6 @@ func TestLoad_AIBudget(t *testing.T) {
 		}
 	})
 
-	// "The same value" is a question about the NUMBERS, not the spelling. The
-	// comparison used to be on the raw strings, so an operator mid-migration who
-	// wrote a padded or signed form of the number they already had got a boot error
-	// reporting a disagreement that does not exist.
 	t.Run("the global aliases agree when the numbers agree, however written", func(t *testing.T) {
 		for _, tt := range []struct {
 			name           string
@@ -649,8 +604,6 @@ func TestLoad_AIBudget(t *testing.T) {
 		}
 	})
 
-	// Guessing which one the operator meant is how a ceiling ends up at a number
-	// nobody chose, so a disagreement is fatal and the error names both.
 	t.Run("the global aliases disagreeing is a boot error naming both", func(t *testing.T) {
 		requireBaseEnv(t)
 		t.Setenv("AI_DAILY_GLOBAL", "42")

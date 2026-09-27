@@ -1,4 +1,4 @@
-// packages/editor/src/types.ts — the FROZEN contract every tool implements.
+// The tool contract: every entry under tools/ implements Tool.
 import type { BrushOptions, Stroke } from './document'
 
 /** Ids of the stroke-producing drawing tools (see {@link StrokeTool}). */
@@ -43,7 +43,7 @@ export interface ToolContext {
 }
 
 /**
- * A drawing tool: a PURE transformer from a drag gesture (ordered logical
+ * A drawing tool: a pure transformer from a drag gesture (ordered logical
  * points; first = pointerdown, last = current/pointerup) to a single Stroke.
  * No internal mutable state, no Konva imports — unit-testable in isolation.
  * Returns null for a degenerate gesture that must be discarded.
@@ -55,10 +55,10 @@ export interface StrokeTool {
 }
 
 /**
- * A view-manipulation tool: no `buildStroke` AT ALL — the type system, not a
+ * A view-manipulation tool: no `buildStroke` at all — the type system, not a
  * runtime check, guarantees it can never touch the document or the history.
  * The editor routes its pointerdowns to the pan path (the same mechanics as a
- * middle-button drag) BEFORE the stroke-gesture pipeline, skipping the
+ * middle-button drag) before the stroke-gesture pipeline, skipping the
  * inside-document gate (you can grab the letterbox).
  */
 export interface PanTool {

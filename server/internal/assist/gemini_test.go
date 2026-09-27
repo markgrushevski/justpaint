@@ -148,8 +148,7 @@ func TestGeminiAssist_HappyPath(t *testing.T) {
 		t.Errorf("calls = %d, want 1 (one request per assist call)", n)
 	}
 
-	// The whole point of the feature: the batch the client is about to apply is a
-	// valid one, by the same validator the handler will run again.
+	// The batch must be valid by the same validator the handler re-runs.
 	if err := document.ValidateOpBatch(res.Ops, summary); err != nil {
 		t.Fatalf("the generated batch fails the document contract: %v", err)
 	}
@@ -189,8 +188,8 @@ func TestGeminiAssist_HappyPath(t *testing.T) {
 	if rect.Composite != document.CompositeSourceOver {
 		t.Errorf("composite = %q — an AI proposal must never erase what is under it", rect.Composite)
 	}
-	// The model shouted its hex; the contract's colours are lowercase and case was
-	// never a choice, so it is lowered rather than refused.
+	// Hex case isn't meaningful in the contract, so an uppercase colour is
+	// lowered rather than refused.
 	if rect.Fill == nil || *rect.Fill != "#e8c9a0" {
 		t.Errorf("fill = %v, want the lowercased #e8c9a0", rect.Fill)
 	}
@@ -199,7 +198,7 @@ func TestGeminiAssist_HappyPath(t *testing.T) {
 	if !ok {
 		t.Fatalf("shape 2 is %T, want a polygon", res.Ops[2].(*document.AddStrokeOp).Stroke)
 	}
-	// The flat list becomes pairs. This is the whole schema decision in one line.
+	// The flat list becomes coordinate pairs.
 	want := []document.Point{{300, 560}, {540, 380}, {780, 560}}
 	if len(poly.Points) != len(want) {
 		t.Fatalf("polygon has %d points, want %d", len(poly.Points), len(want))
@@ -243,8 +242,8 @@ func TestGeminiAssist_HappyPath(t *testing.T) {
 	if want := "/models/" + geminiTestModel + ":generateContent"; stub.sent.path != want {
 		t.Errorf("path = %q, want %q", stub.sent.path, want)
 	}
-	// The credential travels in the header and nowhere else — same rule as every
-	// other Gemini seam, and the reason this reuses their client.
+	// The credential travels in the header, never the URL — same rule as every
+	// other Gemini seam.
 	if stub.sent.apiKey != geminiTestKey {
 		t.Errorf("x-goog-api-key = %q, want the configured key", stub.sent.apiKey)
 	}
@@ -267,17 +266,15 @@ func TestGeminiAssist_HappyPath(t *testing.T) {
 	if temp, ok := cfg["temperature"].(float64); !ok || temp != 0 {
 		t.Errorf("temperature = %v, want 0 — the retry varies the PROMPT, not the sampling", cfg["temperature"])
 	}
-	// The setting that made this feature work at all. Without it a thinking model
-	// spends its default budget reasoning, runs out mid-list, and the API closes the
-	// JSON — so a half-written shape arrives looking like bad judgement rather than
-	// a truncated answer. Measured live, 2026-09-20.
+	// Without this, a thinking model can burn its whole budget reasoning and get
+	// truncated mid-shape — which then reads as a bad drawing, not a cut-off one.
 	if got, ok := cfg["maxOutputTokens"].(float64); !ok || int(got) != geminiAssistMaxOutputTokens {
 		t.Errorf("maxOutputTokens = %v, want %d — an unbounded answer gets truncated mid-shape",
 			cfg["maxOutputTokens"], geminiAssistMaxOutputTokens)
 	}
 
-	// The schema is the schema decision, so it is asserted rather than assumed: a
-	// list of shapes, each a flat object with a type enum and a FLAT number array.
+	// Assert the schema shape directly: a list of flat objects, a type enum, a
+	// flat number array.
 	schema := jsonObj(t, cfg["responseSchema"], "responseSchema")
 	props := jsonObj(t, schema["properties"], "responseSchema.properties")
 	for _, field := range []string{"layerName", "note", "shapes"} {
@@ -295,16 +292,13 @@ func TestGeminiAssist_HappyPath(t *testing.T) {
 	if got := jsonStr(t, points["type"], "points.type"); got != "ARRAY" {
 		t.Errorf("points.type = %q, want ARRAY", got)
 	}
-	// FLAT: the element is a scalar, never another array. This is the choice the
-	// whole expansion path is built on.
+	// Flat: each element is a scalar, never a nested array.
 	pointItem := jsonObj(t, points["items"], "points.items")
 	if got := jsonStr(t, pointItem["type"], "points.items.type"); got != geminiCoordType {
 		t.Errorf("points.items.type = %q, want %q — points is a FLAT x,y,x,y list", got, geminiCoordType)
 	}
-	// And INTEGER, never NUMBER. A live call at temperature 0 once emitted
-	// "y": 440.000000000…, 8176 tokens of zeros, until the answer was truncated;
-	// forbidding the decimal point is what makes that unrepresentable. Every
-	// geometry field, not just the points — the loop was in a rect's y.
+	// INTEGER, never NUMBER, on every geometry field: NUMBER let greedy decoding
+	// loop on trailing zeros at temperature 0 (see geminiCoordType).
 	for _, field := range []string{"points", "x", "y", "width", "height", "cx", "cy", "rx", "ry", "strokeWidth"} {
 		schema := jsonObj(t, itemProps[field], field)
 		gotType := jsonStr(t, schema["type"], field+".type")
@@ -358,8 +352,8 @@ func TestGeminiAssist_UserTurn(t *testing.T) {
 		t.Fatalf("request body is not JSON: %v", err)
 	}
 
-	// The rules reach the model, in the SYSTEM turn, so the user's text arrives
-	// strictly after the rules it is not allowed to rewrite.
+	// The rules arrive in the system turn, so the user's text is necessarily
+	// read after them.
 	sysParts := jsonArr(t, jsonObj(t, body["systemInstruction"], "systemInstruction")["parts"], "systemInstruction.parts")
 	if len(sysParts) == 0 {
 		t.Fatal("no system instruction was sent")
@@ -407,8 +401,8 @@ func TestGeminiAssist_UserTurn(t *testing.T) {
 	if !strings.Contains(userText, "not an instruction to you") {
 		t.Error("the user turn does not label the request as a description rather than an instruction")
 	}
-	// And the untrusted part is LAST of the facts: everything the model needs to
-	// know about the canvas is already settled before it reads a word of user text.
+	// The untrusted text is last: everything about the canvas is stated before
+	// the model reads any of it.
 	if strings.Index(userText, strconv.Quote(prompt)) < strings.Index(userText, "The canvas is") {
 		t.Error("the prompt precedes the canvas facts; untrusted text belongs last")
 	}
@@ -520,16 +514,13 @@ func TestGeminiAssist_RetryExhaustion(t *testing.T) {
 	}
 }
 
-// TestGeminiAssist_TruncatedAnswerSaysSo: the failure mode that cost an afternoon.
-// When the answer runs out of output budget the API CLOSES the JSON so it still
-// parses, and what arrives is a half-written last shape — here a rect with an x
-// and a y and no size at all. Validation then complains about a zero-area rect,
-// which reads as a model that cannot draw rather than as an answer that was cut
-// off. The finishReason is the only thing that tells them apart, so it must reach
-// both the retry and the error.
+// TestGeminiAssist_TruncatedAnswerSaysSo pins that a truncated answer is
+// reported as such, not as a bad drawing: when output runs out, the API
+// closes the JSON so it still parses, and what fails validation is a
+// half-written last shape. finishReason is the only thing that tells the two
+// apart, so it must reach both the retry and the error.
 func TestGeminiAssist_TruncatedAnswerSaysSo(t *testing.T) {
-	// Exactly the shape a live call produced on 2026-09-20 before maxOutputTokens
-	// was set: the object closed by the API mid-shape.
+	// The object closed by the API mid-shape, same as a real truncated answer.
 	const cut = `{"layerName":"Simple House","note":"A simple house.","shapes":[{"type":"rect","x":0,"y":0}]}`
 
 	a, stub := newTestAssist(t, func(_ int, w http.ResponseWriter) {
@@ -698,9 +689,8 @@ func TestGeminiAssist_IDsAvoidTheSummary(t *testing.T) {
 	}
 }
 
-// TestGeminiAssist_CallsProvider: this is what finally gives assist a real daily
-// ceiling. The composition root asks the IMPL, never the mode (docs/ASSIST.md
-// §3.4), and the fake beside it still answers false.
+// TestGeminiAssist_CallsProvider pins that the composition root asks the
+// impl, never the mode (docs/ASSIST.md §3.4): the fake still answers false.
 func TestGeminiAssist_CallsProvider(t *testing.T) {
 	if !CallsProvider(NewGeminiAssist("k", "m", "http://127.0.0.1:1", time.Second)) {
 		t.Error("GeminiAssist reaches Google on every request; it must say so or its quota is spent uncounted")

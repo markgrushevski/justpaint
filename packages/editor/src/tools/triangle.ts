@@ -2,13 +2,8 @@ import type { PolygonStroke } from '../document'
 import type { LogicalPoint, StrokeTool, ToolContext } from '../types'
 
 /**
- * Triangle tool — builds a real closed 3-vertex {@link PolygonStroke} from the
- * drag bounding box (apex-top convention). Fixes the old engine's bug where the
- * "Triangle" tool drew a rectangle (`CanvasTool.ts:386-396`).
- *
- * PURE: derives everything from `ctx` + `gesture`. No Konva, no module state,
- * no side effects. The first gesture point is pointerdown, the last is the
- * current/pointerup; the bbox spans the gesture's min/max in x and y.
+ * Triangle tool — builds a closed 3-vertex {@link PolygonStroke} (apex-top
+ * convention) from the drag's bounding box.
  */
 export const triangleTool = {
     kind: 'stroke',

@@ -8,10 +8,8 @@ import (
 	"testing"
 )
 
-// TestConnectHint pins when the IPv6 hint fires. The case it exists for cost a
-// real deploy: Supabase's direct host is IPv6-only without the paid add-on,
-// Render egresses IPv4, and pgx reports only `connect: network is unreachable`
-// against a bare IPv6 literal — accurate and unusable.
+// TestConnectHint pins when the IPv6 hint fires: a dial error naming a
+// bracketed IPv6 literal gets the pooler hint, anything else does not.
 func TestConnectHint(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -59,9 +57,8 @@ func TestConnectHint(t *testing.T) {
 }
 
 // TestReady_DB pins the readiness contract against a real database: reachable
-// and migrated is ready, reachable but missing the table is NOT — the state a
-// plain Ping calls healthy, which is how a deploy with unapplied migrations gets
-// announced as live. Skips without DATABASE_URL, like the other DB-backed tests.
+// and migrated is ready, reachable but missing the table is not — the state a
+// plain Ping calls healthy. Skips without DATABASE_URL.
 func TestReady_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {

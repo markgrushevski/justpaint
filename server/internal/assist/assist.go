@@ -1,17 +1,11 @@
 // Package assist is the AI-assist seam (docs/ASSIST.md): a natural-language
 // prompt goes to an LLM, which emits a batch of validated document operations
-// (the Op contract). The handler depends on the Assist
-// interface, never a concrete impl, so the deterministic FakeAssist (the default
-// in dev/CI/tests) and the real GeminiAssist swap by config with no handler
-// change — exactly like the render (internal/render) and judge (internal/judge)
-// seams.
+// (the Op contract). The handler depends on the Assist interface, never a
+// concrete impl, so FakeAssist (deterministic, the default in dev/CI/tests)
+// and the real GeminiAssist swap by config with no handler change, exactly
+// like the render and judge seams.
 //
-// The real impl is GeminiAssist (ASSIST_MODE=gemini): it reaches the same API,
-// key, quota and HTTP client as the judge, the critic and the guesser, one place
-// to fix when the provider changes something. The external ML judge may still
-// take this seam later, which is the whole reason it is an interface.
-//
-// Assist is STATELESS: no DB, no migration, no sqlc. Every request is
+// Assist is stateless: no DB, no migration, no sqlc. Every request is
 // self-contained — prompt + minimal doc summary in, validated ops out.
 package assist
 
@@ -41,10 +35,10 @@ type Result struct {
 	Note string        `json:"note,omitempty"`
 }
 
-// ErrInvalidBatch marks retry-exhaustion: the impl could not produce a batch that
-// passes validation within its retry budget. The handler maps it to
-// 400 validation_failed — NEVER 422, which docs/API.md:68 reserves unused in v1
-// (docs/ASSIST.md §3.3).
+// ErrInvalidBatch marks retry-exhaustion: the impl could not produce a batch
+// that passes validation within its retry budget. The handler maps it to
+// 400 validation_failed, never 422, which docs/API.md §3 reserves unused in
+// v1 (docs/ASSIST.md §3.3).
 var ErrInvalidBatch = errors.New("assist: model output failed validation after retries")
 
 // Assist generates a validated op batch from a prompt. The one thing the handler

@@ -115,7 +115,7 @@ func TestGeminiCritic_Critique_HappyPath(t *testing.T) {
 		t.Errorf("responseSchema.required = %v, want both fields required", required)
 	}
 
-	// The rules reach the model, and exactly ONE drawing is attached.
+	// The rules reach the model, and exactly one drawing is attached.
 	sysParts := geminiArr(t, geminiObj(t, body["systemInstruction"], "systemInstruction")["parts"], "systemInstruction.parts")
 	if len(sysParts) == 0 {
 		t.Fatal("no system instruction was sent")
@@ -201,7 +201,7 @@ func TestGeminiCritic_Critique_RejectsContractViolations(t *testing.T) {
 }
 
 // A 429 is the free tier's daily budget running out. It must be legible as exactly
-// that, and must NOT be retried — the quota does not refill in 250ms.
+// that, and must not be retried — the quota does not refill in 250ms.
 func TestGeminiCritic_Critique_QuotaExhausted(t *testing.T) {
 	const body = `{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}`
 	c, stub := newGeminiTestCritic(t, func(_ int, w http.ResponseWriter) {
@@ -220,7 +220,7 @@ func TestGeminiCritic_Critique_QuotaExhausted(t *testing.T) {
 	}
 }
 
-// Over-long feedback is CLAMPED, not rejected, for the same reason the duel's
+// Over-long feedback is clamped, not rejected, for the same reason the duel's
 // reason is: the score is what decides anything, and it is validated strictly.
 func TestGeminiCritic_Critique_ClampsOverlongFeedback(t *testing.T) {
 	long := strings.Repeat("blah ", 200) + "final word"

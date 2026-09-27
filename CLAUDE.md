@@ -70,6 +70,9 @@ docs                contracts and decisions
   (`CONTRIBUTING.md`). No AI co-author trailers.
 - Docs and comments are written for an outside developer: plain and short, no narration about who asked
   or who found what, no AI-process talk. `docs/` is hand-written and not prettier-formatted.
+- A comment says what the code can't: a constraint, a reason, a trap. No history (dates, "used to",
+  "now that"), no restating the code, no rationale a doc already holds — point to the doc. A package
+  or file header is one to three sentences.
 - `ISSUES-INNER.md` / `ISSUES-OUTER.md`: newest entry first; delete an entry in the change that resolves it.
 
 ## Docs

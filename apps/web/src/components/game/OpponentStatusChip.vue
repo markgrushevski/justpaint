@@ -1,8 +1,8 @@
 <script lang="ts">
 /**
- * The opponent's live state within a round. Deliberately coarse — the client is
- * only ever told THAT the opponent acted, never WHAT they drew (GAME.md §4.2
- * visibility rule); the opponent canvas is revealed only on the result screen.
+ * The opponent's live state within a round. Deliberately coarse — the client
+ * only learns that the opponent acted, never what they drew (docs/GAME.md
+ * §4.2); the canvas is revealed only on the result screen.
  */
 export type OpponentStatus = 'drawing' | 'submitted' | 'judging'
 </script>
@@ -12,25 +12,22 @@ export type OpponentStatus = 'drawing' | 'submitted' | 'judging'
  * OpponentStatusChip — a top-left readout of who you're dueling and where they
  * are in the round: an avatar, their display name, and a coloured status dot.
  *
- * IDENTITY RULE (GAME.md / DECISIONS): show the display name (or the positional
- * "Player 2"), NEVER the opponent's login. PlayView passes `name` already
+ * Identity rule (docs/GAME.md §4.2): show the display name, or the positional
+ * "Player 2" — never the opponent's login. PlayView passes `name` already
  * resolved to a safe label; this component never sees a login.
  */
 import { computed } from 'vue'
 import { OriAvatar, OriSurface } from '@oriui/vue'
 
 const props = defineProps<{
-    /** A safe display label — a nickname or "Player 2", NEVER a login. */
+    /** A safe display label — a nickname or "Player 2", never a login. */
     name: string
     /** Where the opponent is in the round (drives the status dot + text). */
     status: OpponentStatus
     /**
-     * Best-effort live-socket presence (`opponent_connected`/`opponent_disconnected`,
-     * docs/API.md §9.2) — `false` dims the chip and stills its
-     * pulse as a subtle "gone quiet" hint. Deliberately NOT load-bearing: `status`
-     * (REST/poll-derived) stays the authoritative round state regardless, so a
-     * dropped socket never hides that the opponent already submitted. `undefined`
-     * (no socket yet, or presence not seen) renders exactly as before.
+     * Best-effort live-socket presence (docs/API.md §9.2) — `false` dims the
+     * chip. Not load-bearing: `status` stays authoritative regardless, so a
+     * dropped socket never hides that the opponent already submitted.
      */
     online?: boolean
 }>()
@@ -72,10 +69,9 @@ const inProgress = computed(() => props.status !== 'submitted')
     flex: none;
 }
 
-/* Subtle, non-load-bearing "gone quiet" hint (see the `online` prop doc). Dims
-   the whole chip; the pulse-stilling override sits alongside `.opp__dot--live`
-   below (descending-specificity order). The status dot's color/label are
-   untouched, since `status` is still authoritative regardless of presence. */
+/* Dims the chip for the "gone quiet" hint (see the `online` prop doc); the
+   pulse-stilling override sits alongside `.opp__dot--live` below, in
+   descending-specificity order. */
 .opp--offline {
     opacity: 0.55;
 }

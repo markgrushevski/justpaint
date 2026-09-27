@@ -1,19 +1,8 @@
 /**
- * Guard for the hand-maintained oriUI stylesheet list in `src/main.ts`.
- *
- * We import oriUI's CSS à la carte — one file per component actually used — which
- * keeps the bundle honest but leaves a list that a human must remember to update.
- * It was already wrong: `OriBadge` and `OriSkeleton` were rendered on /leaderboard
- * and in the judging overlay with no block styles at all, because nobody added
- * their two lines.
- *
- * The check is deliberately about SELECTORS, not filenames. Some component CSS is
- * inlined into another file — `.ori-spinner` ships inside button.css — so asking
- * "is spinner.css imported?" would report a bug that does not exist. Asking "is
- * `.ori-spinner` present in the CSS we actually import?" is the real invariant.
- *
- * A component whose class oriUI does not define anywhere is skipped: it has no
- * block styles of its own, so there is nothing to import for it.
+ * Guards the hand-maintained oriUI stylesheet list in `src/main.ts` — a
+ * missing import renders a component unstyled with no error (docs/NOTES.md,
+ * "The oriui CSS import list is hand-maintained"). Checks by SELECTOR, not
+ * filename, since some component CSS ships inside another file's stylesheet.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -22,10 +11,8 @@ import { createRequire } from 'node:module'
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const srcRoot = join(webRoot, 'src')
-// Ask Node where `@oriui/css` actually is rather than guessing a path into the
-// workspace root: npm hoists to the root or to `apps/web/node_modules`
-// depending on what else is installed, and the day it chose the latter this
-// guard died with ENOENT on a package that was present and correct.
+// Resolve via Node, not a guessed path — npm hoisting varies (docs/NOTES.md,
+// "Tool scripts must resolve packages, not assume the root node_modules").
 const require = createRequire(import.meta.url)
 const cssComponents = join(dirname(require.resolve('@oriui/css/package.json')), 'dist', 'components')
 
@@ -38,14 +25,9 @@ function walk(dir) {
 }
 
 /**
- * Components whose block name does NOT follow from their component name, so the
- * derivation below cannot reach them. Verified against oriui's own templates
- * (packages/vue/src/components/toolbar), not guessed from the CSS: the two
- * toolbar controls render no eponymous block at all — they compose OriButton, so
- * the DOM carries `.ori-button` — and the separator renders a BEM element of the
- * toolbar block. Without these three the guard would ABSTAIN on them (it skips
- * anything oriui defines nowhere), which is silent non-coverage rather than a
- * false alarm — the dangerous half.
+ * Components whose block name doesn't follow from the component name: the
+ * toolbar controls compose OriButton, the separator renders a toolbar BEM
+ * element. Without these the guard would silently abstain instead of flagging them.
  */
 const BLOCK_ALIASES = {
     OriToolbarButton: 'ori-button',
@@ -63,8 +45,8 @@ function toClass(component) {
 
 const sources = walk(srcRoot).filter((f) => /\.(vue|ts)$/.test(f))
 
-// Components the app actually renders. Import lines alone would over-report
-// (a type-only import, or a name mentioned in a comment), so require a tag.
+// Actually-rendered components — an import alone would over-report (a
+// type-only import, or a name mentioned in a comment), so require a tag.
 const used = new Set()
 for (const file of sources) {
     const text = readFileSync(file, 'utf8')
@@ -76,18 +58,16 @@ const mainTs = readFileSync(join(srcRoot, 'main.ts'), 'utf8')
 const imported = [...mainTs.matchAll(/@oriui\/css\/components\/([a-z-]+)\.css/g)].map((m) => m[1])
 const loadedCss = imported.map((name) => readFileSync(join(cssComponents, `${name}.css`), 'utf8')).join('\n')
 
-// Every class oriUI defines anywhere, so an unstyled component is distinguishable
-// from a component with no styles of its own.
+// Every class oriUI defines anywhere, to tell "unstyled" apart from "has no styles of its own".
 const allCss = readdirSync(cssComponents)
     .filter((f) => f.endsWith('.css'))
     .map((f) => readFileSync(join(cssComponents, f), 'utf8'))
     .join('\n')
 
 /**
- * Is `.cls` present as a whole class? A boundary check, not a substring one:
- * the dist CSS is minified, so the same class turns up as `.ori-badge,`,
- * `.ori-badge{`, `.ori-badge:hover` and `.ori-badge>*`. The lookahead also stops
- * `.ori-badge` from matching inside `.ori-badge-anchor`, which is a different block.
+ * Whole-class match, not substring: minified CSS turns up `.ori-badge,`,
+ * `.ori-badge{`, `.ori-badge:hover` etc., and the lookahead stops `.ori-badge`
+ * from also matching inside the unrelated `.ori-badge-anchor`.
  */
 function hasClass(css, cls) {
     return new RegExp(`\.${cls}(?![\w-])`).test(css)
@@ -96,10 +76,7 @@ function hasClass(css, cls) {
 const missing = []
 for (const component of [...used].sort()) {
     const cls = BLOCK_ALIASES[component] ?? toClass(component)
-    // A class oriui defines nowhere means the component has no block styles of its
-    // own, so there is nothing to import. This abstains rather than false-positives,
-    // which is the blind spot BLOCK_ALIASES exists to close: add an entry whenever a
-    // component turns out to render a block its name does not predict.
+    // No block styles anywhere in oriUI to import; add a BLOCK_ALIASES entry if this ever abstains wrongly.
     if (!hasClass(allCss, cls)) continue
     if (!hasClass(loadedCss, cls)) missing.push({ component, cls })
 }

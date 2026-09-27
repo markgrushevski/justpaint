@@ -15,10 +15,9 @@ where id = $1 and active
 `
 
 // The prompt a practice run claims to be answering. `active` is part of the
-// lookup, not a field the caller checks afterwards: a deactivated prompt must read
-// as "no such prompt" (→ 404), the same answer a made-up id gets, so retiring a
-// prompt cannot be detected by trying to draw for it. A duel pins its prompt
-// server-side and so has no equivalent — only practice takes an id from a client.
+// lookup, not checked afterwards, so a retired prompt reads as "no such prompt"
+// like a made-up id (docs/API.md §12). Only practice takes a prompt id from a
+// client; a duel pins its own server-side.
 func (q *Queries) GetActivePromptByID(ctx context.Context, id string) (Prompt, error) {
 	row := q.db.QueryRow(ctx, getActivePromptByID, id)
 	var i Prompt

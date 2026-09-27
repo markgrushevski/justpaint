@@ -19,23 +19,23 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/render"
 )
 
-// TestRating_DB is the concurrency proof for the cross-match ladder write: the Elo
-// delta is applied ATOMICALLY (ApplyRatingDelta: `rating = rating + delta` RETURNING
-// the true post-value), so a user seated in two matches resolving at once does NOT
-// lose a delta — the match-row FOR UPDATE lock serializes per MATCH, never per USER.
-// Four cases against a real Postgres:
+// TestRating_DB is the concurrency proof for the cross-match ladder write: the
+// Elo delta is applied atomically (ApplyRatingDelta: `rating = rating + delta`
+// returning the true post-value), so a user seated in two matches resolving at
+// once does not lose a delta — the match-row lock serializes per match, never
+// per user. Four cases against a real Postgres:
 //
-//	(a) two forfeit matches over the SAME user, resolved CONCURRENTLY with a barrier at
-//	    the read→write seam → both deltas land (the regression; FAILS on an absolute SET);
-//	(b) two SEQUENTIAL matches → rating_before(M2) == rating_after(M1), and the snapshot
-//	    delta each == the Elo gain (RETURNING-derived, not the pre-match read);
+//	(a) two forfeit matches over the same user, resolved concurrently with a
+//	    barrier at the read→write seam → both deltas land (fails on an absolute
+//	    SET);
+//	(b) two sequential matches → rating_before(M2) == rating_after(M1), and each
+//	    snapshot delta == the Elo gain (RETURNING-derived, not the pre-match read);
 //	(c) a resolved match is ladder zero-sum (winner's gain == loser's loss);
-//	(d) the JUDGED path (runJudging + FakeJudge + stub renderer) also moves users.rating
-//	    and lands the rating_before/after snapshot — closes a pre-existing DB-test hole.
+//	(d) the judged path (runJudging + FakeJudge + stub renderer) also moves
+//	    users.rating and lands the rating_before/after snapshot.
 //
-// Needs a migrated + seeded DATABASE_URL (docker compose up + goose up); skips otherwise,
-// matching deadline_db_test.go — including its pool-close-via-t.Cleanup ordering so no
-// fixture leaks (Cleanup is LIFO: the pool.Close registered FIRST runs LAST).
+// Needs a migrated + seeded DATABASE_URL (docker compose up + goose up); skips
+// otherwise. Cleanup order is LIFO: the pool.Close registered first runs last.
 func TestRating_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -47,9 +47,9 @@ func TestRating_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	// Close via Cleanup, NOT defer: a test-body defer runs BEFORE t.Cleanup callbacks,
-	// so a deferred Close would shut the pool before the row cleanup below. Registered
-	// first, this runs LAST (Cleanup is LIFO), after the row cleanup.
+	// Close via Cleanup, not defer: a test-body defer runs before t.Cleanup
+	// callbacks, so a deferred Close would shut the pool before the row cleanup
+	// below. Registered first, this runs last (Cleanup is LIFO).
 	t.Cleanup(func() { pool.Close() })
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("postgres unreachable: %v", err)
@@ -57,16 +57,14 @@ func TestRating_DB(t *testing.T) {
 
 	q := db.New(pool)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	// The forfeit/concurrency cases need no seams (no judge/render runs on a forfeit),
-	// mirroring deadline_db_test's NewService(pool, q, nil, nil, logger). The judged
-	// case (d) uses a service with the REAL fake seams.
+	// The forfeit/concurrency cases need no seams (no judge/render on a forfeit);
+	// the judged case (d) uses a service with the real fake seams.
 	svc := NewService(pool, q, nil, nil, logger)
 	svcJudged := NewService(pool, q, render.NewStubRenderer(), judge.NewFakeJudge(), logger)
 
 	// --- fixtures ---------------------------------------------------------
-	// Cleanup registered BEFORE any row is created (slices captured by reference), so a
-	// mid-setup t.Fatalf still tears down whatever landed. FK order: match_players, then
-	// drawings, then matches, then users.
+	// Cleanup registered before any row is created (slices captured by reference),
+	// so a mid-setup t.Fatalf still tears down whatever landed (FK order below).
 	var userIDs, matchIDs []string
 	t.Cleanup(func() {
 		for _, mid := range matchIDs {
@@ -100,9 +98,9 @@ func TestRating_DB(t *testing.T) {
 		t.Fatalf("pick prompt (is the DB migrated + seeded? migration 00002): %v", err)
 	}
 
-	// docWithStrokes builds the smallest valid v1 document carrying n line strokes, so
-	// the stub renderer's ink coverage scales with n and the ink-coverage FakeJudge picks
-	// a DECISIVE winner (needed so a judged result actually moves Elo off 1200).
+	// docWithStrokes builds the smallest valid v1 document with n line strokes, so
+	// ink coverage scales with n and the FakeJudge picks a decisive winner (needed
+	// to move Elo off 1200).
 	docWithStrokes := func(marker string, n int) string {
 		var b strings.Builder
 		b.WriteString(`{"version":1,"width":10,"height":10,"background":null,"layers":[{"id":"l","name":"`)
@@ -144,9 +142,8 @@ func TestRating_DB(t *testing.T) {
 		}
 	}
 
-	// mkExpiredForfeit creates a match, seats submitter + forfeiter, submits ONLY the
-	// submitter's drawing, forces `drawing`, then backdates the deadline so the round is
-	// expired on the DB clock — the fixture the forfeit resolver acts on.
+	// mkExpiredForfeit creates a match, seats submitter + forfeiter, submits only
+	// the submitter's drawing, and backdates the deadline past expiry.
 	mkExpiredForfeit := func(submitter, forfeiter string) string {
 		m, err := q.CreateMatch(ctx, prompt.ID)
 		if err != nil {
@@ -169,9 +166,8 @@ func TestRating_DB(t *testing.T) {
 		return m.ID
 	}
 
-	// resolveForfeit locks the match and runs resolveExpiry in its own committed tx —
-	// the exact per-row path the sweeper uses (used by the SEQUENTIAL cases; case (a)
-	// needs a finer-grained interleave and inlines the steps, see below).
+	// resolveForfeit locks and resolves one match — the exact per-row path the
+	// sweeper uses, for the sequential cases (case (a) inlines the steps instead).
 	resolveForfeit := func(mid string) {
 		t.Helper()
 		tx, err := pool.Begin(ctx)
@@ -229,21 +225,21 @@ func TestRating_DB(t *testing.T) {
 		m1 := mkExpiredForfeit(u, oppA) // u wins M1 by forfeit
 		m2 := mkExpiredForfeit(u, oppB) // u wins M2 by forfeit
 
-		// Both matches read u.rating = 1200 (the barrier guarantees both READ before
-		// EITHER writes), so each computes the SAME +winGain(1200,1200). The atomic
+		// Both matches read u.rating = 1200 (the barrier guarantees both read before
+		// either writes), so each computes the same +winGain(1200,1200); the atomic
 		// rating += delta must accumulate both.
 		startRating := rating(u) // 1200
 		d := winGain(int(startRating), int(startRating))
 
-		// A 2-party rendezvous at the read→write seam. resolveExpiry couples the rating
-		// READ (GetMatchPlayersForResolve) and the WRITE (writeFinalResult → ApplyRatingDelta)
-		// inside one call, so a barrier placed AFTER resolveExpiry can't force the losing
-		// interleave: the second tx's ApplyRatingDelta blocks on the first tx's user row
-		// lock and never reaches the barrier. So each goroutine here performs resolveExpiry's
-		// own steps — GetMatchForUpdate → GetMatchPlayersForResolve → decideExpiry →
-		// writeFinalResult — with the barrier sitting exactly between the read and the write,
-		// where the cross-match lost update lives. Both goroutines call Done exactly once (on
-		// every path), so a pre-barrier error can't hang the peer.
+		// A 2-party rendezvous at the read→write seam: resolveExpiry couples the
+		// rating read (GetMatchPlayersForResolve) and the write (writeFinalResult →
+		// ApplyRatingDelta) in one call, so a barrier placed after resolveExpiry
+		// can't force the losing interleave — the second tx's ApplyRatingDelta would
+		// block on the first tx's user-row lock before reaching it. So each
+		// goroutine here inlines resolveExpiry's own steps, with the barrier sitting
+		// exactly between the read and the write, where the cross-match lost update
+		// lives. Both goroutines call Done exactly once, so a pre-barrier error
+		// can't hang the peer.
 		var readGate sync.WaitGroup
 		readGate.Add(2)
 
@@ -367,8 +363,8 @@ func TestRating_DB(t *testing.T) {
 				t.Fatalf("add player: %v", err)
 			}
 		}
-		// Different stroke counts → different stub ink coverage → the FakeJudge picks a
-		// DECISIVE winner (a tie at equal ratings would leave the ladder at 1200).
+		// Different stroke counts → different stub ink coverage → the FakeJudge picks
+		// a decisive winner (a tie at equal ratings would leave the ladder at 1200).
 		submitDrawing(m.ID, p1, 5)
 		submitDrawing(m.ID, p2, 0)
 		if _, err := q.SetMatchJudging(ctx, m.ID); err != nil {

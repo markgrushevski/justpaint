@@ -5,16 +5,12 @@ import (
 	"fmt"
 )
 
-// FakeCritic is the zero-ML default for practice, mirroring FakeJudge: it scores
-// by INK COVERAGE — the fraction of non-background pixels in the authoritative
-// raster — so the whole practice loop (render → critique → score) runs with no
-// API key, no quota and no network. Deterministic in the bytes.
-//
-// It does NOT read the prompt, and the feedback says so in as many words. That
-// sentence is the point of this type, not an apology for it: a number presented
-// as "how well you drew a fox on a bicycle" when nothing ever looked for a fox is
-// a lie the player cannot detect, and it would quietly teach them that the
-// feature works. The fake proves the loop; only a real critic judges.
+// FakeCritic is the zero-ML default for practice, mirroring FakeJudge: it
+// scores by ink coverage — the fraction of non-background pixels — so the
+// whole practice loop runs with no API key, quota or network, deterministic
+// in the bytes. It never reads the prompt, and the feedback says so: a score
+// presented as "how well you drew a fox" when nothing looked for a fox is a
+// lie the player cannot detect.
 type FakeCritic struct{}
 
 // NewFakeCritic returns the in-process fake critic.

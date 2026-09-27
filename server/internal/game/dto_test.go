@@ -233,7 +233,7 @@ func TestBuildResultDTO(t *testing.T) {
 		if d.Resolution != resolutionAborted {
 			t.Errorf("resolution = %q, want %q", d.Resolution, resolutionAborted)
 		}
-		// No verdict was produced, so a null winner must NOT read as a drawn duel.
+		// No verdict was produced, so a null winner must not read as a drawn duel.
 		if d.WinnerUserID != nil {
 			t.Errorf("winner = %v, want nil on abort", *d.WinnerUserID)
 		}

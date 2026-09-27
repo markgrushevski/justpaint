@@ -25,13 +25,10 @@ const httpContractVersion = "1"
 const httpMaxAttempts = 3
 
 // httpRetryBase is the first backoff step; it doubles per retry (250ms, then
-// 500ms — the two sleeps that fit between the 3 attempts §7 allows). §7 pins
-// the retry COUNT, not a duration; this default stays comfortably inside
-// game.JudgePassBudget, which covers the whole judging pass (two authoritative
-// renders plus the score call — internal/game/service.go). That budget is sized
-// FROM this retry envelope, not the other way round: it was a flat 30s, which
-// silently left no room for the third attempt. Same policy, and the same field
-// name, as GeminiJudge's retryBase.
+// 500ms — the two sleeps between the 3 attempts JUDGE.md §7 allows). §7 pins
+// the retry count, not a duration; game.JudgePassBudget for the whole judging
+// pass is sized from this envelope, not the other way round. Same policy and
+// field name as GeminiJudge's retryBase.
 const httpRetryBase = 250 * time.Millisecond
 
 // httpMaxResponseBytes bounds how much of a response body we'll read. A real
@@ -40,21 +37,16 @@ const httpRetryBase = 250 * time.Millisecond
 // memory.
 const httpMaxResponseBytes = 1 << 20 // 1 MiB
 
-// HTTPJudge is the transport to the external ML judge's real service
-// (docs/JUDGE.md §7), implementing Judge over the wire contract §6 pins. It is
-// stateless and safe for concurrent use — the game module runs up to
-// JudgeConcurrency judging passes at once (internal/game/service.go).
+// HTTPJudge is the transport to the external ML judge's service (JUDGE.md
+// §7), implementing Judge over the wire contract §6 pins. Stateless and safe
+// for concurrent use — game runs up to JudgeConcurrency judging passes at
+// once.
 //
-// Images travel INLINE ONLY. Request.ImageA/ImageB stay typed []byte all the
-// way to the wire purely so encoding/json's built-in rule — a []byte field
-// marshals as a base64 string — does the encoding for us; there is no custom
-// marshaling and no `data:` URI prefix. §6 also describes a URL delivery mode,
-// meant to keep request bodies tiny once object storage exists; this project
-// deliberately has none (docs/ROADMAP.md Phase 4 defers it, and the /play
-// opponent-canvas reveal was built as a membership-gated endpoint specifically
-// to avoid needing it — docs/DECISIONS.md). So JUDGE_IMAGE_MODE is NOT
-// implemented here: a config knob with exactly one legal value is worse than
-// no knob at all. Add url mode — and the knob — together, when object storage
+// Images travel inline only: Request.ImageA/ImageB stay typed []byte to the
+// wire so encoding/json's built-in base64 marshaling does the encoding, no
+// custom marshaling needed. §6's URL delivery mode needs object storage this
+// project doesn't have, so JUDGE_IMAGE_MODE isn't implemented — a knob with
+// one legal value is worse than none. Add both together when object storage
 // lands.
 type HTTPJudge struct {
 	baseURL string
@@ -66,12 +58,11 @@ type HTTPJudge struct {
 	retryBase time.Duration
 }
 
-// NewHTTPJudge builds a client for the external ML judge's service at baseURL (a
-// trailing slash is tolerated and trimmed, so callers can't accidentally send
-// a doubled slash before /v1/score). timeout bounds ONE attempt, retries
-// excluded: internal/platform/config's JudgeTimeout doc comment reads §7's
-// "per-call deadline" as per-attempt, so one slow attempt doesn't eat into the
-// next retry's own budget.
+// NewHTTPJudge builds a client for the external judge service at baseURL (a
+// trailing slash is trimmed, so callers can't send a doubled slash before
+// /v1/score). timeout bounds one attempt, retries excluded — JUDGE.md §7's
+// "per-call deadline" means per-attempt, so one slow attempt can't eat into
+// the next retry's budget.
 func NewHTTPJudge(baseURL string, timeout time.Duration) *HTTPJudge {
 	return &HTTPJudge{
 		baseURL:   strings.TrimRight(baseURL, "/"),
@@ -152,12 +143,10 @@ func (h *HTTPJudge) Score(ctx context.Context, req Request) (Result, error) {
 	return Result{}, fmt.Errorf("judge: http: failed after %d attempts: %w", httpMaxAttempts, lastErr)
 }
 
-// attempt makes one HTTP round trip and classifies the failure, if any. The
-// bool return is meaningful only when err != nil: true means worth retrying.
-// It does not itself special-case a cancelled caller ctx — any Do failure is
-// reported as retryable, and Score's own ctx.Err() check (made once per
-// iteration, right after seeing retryable=true) is what stops a cancelled
-// caller from actually being retried.
+// attempt makes one HTTP round trip; the bool return is meaningful only when
+// err != nil (true = worth retrying). It does not special-case a cancelled
+// caller ctx — Score's own ctx.Err() check after a retryable failure is what
+// stops a cancelled call from actually being retried.
 func (h *HTTPJudge) attempt(ctx context.Context, body []byte, idemKey string) (Result, bool, error) {
 	attemptCtx, cancel := context.WithTimeout(ctx, h.timeout)
 	defer cancel()
@@ -184,7 +173,7 @@ func (h *HTTPJudge) attempt(ctx context.Context, body []byte, idemKey string) (R
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		// 5xx is transient; a 4xx means OUR request is wrong, and any other
+		// 5xx is transient; a 4xx means our request is wrong, and any other
 		// unexpected status is treated the same way — neither is worth
 		// hammering (§7).
 		return Result{}, resp.StatusCode >= 500, fmt.Errorf("judge: http: service %s: %s", resp.Status, summarizeError(respBody))
@@ -196,10 +185,9 @@ func (h *HTTPJudge) attempt(ctx context.Context, body []byte, idemKey string) (R
 	}
 	result := Result{ScoreA: wire.ScoreA, ScoreB: wire.ScoreB, Winner: wire.Winner, Reason: wire.Reason}
 	if err := result.Validate(); err != nil {
-		// A 200 that fails §2 validation is a CONTRACT VIOLATION, not a
-		// verdict, and not worth a retry either: the external ML judge's service is
-		// pure, so a same-content retry earns the same broken body back.
-		// Validate's error already wraps ErrInvalidResult.
+		// A 200 that fails §2 validation is a contract violation, not a
+		// verdict, and not worth a retry: the service is pure, so a
+		// same-content retry earns back the same broken body.
 		return Result{}, false, fmt.Errorf("judge: http: %w", err)
 	}
 	return result, false, nil
@@ -220,16 +208,13 @@ func httpBackoff(ctx context.Context, retryBase time.Duration, attempt int) erro
 	}
 }
 
-// idempotencyKey derives a stable key from the request content (§6: "the same
-// key for retries of the same scoring"). Request carries no match/submit id —
-// the judge package knows nothing of matches, game owns that mapping (§4) —
-// so content is the only stable handle available here. Hashing prompt and
-// each image separately before combining avoids the ambiguity of
-// concatenating variable-length fields directly (prompt "ab" + imageA "c"
-// would otherwise collide with prompt "a" + imageA "bc"). A pleasant side
-// effect: byte-identical rescoring — e.g. the stuck-judging sweep re-running
-// the same submissions (docs/GAME.md §4.1) — reuses the same key too, which is
-// exactly what "safe to ignore since scoring is pure" (§7) is describing.
+// idempotencyKey derives a stable key from the request content (JUDGE.md §6:
+// "the same key for retries of the same scoring"). Request carries no
+// match/submit id, so content is the only stable handle. Hashing prompt and
+// each image separately before combining avoids concatenation ambiguity
+// (prompt "ab"+imageA "c" would otherwise collide with "a"+"bc"). Side
+// effect: the stuck-judging sweep re-running the same submissions (GAME.md
+// §4.1) reuses the same key, which scoring's purity makes safe (§7).
 func idempotencyKey(req Request) string {
 	hp := sha256.Sum256([]byte(req.Prompt))
 	ha := sha256.Sum256(req.ImageA)
