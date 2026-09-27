@@ -2,6 +2,7 @@ package assist
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,12 +15,12 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/document"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
+	"github.com/markgrushevski/justpaint/server/internal/render"
 )
 
-// maxAssistBodyBytes caps the assist request body: a prompt plus the minimal
-// doc summary (canvas + layer inventory, never the full document), so 64 KiB
-// is generous (docs/API.md §10).
-const maxAssistBodyBytes = 64 << 10 // 64 KiB
+// maxAssistBodyBytes is the document cap every document-bearing route shares
+// (docs/API.md §6): the body carries the whole current document.
+const maxAssistBodyBytes = 8 << 20 // 8 MiB
 
 // maxPromptBytes caps the natural-language prompt, well under the body cap,
 // rejecting a runaway prompt before it reaches the LLM impl — every assist
@@ -61,6 +62,13 @@ func CallsProvider(a Assist) bool {
 // actually holds. Layering both on one endpoint mirrors POST /api/matches
 // (docs/API.md §3.1).
 
+// requestBody is the wire shape of POST /api/assist/ops.
+type requestBody struct {
+	Prompt        string          `json:"prompt"`
+	Document      json.RawMessage `json:"document"`
+	TargetLayerID *string         `json:"targetLayerId"`
+}
+
 // writeSlack is how long the response may take to write once the run budget
 // is spent.
 const writeSlack = 5 * time.Second
@@ -71,16 +79,18 @@ type Handler struct {
 	limiter   *RateLimiter
 	budget    aibudget.Check
 	spend     aibudget.Spend
+	renderer  render.Renderer
 	runBudget time.Duration
 	logger    *slog.Logger
 }
 
 // NewHandler builds the assist HTTP handler over an Assist impl, a per-user rate
-// limiter and the daily AI-call budget ports. A positive runBudget bounds the
+// limiter and the daily AI-call budget ports. renderer draws the canvas for an impl
+// that reads images (ReadsImage). A positive runBudget bounds the render plus the
 // generation and keeps the response writable for that long, past the server's
 // WriteTimeout; zero leaves both to the server.
-func NewHandler(a Assist, limiter *RateLimiter, budget aibudget.Check, spend aibudget.Spend, runBudget time.Duration, logger *slog.Logger) *Handler {
-	return &Handler{assist: a, limiter: limiter, budget: budget, spend: spend, runBudget: runBudget, logger: logger}
+func NewHandler(a Assist, limiter *RateLimiter, budget aibudget.Check, spend aibudget.Spend, renderer render.Renderer, runBudget time.Duration, logger *slog.Logger) *Handler {
+	return &Handler{assist: a, limiter: limiter, budget: budget, spend: spend, renderer: renderer, runBudget: runBudget, logger: logger}
 }
 
 // Routes registers the assist route; protect is the auth middleware — the route
@@ -106,24 +116,44 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req Request
-	if err := web.DecodeJSON(w, r, &req, maxAssistBodyBytes); err != nil {
-		// Malformed JSON, unknown fields, or an over-cap body all fold into the one
-		// client error path (docs/API.md §1 strict decode; no 422 anywhere).
-		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "invalid request body")
+	var body requestBody
+	if err := web.DecodeJSONLax(w, r, &body, maxAssistBodyBytes); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			web.Error(w, http.StatusRequestEntityTooLarge, web.CodeDocumentTooLarge, "document exceeds the size limit")
+		} else {
+			web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "invalid request body")
+		}
 		return
 	}
 
 	// Guard the prompt before spending an LLM call: empty/whitespace is nothing
 	// to draw, and an over-long prompt is rejected here in case it sneaks under
 	// the body cap.
-	if strings.TrimSpace(req.Prompt) == "" {
+	if strings.TrimSpace(body.Prompt) == "" {
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "prompt must not be empty")
 		return
 	}
-	if len(req.Prompt) > maxPromptBytes {
+	if len(body.Prompt) > maxPromptBytes {
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "prompt is too long")
 		return
+	}
+
+	doc, err := document.ParseAndValidate(body.Document)
+	if err != nil {
+		msg := "invalid document"
+		var ve *document.ValidationError
+		if errors.As(err, &ve) {
+			msg = ve.Msg
+		}
+		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, msg)
+		return
+	}
+	req := Request{
+		Prompt:        body.Prompt,
+		Document:      doc,
+		DocSummary:    document.Summarize(doc),
+		TargetLayerID: body.TargetLayerID,
 	}
 
 	// The daily ceiling is last of the guards, right before the one expensive
@@ -139,6 +169,30 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	ctx := r.Context()
+	if h.runBudget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, h.runBudget)
+		defer cancel()
+		// A generation can outlast the server's WriteTimeout, which would drop the
+		// response after the call was paid for.
+		deadline := time.Now().Add(h.runBudget + writeSlack)
+		if err := http.NewResponseController(w).SetWriteDeadline(deadline); err != nil {
+			h.logger.Warn("assist: cannot extend the write deadline", "err", err)
+		}
+	}
+
+	// Rendered before billing, like guess: the render is ours and free, the call is not.
+	if ReadsImage(h.assist) {
+		img, err := h.renderer.Render(ctx, doc)
+		if err != nil {
+			h.logger.Error("assist render", "err", err)
+			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
+			return
+		}
+		req.Image = img
+	}
+
 	// Recorded before the call, never after: a call that fails still spent the
 	// provider's quota. This write is also the tighter of the two per-user
 	// gates — it refuses on the count as it stands at the instant of writing,
@@ -152,19 +206,6 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("assist budget spend", "err", err)
 			web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
 			return
-		}
-	}
-
-	ctx := r.Context()
-	if h.runBudget > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, h.runBudget)
-		defer cancel()
-		// A generation can outlast the server's WriteTimeout, which would drop the
-		// response after the call was paid for.
-		deadline := time.Now().Add(h.runBudget + writeSlack)
-		if err := http.NewResponseController(w).SetWriteDeadline(deadline); err != nil {
-			h.logger.Warn("assist: cannot extend the write deadline", "err", err)
 		}
 	}
 

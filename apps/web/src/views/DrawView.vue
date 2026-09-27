@@ -29,7 +29,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { OriButton, OriInput, OriSurface, OriToaster, useToast } from '@oriui/vue'
 import { useThemeColor } from '@oriui/headless/vue'
 import { DEFAULT_CANVAS, DEFAULT_STYLE, DOC_VERSION, Editor, LIMITS, newId, TOOLS } from '@justpaint/editor'
-import type { Document, DocSummary, LayerView, Op, ToolId } from '@justpaint/editor'
+import type { Document, LayerView, Op, ToolId } from '@justpaint/editor'
 import {
     copyImage,
     copyText,
@@ -577,15 +577,6 @@ async function load() {
     })
 }
 
-// Canvas size and layer inventory only, never point paths (docs/ASSIST.md §4).
-function buildDocSummary(): DocSummary {
-    const doc = editor!.getDocument()
-    return {
-        canvas: { width: doc.width, height: doc.height },
-        layers: doc.layers.map((l) => ({ id: l.id, name: l.name, strokeCount: l.strokes.length }))
-    }
-}
-
 function clearAssistProposal() {
     if (pendingOps.value) editor?.rejectOps()
     pendingOps.value = null
@@ -606,7 +597,7 @@ async function submitAssist() {
     if (!editor) return
     const targetLayerId = editor.getActiveLayerId() || undefined
     assistMutation.mutate(
-        { prompt, docSummary: buildDocSummary(), targetLayerId },
+        { prompt, document: editor.getDocument(), targetLayerId },
         {
             onSuccess: (r) => {
                 editor?.previewOps(r.ops)

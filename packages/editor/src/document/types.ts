@@ -177,13 +177,3 @@ export type OpStroke = LineStroke | RectStroke | EllipseStroke | PolygonStroke
  * contract and id-resolution rules: docs/ASSIST.md §2.
  */
 export type Op = { kind: 'add_layer'; id: Id; name: string } | { kind: 'add_stroke'; layerId: Id; stroke: OpStroke }
-
-/**
- * Minimal document summary the assist endpoint receives. Just enough to
- * seed the id namespace and resolve layer references — NOT the full document.
- * See docs/ASSIST.md §4.
- */
-export interface DocSummary {
-    canvas: { width: number; height: number }
-    layers: Array<{ id: Id; name: string; strokeCount: number }>
-}
