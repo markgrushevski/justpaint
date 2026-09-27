@@ -66,7 +66,7 @@ func TestAssist_Live(t *testing.T) {
 	}
 	if out := os.Getenv("ASSIST_LIVE_OUT"); out != "" {
 		writeWithProposal(t, out, document.Document{Version: 1, Width: 1080, Height: 1080,
-			Layers: []document.Layer{{ID: "l1", Name: "Layer 1", Visible: true, Opacity: 1}}}, res.Ops)
+			Layers: []document.Layer{{ID: "l1", Name: "Layer 1", Visible: true, Opacity: 1, Strokes: []document.Stroke{}}}}, res.Ops)
 	}
 	if len(res.Ops) < 2 {
 		t.Errorf("got %d ops — a drawing is a layer plus at least one shape", len(res.Ops))
