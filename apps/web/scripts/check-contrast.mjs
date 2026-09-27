@@ -1,19 +1,10 @@
 #!/usr/bin/env node
 /**
- * check-contrast.mjs — machine-checks the WCAG contrast claims made in the
- * comments of apps/web/src/main.css against the actual token values.
- *
- * Parses the brand-token custom properties (hex and `hsl(H S% L%)` forms) out
- * of main.css and uses **colord** (+ its a11y plugin) to compute WCAG 2.x
- * contrast ratios, then asserts the palette matrix:
- *
- *   TEXT     >= 4.5:1  (WCAG 1.4.3 AA)      — every on-* ink vs its ground,
- *                                             the dark danger override.
- *   NON-TEXT >= 3.0:1  (WCAG 1.4.11)        — outlines vs their grounds,
- *                                             the primary focus ring vs the page.
- *
- * Values are greped from main.css itself, so a palette retune is re-verified
- * automatically on every `npm run lint:all`. Exit 1 on any failing pair.
+ * Machine-checks apps/web/src/main.css's brand tokens against WCAG contrast:
+ * TEXT pairs (on-* ink vs its ground) need >= 4.5:1 (WCAG 1.4.3 AA); NON-TEXT
+ * pairs (outlines, the primary focus ring) need >= 3.0:1 (WCAG 1.4.11). Values
+ * come straight from main.css, so a palette retune is re-verified on every
+ * `npm run lint:all`.
  */
 
 import { readFileSync } from 'node:fs'
@@ -26,8 +17,6 @@ extend([a11yPlugin])
 
 const CSS_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main.css')
 const css = readFileSync(CSS_PATH, 'utf8')
-
-/* ---------------------------------------------------------------- parsing */
 
 /** First `{...}` body whose selector matches `selectorRe` (no nested braces in main.css). */
 function block(selectorRe, label) {
@@ -54,14 +43,10 @@ function parseColor(value, name) {
     return c
 }
 
-/* ------------------------------------------------------------------- WCAG */
-
 function fail(msg) {
     console.error(`check-contrast: ${msg}`)
     process.exit(1)
 }
-
-/* ----------------------------------------------------------- token intake */
 
 const root = block(/:root(?![.:])/, ':root brand-token')
 const dark = block(/:root\.ori-theme_dark/, ':root.ori-theme_dark override')
@@ -83,24 +68,21 @@ for (const name of [
 ]) {
     tokens[name] = parseColor(prop(root, `--ori-color-${name}`, ':root'), `--ori-color-${name}`)
 }
-// Outline is OURS, not oriui's — oriui ships no outline token, so it lives in the
-// --jp-* namespace rather than squatting in the vendor prefix. Same
-// contrast duty as the rest: it draws borders that must clear 3:1 (WCAG 1.4.11).
+// oriui ships no outline token, so this lives in --jp-* instead of squatting
+// in the vendor prefix; still has to clear 3:1 (WCAG 1.4.11) like the rest.
 for (const name of ['outline-light', 'outline-dark']) {
     tokens[name] = parseColor(prop(root, `--jp-color-${name}`, ':root'), `--jp-color-${name}`)
 }
-// The letterbox desk tokens: parsed + validated (a rename/typo fails the run),
-// but no contrast assertion — nothing is required to read against the desk.
+// Desk tokens: parsed and validated (a rename/typo fails the run), but no
+// contrast assertion — nothing is required to read against the desk.
 for (const name of ['desk-light', 'desk-dark']) {
     tokens[name] = parseColor(prop(root, `--jp-${name}`, ':root'), `--jp-${name}`)
 }
 // Dark-only danger override (oriui's light-tuned red is too dim on our dark surfaces).
 tokens['danger-dark'] = parseColor(prop(dark, '--ori-color-danger', 'dark'), '--ori-color-danger (dark)')
-// Role-as-text AA (outline/tonal/text buttons, selected tab, tag, link) is now owned by oriui's
-// --ori-color-<role>-text tokens (a derived color-mix, guarded by oriui's e2e/text-contrast.spec.ts),
-// so this app no longer pins or re-verifies a primary text tone here.
-
-/* ----------------------------------------------------------------- matrix */
+// Role-as-text AA (outline/tonal/text buttons, selected tab, tag, link) is
+// oriui's own concern — its --ori-color-<role>-text tokens, guarded by its
+// own e2e/text-contrast.spec.ts — so it isn't re-verified here.
 
 const TEXT = 4.5 // WCAG 1.4.3 AA, normal text
 const NON_TEXT = 3.0 // WCAG 1.4.11, UI components / graphical objects
