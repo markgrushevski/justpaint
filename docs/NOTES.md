@@ -363,6 +363,14 @@ every other caller's first request. The idle-bucket sweep keeps this path rare.
 `parseToken` requires an `exp` claim (`jwt.WithExpirationRequired`), and the WS session-expiry close
 (`time.AfterFunc(exp)` → close `4001`) relies on it. Any new token-issuing path must stamp `exp`.
 
+### A handler that can outlast `WriteTimeout` extends its own write deadline
+
+The server's `WriteTimeout` (30s) does not cancel `r.Context()`: a longer handler finishes its work,
+paid AI call included, and then fails to write. Guess and practice stay under it (`RunBudget`, 25s).
+Assist can take minutes, so its handler bounds the call with `assist.RunBudget(ASSIST_TIMEOUT)` and
+moves the write deadline to match through `http.ResponseController`, which reaches the connection
+through `statusRecorder.Unwrap`.
+
 ### `color.Color.RGBA()` is alpha-premultiplied 16-bit
 
 The fake judge's ink test (`internal/judge/fake.go`) shifts `>>8` to compare with an 8-bit threshold;

@@ -200,7 +200,7 @@ func TestGenerateOps(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			h := NewHandler(tc.impl, NewRateLimiter(DefaultBurst, time.Minute), nil, nil, slog.New(slog.DiscardHandler))
+			h := NewHandler(tc.impl, NewRateLimiter(DefaultBurst, time.Minute), nil, nil, 0, slog.New(slog.DiscardHandler))
 			var cookie *http.Cookie
 			if tc.withCookie {
 				cookie = mintCookie(t, "u1")
@@ -236,7 +236,7 @@ func TestGenerateOps(t *testing.T) {
 // second request gets 429 rate_limited plus a Retry-After header (set before
 // web.Error, per the ordering trap in NOTES.md).
 func TestGenerateOps_RateLimited(t *testing.T) {
-	h := NewHandler(NewFakeAssist(), NewRateLimiter(1, time.Minute), nil, nil, slog.New(slog.DiscardHandler))
+	h := NewHandler(NewFakeAssist(), NewRateLimiter(1, time.Minute), nil, nil, 0, slog.New(slog.DiscardHandler))
 	cookie := mintCookie(t, "u1")
 
 	if rec := serve(t, h, cookie, validBody); rec.Code != http.StatusOK {
@@ -270,7 +270,7 @@ func TestGenerateOps_DailyBudget(t *testing.T) {
 		refuse := func(context.Context, string) error {
 			return &aibudget.KindSpentError{Kind: aibudget.KindAssist, Cap: 40}
 		}
-		h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute), refuse, nil, slog.New(slog.DiscardHandler))
+		h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute), refuse, nil, 0, slog.New(slog.DiscardHandler))
 
 		rec := serve(t, h, mintCookie(t, "u1"), validBody)
 		if rec.Code != http.StatusTooManyRequests {
@@ -295,7 +295,7 @@ func TestGenerateOps_DailyBudget(t *testing.T) {
 			return nil
 		}
 		h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute),
-			func(context.Context, string) error { return nil }, spend, slog.New(slog.DiscardHandler))
+			func(context.Context, string) error { return nil }, spend, 0, slog.New(slog.DiscardHandler))
 
 		if rec := serve(t, h, mintCookie(t, "u1"), validBody); rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body)
@@ -317,7 +317,7 @@ func TestGenerateOps_SpendRefusalIs429(t *testing.T) {
 		return &aibudget.KindSpentError{Kind: aibudget.KindAssist, Cap: 40, Noun: aibudget.KindAssist.Noun()}
 	}
 	h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute),
-		func(context.Context, string) error { return nil }, refuse, slog.New(slog.DiscardHandler))
+		func(context.Context, string) error { return nil }, refuse, 0, slog.New(slog.DiscardHandler))
 
 	rec := serve(t, h, mintCookie(t, "u1"), validBody)
 	if rec.Code != http.StatusTooManyRequests {

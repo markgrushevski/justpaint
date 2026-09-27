@@ -1,11 +1,13 @@
 package assist
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/auth"
@@ -59,19 +61,32 @@ func CallsProvider(a Assist) bool {
 // actually holds. Layering both on one endpoint mirrors POST /api/matches
 // (docs/API.md §3.1).
 
+// RunBudget bounds one assist request end to end: every batch attempt at the
+// full per-attempt timeout. Transport retries fit only when attempts fail fast.
+func RunBudget(timeout time.Duration) time.Duration {
+	return geminiAssistAttempts * timeout
+}
+
+// writeSlack is how long the response may take to write once the run budget
+// is spent.
+const writeSlack = 5 * time.Second
+
 // Handler is the HTTP layer for AI assist (docs/ASSIST.md §3, docs/API.md).
 type Handler struct {
-	assist  Assist
-	limiter *RateLimiter
-	budget  aibudget.Check
-	spend   aibudget.Spend
-	logger  *slog.Logger
+	assist    Assist
+	limiter   *RateLimiter
+	budget    aibudget.Check
+	spend     aibudget.Spend
+	runBudget time.Duration
+	logger    *slog.Logger
 }
 
 // NewHandler builds the assist HTTP handler over an Assist impl, a per-user rate
-// limiter and the daily AI-call budget ports.
-func NewHandler(a Assist, limiter *RateLimiter, budget aibudget.Check, spend aibudget.Spend, logger *slog.Logger) *Handler {
-	return &Handler{assist: a, limiter: limiter, budget: budget, spend: spend, logger: logger}
+// limiter and the daily AI-call budget ports. A positive runBudget bounds the
+// generation and keeps the response writable for that long, past the server's
+// WriteTimeout; zero leaves both to the server.
+func NewHandler(a Assist, limiter *RateLimiter, budget aibudget.Check, spend aibudget.Spend, runBudget time.Duration, logger *slog.Logger) *Handler {
+	return &Handler{assist: a, limiter: limiter, budget: budget, spend: spend, runBudget: runBudget, logger: logger}
 }
 
 // Routes registers the assist route; protect is the auth middleware — the route
@@ -146,7 +161,20 @@ func (h *Handler) GenerateOps(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	res, err := h.assist.GenerateOps(r.Context(), req)
+	ctx := r.Context()
+	if h.runBudget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, h.runBudget)
+		defer cancel()
+		// A generation can outlast the server's WriteTimeout, which would drop the
+		// response after the call was paid for.
+		deadline := time.Now().Add(h.runBudget + writeSlack)
+		if err := http.NewResponseController(w).SetWriteDeadline(deadline); err != nil {
+			h.logger.Warn("assist: cannot extend the write deadline", "err", err)
+		}
+	}
+
+	res, err := h.assist.GenerateOps(ctx, req)
 	if err != nil {
 		// Retry-exhaustion is a client-visible outcome, not a server fault:
 		// 400 validation_failed, never 422 (docs/API.md §3). Anything else is internal.

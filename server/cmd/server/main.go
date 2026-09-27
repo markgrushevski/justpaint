@@ -274,7 +274,7 @@ func run() error {
 	// resets on every deploy; the daily quota lives in Postgres and actually holds
 	// (docs/ASSIST.md §3.4).
 	assistCheck, assistSpend := aiBudget.For(aibudget.KindAssist)
-	assistHandler := assist.NewHandler(assistImpl, assistLimiter, assistCheck, assistSpend, logger)
+	assistHandler := assist.NewHandler(assistImpl, assistLimiter, assistCheck, assistSpend, assist.RunBudget(cfg.AssistTimeout), logger)
 
 	// The leaderboard is a read-only slice (docs/API.md §11): a small single-route
 	// module over the shared queries, like assist — a global top-N read that shares
