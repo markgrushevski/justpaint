@@ -2,6 +2,12 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-09-27 — A practice run keeps its drawing, in `practice_runs`
+
+- **Why:** a practice history needs the picture, and until now nothing outlived the response but the score.
+- **What:** `practice_runs.document` (migration 00008), written by the statement that records the attempt, so the drawing and its verdict cannot drift apart. Runs from before stay null.
+- **Not a `drawings` row:** that table knows free and duel drawings only (`match_id`), so a practice drawing would read as free and become the latest drawing `/draw` loads. Nothing reads the column back yet (`docs/GAME.md` §10).
+
 ## 2026-09-26 — One document validator, on the server; one TS package
 
 - **Why:** the TS validator re-checked documents the app had just built and data the server had already validated, and nothing validated before a submit. It cost a second implementation of every rule plus a mirrored test table, for no check the server wasn't already making.

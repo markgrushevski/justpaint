@@ -10,23 +10,25 @@ import (
 )
 
 const createPracticeRun = `-- name: CreatePracticeRun :one
-insert into practice_runs (user_id, prompt_id)
-values ($1, $2)
-returning id, user_id, prompt_id, score, feedback, created_at
+insert into practice_runs (user_id, prompt_id, document)
+values ($1, $2, $3)
+returning id, user_id, prompt_id, score, feedback, created_at, document
 `
 
 type CreatePracticeRunParams struct {
 	UserID   string
 	PromptID string
+	Document []byte
 }
 
-// Records the attempt before the critic is called. Score and feedback stay null
-// until a verdict comes back; a row that keeps them is a judge call that was
-// spent and produced nothing, which still counts against the daily budget
-// (docs/GAME.md §4.3). Writing it afterwards instead would make every failure
-// free, and a failing critic is exactly when the quota drains.
+// Records the attempt, with the drawing it scores, before the critic is called.
+// Score and feedback stay null until a verdict comes back; a row that keeps them
+// is a judge call that was spent and produced nothing, which still counts
+// against the daily budget (docs/GAME.md §4.3). Writing it afterwards instead
+// would make every failure free, and a failing critic is exactly when the quota
+// drains.
 func (q *Queries) CreatePracticeRun(ctx context.Context, arg CreatePracticeRunParams) (PracticeRun, error) {
-	row := q.db.QueryRow(ctx, createPracticeRun, arg.UserID, arg.PromptID)
+	row := q.db.QueryRow(ctx, createPracticeRun, arg.UserID, arg.PromptID, arg.Document)
 	var i PracticeRun
 	err := row.Scan(
 		&i.ID,
@@ -35,6 +37,7 @@ func (q *Queries) CreatePracticeRun(ctx context.Context, arg CreatePracticeRunPa
 		&i.Score,
 		&i.Feedback,
 		&i.CreatedAt,
+		&i.Document,
 	)
 	return i, err
 }
@@ -45,7 +48,7 @@ set score = $1::double precision,
     feedback = $2::text
 where id = $3
   and user_id = $4
-returning id, user_id, prompt_id, score, feedback, created_at
+returning id, user_id, prompt_id, score, feedback, created_at, document
 `
 
 type SetPracticeRunVerdictParams struct {
@@ -76,6 +79,7 @@ func (q *Queries) SetPracticeRunVerdict(ctx context.Context, arg SetPracticeRunV
 		&i.Score,
 		&i.Feedback,
 		&i.CreatedAt,
+		&i.Document,
 	)
 	return i, err
 }

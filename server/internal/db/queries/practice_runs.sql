@@ -1,11 +1,12 @@
 -- name: CreatePracticeRun :one
--- Records the attempt before the critic is called. Score and feedback stay null
--- until a verdict comes back; a row that keeps them is a judge call that was
--- spent and produced nothing, which still counts against the daily budget
--- (docs/GAME.md §4.3). Writing it afterwards instead would make every failure
--- free, and a failing critic is exactly when the quota drains.
-insert into practice_runs (user_id, prompt_id)
-values (sqlc.arg('user_id'), sqlc.arg('prompt_id'))
+-- Records the attempt, with the drawing it scores, before the critic is called.
+-- Score and feedback stay null until a verdict comes back; a row that keeps them
+-- is a judge call that was spent and produced nothing, which still counts
+-- against the daily budget (docs/GAME.md §4.3). Writing it afterwards instead
+-- would make every failure free, and a failing critic is exactly when the quota
+-- drains.
+insert into practice_runs (user_id, prompt_id, document)
+values (sqlc.arg('user_id'), sqlc.arg('prompt_id'), sqlc.arg('document'))
 returning *;
 
 -- name: SetPracticeRunVerdict :one

@@ -124,7 +124,7 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view, err := h.svc.Run(r.Context(), uid, req.PromptID, doc)
+	view, err := h.svc.Run(r.Context(), uid, req.PromptID, doc, req.Document)
 	if err != nil {
 		// aibudget.WriteRefusal owns the copy for both 429 cases and writes the
 		// response itself, so it is branched on here rather than inside a switch

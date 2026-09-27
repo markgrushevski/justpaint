@@ -2,12 +2,14 @@ package practice
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +30,7 @@ import (
 const budgetWindowSecs = int32(24 * 60 * 60)
 
 // quotaCritic reports the provider's own quota as exhausted, wrapped the way
-// judge's Gemini client wraps it, so the handler's errors.Is mapping is exercised
+// gemini.Client wraps it, so the handler's errors.Is mapping is exercised
 // through both a service wrap and a client wrap.
 type quotaCritic struct{}
 
@@ -123,7 +125,8 @@ func TestPracticeRun_DB(t *testing.T) {
 
 	// The one document every case draws, through the same validator a duel
 	// submission goes through, so this test fails if the two ever stop agreeing.
-	doc, err := game.ValidateSubmission([]byte(docOfSize(game.GameCanvasSize, game.GameCanvasSize)))
+	raw := []byte(docOfSize(game.GameCanvasSize, game.GameCanvasSize))
+	doc, err := game.ValidateSubmission(raw)
 	if err != nil {
 		t.Fatalf("the shared submission validator rejected the fixture document: %v", err)
 	}
@@ -178,8 +181,8 @@ func TestPracticeRun_DB(t *testing.T) {
 	storedRun := func(runID string) db.PracticeRun {
 		var r db.PracticeRun
 		if err := pool.QueryRow(ctx,
-			"select id, user_id, prompt_id, score, feedback, created_at from practice_runs where id = $1", runID,
-		).Scan(&r.ID, &r.UserID, &r.PromptID, &r.Score, &r.Feedback, &r.CreatedAt); err != nil {
+			"select id, user_id, prompt_id, score, feedback, document, created_at from practice_runs where id = $1", runID,
+		).Scan(&r.ID, &r.UserID, &r.PromptID, &r.Score, &r.Feedback, &r.Document, &r.CreatedAt); err != nil {
 			t.Fatalf("read back run %s: %v", runID, err)
 		}
 		return r
@@ -190,7 +193,7 @@ func TestPracticeRun_DB(t *testing.T) {
 		uid := mkUser("happy")
 		svc := newService(judge.NewFakeCritic(), unbudgeted)
 
-		view, err := svc.Run(ctx, uid, prompt.ID, doc)
+		view, err := svc.Run(ctx, uid, prompt.ID, doc, raw)
 		if err != nil {
 			t.Fatalf("Run: %v", err)
 		}
@@ -218,6 +221,15 @@ func TestPracticeRun_DB(t *testing.T) {
 		}
 		if row.Feedback == nil || *row.Feedback != view.Feedback {
 			t.Errorf("stored feedback = %v, want the returned one", row.Feedback)
+		}
+		// The drawing is kept with its verdict (migration 00008); jsonb reorders keys.
+		var stored, sent any
+		if err := json.Unmarshal(row.Document, &stored); err != nil {
+			t.Fatalf("stored document: %v", err)
+		}
+		_ = json.Unmarshal(raw, &sent)
+		if !reflect.DeepEqual(stored, sent) {
+			t.Error("the stored document differs from the one sent")
 		}
 	})
 
@@ -248,7 +260,7 @@ func TestPracticeRun_DB(t *testing.T) {
 			{"a prompt that was deactivated", retiredID},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
-				if _, err := svc.Run(ctx, uid, tc.id, doc); !errors.Is(err, ErrPromptNotFound) {
+				if _, err := svc.Run(ctx, uid, tc.id, doc, raw); !errors.Is(err, ErrPromptNotFound) {
 					t.Errorf("err = %v, want %v", err, ErrPromptNotFound)
 				}
 			})
@@ -266,7 +278,7 @@ func TestPracticeRun_DB(t *testing.T) {
 		uid := mkUser("budget")
 
 		svc := newService(judge.NewFakeCritic(), practiceBudget(prov, 1, 200))
-		if _, err := svc.Run(ctx, uid, prompt.ID, doc); err != nil {
+		if _, err := svc.Run(ctx, uid, prompt.ID, doc, raw); err != nil {
 			t.Fatalf("Run under the cap: %v", err)
 		}
 
@@ -293,7 +305,7 @@ func TestPracticeRun_DB(t *testing.T) {
 
 		// Now at their own cap: refused, and told which allowance, so the message
 		// names scored drawings rather than "AI requests".
-		_, err := svc.Run(ctx, uid, prompt.ID, doc)
+		_, err := svc.Run(ctx, uid, prompt.ID, doc, raw)
 		if !errors.Is(err, aibudget.ErrPerUserSpent) {
 			t.Errorf("at the per-player cap: err = %v, want %v", err, aibudget.ErrPerUserSpent)
 		}
@@ -306,7 +318,7 @@ func TestPracticeRun_DB(t *testing.T) {
 		// The property that makes a per-player half worth having: one heavy user must
 		// not deny service to everyone else.
 		innocent := mkUser("budget-innocent")
-		if _, err := svc.Run(ctx, innocent, prompt.ID, doc); err != nil {
+		if _, err := svc.Run(ctx, innocent, prompt.ID, doc, raw); err != nil {
 			t.Errorf("a different player was refused too (%v) — one player's cap is not everyone's", err)
 		}
 
@@ -319,13 +331,13 @@ func TestPracticeRun_DB(t *testing.T) {
 		}
 		strapped := newService(judge.NewFakeCritic(), practiceBudget(prov, 1000, int(spentNow)))
 		bystander := mkUser("budget-bystander")
-		if _, err := strapped.Run(ctx, bystander, prompt.ID, doc); !errors.Is(err, aibudget.ErrGlobalSpent) {
+		if _, err := strapped.Run(ctx, bystander, prompt.ID, doc, raw); !errors.Is(err, aibudget.ErrGlobalSpent) {
 			t.Errorf("with the global budget spent: err = %v, want %v", err, aibudget.ErrGlobalSpent)
 		}
 		// Headroom and the same player is welcome again — the boundary is `>=`, not
 		// `>`, pinned by the refusal above.
 		relaxed := newService(judge.NewFakeCritic(), practiceBudget(prov, 1000, int(spentNow)+10))
-		if _, err := relaxed.Run(ctx, bystander, prompt.ID, doc); err != nil {
+		if _, err := relaxed.Run(ctx, bystander, prompt.ID, doc, raw); err != nil {
 			t.Errorf("with budget left the run was still refused: %v", err)
 		}
 	})
@@ -337,7 +349,7 @@ func TestPracticeRun_DB(t *testing.T) {
 		// unbudgeted kind writes none: no provider, no external quota, nothing to
 		// record.
 		svc := newService(failingCritic{}, practiceBudget(mkProvider("failing"), 20, 200))
-		if _, err := svc.Run(ctx, uid, prompt.ID, doc); err == nil {
+		if _, err := svc.Run(ctx, uid, prompt.ID, doc, raw); err == nil {
 			t.Fatal("expected the critic's failure to surface, got a score")
 		}
 
@@ -368,7 +380,7 @@ func TestPracticeRun_DB(t *testing.T) {
 		check, spend := b.For(aibudget.KindPractice)
 		svc := NewService(q, render.NewStubRenderer(), nil, check, spend, logger)
 
-		if _, err := svc.Run(ctx, uid, prompt.ID, doc); !errors.Is(err, ErrNotConfigured) {
+		if _, err := svc.Run(ctx, uid, prompt.ID, doc, raw); !errors.Is(err, ErrNotConfigured) {
 			t.Errorf("Run: err = %v, want %v", err, ErrNotConfigured)
 		}
 		if _, err := svc.Prompt(ctx); !errors.Is(err, ErrNotConfigured) {

@@ -100,7 +100,7 @@ func (s *Service) Prompt(ctx context.Context) (PromptView, error) {
 
 // Run scores one drawing against the prompt it claims to answer. doc is already
 // validated by the handler (game.ValidateSubmission — one validator for both
-// modes).
+// modes); raw is the same document as sent, stored with the attempt.
 //
 // Order matters: budget checked first, then the prompt looked up (a foreign or
 // retired id is a 404), then an attempt row written before the critic runs, then
@@ -112,7 +112,7 @@ func (s *Service) Prompt(ctx context.Context) (PromptView, error) {
 // transaction: a transaction would roll the attempt back when the critic failed,
 // which is backwards — that call was made and that quota was spent (docs/GAME.md
 // §4.3).
-func (s *Service) Run(ctx context.Context, userID, promptID string, doc document.Document) (RunView, error) {
+func (s *Service) Run(ctx context.Context, userID, promptID string, doc document.Document, raw []byte) (RunView, error) {
 	if s.critic == nil {
 		return RunView{}, ErrNotConfigured
 	}
@@ -130,7 +130,7 @@ func (s *Service) Run(ctx context.Context, userID, promptID string, doc document
 		return RunView{}, fmt.Errorf("practice: get prompt: %w", err)
 	}
 
-	run, err := s.q.CreatePracticeRun(ctx, db.CreatePracticeRunParams{UserID: userID, PromptID: prompt.ID})
+	run, err := s.q.CreatePracticeRun(ctx, db.CreatePracticeRunParams{UserID: userID, PromptID: prompt.ID, Document: raw})
 	if err != nil {
 		return RunView{}, fmt.Errorf("practice: record attempt: %w", err)
 	}

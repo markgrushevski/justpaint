@@ -63,6 +63,7 @@ type PracticeRun struct {
 	Score     *float64
 	Feedback  *string
 	CreatedAt time.Time
+	Document  []byte
 }
 
 type Prompt struct {
