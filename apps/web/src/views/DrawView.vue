@@ -619,8 +619,9 @@ async function submitAssist() {
     )
 }
 
-function acceptAssist() {
-    editor?.acceptOps()
+// `replace` swaps the whole drawing for the proposal; one Ctrl+Z restores it.
+function acceptAssist(mode: 'add' | 'replace') {
+    editor?.acceptOps(mode)
     pendingOps.value = null
     assistNote.value = null
     assistPrompt.value = ''
@@ -782,7 +783,21 @@ function toggleGuess() {
                 <template v-if="pendingOps">
                     <p v-if="assistNote" class="draw__assist-note">{{ assistNote }}</p>
                     <div class="draw__assist-actions">
-                        <OriButton variant="fill" radius="md" text="Accept" fluid @click="acceptAssist" />
+                        <OriButton
+                            variant="fill"
+                            radius="md"
+                            :text="isEmpty ? 'Accept' : 'Add on top'"
+                            fluid
+                            @click="acceptAssist('add')"
+                        />
+                        <OriButton
+                            v-if="!isEmpty"
+                            variant="outline"
+                            radius="md"
+                            text="Replace drawing"
+                            fluid
+                            @click="acceptAssist('replace')"
+                        />
                         <OriButton variant="outline" radius="md" text="Reject" fluid @click="rejectAssist" />
                     </div>
                 </template>
@@ -1023,6 +1038,7 @@ function toggleGuess() {
 
 .draw__assist-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--ori-size-gap_sm, 0.25rem);
 }
 

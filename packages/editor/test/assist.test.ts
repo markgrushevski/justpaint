@@ -192,6 +192,41 @@ describe('Editor previewOps / acceptOps / rejectOps', () => {
         expect(e.canUndo()).toBe(false)
     })
 
+    it('replace drops the layers the proposal does not draw into, and one undo brings them back', () => {
+        const d = doc()
+        d.layers.push(
+            { id: 'L2', name: 'Sky', visible: true, opacity: 0.5, strokes: [lineStroke('s-sky')] },
+            { id: 'L3', name: 'Sun', visible: false, opacity: 1, strokes: [] }
+        )
+        const e = editor(d)
+        e.setActiveLayer('L2')
+        const before = clone(e.getDocument())
+
+        e.previewOps([
+            { kind: 'add_layer', id: 'b1', name: 'Roof' },
+            { kind: 'add_stroke', layerId: 'b1', stroke: lineStroke('s-roof') }
+        ])
+        e.acceptOps('replace')
+
+        const layers = e.getDocument().layers
+        expect(layers.map((l) => l.name)).toEqual(['Roof'])
+        expect(e.getActiveLayerId()).toBe(layers[0]!.id)
+
+        e.undo()
+        expect(e.getDocument()).toEqual(before)
+        expect(e.canUndo()).toBe(false)
+    })
+
+    it('replace keeps an existing layer the proposal draws into', () => {
+        const d = doc()
+        d.layers.push({ id: 'L2', name: 'Sky', visible: true, opacity: 1, strokes: [] })
+        const e = editor(d)
+        e.previewOps(proposal)
+        e.acceptOps('replace')
+
+        expect(e.getDocument().layers.map((l) => l.name)).toEqual(['Layer 1', 'Roof'])
+    })
+
     it("threads a running top index so multiple add_layer ops don't collide in z-order", () => {
         const e = editor(doc())
         e.previewOps([

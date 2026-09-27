@@ -314,8 +314,9 @@ export class Editor {
     /**
      * Commit the proposal as one composite command, so one Ctrl+Z undoes it. Each
      * `add_layer` gets a fresh id that later `add_stroke`s resolve through a batch-local map.
+     * `replace` also removes every existing layer the proposal does not draw into.
      */
-    acceptOps(): void {
+    acceptOps(mode: 'add' | 'replace' = 'add'): void {
         const ops = this.ghostOps
         if (ops == null) return
         // An empty composite would push an undo entry that does nothing.
@@ -328,10 +329,13 @@ export class Editor {
         // addLayerCommand clamps at apply time, so a stale length would collide every new
         // layer (docs/NOTES.md "Multi-layer assist batches need a running insert index").
         let topIndex = this.doc.layers.length
+        const drawnInto = new Set<string>()
+        let lastAdded: string | undefined
         for (const op of ops) {
             if (op.kind === 'add_layer') {
                 const realId = newId()
                 idMap.set(op.id, realId)
+                lastAdded = realId
                 const layer: Layer = {
                     id: realId,
                     name: op.name,
@@ -343,12 +347,22 @@ export class Editor {
                 topIndex += 1
             } else {
                 const resolvedId = idMap.get(op.layerId) ?? op.layerId
+                drawnInto.add(resolvedId)
                 commands.push(addStrokeCommand(resolvedId, op.stroke))
+            }
+        }
+        if (mode === 'replace') {
+            // Removals go after the adds: undo then puts the old layers back in their order.
+            for (const layer of this.doc.layers) {
+                if (!drawnInto.has(layer.id)) commands.push(removeLayerCommand(this.doc, layer.id))
+            }
+            if (!drawnInto.has(this.activeLayerId)) {
+                this.activeLayerId = lastAdded ?? [...drawnInto][0] ?? this.activeLayerId
             }
         }
         // Before commit: commit rerenders, which remounts the ghost while ghostOps is set.
         this.clearGhost()
-        this.commit(compositeCommand(commands, 'AI assist'))
+        this.commit(compositeCommand(commands, mode === 'replace' ? 'AI replace' : 'AI assist'))
     }
 
     /** Discard the previewed proposal — nothing enters the document or history. */
