@@ -36,9 +36,10 @@ export function renderToStage(doc: Document, opts: RenderOptions): Konva.Stage {
 
     // Project the doc without its own background: this function places it and
     // fills the letterbox instead. toKonva adds one Konva.Layer per document
-    // layer; re-home those onto a stage sized to the output frame.
+    // layer; re-home those onto a stage sized to the output frame. A copy, because
+    // getLayers() is the live children array and moveTo() removes from it.
     const projected = toKonva({ ...doc, background: null })
-    const contentLayers = projected.getLayers()
+    const contentLayers = [...projected.getLayers()]
 
     const stage = new Konva.Stage(stageConfig(undefined, opts.outWidth, opts.outHeight))
 
