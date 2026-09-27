@@ -20,8 +20,7 @@ const minimalDocJSON = `{"version":1,"width":10,"height":10,"background":null,"l
 // TestNameRoundtrip_DB verifies the SQL side of the name rules against a real
 // Postgres — the part unit tests cannot see: the create-side COALESCE default
 // and the update-side COALESCE keep-on-absent (queries/drawings.sql). It needs
-// a migrated database; without DATABASE_URL it skips (matching local dev,
-// where the server itself requires the exported env — CLAUDE.md Commands).
+// a migrated database; without DATABASE_URL it skips.
 func TestNameRoundtrip_DB(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {

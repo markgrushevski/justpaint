@@ -20,6 +20,7 @@
         "format:check": "prettier --check ."
     },
     "devDependencies": {
+        "dotenv": "^18.0.4",
         "prettier": "^3.9.4",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9"

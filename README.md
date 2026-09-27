@@ -25,21 +25,15 @@ judged is rendered server-side from that document by the same code the browser e
 
 ## Quickstart
 
-Needs Node 24, Go 1.26, Docker, and the **goose** CLI (plus **sqlc** if you change queries).
+Needs Node 24, Go 1.26 and Docker (plus the **sqlc** CLI if you change queries).
 
 ```sh
 docker compose up -d                  # Postgres 17 on :5432
-goose -dir server/migrations postgres "postgres://justpaint:justpaint@localhost:5432/justpaint?sslmode=disable" up
-
-# the server does not load .env — export what it needs (full list: server/.env.example)
-export ENV=dev
-export DATABASE_URL="postgres://justpaint:justpaint@localhost:5432/justpaint?sslmode=disable"
-export JWT_SECRET="$(openssl rand -base64 48)"
-
-(cd server && go run ./cmd/server)    # API on :8080
-
+cp server/.env.example server/.env    # every server setting with its default; works as is for dev
 npm install
-npm run dev -w @justpaint/web         # app on :7777, proxies /api to :8080
+
+npm run dev                           # API on :8080; loads server/.env, migrates the database at boot
+npm run dev -w @justpaint/web         # app on :7777 (second terminal), proxies /api to :8080
 ```
 
 Open <http://localhost:7777>.
@@ -63,6 +57,7 @@ model, so every AI call goes through a daily ledger with a per-player and a glob
 
 | Command | Does |
 |---|---|
+| `npm run dev` | the server on :8080 with `server/.env` loaded |
 | `npm run build` / `types` / `test` | build, typecheck, test every TS workspace |
 | `npm run format` / `format:check` | prettier (skips `docs/` and `server/`) |
 | `npm run lint:all -w @justpaint/web` | prettier, stylelint, eslint, contrast and stylesheet checks |
