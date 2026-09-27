@@ -80,6 +80,7 @@ docs/                contracts and decisions
 
 `server/internal/` is a modular monolith: `auth`, `drawings`, `document` (the document
 validator), `game` (match lifecycle, deadline, Elo), `practice`, `guess`, `judge`, `assist`,
+`gemini` (the Gemini provider: client plus the judge, critic, guesser and assist impls),
 `aibudget` (the AI-call ledger), `ratings`, `render`, `ws`, `db` (sqlc), `platform` (config, HTTP,
 Postgres, logging).
 

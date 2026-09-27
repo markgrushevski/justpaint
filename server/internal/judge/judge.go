@@ -1,5 +1,5 @@
 // Package judge is the seam to the external ML judge (docs/JUDGE.md owns the
-// contract). FakeJudge, HTTPJudge and GeminiJudge implement Judge and swap by
+// contract). FakeJudge, HTTPJudge and gemini.Judge implement Judge and swap by
 // config (JUDGE_MODE) with no change to the game loop. The judge scores
 // pre-rendered PNGs, never the vector document (trust boundary,
 // DOCUMENT-FORMAT.md §10); A/B are positional, mapped to player ids by game.
@@ -20,8 +20,12 @@ const (
 	WinnerTie = "tie"
 )
 
-// maxReasonLen bounds the player-facing rationale (JUDGE.md §2).
-const maxReasonLen = 500
+// MaxReasonLen bounds the player-facing rationale (JUDGE.md §2).
+const MaxReasonLen = 500
+
+// ErrQuotaExhausted marks an HTTP 429 from any Gemini-backed seam: the daily quota is
+// spent, so it is never retried (JUDGE.md §8.1).
+var ErrQuotaExhausted = errors.New("gemini: quota exhausted")
 
 // Judge scores two authoritative PNGs against a prompt (JUDGE.md §7).
 type Judge interface {
@@ -65,8 +69,8 @@ func (r Result) Validate() error {
 	default:
 		return fmt.Errorf("%w: winner %q not in {A,B,tie}", ErrInvalidResult, r.Winner)
 	}
-	if utf8.RuneCountInString(r.Reason) > maxReasonLen {
-		return fmt.Errorf("%w: reason exceeds %d chars", ErrInvalidResult, maxReasonLen)
+	if utf8.RuneCountInString(r.Reason) > MaxReasonLen {
+		return fmt.Errorf("%w: reason exceeds %d chars", ErrInvalidResult, MaxReasonLen)
 	}
 	return nil
 }

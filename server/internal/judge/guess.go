@@ -10,12 +10,12 @@ import (
 )
 
 const (
-	// maxGuessLabelLen bounds the guess itself, deliberately short — a sixth
+	// MaxGuessLabelLen bounds the guess itself, deliberately short — a sixth
 	// of the critic's feedback cap — because the shortness is the product:
 	// "a cat wearing a hat" is a guess, three sentences about the upper left
 	// corner is an essay. Runes, not bytes, like every other player-facing
 	// cap in this package.
-	maxGuessLabelLen = 80
+	MaxGuessLabelLen = 80
 	// maxGuessAlternatives bounds the runner-ups at two: one alternative
 	// reads as a hedge, two reads as options, three reads as a model
 	// guessing nouns until something sticks.
@@ -72,8 +72,8 @@ func (g Guess) Validate() error {
 	if strings.TrimSpace(g.Label) == "" {
 		return fmt.Errorf("%w: empty label", ErrInvalidGuess)
 	}
-	if n := utf8.RuneCountInString(g.Label); n > maxGuessLabelLen {
-		return fmt.Errorf("%w: label is %d chars, over the %d cap", ErrInvalidGuess, n, maxGuessLabelLen)
+	if n := utf8.RuneCountInString(g.Label); n > MaxGuessLabelLen {
+		return fmt.Errorf("%w: label is %d chars, over the %d cap", ErrInvalidGuess, n, MaxGuessLabelLen)
 	}
 	if len(g.Alternatives) > maxGuessAlternatives {
 		return fmt.Errorf("%w: %d alternatives (max %d)", ErrInvalidGuess, len(g.Alternatives), maxGuessAlternatives)
@@ -85,8 +85,8 @@ func (g Guess) Validate() error {
 		if strings.TrimSpace(alt) == "" {
 			return fmt.Errorf("%w: alternative %d is empty", ErrInvalidGuess, i)
 		}
-		if n := utf8.RuneCountInString(alt); n > maxGuessLabelLen {
-			return fmt.Errorf("%w: alternative %d is %d chars, over the %d cap", ErrInvalidGuess, i, n, maxGuessLabelLen)
+		if n := utf8.RuneCountInString(alt); n > MaxGuessLabelLen {
+			return fmt.Errorf("%w: alternative %d is %d chars, over the %d cap", ErrInvalidGuess, i, n, MaxGuessLabelLen)
 		}
 	}
 	return nil

@@ -61,12 +61,6 @@ func CallsProvider(a Assist) bool {
 // actually holds. Layering both on one endpoint mirrors POST /api/matches
 // (docs/API.md §3.1).
 
-// RunBudget bounds one assist request end to end: every batch attempt at the
-// full per-attempt timeout. Transport retries fit only when attempts fail fast.
-func RunBudget(timeout time.Duration) time.Duration {
-	return geminiAssistAttempts * timeout
-}
-
 // writeSlack is how long the response may take to write once the run budget
 // is spent.
 const writeSlack = 5 * time.Second

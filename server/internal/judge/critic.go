@@ -8,10 +8,10 @@ import (
 	"unicode/utf8"
 )
 
-// maxFeedbackLen bounds the player-facing critique. Same number as the
+// MaxFeedbackLen bounds the player-facing critique. Same number as the
 // duel's reason cap, but a separate constant: this contract is ours to
 // move, JUDGE.md's is not.
-const maxFeedbackLen = 500
+const MaxFeedbackLen = 500
 
 // Critic is a second, local seam — ours to move, not part of the frozen
 // external-judge contract above. It scores ONE drawing against the prompt it
@@ -52,8 +52,8 @@ func (c Critique) Validate() error {
 	if math.IsNaN(c.Score) || math.IsInf(c.Score, 0) || c.Score < 0 || c.Score > 1 {
 		return fmt.Errorf("%w: score %v not in [0,1]", ErrInvalidCritique, c.Score)
 	}
-	if utf8.RuneCountInString(c.Feedback) > maxFeedbackLen {
-		return fmt.Errorf("%w: feedback exceeds %d chars", ErrInvalidCritique, maxFeedbackLen)
+	if utf8.RuneCountInString(c.Feedback) > MaxFeedbackLen {
+		return fmt.Errorf("%w: feedback exceeds %d chars", ErrInvalidCritique, MaxFeedbackLen)
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-package judge
+package gemini
 
 import (
 	"bytes"
@@ -9,11 +9,13 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
-// TestGeminiJudge_Live calls the real Generative Language API.
+// TestJudge_Live calls the real Generative Language API.
 //
-// Everything else in this package asserts what we send, against a local
+// The other judge tests assert what we send, against a local
 // stand-in — it cannot prove Google accepts it. This test settles three
 // choices reconstructed from documentation: field-name casing, where
 // systemInstruction sits, and the schema enum spelling.
@@ -23,11 +25,11 @@ import (
 // quota the free tier caps at 20 requests per model (measured from a 429
 // body — see internal/platform/config). Run it deliberately:
 //
-//	GEMINI_LIVE=1 GEMINI_API_KEY=… go test ./internal/judge/ -run Live -v
+//	GEMINI_LIVE=1 GEMINI_API_KEY=… go test ./internal/gemini/ -run TestJudge_Live -v
 //
 // GEMINI_MODEL and GEMINI_BASE_URL override the defaults, which is the point
 // of their being configurable at all.
-func TestGeminiJudge_Live(t *testing.T) {
+func TestJudge_Live(t *testing.T) {
 	if os.Getenv("GEMINI_LIVE") != "1" {
 		t.Skip("set GEMINI_LIVE=1 (and GEMINI_API_KEY) to call the real API — it spends daily quota")
 	}
@@ -45,11 +47,11 @@ func TestGeminiJudge_Live(t *testing.T) {
 	circle := pngCircle(t)
 	blank := pngBlank(t)
 
-	j := NewGeminiJudge(key, model, base, 30*time.Second)
+	j := NewJudge(key, model, base, 30*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	res, err := j.Score(ctx, Request{Prompt: prompt, ImageA: circle, ImageB: blank})
+	res, err := j.Score(ctx, judge.Request{Prompt: prompt, ImageA: circle, ImageB: blank})
 	if err != nil {
 		t.Fatalf("live Score against %s (%s): %v", base, model, err)
 	}
@@ -60,8 +62,8 @@ func TestGeminiJudge_Live(t *testing.T) {
 	}
 	// The one judgement that must hold for this to be a judge at all: a drawing of
 	// the prompt beats an empty canvas.
-	if res.Winner != WinnerA {
-		t.Errorf("winner = %q, want %q — the blank canvas must not win", res.Winner, WinnerA)
+	if res.Winner != judge.WinnerA {
+		t.Errorf("winner = %q, want %q — the blank canvas must not win", res.Winner, judge.WinnerA)
 	}
 	if res.ScoreA <= res.ScoreB {
 		t.Errorf("scoreA %.3f should exceed scoreB %.3f (a drawing vs an empty canvas)", res.ScoreA, res.ScoreB)

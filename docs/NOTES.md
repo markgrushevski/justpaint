@@ -367,9 +367,9 @@ every other caller's first request. The idle-bucket sweep keeps this path rare.
 
 The server's `WriteTimeout` (30s) does not cancel `r.Context()`: a longer handler finishes its work,
 paid AI call included, and then fails to write. Guess and practice stay under it (`RunBudget`, 25s).
-Assist can take minutes, so its handler bounds the call with `assist.RunBudget(ASSIST_TIMEOUT)` and
-moves the write deadline to match through `http.ResponseController`, which reaches the connection
-through `statusRecorder.Unwrap`.
+Assist can take minutes, so its handler bounds the call with the run budget `main` passes in
+(`gemini.AssistRunBudget(ASSIST_TIMEOUT)`) and moves the write deadline to match through
+`http.ResponseController`, which reaches the connection through `statusRecorder.Unwrap`.
 
 ### `color.Color.RGBA()` is alpha-premultiplied 16-bit
 
@@ -582,8 +582,8 @@ in configuration (`GEMINI_MODEL`, `AI_MODEL_PER_KIND`) because they get retired.
 
 When a list answer runs out of output tokens, the API closes the JSON so it parses; the last element is
 half-written (a rect with `x`, `y` and nothing else) and fails validation as if the model drew badly. A
-caller that asks for a list must set `MaxOutputTokens` (`judge.GeminiJSONRequest`; assist uses 8192)
-and check for `judge.GeminiFinishTruncated` before blaming the answer. Verdicts are a few scalars and
+caller that asks for a list must set `MaxOutputTokens` (`gemini.JSONRequest`; assist uses 8192)
+and check for `gemini.FinishTruncated` before blaming the answer. Verdicts are a few scalars and
 leave it unset.
 
 ### At temperature 0 the schema is the grammar

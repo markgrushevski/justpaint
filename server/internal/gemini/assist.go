@@ -1,4 +1,4 @@
-package assist
+package gemini
 
 import (
 	"context"
@@ -11,39 +11,39 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/markgrushevski/justpaint/server/internal/assist"
 	"github.com/markgrushevski/justpaint/server/internal/document"
-	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
-// GeminiAssist is the real assist (ASSIST_MODE=gemini), on judge.GeminiClient's
-// transport. The model emits a flat shape list, never Ops, so ids, layer references
-// and composites stay ours to get right (docs/ASSIST.md §3.2).
+// Assist is the real assist (ASSIST_MODE=gemini), on Client's transport. The model
+// emits a flat shape list, never Ops, so ids, layer references and composites stay
+// ours to get right (docs/ASSIST.md §3.2).
 //
 // The prompt is untrusted text, and the instruction layout only narrows injection.
 // The bound is that the model holds no credentials or tools and every op is validated
 // twice, then shown as a ghost the user must accept.
-type GeminiAssist struct {
-	judge.GeminiClient
+type Assist struct {
+	Client
 
 	newSuffix func() string // a field so tests can pin the ids
 }
 
-// NewGeminiAssist builds the real assist. timeout is ASSIST_TIMEOUT, per transport
+// NewAssist builds the real assist. timeout is ASSIST_TIMEOUT, per transport
 // attempt (docs/ASSIST.md §3.2).
-func NewGeminiAssist(apiKey, model, baseURL string, timeout time.Duration) *GeminiAssist {
-	return &GeminiAssist{
-		GeminiClient: judge.NewGeminiClient("assist: gemini", apiKey, model, baseURL, timeout),
-		newSuffix:    randomIDSuffix,
+func NewAssist(apiKey, model, baseURL string, timeout time.Duration) *Assist {
+	return &Assist{
+		Client:    NewClient("assist: gemini", apiKey, model, baseURL, timeout),
+		newSuffix: randomIDSuffix,
 	}
 }
 
 var (
-	_ Assist         = (*GeminiAssist)(nil)
-	_ ProviderCaller = (*GeminiAssist)(nil)
+	_ assist.Assist         = (*Assist)(nil)
+	_ assist.ProviderCaller = (*Assist)(nil)
 )
 
 // CallsProvider reports true: this impl spends real quota (docs/ASSIST.md §3.4).
-func (a *GeminiAssist) CallsProvider() bool { return true }
+func (a *Assist) CallsProvider() bool { return true }
 
 const (
 	// geminiAssistAttempts is one try plus one retry carrying the validator's complaint;
@@ -71,21 +71,27 @@ const (
 	geminiAssistMaxOutputTokens = 8192
 )
 
+// AssistRunBudget bounds one assist request end to end: every batch attempt at the
+// full per-attempt timeout. Transport retries fit only when attempts fail fast.
+func AssistRunBudget(timeout time.Duration) time.Duration {
+	return geminiAssistAttempts * timeout
+}
+
 // No thinkingConfig on the wire: a model that rejects it fails the whole request
 // (docs/ASSIST.md §3.2).
 
-// GenerateOps implements Assist. It validates the batch itself as the retry's
+// GenerateOps implements assist.Assist. It validates the batch itself as the retry's
 // condition; the handler validates again, against any impl.
-func (a *GeminiAssist) GenerateOps(ctx context.Context, req Request) (Result, error) {
+func (a *Assist) GenerateOps(ctx context.Context, req assist.Request) (assist.Result, error) {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
-		return Result{}, fmt.Errorf("assist: gemini: empty prompt")
+		return assist.Result{}, fmt.Errorf("assist: gemini: empty prompt")
 	}
 
 	user := buildGeminiAssistPrompt(prompt, req)
 	var lastInvalid error
 	for attempt := 1; attempt <= geminiAssistAttempts; attempt++ {
-		out, err := a.GenerateJSON(ctx, judge.GeminiJSONRequest{
+		out, err := a.GenerateJSON(ctx, JSONRequest{
 			System:          geminiAssistInstruction,
 			User:            user,
 			Schema:          geminiAssistSchema(),
@@ -93,7 +99,7 @@ func (a *GeminiAssist) GenerateOps(ctx context.Context, req Request) (Result, er
 		})
 		if err != nil {
 			// Final: the shared client already retried what a retry can fix.
-			return Result{}, err
+			return assist.Result{}, err
 		}
 
 		res, err := a.opsFromOutput(out, req)
@@ -101,42 +107,42 @@ func (a *GeminiAssist) GenerateOps(ctx context.Context, req Request) (Result, er
 			return res, nil
 		}
 		// Truncated JSON still parses and then fails on its geometry; name the real fault.
-		if out.Finish == judge.GeminiFinishTruncated {
+		if out.Finish == FinishTruncated {
 			err = fmt.Errorf("the answer was cut off before it finished (%w)", err)
 		}
 		lastInvalid = err
 		// At temperature 0 only a changed prompt can change the answer.
 		user = geminiAssistRetryPrompt(user, err)
 	}
-	// ErrInvalidBatch is the handler's 400; the cause logs which invariant kept failing.
-	return Result{}, fmt.Errorf("assist: gemini: %w: %v", ErrInvalidBatch, lastInvalid)
+	// assist.ErrInvalidBatch is the handler's 400; the cause logs which invariant kept failing.
+	return assist.Result{}, fmt.Errorf("assist: gemini: %w: %v", assist.ErrInvalidBatch, lastInvalid)
 }
 
 // opsFromOutput parses and expands one answer into a validated batch. Every error is
 // a model-output fault, so the caller retries them all alike.
-func (a *GeminiAssist) opsFromOutput(out judge.GeminiOutput, req Request) (Result, error) {
+func (a *Assist) opsFromOutput(out Output, req assist.Request) (assist.Result, error) {
 	var v geminiAssistOutput
 	if err := json.Unmarshal([]byte(out.Text), &v); err != nil {
-		return Result{}, fmt.Errorf("output is not the JSON drawing (finishReason %q): %w", out.Finish, err)
+		return assist.Result{}, fmt.Errorf("output is not the JSON drawing (finishReason %q): %w", out.Finish, err)
 	}
 	if len(v.Shapes) == 0 {
 		// What a refusal looks like through a schema.
-		return Result{}, fmt.Errorf("the drawing has no shapes")
+		return assist.Result{}, fmt.Errorf("the drawing has no shapes")
 	}
 
 	ops, err := a.expand(v, req)
 	if err != nil {
-		return Result{}, err
+		return assist.Result{}, err
 	}
 	if err := document.ValidateOpBatch(ops, req.DocSummary); err != nil {
-		return Result{}, err
+		return assist.Result{}, err
 	}
-	return Result{Ops: ops, Note: clampNote(v.Note)}, nil
+	return assist.Result{Ops: ops, Note: clampNote(v.Note)}, nil
 }
 
 // expand turns the shape list into ops, choosing the layer, the ids, the composite and
 // the order that lets the layer reference resolve.
-func (a *GeminiAssist) expand(v geminiAssistOutput, req Request) ([]document.Op, error) {
+func (a *Assist) expand(v geminiAssistOutput, req assist.Request) ([]document.Op, error) {
 	suffix, err := a.freshSuffix(req.DocSummary)
 	if err != nil {
 		return nil, err
@@ -167,7 +173,7 @@ func (a *GeminiAssist) expand(v geminiAssistOutput, req Request) ([]document.Op,
 
 // freshSuffix picks an id middle the summary does not use. It is random rather than
 // counted, since a per-process counter repeats ids after a restart.
-func (a *GeminiAssist) freshSuffix(summary document.DocSummary) (string, error) {
+func (a *Assist) freshSuffix(summary document.DocSummary) (string, error) {
 	taken := make(map[string]struct{}, len(summary.Layers))
 	for _, l := range summary.Layers {
 		taken[l.ID] = struct{}{}
@@ -218,7 +224,7 @@ Return only the JSON object described by the response schema, with no commentary
 
 // buildGeminiAssistPrompt lays out the user turn: the canvas, its layers, then the
 // untrusted request last, behind a label and %q-quoted.
-func buildGeminiAssistPrompt(prompt string, req Request) string {
+func buildGeminiAssistPrompt(prompt string, req assist.Request) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "The canvas is %d wide and %d tall.\n", req.DocSummary.Canvas.Width, req.DocSummary.Canvas.Height)
 
@@ -412,12 +418,12 @@ func geminiAssistRequiredShapeFields() []string {
 
 // geminiAssistSchema pins the shape expand reads. The descriptions say which shape
 // type uses each field, since the schema cannot.
-func geminiAssistSchema() *judge.GeminiSchema {
-	return &judge.GeminiSchema{
+func geminiAssistSchema() *Schema {
+	return &Schema{
 		Type: "OBJECT",
 		// A skipped note is a blank panel; skipped shapes are a wasted call.
 		Required: []string{"layerName", "note", "shapes"},
-		Properties: map[string]*judge.GeminiSchema{
+		Properties: map[string]*Schema{
 			"layerName": {Type: "STRING", Description: "A two or three word label for this drawing's layer, naming the subject. At most 64 characters."},
 			"note":      {Type: "STRING", Description: "One short plain sentence, at most 200 characters, saying what was drawn and out of which shapes."},
 			"shapes": {
@@ -425,15 +431,15 @@ func geminiAssistSchema() *judge.GeminiSchema {
 				Description: fmt.Sprintf(
 					"The shapes of the picture, in painting order: later shapes cover earlier ones. Use as few as will do the job and never more than %d.",
 					maxShapesPerBatch),
-				Items: &judge.GeminiSchema{
+				Items: &Schema{
 					Type: "OBJECT",
-					Properties: map[string]*judge.GeminiSchema{
+					Properties: map[string]*Schema{
 						"type": {
 							Type:        "STRING",
 							Enum:        []string{shapeLine, shapeRect, shapeEllipse, shapePolygon},
 							Description: `Which shape this is. "rect" uses x/y/width/height, "ellipse" uses cx/cy/rx/ry, "polygon" and "line" use points.`,
 						},
-						"points":      {Type: "ARRAY", Description: `For "polygon" and "line" only: a FLAT list of whole-number coordinates, x then y, x then y. A triangle is six numbers. Never an odd count.`, Items: &judge.GeminiSchema{Type: geminiCoordType}},
+						"points":      {Type: "ARRAY", Description: `For "polygon" and "line" only: a FLAT list of whole-number coordinates, x then y, x then y. A triangle is six numbers. Never an odd count.`, Items: &Schema{Type: geminiCoordType}},
 						"x":           {Type: geminiCoordType, Description: `For "rect": the left edge, in whole canvas units.`},
 						"y":           {Type: geminiCoordType, Description: `For "rect": the top edge. y grows downward.`},
 						"width":       {Type: geminiCoordType, Description: `For "rect": the width, greater than zero.`},

@@ -105,7 +105,7 @@ func TestFakeJudge_InvalidPNG(t *testing.T) {
 }
 
 func TestResult_Validate(t *testing.T) {
-	long := make([]byte, maxReasonLen+1)
+	long := make([]byte, MaxReasonLen+1)
 	for i := range long {
 		long[i] = 'x'
 	}

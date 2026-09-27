@@ -21,6 +21,7 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/db"
 	"github.com/markgrushevski/justpaint/server/internal/drawings"
 	"github.com/markgrushevski/justpaint/server/internal/game"
+	"github.com/markgrushevski/justpaint/server/internal/gemini"
 	"github.com/markgrushevski/justpaint/server/internal/guess"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/platform/config"
@@ -128,7 +129,7 @@ func run() error {
 		logger.Info("judge: http (external ML judge)", "base_url", cfg.JudgeBaseURL, "timeout", cfg.JudgeTimeout)
 	case config.JudgeModeGemini:
 		model := aiModelByKind[aibudget.KindDuel]
-		arbiter = judge.NewGeminiJudge(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		arbiter = gemini.NewJudge(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
 		// Keyed to the model, not just the provider: the free tier meters per model,
 		// so two kinds on two models need two separate pools (docs/GAME.md §4.3,
 		// aibudget.WithModel).
@@ -164,7 +165,7 @@ func run() error {
 	switch cfg.JudgeMode {
 	case config.JudgeModeGemini:
 		model := aiModelByKind[aibudget.KindPractice]
-		critic = judge.NewGeminiCritic(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		critic = gemini.NewCritic(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
 		practiceProvider = aibudget.ProviderGoogle.WithModel(model)
 		logger.Info("practice: gemini critic (scores one drawing against its prompt)", "model", model)
 	case config.JudgeModeHTTP:
@@ -183,7 +184,7 @@ func run() error {
 	switch cfg.JudgeMode {
 	case config.JudgeModeGemini:
 		model := aiModelByKind[aibudget.KindGuess]
-		guesser = judge.NewGeminiGuesser(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
+		guesser = gemini.NewGuesser(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
 		guessProvider = aibudget.ProviderGoogle.WithModel(model)
 		logger.Info("guess: gemini vision (names what one drawing depicts)", "model", model)
 	case config.JudgeModeHTTP:
@@ -207,7 +208,7 @@ func run() error {
 		model := aiModelByKind[aibudget.KindAssist]
 		// Its own timeout, not the judge's: composing a picture takes tens of
 		// seconds on a thinking model, where a verdict takes one or two.
-		assistImpl = assist.NewGeminiAssist(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.AssistTimeout)
+		assistImpl = gemini.NewAssist(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.AssistTimeout)
 		assistVendor = aibudget.ProviderGoogle.WithModel(model)
 		logger.Info("assist: gemini (a prompt really becomes shapes)", "model", model, "timeout", cfg.AssistTimeout)
 	default:
@@ -274,7 +275,7 @@ func run() error {
 	// resets on every deploy; the daily quota lives in Postgres and actually holds
 	// (docs/ASSIST.md §3.4).
 	assistCheck, assistSpend := aiBudget.For(aibudget.KindAssist)
-	assistHandler := assist.NewHandler(assistImpl, assistLimiter, assistCheck, assistSpend, assist.RunBudget(cfg.AssistTimeout), logger)
+	assistHandler := assist.NewHandler(assistImpl, assistLimiter, assistCheck, assistSpend, gemini.AssistRunBudget(cfg.AssistTimeout), logger)
 
 	// The leaderboard is a read-only slice (docs/API.md §11): a small single-route
 	// module over the shared queries, like assist — a global top-N read that shares

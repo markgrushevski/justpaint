@@ -1,4 +1,4 @@
-package judge
+package gemini
 
 import (
 	"bytes"
@@ -6,6 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/draw"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +18,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
 const (
@@ -71,21 +76,36 @@ func (s *geminiStub) callCount() int {
 	return s.sent.calls
 }
 
-// newGeminiTestJudge points a GeminiJudge at a stub server. The retry backoff is
+// newGeminiTestJudge points a Judge at a stub server. The retry backoff is
 // shrunk so the retry tests cost milliseconds, not seconds.
-func newGeminiTestJudge(t *testing.T, reply func(call int, w http.ResponseWriter)) (*GeminiJudge, *geminiStub) {
+func newGeminiTestJudge(t *testing.T, reply func(call int, w http.ResponseWriter)) (*Judge, *geminiStub) {
 	t.Helper()
 	stub := &geminiStub{reply: reply}
 	srv := httptest.NewServer(stub)
 	t.Cleanup(srv.Close)
-	j := NewGeminiJudge(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
-	j.RetryBase = time.Millisecond
+	j := NewJudge(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
+	j.retryBase = time.Millisecond
 	return j, stub
 }
 
-func geminiTestRequest(t *testing.T) Request {
+// pngCoverage builds a w×h opaque-white PNG with the top `coverage` fraction of
+// rows painted black, so ink coverage == rows/h ≈ coverage.
+func pngCoverage(t *testing.T, w, h int, coverage float64) []byte {
 	t.Helper()
-	return Request{
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(img, img.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	rows := int(coverage*float64(h) + 0.5)
+	for y := 0; y < rows; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.Black)
+		}
+	}
+	return encodePNG(t, img)
+}
+
+func geminiTestRequest(t *testing.T) judge.Request {
+	t.Helper()
+	return judge.Request{
 		Prompt: geminiTestPrompt,
 		ImageA: pngCoverage(t, 8, 8, 0.6),
 		ImageB: pngCoverage(t, 8, 8, 0.2),
@@ -136,9 +156,9 @@ func geminiStr(t *testing.T, v any, what string) string {
 	return s
 }
 
-// TestGeminiJudge_Score_HappyPath pins BOTH directions: the exact Result we
+// TestJudge_Score_HappyPath pins BOTH directions: the exact judge.Result we
 // derive from a realistic envelope, and the exact request we put on the wire.
-func TestGeminiJudge_Score_HappyPath(t *testing.T) {
+func TestJudge_Score_HappyPath(t *testing.T) {
 	const output = `{"scoreA":0.82,"scoreB":0.41,"winner":"A","reason":"The first drawing shows a fox clearly astride a bicycle; the second reads as an animal beside two circles."}`
 	j, stub := newGeminiTestJudge(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusOK, geminiEnvelope(output))
@@ -150,10 +170,10 @@ func TestGeminiJudge_Score_HappyPath(t *testing.T) {
 		t.Fatalf("Score: %v", err)
 	}
 
-	want := Result{
+	want := judge.Result{
 		ScoreA: 0.82,
 		ScoreB: 0.41,
-		Winner: WinnerA,
+		Winner: judge.WinnerA,
 		Reason: "The first drawing shows a fox clearly astride a bicycle; the second reads as an animal beside two circles.",
 	}
 	if res != want {
@@ -221,7 +241,7 @@ func TestGeminiJudge_Score_HappyPath(t *testing.T) {
 	for _, v := range winnerEnum {
 		gotEnum = append(gotEnum, geminiStr(t, v, "winner.enum entry"))
 	}
-	if strings.Join(gotEnum, ",") != WinnerA+","+WinnerB+","+WinnerTie {
+	if strings.Join(gotEnum, ",") != judge.WinnerA+","+judge.WinnerB+","+judge.WinnerTie {
 		t.Errorf("winner enum = %v, want [A B tie] — a tie is first-class (§3)", gotEnum)
 	}
 
@@ -272,31 +292,31 @@ func TestGeminiJudge_Score_HappyPath(t *testing.T) {
 // The verdict is authoritative and never re-derived from the scores (§3): a
 // judge may legitimately call a near-equal pair a tie, or hand a decisive win to
 // the drawing that did not score higher.
-func TestGeminiJudge_Score_WinnerIsAuthoritative(t *testing.T) {
+func TestJudge_Score_WinnerIsAuthoritative(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
-		want   Result
+		want   judge.Result
 	}{
 		{
 			name:   "near-equal scores may still be a tie",
 			output: `{"scoreA":0.71,"scoreB":0.70,"winner":"tie","reason":"Both drawings read as a fox on a bicycle; neither is meaningfully better."}`,
-			want:   Result{ScoreA: 0.71, ScoreB: 0.70, Winner: WinnerTie, Reason: "Both drawings read as a fox on a bicycle; neither is meaningfully better."},
+			want:   judge.Result{ScoreA: 0.71, ScoreB: 0.70, Winner: judge.WinnerTie, Reason: "Both drawings read as a fox on a bicycle; neither is meaningfully better."},
 		},
 		{
 			name:   "equal scores with a decisive winner are taken as given",
 			output: `{"scoreA":0.5,"scoreB":0.5,"winner":"B","reason":"The second drawing gets the bicycle across."}`,
-			want:   Result{ScoreA: 0.5, ScoreB: 0.5, Winner: WinnerB, Reason: "The second drawing gets the bicycle across."},
+			want:   judge.Result{ScoreA: 0.5, ScoreB: 0.5, Winner: judge.WinnerB, Reason: "The second drawing gets the bicycle across."},
 		},
 		{
 			name:   "both may score high",
 			output: `{"scoreA":0.9,"scoreB":0.88,"winner":"A","reason":"Two strong attempts; the first drawing shows the fox pedalling."}`,
-			want:   Result{ScoreA: 0.9, ScoreB: 0.88, Winner: WinnerA, Reason: "Two strong attempts; the first drawing shows the fox pedalling."},
+			want:   judge.Result{ScoreA: 0.9, ScoreB: 0.88, Winner: judge.WinnerA, Reason: "Two strong attempts; the first drawing shows the fox pedalling."},
 		},
 		{
 			name:   "an empty reason still validates",
 			output: `{"scoreA":0.4,"scoreB":0.4,"winner":"tie","reason":"  "}`,
-			want:   Result{ScoreA: 0.4, ScoreB: 0.4, Winner: WinnerTie, Reason: ""},
+			want:   judge.Result{ScoreA: 0.4, ScoreB: 0.4, Winner: judge.WinnerTie, Reason: ""},
 		},
 	}
 	for _, tt := range tests {
@@ -317,7 +337,7 @@ func TestGeminiJudge_Score_WinnerIsAuthoritative(t *testing.T) {
 
 // A 429 is the free tier's daily budget running out. It must be legible as
 // exactly that, and must not be retried — the quota does not refill in 250ms.
-func TestGeminiJudge_Score_QuotaExhausted(t *testing.T) {
+func TestJudge_Score_QuotaExhausted(t *testing.T) {
 	const body = `{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}`
 	j, stub := newGeminiTestJudge(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusTooManyRequests, body)
@@ -327,15 +347,15 @@ func TestGeminiJudge_Score_QuotaExhausted(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error on 429")
 	}
-	if !errors.Is(err, ErrQuotaExhausted) {
-		t.Errorf("error %v does not satisfy errors.Is(err, ErrQuotaExhausted)", err)
+	if !errors.Is(err, judge.ErrQuotaExhausted) {
+		t.Errorf("error %v does not satisfy errors.Is(err, judge.ErrQuotaExhausted)", err)
 	}
 	if got := stub.callCount(); got != 1 {
 		t.Errorf("calls = %d, want exactly 1 — a daily quota cannot be retried away", got)
 	}
 }
 
-func TestGeminiJudge_Score_RetriesTransientFailures(t *testing.T) {
+func TestJudge_Score_RetriesTransientFailures(t *testing.T) {
 	const output = `{"scoreA":0.6,"scoreB":0.3,"winner":"A","reason":"The first drawing gets the fox across."}`
 	tests := []struct {
 		name      string
@@ -362,11 +382,11 @@ func TestGeminiJudge_Score_RetriesTransientFailures(t *testing.T) {
 			switch {
 			case tt.wantOK && err != nil:
 				t.Fatalf("Score: %v", err)
-			case tt.wantOK && res.Winner != WinnerA:
-				t.Errorf("winner = %q, want %q after recovery", res.Winner, WinnerA)
+			case tt.wantOK && res.Winner != judge.WinnerA:
+				t.Errorf("winner = %q, want %q after recovery", res.Winner, judge.WinnerA)
 			case !tt.wantOK && err == nil:
 				t.Fatal("expected an error after a persistent 5xx")
-			case !tt.wantOK && errors.Is(err, ErrQuotaExhausted):
+			case !tt.wantOK && errors.Is(err, judge.ErrQuotaExhausted):
 				t.Error("a 5xx must not read as an exhausted quota")
 			}
 			if got := stub.callCount(); got != tt.wantCalls {
@@ -376,7 +396,7 @@ func TestGeminiJudge_Score_RetriesTransientFailures(t *testing.T) {
 	}
 }
 
-func TestGeminiJudge_Score_NoRetryOn4xx(t *testing.T) {
+func TestJudge_Score_NoRetryOn4xx(t *testing.T) {
 	j, stub := newGeminiTestJudge(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusBadRequest, `{"error":{"code":400,"message":"Invalid JSON payload","status":"INVALID_ARGUMENT"}}`)
 	})
@@ -396,7 +416,7 @@ func TestGeminiJudge_Score_NoRetryOn4xx(t *testing.T) {
 // decide the duel and are validated strictly, while the rationale is display
 // text from a model we prompted in prose. HTTPJudge rejects the same overrun
 // instead, because there it is a peer service breaking the contract.
-func TestGeminiJudge_Score_ClampsAnOverlongReason(t *testing.T) {
+func TestJudge_Score_ClampsAnOverlongReason(t *testing.T) {
 	long := strings.Repeat("blah ", 200) + "final word"
 	j, _ := newGeminiTestJudge(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusOK, geminiEnvelope(`{"scoreA":0.4,"scoreB":0.3,"winner":"A","reason":"`+long+`"}`))
@@ -405,8 +425,8 @@ func TestGeminiJudge_Score_ClampsAnOverlongReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Score: %v", err)
 	}
-	if n := utf8.RuneCountInString(res.Reason); n > maxReasonLen {
-		t.Errorf("reason is %d runes, over the %d cap", n, maxReasonLen)
+	if n := utf8.RuneCountInString(res.Reason); n > judge.MaxReasonLen {
+		t.Errorf("reason is %d runes, over the %d cap", n, judge.MaxReasonLen)
 	}
 	if err := res.Validate(); err != nil {
 		t.Errorf("a clamped result must still satisfy the contract: %v", err)
@@ -415,14 +435,14 @@ func TestGeminiJudge_Score_ClampsAnOverlongReason(t *testing.T) {
 		t.Errorf("a clamped reason should end in an ellipsis, got %q", res.Reason[max(0, len(res.Reason)-20):])
 	}
 	// The verdict itself is untouched by the clamp.
-	if res.ScoreA != 0.4 || res.ScoreB != 0.3 || res.Winner != WinnerA {
+	if res.ScoreA != 0.4 || res.ScoreB != 0.3 || res.Winner != judge.WinnerA {
 		t.Errorf("clamping changed the verdict: %+v", res)
 	}
 }
 
 // A 200 whose payload violates the §2 contract is a failure, not a verdict — and
 // not worth a retry either, since temperature 0 buys the same answer twice.
-func TestGeminiJudge_Score_RejectsContractViolations(t *testing.T) {
+func TestJudge_Score_RejectsContractViolations(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
@@ -441,10 +461,10 @@ func TestGeminiJudge_Score_RejectsContractViolations(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected a rejection, got verdict %+v", res)
 			}
-			if !errors.Is(err, ErrInvalidResult) {
-				t.Errorf("error %v should wrap ErrInvalidResult", err)
+			if !errors.Is(err, judge.ErrInvalidResult) {
+				t.Errorf("error %v should wrap judge.ErrInvalidResult", err)
 			}
-			if res != (Result{}) {
+			if res != (judge.Result{}) {
 				t.Errorf("a rejected response must not leak a partial verdict, got %+v", res)
 			}
 			if got := stub.callCount(); got != 1 {
@@ -456,7 +476,7 @@ func TestGeminiJudge_Score_RejectsContractViolations(t *testing.T) {
 
 // Everything the API can hand back that is not a verdict must produce a clean
 // error rather than a panic or a zero-value "tie".
-func TestGeminiJudge_Score_MalformedResponses(t *testing.T) {
+func TestJudge_Score_MalformedResponses(t *testing.T) {
 	tests := []struct {
 		name     string
 		body     string
@@ -524,16 +544,16 @@ func TestGeminiJudge_Score_MalformedResponses(t *testing.T) {
 
 // Bad input is caught before it costs a request: on a daily quota every wasted
 // call is a duel nobody gets to play.
-func TestGeminiJudge_Score_RejectsBadRequestWithoutCalling(t *testing.T) {
+func TestJudge_Score_RejectsBadRequestWithoutCalling(t *testing.T) {
 	good := pngCoverage(t, 8, 8, 0.5)
 	tests := []struct {
 		name string
-		req  Request
+		req  judge.Request
 	}{
-		{"empty prompt", Request{Prompt: "  ", ImageA: good, ImageB: good}},
-		{"missing imageA", Request{Prompt: geminiTestPrompt, ImageB: good}},
-		{"missing imageB", Request{Prompt: geminiTestPrompt, ImageA: good}},
-		{"imageA is not a PNG", Request{Prompt: geminiTestPrompt, ImageA: []byte("not a png"), ImageB: good}},
+		{"empty prompt", judge.Request{Prompt: "  ", ImageA: good, ImageB: good}},
+		{"missing imageA", judge.Request{Prompt: geminiTestPrompt, ImageB: good}},
+		{"missing imageB", judge.Request{Prompt: geminiTestPrompt, ImageA: good}},
+		{"imageA is not a PNG", judge.Request{Prompt: geminiTestPrompt, ImageA: []byte("not a png"), ImageB: good}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -551,7 +571,7 @@ func TestGeminiJudge_Score_RejectsBadRequestWithoutCalling(t *testing.T) {
 }
 
 // The caller's cancellation outranks the retry budget.
-func TestGeminiJudge_Score_CallerCancellationWins(t *testing.T) {
+func TestJudge_Score_CallerCancellationWins(t *testing.T) {
 	j, stub := newGeminiTestJudge(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusServiceUnavailable, `{"error":{"code":503,"status":"UNAVAILABLE"}}`)
 	})
@@ -578,7 +598,7 @@ func TestGeminiJudge_Score_CallerCancellationWins(t *testing.T) {
 
 // The per-attempt deadline is what makes "retry on timeout" (§7) mean anything:
 // a slow first attempt is abandoned and the second one succeeds.
-func TestGeminiJudge_Score_PerAttemptTimeout(t *testing.T) {
+func TestJudge_Score_PerAttemptTimeout(t *testing.T) {
 	const output = `{"scoreA":0.7,"scoreB":0.2,"winner":"A","reason":"The first drawing depicts the prompt."}`
 	stub := &geminiStub{reply: func(call int, w http.ResponseWriter) {
 		if call == 1 {
@@ -589,15 +609,15 @@ func TestGeminiJudge_Score_PerAttemptTimeout(t *testing.T) {
 	srv := httptest.NewServer(stub)
 	t.Cleanup(srv.Close)
 
-	j := NewGeminiJudge(geminiTestKey, geminiTestModel, srv.URL, 50*time.Millisecond)
-	j.RetryBase = time.Millisecond
+	j := NewJudge(geminiTestKey, geminiTestModel, srv.URL, 50*time.Millisecond)
+	j.retryBase = time.Millisecond
 
 	res, err := j.Score(context.Background(), geminiTestRequest(t))
 	if err != nil {
 		t.Fatalf("Score: %v", err)
 	}
-	if res.Winner != WinnerA {
-		t.Errorf("winner = %q, want %q", res.Winner, WinnerA)
+	if res.Winner != judge.WinnerA {
+		t.Errorf("winner = %q, want %q", res.Winner, judge.WinnerA)
 	}
 	if got := stub.callCount(); got != 2 {
 		t.Errorf("calls = %d, want 2 — the timed-out attempt should be retried", got)

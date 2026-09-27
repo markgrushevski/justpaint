@@ -19,7 +19,7 @@ Hunt, adversarially, grounded in `file:line`:
   "what did I draw?" live there because they need a canvas without a clock). Anything with a score, a
   ladder or an opponent belongs to the game; flag it if it lands in `/draw`.
 - **Building the ML** — code that builds, embeds or blocks on the ML judge instead of implementing the
-  `Judge` interface (`FakeJudge`, `HTTPJudge`, `GeminiJudge`) behind config. The ML is an external
+  `Judge` interface (`FakeJudge`, `HTTPJudge`, `gemini.Judge`) behind config. The ML is an external
   service; the judge receives pre-rendered PNGs and never parses our document or runs `getStroke`.
 - **Judge-seam erosion** — the positional `winner` (`"A"|"B"|"tie"`) → player-id mapping leaking out of
   the game module into the judge; tie handling contradicting `docs/JUDGE.md` / `docs/GAME.md`.

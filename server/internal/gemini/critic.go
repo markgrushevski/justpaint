@@ -1,4 +1,4 @@
-package judge
+package gemini
 
 import (
 	"context"
@@ -7,50 +7,52 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
-// GeminiCritic is the real critic behind single-player practice: one
+// Critic is the real critic behind single-player practice: one
 // generateContent call, one raster, and the model's structured JSON as a
-// Critique. Shares GeminiClient with GeminiJudge — same endpoint, credential
-// handling, retry policy, ErrQuotaExhausted (JUDGE.md §8.2) — so a practice
+// judge.Critique. Shares Client with Judge — same endpoint, credential
+// handling, retry policy, judge.ErrQuotaExhausted (JUDGE.md §8.2) — so a practice
 // run and a duel fail and get fixed the same way.
 //
-// Unlike GeminiJudge there is no second drawing to compare against, so the
+// Unlike Judge there is no second drawing to compare against, so the
 // instruction pins the scale explicitly: a practice score must mean what it
 // means in a duel, not get graded on a curve for lacking an opponent.
 //
-// Same untrusted-image posture as GeminiJudge (JUDGE.md §8.2): the image is
+// Same untrusted-image posture as Judge (JUDGE.md §8.2): the image is
 // player-drawn, the prompt is not, and the blast radius of a successful
 // injection is smaller here — no ladder, no Elo, no opponent, just a
 // flattering number on the player's own screen.
-type GeminiCritic struct {
-	GeminiClient
+type Critic struct {
+	Client
 }
 
-// NewGeminiCritic builds the critic over the shared client. The arguments are the
+// NewCritic builds the critic over the shared client. The arguments are the
 // judge's, from the same config: practice deliberately does not get its own model
 // or key knob — it is the same quota, spent on the same API.
-func NewGeminiCritic(apiKey, model, baseURL string, timeout time.Duration) *GeminiCritic {
-	return &GeminiCritic{GeminiClient: NewGeminiClient("judge: gemini critic", apiKey, model, baseURL, timeout)}
+func NewCritic(apiKey, model, baseURL string, timeout time.Duration) *Critic {
+	return &Critic{Client: NewClient("judge: gemini critic", apiKey, model, baseURL, timeout)}
 }
 
-var _ Critic = (*GeminiCritic)(nil)
+var _ judge.Critic = (*Critic)(nil)
 
-// Critique implements Critic.
-func (g *GeminiCritic) Critique(ctx context.Context, req CritiqueRequest) (Critique, error) {
+// Critique implements judge.Critic.
+func (g *Critic) Critique(ctx context.Context, req judge.CritiqueRequest) (judge.Critique, error) {
 	if strings.TrimSpace(req.Prompt) == "" {
-		return Critique{}, errors.New("judge: gemini critic: empty prompt")
+		return judge.Critique{}, errors.New("judge: gemini critic: empty prompt")
 	}
 	if err := checkGeminiPNG("image", req.Image); err != nil {
-		return Critique{}, err
+		return judge.Critique{}, err
 	}
 	body, err := buildGeminiCritiqueBody(req)
 	if err != nil {
-		return Critique{}, fmt.Errorf("judge: gemini critic: encode request: %w", err)
+		return judge.Critique{}, fmt.Errorf("judge: gemini critic: encode request: %w", err)
 	}
 	out, err := g.generate(ctx, body)
 	if err != nil {
-		return Critique{}, err
+		return judge.Critique{}, err
 	}
 	return parseGeminiCritique(out)
 }
@@ -76,20 +78,20 @@ Return only the JSON object described by the response schema, with no commentary
 // --- wire shape --------------------------------------------------------------
 
 // geminiCritiqueOutput is the model's structured output. Spelled out separately
-// from Critique so the wire names are pinned by tags rather than by encoding/json
+// from judge.Critique so the wire names are pinned by tags rather than by encoding/json
 // happening to match Go field names case-insensitively.
 type geminiCritiqueOutput struct {
 	Score    float64 `json:"score"`
 	Feedback string  `json:"feedback"`
 }
 
-// geminiCritiqueSchema pins the response to exactly the Critique shape. The
+// geminiCritiqueSchema pins the response to exactly the judge.Critique shape. The
 // descriptions repeat the instruction at the point of generation, which is where
 // the model is actually choosing the value.
-func geminiCritiqueSchema() *GeminiSchema {
-	return &GeminiSchema{
+func geminiCritiqueSchema() *Schema {
+	return &Schema{
 		Type: "OBJECT",
-		Properties: map[string]*GeminiSchema{
+		Properties: map[string]*Schema{
 			"score":    {Type: "NUMBER", Description: "How well the drawing depicts the prompt, from 0 to 1 inclusive."},
 			"feedback": {Type: "STRING", Description: `One or two plain sentences, at most 400 characters, addressed to the player as "you".`},
 		},
@@ -100,7 +102,7 @@ func geminiCritiqueSchema() *GeminiSchema {
 // buildGeminiCritiqueBody lays out one user turn: the prompt, then the raster
 // behind a label. Same interleaving as the duel body, for the same reason — the
 // label has to sit next to the image it names.
-func buildGeminiCritiqueBody(req CritiqueRequest) ([]byte, error) {
+func buildGeminiCritiqueBody(req judge.CritiqueRequest) ([]byte, error) {
 	body := geminiRequest{
 		SystemInstruction: &geminiContent{Parts: []geminiPart{{Text: geminiCritiqueInstruction}}},
 		Contents: []geminiContent{{
@@ -121,23 +123,23 @@ func buildGeminiCritiqueBody(req CritiqueRequest) ([]byte, error) {
 	return json.Marshal(body)
 }
 
-// parseGeminiCritique turns the model's answer into a validated Critique, or
+// parseGeminiCritique turns the model's answer into a validated judge.Critique, or
 // explains why it is not one. Every path here is a failure, never a fallback
 // score: an invented number is worse than an honest error, because the player
 // cannot tell the two apart.
-func parseGeminiCritique(out GeminiOutput) (Critique, error) {
+func parseGeminiCritique(out Output) (judge.Critique, error) {
 	var v geminiCritiqueOutput
 	if err := json.Unmarshal([]byte(out.Text), &v); err != nil {
-		return Critique{}, fmt.Errorf("judge: gemini critic: output is not the JSON critique (finishReason %q): %w", out.Finish, err)
+		return judge.Critique{}, fmt.Errorf("judge: gemini critic: output is not the JSON critique (finishReason %q): %w", out.Finish, err)
 	}
-	c := Critique{
+	c := judge.Critique{
 		Score: v.Score,
 		// Display text, so trimming stray whitespace is cosmetic; the overrun clamp
 		// is the same deliberate normalization the duel's reason gets (clampText).
-		Feedback: clampText(strings.TrimSpace(v.Feedback), maxFeedbackLen),
+		Feedback: clampText(strings.TrimSpace(v.Feedback), judge.MaxFeedbackLen),
 	}
 	if err := c.Validate(); err != nil {
-		return Critique{}, fmt.Errorf("judge: gemini critic: %w", err)
+		return judge.Critique{}, fmt.Errorf("judge: gemini critic: %w", err)
 	}
 	return c, nil
 }

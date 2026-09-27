@@ -1,4 +1,4 @@
-package assist
+package gemini
 
 import (
 	"context"
@@ -7,20 +7,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/markgrushevski/justpaint/server/internal/assist"
 	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
-// TestGeminiAssist_Live calls the real Generative Language API — the only way
+// TestAssist_Live calls the real Generative Language API — the only way
 // to prove Google accepts this schema's two-deep ARRAY nesting and that a
 // model fills it with a drawing rather than a shrug (docs/ASSIST.md §6).
 //
 // Opt-in, and not merely gated on the key being present: a key that happens
 // to be in the environment must never quietly spend a daily quota.
 //
-//	GEMINI_LIVE=1 GEMINI_API_KEY=… go test ./internal/assist/ -run Live -v
+//	GEMINI_LIVE=1 GEMINI_API_KEY=… go test ./internal/gemini/ -run TestAssist_Live -v
 //
 // GEMINI_MODEL, GEMINI_BASE_URL and ASSIST_LIVE_PROMPT override the defaults.
-func TestGeminiAssist_Live(t *testing.T) {
+func TestAssist_Live(t *testing.T) {
 	if os.Getenv("GEMINI_LIVE") != "1" {
 		t.Skip("set GEMINI_LIVE=1 (and GEMINI_API_KEY) to call the real API — it spends daily quota")
 	}
@@ -41,11 +42,11 @@ func TestGeminiAssist_Live(t *testing.T) {
 
 	// Well above the service's default: the free tier answers 503 "high demand"
 	// often enough that a tight bound would report a busy afternoon as broken.
-	a := NewGeminiAssist(key, model, base, 120*time.Second)
+	a := NewAssist(key, model, base, 120*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	res, err := a.GenerateOps(ctx, Request{Prompt: prompt, DocSummary: summary})
+	res, err := a.GenerateOps(ctx, assist.Request{Prompt: prompt, DocSummary: summary})
 	if err != nil {
 		t.Fatalf("live GenerateOps against %s (%s): %v", base, model, err)
 	}
@@ -66,11 +67,4 @@ func TestGeminiAssist_Live(t *testing.T) {
 	if res.Note == "" {
 		t.Error("note is empty — the UI shows it beside the preview")
 	}
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

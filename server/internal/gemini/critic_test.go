@@ -1,4 +1,4 @@
-package judge
+package gemini
 
 import (
 	"bytes"
@@ -12,33 +12,35 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
-// newGeminiTestCritic points a GeminiCritic at the same stub server the judge
+// newGeminiTestCritic points a Critic at the same stub server the judge
 // tests use — same plumbing, so the same stand-in exercises it. The retry backoff
 // is shrunk so the retry paths cost milliseconds.
-func newGeminiTestCritic(t *testing.T, reply func(call int, w http.ResponseWriter)) (*GeminiCritic, *geminiStub) {
+func newGeminiTestCritic(t *testing.T, reply func(call int, w http.ResponseWriter)) (*Critic, *geminiStub) {
 	t.Helper()
 	stub := &geminiStub{reply: reply}
 	srv := httptest.NewServer(stub)
 	t.Cleanup(srv.Close)
-	c := NewGeminiCritic(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
-	c.RetryBase = time.Millisecond
+	c := NewCritic(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
+	c.retryBase = time.Millisecond
 	return c, stub
 }
 
-func geminiTestCritiqueRequest(t *testing.T) CritiqueRequest {
+func geminiTestCritiqueRequest(t *testing.T) judge.CritiqueRequest {
 	t.Helper()
-	return CritiqueRequest{Prompt: geminiTestPrompt, Image: pngCoverage(t, 8, 8, 0.5)}
+	return judge.CritiqueRequest{Prompt: geminiTestPrompt, Image: pngCoverage(t, 8, 8, 0.5)}
 }
 
 // geminiCritiqueEnvelope wraps a model output in a realistic generateContent
 // response, extra fields and all.
 func geminiCritiqueEnvelope(modelOutput string) string { return geminiEnvelope(modelOutput) }
 
-// TestGeminiCritic_Critique_HappyPath pins BOTH directions: the Critique we derive
+// TestCritic_Critique_HappyPath pins BOTH directions: the Critique we derive
 // from a realistic envelope, and the exact request we put on the wire.
-func TestGeminiCritic_Critique_HappyPath(t *testing.T) {
+func TestCritic_Critique_HappyPath(t *testing.T) {
 	const output = `{"score":0.72,"feedback":"Your fox and bicycle are both clearly there; the fox reads as standing beside the bike rather than riding it, so put its legs over the frame."}`
 	c, stub := newGeminiTestCritic(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusOK, geminiCritiqueEnvelope(output))
@@ -49,7 +51,7 @@ func TestGeminiCritic_Critique_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Critique: %v", err)
 	}
-	want := Critique{
+	want := judge.Critique{
 		Score:    0.72,
 		Feedback: "Your fox and bicycle are both clearly there; the fox reads as standing beside the bike rather than riding it, so put its legs over the frame.",
 	}
@@ -169,7 +171,7 @@ func TestGeminiCritic_Critique_HappyPath(t *testing.T) {
 
 // A 200 whose payload violates the contract is a failure, not a score — and not
 // worth a retry either, since temperature 0 buys the same answer twice.
-func TestGeminiCritic_Critique_RejectsContractViolations(t *testing.T) {
+func TestCritic_Critique_RejectsContractViolations(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
@@ -187,10 +189,10 @@ func TestGeminiCritic_Critique_RejectsContractViolations(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected a rejection, got critique %+v", got)
 			}
-			if !errors.Is(err, ErrInvalidCritique) {
-				t.Errorf("error %v should wrap ErrInvalidCritique", err)
+			if !errors.Is(err, judge.ErrInvalidCritique) {
+				t.Errorf("error %v should wrap judge.ErrInvalidCritique", err)
 			}
-			if got != (Critique{}) {
+			if got != (judge.Critique{}) {
 				t.Errorf("a rejected response must not leak a partial score, got %+v", got)
 			}
 			if n := stub.callCount(); n != 1 {
@@ -202,7 +204,7 @@ func TestGeminiCritic_Critique_RejectsContractViolations(t *testing.T) {
 
 // A 429 is the free tier's daily budget running out. It must be legible as exactly
 // that, and must not be retried — the quota does not refill in 250ms.
-func TestGeminiCritic_Critique_QuotaExhausted(t *testing.T) {
+func TestCritic_Critique_QuotaExhausted(t *testing.T) {
 	const body = `{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}`
 	c, stub := newGeminiTestCritic(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusTooManyRequests, body)
@@ -212,8 +214,8 @@ func TestGeminiCritic_Critique_QuotaExhausted(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error on 429")
 	}
-	if !errors.Is(err, ErrQuotaExhausted) {
-		t.Errorf("error %v does not satisfy errors.Is(err, ErrQuotaExhausted)", err)
+	if !errors.Is(err, judge.ErrQuotaExhausted) {
+		t.Errorf("error %v does not satisfy errors.Is(err, judge.ErrQuotaExhausted)", err)
 	}
 	if n := stub.callCount(); n != 1 {
 		t.Errorf("calls = %d, want exactly 1 — a daily quota cannot be retried away", n)
@@ -222,7 +224,7 @@ func TestGeminiCritic_Critique_QuotaExhausted(t *testing.T) {
 
 // Over-long feedback is clamped, not rejected, for the same reason the duel's
 // reason is: the score is what decides anything, and it is validated strictly.
-func TestGeminiCritic_Critique_ClampsOverlongFeedback(t *testing.T) {
+func TestCritic_Critique_ClampsOverlongFeedback(t *testing.T) {
 	long := strings.Repeat("blah ", 200) + "final word"
 	c, _ := newGeminiTestCritic(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusOK, geminiCritiqueEnvelope(`{"score":0.4,"feedback":"`+long+`"}`))
@@ -231,8 +233,8 @@ func TestGeminiCritic_Critique_ClampsOverlongFeedback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Critique: %v", err)
 	}
-	if n := utf8.RuneCountInString(got.Feedback); n > maxFeedbackLen {
-		t.Errorf("feedback is %d runes, over the %d cap", n, maxFeedbackLen)
+	if n := utf8.RuneCountInString(got.Feedback); n > judge.MaxFeedbackLen {
+		t.Errorf("feedback is %d runes, over the %d cap", n, judge.MaxFeedbackLen)
 	}
 	if !strings.HasSuffix(got.Feedback, "…") {
 		t.Error("a clamped feedback should end in an ellipsis")
@@ -244,15 +246,15 @@ func TestGeminiCritic_Critique_ClampsOverlongFeedback(t *testing.T) {
 
 // Bad input is caught before it costs a request: on a daily quota every wasted
 // call is a drawing nobody gets scored.
-func TestGeminiCritic_Critique_RejectsBadRequestWithoutCalling(t *testing.T) {
+func TestCritic_Critique_RejectsBadRequestWithoutCalling(t *testing.T) {
 	good := pngCoverage(t, 8, 8, 0.5)
 	tests := []struct {
 		name string
-		req  CritiqueRequest
+		req  judge.CritiqueRequest
 	}{
-		{"empty prompt", CritiqueRequest{Prompt: "  ", Image: good}},
-		{"missing image", CritiqueRequest{Prompt: geminiTestPrompt}},
-		{"the image is not a PNG", CritiqueRequest{Prompt: geminiTestPrompt, Image: []byte("not a png")}},
+		{"empty prompt", judge.CritiqueRequest{Prompt: "  ", Image: good}},
+		{"missing image", judge.CritiqueRequest{Prompt: geminiTestPrompt}},
+		{"the image is not a PNG", judge.CritiqueRequest{Prompt: geminiTestPrompt, Image: []byte("not a png")}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -271,7 +273,7 @@ func TestGeminiCritic_Critique_RejectsBadRequestWithoutCalling(t *testing.T) {
 
 // Everything the API can hand back that is not a critique must produce a clean
 // error rather than a panic or a zero-value "0.0".
-func TestGeminiCritic_Critique_MalformedResponses(t *testing.T) {
+func TestCritic_Critique_MalformedResponses(t *testing.T) {
 	tests := []struct {
 		name     string
 		body     string

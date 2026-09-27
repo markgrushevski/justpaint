@@ -1,4 +1,4 @@
-package judge
+package gemini
 
 import (
 	"bytes"
@@ -13,18 +13,20 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
-// newGeminiTestGuesser points a GeminiGuesser at the same stub server the judge
+// newGeminiTestGuesser points a Guesser at the same stub server the judge
 // and critic tests use — same plumbing, so the same stand-in exercises it. The
 // retry backoff is shrunk so the retry paths cost milliseconds.
-func newGeminiTestGuesser(t *testing.T, reply func(call int, w http.ResponseWriter)) (*GeminiGuesser, *geminiStub) {
+func newGeminiTestGuesser(t *testing.T, reply func(call int, w http.ResponseWriter)) (*Guesser, *geminiStub) {
 	t.Helper()
 	stub := &geminiStub{reply: reply}
 	srv := httptest.NewServer(stub)
 	t.Cleanup(srv.Close)
-	g := NewGeminiGuesser(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
-	g.RetryBase = time.Millisecond
+	g := NewGuesser(geminiTestKey, geminiTestModel, srv.URL, 2*time.Second)
+	g.retryBase = time.Millisecond
 	return g, stub
 }
 
@@ -33,9 +35,9 @@ func geminiTestDrawing(t *testing.T) []byte {
 	return pngCoverage(t, 8, 8, 0.5)
 }
 
-// TestGeminiGuesser_Guess_HappyPath pins BOTH directions: the Guess we derive from
+// TestGuesser_Guess_HappyPath pins BOTH directions: the Guess we derive from
 // a realistic envelope, and the exact request we put on the wire.
-func TestGeminiGuesser_Guess_HappyPath(t *testing.T) {
+func TestGuesser_Guess_HappyPath(t *testing.T) {
 	const output = `{"label":"a cat wearing a hat","confidence":0.82,"alternative1":"a rabbit","alternative2":"an owl"}`
 	g, stub := newGeminiTestGuesser(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusOK, geminiEnvelope(output))
@@ -175,7 +177,7 @@ func TestGeminiGuesser_Guess_HappyPath(t *testing.T) {
 // The runner-ups arrive as two optional strings, which over a structured-output
 // wire means blanks and restatements far more often than absent keys. Both are
 // dropped before they can become a hole or a duplicate row on the player's screen.
-func TestGeminiGuesser_Guess_Alternatives(t *testing.T) {
+func TestGuesser_Guess_Alternatives(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
@@ -240,7 +242,7 @@ func TestGeminiGuesser_Guess_Alternatives(t *testing.T) {
 
 // A 200 whose payload violates the contract is a failure, not a guess — and not
 // worth a retry either, since temperature 0 buys the same answer twice.
-func TestGeminiGuesser_Guess_RejectsContractViolations(t *testing.T) {
+func TestGuesser_Guess_RejectsContractViolations(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
@@ -260,8 +262,8 @@ func TestGeminiGuesser_Guess_RejectsContractViolations(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected a rejection, got guess %+v", got)
 			}
-			if !errors.Is(err, ErrInvalidGuess) {
-				t.Errorf("error %v should wrap ErrInvalidGuess", err)
+			if !errors.Is(err, judge.ErrInvalidGuess) {
+				t.Errorf("error %v should wrap judge.ErrInvalidGuess", err)
 			}
 			if got.Label != "" || got.Confidence != 0 || got.Alternatives != nil {
 				t.Errorf("a rejected response must not leak a partial guess, got %+v", got)
@@ -275,7 +277,7 @@ func TestGeminiGuesser_Guess_RejectsContractViolations(t *testing.T) {
 
 // A 429 is the free tier's daily budget running out. It must be legible as exactly
 // that, and must not be retried — the quota does not refill in 250ms.
-func TestGeminiGuesser_Guess_QuotaExhausted(t *testing.T) {
+func TestGuesser_Guess_QuotaExhausted(t *testing.T) {
 	const body = `{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}`
 	g, stub := newGeminiTestGuesser(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusTooManyRequests, body)
@@ -285,8 +287,8 @@ func TestGeminiGuesser_Guess_QuotaExhausted(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error on 429")
 	}
-	if !errors.Is(err, ErrQuotaExhausted) {
-		t.Errorf("error %v does not satisfy errors.Is(err, ErrQuotaExhausted)", err)
+	if !errors.Is(err, judge.ErrQuotaExhausted) {
+		t.Errorf("error %v does not satisfy errors.Is(err, judge.ErrQuotaExhausted)", err)
 	}
 	if n := stub.callCount(); n != 1 {
 		t.Errorf("calls = %d, want exactly 1 — a daily quota cannot be retried away", n)
@@ -295,7 +297,7 @@ func TestGeminiGuesser_Guess_QuotaExhausted(t *testing.T) {
 
 // An over-long label is clamped, not rejected, for the same reason the duel's
 // reason is: the answer is worth keeping, and nothing here decides anything.
-func TestGeminiGuesser_Guess_ClampsOverlongLabel(t *testing.T) {
+func TestGuesser_Guess_ClampsOverlongLabel(t *testing.T) {
 	long := strings.Repeat("a cat and ", 30) + "a hat"
 	g, _ := newGeminiTestGuesser(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusOK, geminiEnvelope(`{"label":"`+long+`","confidence":0.4}`))
@@ -304,8 +306,8 @@ func TestGeminiGuesser_Guess_ClampsOverlongLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Guess: %v", err)
 	}
-	if n := utf8.RuneCountInString(got.Label); n > maxGuessLabelLen {
-		t.Errorf("label is %d runes, over the %d cap", n, maxGuessLabelLen)
+	if n := utf8.RuneCountInString(got.Label); n > judge.MaxGuessLabelLen {
+		t.Errorf("label is %d runes, over the %d cap", n, judge.MaxGuessLabelLen)
 	}
 	if !strings.HasSuffix(got.Label, "…") {
 		t.Error("a clamped label should end in an ellipsis")
@@ -317,7 +319,7 @@ func TestGeminiGuesser_Guess_ClampsOverlongLabel(t *testing.T) {
 
 // Bad input is caught before it costs a request: on a daily quota every wasted
 // call is a drawing nobody gets to ask about.
-func TestGeminiGuesser_Guess_RejectsBadRequestWithoutCalling(t *testing.T) {
+func TestGuesser_Guess_RejectsBadRequestWithoutCalling(t *testing.T) {
 	tests := []struct {
 		name string
 		img  []byte
@@ -343,7 +345,7 @@ func TestGeminiGuesser_Guess_RejectsBadRequestWithoutCalling(t *testing.T) {
 
 // Everything the API can hand back that is not a guess must produce a clean error
 // rather than a panic or a zero-value "".
-func TestGeminiGuesser_Guess_MalformedResponses(t *testing.T) {
+func TestGuesser_Guess_MalformedResponses(t *testing.T) {
 	tests := []struct {
 		name     string
 		body     string

@@ -1,4 +1,4 @@
-package judge
+package gemini
 
 import (
 	"context"
@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/markgrushevski/justpaint/server/internal/judge"
 )
 
-// GeminiGuesser is the real guesser behind /draw's "what did I draw?"
+// Guesser is the real guesser behind /draw's "what did I draw?"
 // button: one generateContent call, one raster, and the model's structured
-// JSON as a Guess. Shares GeminiClient with GeminiJudge and GeminiCritic —
-// same endpoint, credential handling, retry policy, ErrQuotaExhausted
+// JSON as a judge.Guess. Shares Client with Judge and Critic —
+// same endpoint, credential handling, retry policy, judge.ErrQuotaExhausted
 // (JUDGE.md §8.3) — so all three fail and get fixed the same way.
 //
 // Unlike the other two there is no answer key: the player drew whatever they
@@ -24,33 +26,33 @@ import (
 // (JUDGE.md §8.3) — narrows the surface, does not close it. A guess is
 // stored nowhere, decides nothing, ranks nothing and gates nothing, so the
 // worst an injection buys is a silly sentence for the one player who asked.
-type GeminiGuesser struct {
-	GeminiClient
+type Guesser struct {
+	Client
 }
 
-// NewGeminiGuesser builds the guesser over the shared client. The arguments are
+// NewGuesser builds the guesser over the shared client. The arguments are
 // the judge's, from the same config: the guess button deliberately does not get
 // its own model or key knob — it is the same quota, spent on the same API.
-func NewGeminiGuesser(apiKey, model, baseURL string, timeout time.Duration) *GeminiGuesser {
-	return &GeminiGuesser{GeminiClient: NewGeminiClient("judge: gemini guesser", apiKey, model, baseURL, timeout)}
+func NewGuesser(apiKey, model, baseURL string, timeout time.Duration) *Guesser {
+	return &Guesser{Client: NewClient("judge: gemini guesser", apiKey, model, baseURL, timeout)}
 }
 
-var _ Guesser = (*GeminiGuesser)(nil)
+var _ judge.Guesser = (*Guesser)(nil)
 
-// Guess implements Guesser.
-func (g *GeminiGuesser) Guess(ctx context.Context, img []byte) (Guess, error) {
+// Guess implements judge.Guesser.
+func (g *Guesser) Guess(ctx context.Context, img []byte) (judge.Guess, error) {
 	// Checked before it costs a request: a non-PNG can only earn a 400, and on a
 	// daily quota every wasted call is a drawing nobody gets to ask about.
 	if err := checkGeminiPNG("image", img); err != nil {
-		return Guess{}, err
+		return judge.Guess{}, err
 	}
 	body, err := buildGeminiGuessBody(img)
 	if err != nil {
-		return Guess{}, fmt.Errorf("judge: gemini guesser: encode request: %w", err)
+		return judge.Guess{}, fmt.Errorf("judge: gemini guesser: encode request: %w", err)
 	}
 	out, err := g.generate(ctx, body)
 	if err != nil {
-		return Guess{}, err
+		return judge.Guess{}, err
 	}
 	return parseGeminiGuess(out)
 }
@@ -84,11 +86,11 @@ Return only the JSON object described by the response schema, with no commentary
 // --- wire shape --------------------------------------------------------------
 
 // geminiGuessOutput is the model's structured output, spelled out separately
-// from Guess so wire names are pinned by tags, not by encoding/json's
+// from judge.Guess so wire names are pinned by tags, not by encoding/json's
 // case-insensitive field matching.
 //
 // The runner-ups are two optional strings, not an array, on purpose
-// (JUDGE.md §8.3): GeminiSchema can describe an array's Items but not its
+// (JUDGE.md §8.3): Schema can describe an array's Items but not its
 // arity, so an array would reach the model unbounded. Two named fields pin
 // the arity in the schema itself, where the model is choosing.
 type geminiGuessOutput struct {
@@ -98,16 +100,16 @@ type geminiGuessOutput struct {
 	Alternative2 string  `json:"alternative2"`
 }
 
-// geminiGuessSchema pins the response to exactly the Guess shape. The
+// geminiGuessSchema pins the response to exactly the judge.Guess shape. The
 // descriptions repeat the instruction at the point of generation, which is where
 // the model is actually choosing the value.
 //
 // Only label and confidence are required: a clear drawing has no runner-up, and
 // requiring the alternatives would make the model invent doubt to fill them.
-func geminiGuessSchema() *GeminiSchema {
-	return &GeminiSchema{
+func geminiGuessSchema() *Schema {
+	return &Schema{
 		Type: "OBJECT",
-		Properties: map[string]*GeminiSchema{
+		Properties: map[string]*Schema{
 			"label":        {Type: "STRING", Description: "What the picture is, as a short noun phrase of at most 70 characters."},
 			"confidence":   {Type: "NUMBER", Description: "How sure you are of the label, from 0 to 1 inclusive."},
 			"alternative1": {Type: "STRING", Description: "A runner-up guess that is a genuinely different subject, or an empty string if you have none."},
@@ -141,28 +143,28 @@ func buildGeminiGuessBody(img []byte) ([]byte, error) {
 	return json.Marshal(body)
 }
 
-// parseGeminiGuess turns the model's answer into a validated Guess, or explains
+// parseGeminiGuess turns the model's answer into a validated judge.Guess, or explains
 // why it is not one. Every path here is a failure, never a fallback label: an
 // invented guess is worse than an honest error, because the player cannot tell
 // the two apart — and unlike a score, a wrong guess is funny enough to be
 // believed.
-func parseGeminiGuess(out GeminiOutput) (Guess, error) {
+func parseGeminiGuess(out Output) (judge.Guess, error) {
 	var v geminiGuessOutput
 	if err := json.Unmarshal([]byte(out.Text), &v); err != nil {
-		return Guess{}, fmt.Errorf("judge: gemini guesser: output is not the JSON guess (finishReason %q): %w", out.Finish, err)
+		return judge.Guess{}, fmt.Errorf("judge: gemini guesser: output is not the JSON guess (finishReason %q): %w", out.Finish, err)
 	}
 	// Clamped once, before the alternatives are deduped against it: an
 	// alternative is a restatement of the label the player will SEE, not of
 	// the one the model sent, so deduping against the raw label would let an
 	// over-long label survive as its own runner-up.
-	label := clampText(strings.TrimSpace(v.Label), maxGuessLabelLen)
-	g := Guess{
+	label := clampText(strings.TrimSpace(v.Label), judge.MaxGuessLabelLen)
+	g := judge.Guess{
 		Label:        label,
 		Confidence:   v.Confidence,
 		Alternatives: gatherGuessAlternatives(label, v.Alternative1, v.Alternative2),
 	}
 	if err := g.Validate(); err != nil {
-		return Guess{}, fmt.Errorf("judge: gemini guesser: %w", err)
+		return judge.Guess{}, fmt.Errorf("judge: gemini guesser: %w", err)
 	}
 	return g, nil
 }
@@ -170,14 +172,14 @@ func parseGeminiGuess(out GeminiOutput) (Guess, error) {
 // gatherGuessAlternatives collects the optional runner-ups into the
 // contract's 0-2 slice. It drops blanks — over a structured-output wire,
 // "optional" means an empty string far more often than an absent key, and
-// Guess.Validate rejects a hole in the list — and restatements of the label
+// judge.Guess.Validate rejects a hole in the list — and restatements of the label
 // or of each other, case-folded and trimmed, since "a cat" listed twice is
 // noise, not a second opinion.
 func gatherGuessAlternatives(label, alt1, alt2 string) []string {
 	seen := map[string]struct{}{normalizeGuessText(label): {}}
 	var alts []string
 	for _, raw := range []string{alt1, alt2} {
-		alt := clampText(strings.TrimSpace(raw), maxGuessLabelLen)
+		alt := clampText(strings.TrimSpace(raw), judge.MaxGuessLabelLen)
 		key := normalizeGuessText(alt)
 		if key == "" {
 			continue

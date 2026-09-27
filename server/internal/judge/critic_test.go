@@ -18,12 +18,12 @@ func TestCritique_Validate(t *testing.T) {
 		{"zero is legal", Critique{Score: 0}, false},
 		{"one is legal", Critique{Score: 1}, false},
 		{"empty feedback is legal", Critique{Score: 0.5, Feedback: ""}, false},
-		{"feedback exactly at the cap", Critique{Score: 0.5, Feedback: strings.Repeat("a", maxFeedbackLen)}, false},
+		{"feedback exactly at the cap", Critique{Score: 0.5, Feedback: strings.Repeat("a", MaxFeedbackLen)}, false},
 		{"score above 1", Critique{Score: 1.0001}, true},
 		{"score below 0", Critique{Score: -0.0001}, true},
 		{"NaN is not a score", Critique{Score: math.NaN()}, true},
 		{"+Inf is not a score", Critique{Score: math.Inf(1)}, true},
-		{"feedback one rune over the cap", Critique{Score: 0.5, Feedback: strings.Repeat("a", maxFeedbackLen+1)}, true},
+		{"feedback one rune over the cap", Critique{Score: 0.5, Feedback: strings.Repeat("a", MaxFeedbackLen+1)}, true},
 		// A cap in RUNES, not bytes: 300 three-byte runes are 900 bytes and still
 		// well inside a 500-character limit.
 		{"multibyte feedback is counted in runes", Critique{Score: 0.5, Feedback: strings.Repeat("ф", 300)}, false},

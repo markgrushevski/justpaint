@@ -2,7 +2,7 @@
 
 > **System topology & boundaries.** How the pieces fit, which way dependencies point, and where the seams are. Companion to `docs/DECISIONS.md` (the "why" of each call) and `docs/DOCUMENT-FORMAT.md` (the keystone contract). This doc maps the *structure*; it does not relitigate the decisions that produced it.
 >
-> **Status:** the monorepo layout below **now exists** (Phases 1–3 and 5 done — see `docs/ROADMAP.md`). `apps/web`, `packages/editor`, `packages/render` and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone. This doc maps the structure and the explicit triggers for when to split further (§9). The game modules all exist — `internal/judge`, `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) — and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live. The WS hub (`internal/ws`) is live, and the real judge client exists twice over — `HTTPJudge` against the external judge's contract (still waiting on that service to exist) and `GeminiJudge`, which decides duels in production today. The single-player modules (`internal/practice`, `internal/guess`) and the shared AI-call ledger (`internal/aibudget`) round out the game. §4 below is current, this header is the summary.
+> **Status:** the monorepo layout below **now exists** (Phases 1–3 and 5 done — see `docs/ROADMAP.md`). `apps/web`, `packages/editor`, `packages/render` and the Go `server/` are all in place; the old `client/` (Vue raster) + `server/` (NestJS) are gone. This doc maps the structure and the explicit triggers for when to split further (§9). The game modules all exist — `internal/judge`, `internal/render` (the `Renderer` seam: `StubRenderer` + `NodeRenderer`), and `internal/game` (the full create/join/submit/judge/result loop + Elo) — and the **authoritative** Node render worker (`packages/render`, `RENDER_MODE=node`) is live. The WS hub (`internal/ws`) is live, and the real judge client exists twice over — `HTTPJudge` against the external judge's contract (still waiting on that service to exist) and `gemini.Judge`, which decides duels in production today. The single-player modules (`internal/practice`, `internal/guess`) and the shared AI-call ledger (`internal/aibudget`) round out the game. §4 below is current, this header is the summary.
 
 ## 1. One picture
 
@@ -79,8 +79,9 @@ server/
     platform/    # shared infra: pgx pool, http server/router, config, slog, errors    [done]
     game/        # match lifecycle: create → both draw → submit → judge → result       [done: full loop]
     render/      # Renderer seam: StubRenderer + NodeRenderer (spawns packages/render)  [done]
-    judge/       # the frozen Judge + our Critic/Guesser; Fake*/HTTP*/Gemini* impls     [done]
-    assist/      # Assist interface + FakeAssist + GeminiAssist (the real one); docs/ASSIST.md          [done]
+    judge/       # the frozen Judge + our Critic/Guesser; Fake*/HTTP* impls              [done]
+    assist/      # Assist interface + FakeAssist; the real one is gemini.Assist; docs/ASSIST.md         [done]
+    gemini/      # the Gemini provider: client plus the judge, critic, guesser and assist impls         [done]
     ratings/     # read-only leaderboard module (aggregate + sort over match_players); docs/API.md §11 [done]
     practice/    # single-player scoring: one prompt/drawing/score, no match; judge.Critic, not Judge  [done]
     guess/       # "what did I draw?" on /draw: judge.Guesser, no row anywhere; docs/API.md §13        [done]

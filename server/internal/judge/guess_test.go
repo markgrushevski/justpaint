@@ -21,7 +21,7 @@ func TestGuess_Validate(t *testing.T) {
 		{"no alternatives is the expected shape", Guess{Label: "a house", Confidence: 0.9}, false},
 		{"one alternative", Guess{Label: "a rabbit", Confidence: 0.5, Alternatives: []string{"an owl"}}, false},
 		{"two alternatives", Guess{Label: "a rabbit", Confidence: 0.4, Alternatives: []string{"an owl", "a cat"}}, false},
-		{"a label exactly at the cap", Guess{Label: strings.Repeat("a", maxGuessLabelLen), Confidence: 0.5}, false},
+		{"a label exactly at the cap", Guess{Label: strings.Repeat("a", MaxGuessLabelLen), Confidence: 0.5}, false},
 		// A cap in RUNES, not bytes: 70 two-byte runes are 140 bytes and still inside
 		// an 80-character label.
 		{"a multibyte label is counted in runes", Guess{Label: strings.Repeat("ф", 70), Confidence: 0.5}, false},
@@ -34,10 +34,10 @@ func TestGuess_Validate(t *testing.T) {
 		// may not, because there is no other field for the answer to live in.
 		{"an empty label is not a guess", Guess{Label: "", Confidence: 0.9}, true},
 		{"a whitespace label is not a guess", Guess{Label: "   ", Confidence: 0.9}, true},
-		{"a label one rune over the cap", Guess{Label: strings.Repeat("a", maxGuessLabelLen+1), Confidence: 0.5}, true},
+		{"a label one rune over the cap", Guess{Label: strings.Repeat("a", MaxGuessLabelLen+1), Confidence: 0.5}, true},
 		{"three alternatives", Guess{Label: "a cat", Confidence: 0.3, Alternatives: []string{"a", "b", "c"}}, true},
 		{"a blank alternative is a hole in the list", Guess{Label: "a cat", Confidence: 0.3, Alternatives: []string{"an owl", "  "}}, true},
-		{"an over-long alternative", Guess{Label: "a cat", Confidence: 0.3, Alternatives: []string{strings.Repeat("a", maxGuessLabelLen+1)}}, true},
+		{"an over-long alternative", Guess{Label: "a cat", Confidence: 0.3, Alternatives: []string{strings.Repeat("a", MaxGuessLabelLen+1)}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

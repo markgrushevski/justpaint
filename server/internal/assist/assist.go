@@ -2,7 +2,7 @@
 // prompt goes to an LLM, which emits a batch of validated document operations
 // (the Op contract). The handler depends on the Assist interface, never a
 // concrete impl, so FakeAssist (deterministic, the default in dev/CI/tests)
-// and the real GeminiAssist swap by config with no handler change, exactly
+// and the real gemini.Assist swap by config with no handler change, exactly
 // like the render and judge seams.
 //
 // Assist is stateless: no DB, no migration, no sqlc. Every request is

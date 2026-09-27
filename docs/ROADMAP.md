@@ -20,7 +20,7 @@ ships.
 
 **Game**
 - **The external ML judge.** `HTTPJudge` implements [JUDGE.md](JUDGE.md) §6 and is waiting for the
-  service to exist; `GeminiJudge` gives real verdicts until then.
+  service to exist; `gemini.Judge` gives real verdicts until then.
 - **Spectating.** Reconnect, presence and idle eviction are done; watching someone else's match is not.
 - **Teams and tournaments** — brackets on top of `match_players`, which already generalizes past 1v1.
 - **Replay** — animate a drawing from its document. Stroke order works on v1; true timing needs an

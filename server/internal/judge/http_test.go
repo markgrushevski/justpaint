@@ -142,7 +142,7 @@ func TestHTTPJudge_Score_RetryBehavior(t *testing.T) {
 // rejected as ErrInvalidResult and never retried: the service is pure, so a
 // same-content retry would only earn the same broken body back.
 func TestHTTPJudge_Score_RejectsContractViolations(t *testing.T) {
-	longReason := strings.Repeat("x", maxReasonLen+1)
+	longReason := strings.Repeat("x", MaxReasonLen+1)
 	tests := []struct {
 		name string
 		resp httpWireResponse
