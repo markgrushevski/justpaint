@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -90,9 +91,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	login := strings.TrimSpace(req.Login)
 	displayName, dnOK := normalizeDisplayName(req.DisplayName)
-	if !validLogin(login) || !validPassword(req.Password) || !dnOK {
+	switch {
+	case !validLogin(login):
 		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed,
-			"login (3-254 chars), password (8-256 chars), or displayName (1-64 chars) is invalid")
+			"login must be 3-254 characters, without spaces or invisible characters")
+		return
+	case !validPassword(req.Password):
+		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed, "password must be 8-256 characters")
+		return
+	case !dnOK:
+		web.Error(w, http.StatusBadRequest, web.CodeValidationFailed,
+			"display name must be at most 64 characters, without invisible characters")
 		return
 	}
 
@@ -195,9 +204,20 @@ func (h *Handler) clearSession(w http.ResponseWriter) {
 
 // --- validation ---
 
+// validLogin accepts 3-254 printable characters with no whitespace. Control and
+// formatting characters (zero-width, bidi overrides) are refused: they let two
+// logins look identical.
 func validLogin(s string) bool {
 	n := utf8.RuneCountInString(s)
-	return n >= 3 && n <= 254
+	if n < 3 || n > 254 {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsSpace(r) || !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func validPassword(s string) bool {
@@ -206,7 +226,8 @@ func validPassword(s string) bool {
 }
 
 // normalizeDisplayName trims and validates the optional display name.
-// Absent or empty-after-trim ⇒ (nil, true). A value must be ≤64 chars.
+// Absent or empty-after-trim ⇒ (nil, true). A value must be ≤64 printable
+// characters; a bidi override in a name would reorder the leaderboard row.
 func normalizeDisplayName(dn *string) (*string, bool) {
 	if dn == nil {
 		return nil, true
@@ -215,7 +236,7 @@ func normalizeDisplayName(dn *string) (*string, bool) {
 	if t == "" {
 		return nil, true
 	}
-	if utf8.RuneCountInString(t) > 64 {
+	if utf8.RuneCountInString(t) > 64 || strings.IndexFunc(t, func(r rune) bool { return !unicode.IsPrint(r) }) != -1 {
 		return nil, false
 	}
 	return &t, true

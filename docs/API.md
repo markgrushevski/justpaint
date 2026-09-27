@@ -128,9 +128,9 @@ Request:
 ```json
 { "login": "ada@example.com", "password": "correct horse battery staple", "displayName": "Ada" }
 ```
-- `login` — required, 3–254 chars, case-folded (stored in `users.login citext`, unique). May be an email or a nickname — we do **not** branch on shape; it's one opaque credential.
+- `login` — required, 3–254 chars with no whitespace and no control or invisible formatting characters (zero-width, bidi overrides), case-folded (stored in `users.login citext`, unique). May be an email or a nickname — we do **not** branch on shape; it's one opaque credential.
 - `password` — required, 8–256 chars (length bounds only; no composition rules in v1).
-- `displayName` — optional, 1–64 chars. Absent ⇒ stored `null`.
+- `displayName` — optional, 1–64 printable chars (spaces allowed; control and invisible formatting characters refused). Absent or blank ⇒ stored `null`.
 
 Success `201 Created` — sets the `jp_session` cookie, returns the current user (§4 "current-user" shape):
 ```json
