@@ -1,13 +1,10 @@
 <script lang="ts" setup>
 /**
- * LeaderboardView — the ranked-players ladder (`/leaderboard`). This is the app's
- * FIRST plain (non-editor) page: it deliberately does NOT mount EditorShell (a
- * Konva canvas shell, wrong for a table), just a centered scrollable container
- * with one OriSurface island on the desk. Purely a cached READ — `useLeaderboard`
- * (docs/API.md §11) owns the fetch/cache; this view only renders the
- * pending / error / empty / data states and highlights the signed-in player's own
- * row. `displayName` is nullable and never a login (GAME.md §4.2), so a safe
- * fallback label is used for anonymous players.
+ * LeaderboardView — the ranked-players ladder (`/leaderboard`). The app's first
+ * plain (non-editor) page: no EditorShell, just a centered scrollable container
+ * with one OriSurface island. Purely a cached read — `useLeaderboard`
+ * (docs/API.md §11) owns the fetch/cache; this view renders the pending/error/
+ * empty/data states and highlights the signed-in player's own row.
  */
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -21,27 +18,23 @@ const LIMIT = 20
 
 const router = useRouter()
 const session = useSessionStore()
-// Restore an existing cookie session on a cold/direct load (mirrors DrawView) —
-// this makes the signed-in player's own row highlight on a fresh load, and turns
-// a lapsed session into the sign-in branch rather than a generic error.
 const { data, isPending, isError, error, refetch } = useLeaderboard(LIMIT)
 
 const entries = computed<LeaderboardEntry[]>(() => data.value?.leaderboard ?? [])
 const currentUserId = computed(() => session.user?.id ?? null)
-/** A 401 (lapsed session / direct anon visit) gets a sign-in path, not the
- *  generic "could not load" fallback (mirrors PlayView's auth branch). */
+// A 401 (lapsed session or a direct anon visit) gets a sign-in path, not the
+// generic "could not load" fallback.
 const needsAuth = computed(() => isAuthError(error.value))
 const errorMessage = computed(
     () => toApiError(error.value)?.message ?? 'Could not load the leaderboard. Try again later.'
 )
 
-/** Safe display label — `displayName` is nullable server-side; never a login. */
+// displayName is nullable server-side and never a login (docs/GAME.md §4.2).
 function nameFor(entry: LeaderboardEntry): string {
     return entry.displayName ?? 'Anonymous player'
 }
 
-/** Back to wherever the visitor came from (e.g. /play after a duel), or /draw when
- *  this was a direct/first navigation with no history to pop. */
+// Falls back to /draw on a direct/first navigation with no history to pop.
 function goBack(): void {
     if (window.history.length > 1) router.back()
     else router.push('/draw')
@@ -56,8 +49,6 @@ function goBack(): void {
                     <h1 id="lb-title" class="lb__title">Leaderboard</h1>
                     <p class="lb__subtitle">Top players by rating</p>
                 </div>
-                <!-- Back to wherever the visitor came from (e.g. /play post-duel);
-                     falls back to /draw on a direct load with no history. -->
                 <OriButton
                     class="lb__back"
                     text="Back"
@@ -84,7 +75,7 @@ function goBack(): void {
                     </tr>
                 </thead>
                 <tbody>
-                    <!-- Pending: shimmer rows (hidden from AT — no real data yet). -->
+                    <!-- Shimmer rows, hidden from AT — no real data yet. -->
                     <template v-if="isPending">
                         <tr v-for="n in 8" :key="'skeleton-' + n" class="lb__row" aria-hidden="true">
                             <td class="lb__td lb__td--rank"><OriSkeleton class="lb__skel lb__skel--rank" /></td>
@@ -98,7 +89,6 @@ function goBack(): void {
                             <td class="lb__td lb__td--record"><OriSkeleton class="lb__skel lb__skel--num" /></td>
                         </tr>
                     </template>
-                    <!-- Data. -->
                     <template v-else>
                         <tr
                             v-for="entry in entries"
@@ -129,16 +119,13 @@ function goBack(): void {
                 </tbody>
             </table>
 
-            <!-- Auth: a 401 (lapsed session / direct anon visit) offers inline
-                 sign-in (the same AuthForm the app-root modal renders) and refetches on
-                 success — instead of a dead-end generic error. -->
+            <!-- A 401 offers inline sign-in (same AuthForm the app-root modal
+                 renders) and refetches on success. -->
             <div v-else-if="needsAuth" class="lb__auth">
                 <p class="lb__state">Sign in to view the leaderboard.</p>
                 <AuthForm hint="Sign in to see the ranked ladder." @authenticated="() => refetch()" />
             </div>
-            <!-- Error: surface the ApiError message (role=alert for AT). -->
             <p v-else-if="isError" class="lb__state lb__state--error" role="alert">{{ errorMessage }}</p>
-            <!-- Empty. -->
             <p v-else class="lb__state">No ranked players yet — play a duel.</p>
         </OriSurface>
     </main>
@@ -210,8 +197,6 @@ function goBack(): void {
     flex: none;
 }
 
-/* --- table ------------------------------------------------------------- */
-
 .lb__table {
     width: 100%;
     border-collapse: collapse;
@@ -271,9 +256,8 @@ function goBack(): void {
 }
 
 .lb__row {
-    /* Inter-row separators derived from the neutral outline role (design-system
-       §1 — a neutral structural token, not a banned brand-role re-mix); softened
-       so 20 rows don't read as a heavy grid. */
+    /* Neutral outline role, softened so 20 rows don't read as a heavy grid
+       (docs/DESIGN-SYSTEM.md §1). */
     border-bottom: 1px solid color-mix(in srgb, var(--jp-color-outline) 45%, transparent);
 }
 
@@ -327,10 +311,8 @@ function goBack(): void {
     white-space: nowrap;
 }
 
-/* --- states ------------------------------------------------------------ */
-
-/* Sign-in branch: constrain the inline AuthForm to a readable column, centred
-   under the "Sign in to view…" line (the 760px panel is far too wide for it). */
+/* Constrains the inline AuthForm to a readable column, centred under the
+   "Sign in to view…" line (the 760px panel is far too wide for it). */
 .lb__auth {
     width: min(22rem, 100%);
     margin: 0 auto;
@@ -352,8 +334,6 @@ function goBack(): void {
     color: var(--ori-color-danger-text, var(--ori-color-danger));
     opacity: 1;
 }
-
-/* --- loading shimmer --------------------------------------------------- */
 
 .lb__skel {
     display: block;
