@@ -1,12 +1,8 @@
 <script lang="ts" setup>
 /**
- * PlayView — the AI-judged drawing duel (`/play`). Composes the same shared
- * EditorShell as /draw on the square duel canvas (docs/GAME.md §2), and runs
- * live against the async-duel API (docs/API.md §8): create/join, poll the
- * roster and verdict, submit the document. A WS socket (docs/API.md §9) pushes
- * the same transitions instantly and demotes — never removes — the poll loop,
- * so the round still runs with the socket dropped. The judged raster is
- * rendered server-side; the client PNG here is advisory only (docs/GAME.md §6).
+ * The AI-judged duel (`/play`) on the shared EditorShell, against the async-duel API
+ * (docs/API.md §8). A WebSocket (docs/API.md §9) pushes the same transitions and only
+ * demotes the poll loop, so the round still runs with the socket down.
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -41,35 +37,29 @@ import JudgingOverlay from '../components/game/JudgingOverlay.vue'
 import ResultReveal from '../components/game/ResultReveal.vue'
 import type { DuelResult } from '../components/game/ResultReveal.vue'
 
-/** The canonical square duel canvas (GAME.md §2 — GAME_CANVAS = 1080×1080). */
+/** The square duel canvas (GAME.md §2). */
 const GAME_CANVAS = 1080
 
-// Fast fallback cadence — fixed forever. `pollCadence` is what scheduleNextPoll
-// actually reads, demoted while the socket is live and snapped back here on
-// any disconnect (docs/API.md §9.5).
+// The poll cadence without a socket; pollCadence demotes it to WS_POLL_MS while the
+// socket is live (docs/API.md §9.5).
 const POLL_MS = 2000
-
-// Slow reconciliation while the WS socket is live — a belt-and-suspenders
-// check in case a frame was ever missed.
 const WS_POLL_MS = 15000
 
-// Lets a dead/half-open socket be noticed without waiting on a TCP timeout.
+// Notices a half-open socket without a TCP timeout; the server's WS_READ_IDLE_TIMEOUT
+// must clear it.
 const WS_PING_MS = 25000
 
-// Capped at the last entry; resets to the first step on a clean reconnect.
+// Capped at the last entry; resets on a clean reconnect.
 const WS_RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 10000]
 
-// Fires before the server's authoritative deadline so the request can land in
-// time — a late submit is rejected (409 round_expired) as a forfeit loss.
-// Fixed, independent of however slow the poll has been demoted.
+// Early enough to land before the server's deadline: a late submit is a 409 and a forfeit.
 const AUTO_SUBMIT_MARGIN_MS = 3000
 
 const shell = ref<{ canvasEl: HTMLDivElement | null } | null>(null)
 let editor: Editor | null = null
 let unsubscribe: (() => void) | null = null
 
-// Konva can't read CSS custom properties; the cursor ring gets the resolved
-// --ori-color-primary through the oriui token bridge (same wiring as DrawView).
+// Konva can't read CSS variables (same wiring as DrawView).
 const cursorRingColor = useThemeColor('primary')
 
 const session = useSessionStore()
@@ -110,14 +100,9 @@ function syncEditorState() {
 }
 
 /**
- * Phases (a client view over GAME.md's match states):
- *  connecting → creating/auto-joining the match (POST /matches)
- *  waiting    → roster filling; prompt redacted (GAME.md `open`)
- *  drawing    → prompt revealed; timer running (GAME.md `drawing`)
- *  submitting → submit POST in flight (transient)
- *  judging    → submitted; awaiting the opponent + verdict (GAME.md `judging`)
- *  done       → result revealed (GAME.md `done`)
- *  error      → auth needed / network / unrecoverable
+ * A client view over GAME.md's match states: `connecting` (POST /matches), `waiting`
+ * (roster filling, prompt redacted), `drawing`, `submitting` (transient), `judging`
+ * (awaiting the opponent and the verdict), `done` and `error`.
  */
 type Phase = 'connecting' | 'waiting' | 'drawing' | 'submitting' | 'judging' | 'done' | 'error'
 const phase = ref<Phase>('connecting')
@@ -125,46 +110,34 @@ const phase = ref<Phase>('connecting')
 // Set true on unmount; every async continuation checks it before touching state.
 let disposed = false
 
-// The live match id + my resolved user id (to pick "me" out of the roster).
 let matchId: string | null = null
 let myUserId = ''
 
-// The pinned prompt (server-delivered; redacted until `drawing`). Empty until known.
+// Redacted by the server until `drawing`.
 const prompt = ref('')
 const REVEAL_PHASES = new Set<Phase>(['drawing', 'submitting', 'judging', 'done'])
 const promptRevealed = computed(() => prompt.value !== '' && REVEAL_PHASES.has(phase.value))
 
-// The opponent — a safe display label + coarse status, never a login
-// (docs/GAME.md §4.2). Populated from the roster once they join.
+// A display label, never a login (docs/GAME.md §4.2).
 const opponent = reactive<{ name: string; status: OpponentStatus }>({
     name: 'Player 2',
     status: 'drawing'
 })
 
-// Starts at the fast POLL_MS fallback, demoted to WS_POLL_MS while the socket
-// is live, snapped back on disconnect (docs/API.md §9.5).
 const pollCadence = ref(POLL_MS)
 
-// True while the socket is down and reconnecting — a "degraded, not broken"
-// affordance; the poll fallback keeps the round moving either way.
+// Degraded, not broken: the poll keeps the round moving; only presence stops.
 const wsReconnecting = ref(false)
 
-// Best-effort presence from opponent_connected/disconnected frames; undefined
-// until the first one arrives. Never load-bearing for correctness.
+// Best-effort presence; undefined until the first frame, and never load-bearing.
 const opponentOnline = ref<boolean | undefined>(undefined)
 
-// Server-anchored countdown (docs/NOTES.md "/play — async-duel client"):
-// deadlineMs is the absolute deadline in epoch ms (null while waiting);
-// clockOffsetMs is the server/client clock skew. Both re-anchor on every
-// roster/create/submit response so both duelists count down from the same
-// server instant, instead of each starting a local timer on first sight of
-// `drawing` (the old drift bug).
+// The deadline (epoch ms, null while waiting) and the server clock skew, re-anchored on
+// every response (docs/NOTES.md "The round countdown is anchored on the server clock").
 const deadlineMs = ref<number | null>(null)
 let clockOffsetMs = 0
 
-// Total round length in seconds, captured once from the first deadline sight —
-// drives only the progress-bar fraction; the countdown itself reads the
-// absolute deadline, so this never affects correctness.
+// Captured at the first deadline; drives only the progress bar.
 const roundTotalSeconds = ref(0)
 
 const remaining = ref(0)
@@ -174,17 +147,16 @@ const canSubmit = computed(() => phase.value === 'drawing')
 const result = ref<DuelResult | null>(null)
 const errorMsg = ref('')
 
-// Object URLs for the captured rasters — revoked on reset/unmount.
+// Object URLs for the rasters, revoked on reset and unmount.
 let youImageUrl: string | null = null
 let opponentImageUrl: string | null = null
 
-// Timers owned here, cleared on reset/unmount (the countdown + poll ticks).
+// Cleared on reset and unmount.
 let tick: number | null = null
 const timeouts = new Set<number>()
 
-// wsGeneration invalidates callbacks from a socket we've already replaced or
-// torn down, so a late close event from a superseded socket reads as stale
-// instead of an unexpected drop.
+// wsGeneration marks callbacks from a replaced or closed socket as stale, so a late close
+// is not read as a drop.
 let socket: MatchSocketHandle | null = null
 let wsGeneration = 0
 let wsReconnectAttempt = 0
@@ -211,8 +183,7 @@ function clearTimers(): void {
     timeouts.clear()
 }
 
-// Called on every tick and immediately after every re-anchor so the display
-// never waits a full second to reflect a fresh server response.
+// Also runs right after each re-anchor, so the display never lags a second.
 function tickRemaining(): void {
     if (deadlineMs.value === null) {
         remaining.value = 0
@@ -221,13 +192,10 @@ function tickRemaining(): void {
     remaining.value = Math.max(0, (deadlineMs.value - (Date.now() + clockOffsetMs)) / 1000)
 }
 
-// Re-anchors from a fresh (deadline, serverTime) pair on every roster/create/
-// submit response (docs/NOTES.md "/play — async-duel client").
 function anchorClock(drawingDeadline: string | null, serverTime: string): void {
     clockOffsetMs = Date.parse(serverTime) - Date.now()
     const nextDeadlineMs = drawingDeadline !== null ? Date.parse(drawingDeadline) : null
     if (nextDeadlineMs !== null && roundTotalSeconds.value === 0) {
-        // First sight of the deadline this round; see roundTotalSeconds above.
         roundTotalSeconds.value = Math.max(0, (nextDeadlineMs - (Date.now() + clockOffsetMs)) / 1000)
     }
     deadlineMs.value = nextDeadlineMs
@@ -247,9 +215,7 @@ function startCountdown(): void {
     }, 1000)
 }
 
-// A refusal the player can't retry (a spent daily budget). The card drops
-// "Try again" for it and offers the ladder instead — a retry guaranteed to
-// fail until tomorrow is a worse dead end than saying so.
+// A spent daily budget: the card offers the ladder instead of a doomed "Try again".
 const exhausted = ref(false)
 
 function toError(msg: string, spent = false): void {
@@ -259,27 +225,23 @@ function toError(msg: string, spent = false): void {
     stopCountdown()
 }
 
-// A poll tick and the WS's 4001 close can both notice the same dead session
-// within moments of each other. This sentinel joins them into one recovery
-// instead of racing two independent startMatch() calls.
+// A poll tick and the socket's 4001 close can both notice one dead session; this joins
+// them into one recovery.
 let recovering = false
 
-// Recovers through the one shared gate instead of a dead-end inline form:
-// signing back in restarts with a fresh match; declining falls back to the
-// retry card, whose "Try again" re-raises this same gate on the next 401.
+// Signing back in restarts with a fresh match; declining leaves the retry card, whose
+// "Try again" raises the gate again on the next 401.
 async function recoverFromAuthError(): Promise<void> {
     if (recovering) return
     recovering = true
-    // Stop the clock before awaiting a human — left running, the auto-submit
-    // fires into the dead session and its 401 loops back here, parking the
-    // player in `submitting` forever.
+    // Stop the clock first, or the auto-submit fires into the dead session, loops back
+    // here and parks the player in `submitting`.
     stopCountdown()
     try {
         const signedIn = await gate.ensure('Sign in to play a duel.')
         if (disposed) return
         if (signedIn && session.user) {
-            // The visitor may have signed back in as a different account;
-            // myUserId decides who is "me" throughout the roster and result.
+            // The visitor may have signed in as another account.
             myUserId = session.user.id
             void startMatch()
         } else {
@@ -295,20 +257,16 @@ function handleError(err: unknown): void {
         void recoverFromAuthError()
         return
     }
-    // isBudgetExhausted, not isRateLimited: the per-IP write tier also answers
-    // 429 (docs/API.md §3.1) but clears in seconds, so treating every 429 as a
-    // spent day would take away a retry that would have worked.
+    // Not isRateLimited: the per-IP 429 clears in seconds (docs/API.md §3.1).
     toError(toApiError(err)?.message ?? 'Something went wrong. Try again.', isBudgetExhausted(err))
 }
 
-// Makes applyRoster/applyResult monotonic: a slower in-flight response can
-// never regress a terminal UI, and a re-delivered verdict is a no-op.
-// startMatch always moves phase to `connecting` first, implicitly resetting this.
+// Keeps applyRoster, applyResult and frames monotonic: a slow response or a re-delivered
+// verdict cannot regress a terminal UI. startMatch resets it by moving to `connecting`.
 function isTerminalPhase(): boolean {
     return phase.value === 'done' || phase.value === 'error'
 }
 
-// A no-op once a terminal phase is reached (monotonic — see isTerminalPhase).
 function applyRoster(m: Match): void {
     if (isTerminalPhase()) return
     anchorClock(m.drawingDeadline, m.serverTime)
@@ -320,16 +278,14 @@ function applyRoster(m: Match): void {
     }
 }
 
-// The deadline itself was already captured by the applyRoster call that
-// triggered this transition.
+// Callers run applyRoster first, which anchors the deadline.
 function beginDrawing(): void {
     phase.value = 'drawing'
     startCountdown()
 }
 
-// The one poll loop for the whole round: reschedules itself until a terminal
-// phase, spanning waiting -> drawing -> (submitting) -> judging. `submitting`
-// falls through untouched; by the next tick the phase is `judging`.
+// The round's one poll loop (docs/NOTES.md "/play runs exactly one poll loop");
+// `submitting` falls through untouched.
 async function pollTick(): Promise<void> {
     if (disposed || matchId === null) return
     if (phase.value === 'done' || phase.value === 'error') return
@@ -376,8 +332,7 @@ function stopHeartbeat(): void {
     }
 }
 
-// Bumps wsGeneration first so any callback still in flight from this socket
-// is recognized as stale and ignored, rather than triggering a reconnect.
+// Bump the generation first, so this socket's late callbacks read as stale.
 function closeSocket(): void {
     stopHeartbeat()
     wsGeneration++
@@ -385,10 +340,7 @@ function closeSocket(): void {
     socket = null
 }
 
-// A thin adapter: dispatches into the same poll-loop handlers, no new state
-// machine. `match_state` mirrors pollTick's waiting/drawing branch so the
-// waiting player reacts the instant the opponent joins (docs/API.md §9.2).
-// Bails once a terminal phase is reached, so a frame can never regress it.
+// Dispatches into the poll loop's own handlers; no second state machine.
 function handleWsFrame(frame: WsFrame): void {
     if (disposed || isTerminalPhase()) return
     switch (frame.type) {
@@ -423,8 +375,7 @@ function handleWsFrame(frame: WsFrame): void {
     }
 }
 
-// Scheduled via the shared later()/timeouts bookkeeping, so clearTimers()
-// (already called by playAgain/unmount) cancels a pending attempt for free.
+// Through later(), so clearTimers() cancels a pending attempt.
 function scheduleReconnect(): void {
     if (disposed || isTerminalPhase() || matchId === null) return
     wsReconnecting.value = true
@@ -438,8 +389,7 @@ function scheduleReconnect(): void {
     }, WS_RECONNECT_BACKOFF_MS[step])
 }
 
-/** Open the live match socket (or replace an existing one). Frames dispatch
- *  into `handleWsFrame`; the poll loop is only ever demoted, never stopped. */
+/** Open the match socket, replacing any existing one. */
 function openSocket(id: string): void {
     closeSocket()
     const gen = ++wsGeneration
@@ -457,9 +407,7 @@ function openSocket(id: string): void {
             stopHeartbeat()
             pollCadence.value = POLL_MS
             if (code === 4001) {
-                // The backend arms this at the JWT exp (docs/API.md §9.1): the
-                // session itself is gone, so recover through the auth gate
-                // instead of reconnecting.
+                // Armed at the JWT exp (docs/API.md §9.1): the session is gone.
                 void recoverFromAuthError()
                 return
             }
@@ -467,8 +415,7 @@ function openSocket(id: string): void {
         },
         onError: () => {
             if (disposed || gen !== wsGeneration) return
-            // The DOM error event carries no detail; the close event that
-            // follows has the real code, so just fall back and let onClose decide.
+            // No detail here; the close event that follows carries the code.
             pollCadence.value = POLL_MS
         },
         onFrame: handleWsFrame
@@ -479,7 +426,7 @@ async function captureYourRaster(): Promise<string | null> {
     if (!editor) return null
     try {
         const doc = editor.getDocument()
-        // Advisory only (docs/GAME.md §6) — the judged raster is server-side.
+        // Advisory only: the judged raster is rendered server-side (docs/GAME.md §6).
         const blob = await editor.toPNG({ outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
         return URL.createObjectURL(blob)
     } catch {
@@ -501,10 +448,8 @@ function revokeOpponentRaster(): void {
     }
 }
 
-// Fetches the opponent's document (membership-gated; the ownership-scoped
-// drawings route 404s a non-owner) and renders it client-side with the same
-// renderer used for your own raster — uniform, no object storage (docs/GAME.md
-// §6). Non-fatal: any failure keeps the "No preview" fallback.
+// Fetches the opponent's document through the membership-gated match route and renders
+// it client-side. Any failure keeps the "No preview" placeholder.
 async function renderOpponentRaster(id: string, userId: string): Promise<void> {
     try {
         const doc = await matches.playerDrawing(id, userId)
@@ -515,7 +460,7 @@ async function renderOpponentRaster(id: string, userId: string): Promise<void> {
         opponentImageUrl = URL.createObjectURL(blob)
         if (result.value) result.value.opponent.image = opponentImageUrl
     } catch {
-        // Leave the placeholder; the reveal already shows scores + your canvas.
+        // keep the placeholder
     }
 }
 
@@ -526,8 +471,7 @@ async function startMatch(): Promise<void> {
     opponent.name = 'Player 2'
     opponent.status = 'drawing'
     opponentOnline.value = undefined
-    // startMatch can be re-entered directly (the error overlay's "Try again"),
-    // not only via playAgain, so reset all WS/clock bookkeeping for a fresh round.
+    // "Try again" re-enters here directly too, so reset all socket and clock state.
     wsReconnecting.value = false
     pollCadence.value = POLL_MS
     wsReconnectAttempt = 0
@@ -541,11 +485,8 @@ async function startMatch(): Promise<void> {
         if (disposed) return
         matchId = m.id
         applyRoster(m)
-        // Open the socket now, so a still-waiting player gets the match_state
-        // push the instant the opponent joins (docs/API.md §9.2).
+        // Open now, so a waiting player hears the instant the opponent joins.
         openSocket(matchId)
-        // Auto-joined an existing open match means the round is already live;
-        // otherwise wait for an opponent with the prompt still redacted.
         if (m.status === 'drawing') beginDrawing()
         else phase.value = 'waiting'
         scheduleNextPoll()
@@ -570,9 +511,7 @@ async function submit(): Promise<void> {
         phase.value = 'judging'
     } catch (err) {
         if (disposed) return
-        // A 409 (round_expired) means the submission is already recorded or the
-        // match moved on, so poll the verdict instead of erroring out
-        // (docs/API.md §8, submit).
+        // A 409 means the round already moved on, so poll the verdict (docs/API.md §8, submit).
         if (toApiError(err)?.status === 409) {
             phase.value = 'judging'
             return
@@ -581,9 +520,7 @@ async function submit(): Promise<void> {
     }
 }
 
-// Idempotent and monotonic (docs/GAME.md §7.1): a no-op once a terminal phase
-// is reached, so a re-delivered verdict can't clobber the opponent image
-// patched in later.
+// Monotonic, so a re-delivered verdict cannot clobber the opponent image patched in later.
 function applyResult(r: MatchResultDone): void {
     if (isTerminalPhase()) return
     const me = r.players.find((p) => p.userId === myUserId)
@@ -591,20 +528,15 @@ function applyResult(r: MatchResultDone): void {
     const before = me?.ratingBefore ?? session.user?.rating ?? 1200
     const after = me?.ratingAfter ?? before
     result.value = {
-        // Judge scores are 0..1, the reveal bar is 0..100. Both are null when
-        // the judge never ran (forfeit or aborted); `resolution` hides the
-        // score row itself rather than showing a misleading 0%.
+        // Scores are 0..1, the bar 0..100. Both are null when no judge ran, and
+        // `resolution` then hides the score row.
         you: { score: (me?.score ?? 0) * 100, image: youImageUrl },
         opponent: {
             name: opp?.displayName ?? opponent.name,
             score: (opp?.score ?? 0) * 100,
-            // Rendered client-side below (no object storage); null until it
-            // resolves shows the "No preview" placeholder.
             image: null
         },
-        // Read the server's own isTie rather than re-deriving it from a null
-        // winner: a null winner also means "nobody was scored" on an aborted
-        // round, which the server already distinguishes (docs/GAME.md §3).
+        // The server's isTie, not a null winner: an aborted round has a null winner too.
         winner: r.isTie
             ? 'tie'
             : r.resolution === 'aborted'
@@ -617,14 +549,12 @@ function applyResult(r: MatchResultDone): void {
         eloDelta: after - before,
         ratingBefore: before
     }
-    // The session store only updates user.rating on boot restore or login, so
-    // without this the SideMenu/leaderboard would show the pre-match rating.
+    // The session store only refreshes user.rating at login or restore.
     if (session.user && me) session.user.rating = after
     void queryClient.invalidateQueries({ queryKey: leaderboardKeys.all })
     phase.value = 'done'
     stopCountdown()
-    // Off the critical path; patches into result.opponent.image when ready, or
-    // silently keeps the placeholder. Skipped for a forfeiter with no drawing.
+    // Off the critical path; skipped for a forfeiter with no drawing.
     if (matchId !== null && opp?.drawingId) void renderOpponentRaster(matchId, opp.userId)
 }
 
@@ -639,7 +569,6 @@ function playAgain(): void {
     void startMatch()
 }
 
-// ResultReveal is presentational; the view owns navigation.
 function viewLeaderboard(): void {
     void router.push('/leaderboard')
 }
@@ -685,8 +614,7 @@ const KEY_TO_TOOL = new Map<string, ToolId>(
 )
 
 function onKeydown(e: KeyboardEvent) {
-    // The sign-in modal owns the keyboard while it is up — including Ctrl+Enter,
-    // which would otherwise submit the round into the session being replaced.
+    // The sign-in modal owns the keyboard: Ctrl+Enter would submit into the old session.
     if (gate.open) return
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
@@ -716,7 +644,7 @@ function onKeydown(e: KeyboardEvent) {
         return
     }
     if (e.altKey) return
-    // Only bind tool keys while actually drawing (not during judging/result).
+    // Tool keys only while drawing.
     if (phase.value !== 'drawing') return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
@@ -728,8 +656,6 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(async () => {
     const container = shell.value?.canvasEl ?? null
     if (!container) return
-    // The editor sizes its Konva stage to the container and fits the 1080²
-    // document into it; a ResizeObserver keeps it fitted (never CSS-transforms).
     editor = new Editor(container, blankGameDocument())
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
@@ -738,14 +664,10 @@ onMounted(async () => {
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
 
-    // A duel is auth-required. `ensure` waits for the store's cookie restore,
-    // then raises the one shared sign-in modal; signing in resumes straight
-    // into the duel.
+    // `ensure` waits for the cookie restore, then raises the shared sign-in modal.
     const signedIn = await gate.ensure('Sign in to play a duel.')
     if (disposed) return
     if (!signedIn) {
-        // "Try again" re-attempts the match, which re-raises this same gate on
-        // the next 401 — always a way back in.
         toError('Sign in to play a duel.')
         return
     }
@@ -769,14 +691,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <!-- The same shared shell as /draw, now in play mode with game chrome
-         filling the slots. -->
     <EditorShell ref="shell" mode="play">
         <template #top-left>
             <!-- Display name or "Player 2", never a login. -->
             <OpponentStatusChip :name="opponent.name" :status="opponent.status" :online="opponentOnline" />
-            <!-- Degraded, not broken: the poll fallback keeps the round moving
-                 while the socket reconnects, but presence updates quietly stop. -->
             <OriBadge
                 v-if="wsReconnecting"
                 content="reconnecting…"
@@ -787,16 +705,15 @@ onBeforeUnmount(() => {
         </template>
 
         <template #top-center>
-            <!-- Hidden until the deadline is stamped, to show the waiting state
-                 instead of a misleading 0:00 countdown. -->
+            <!-- Hidden until the deadline exists, rather than a misleading 0:00. -->
             <RoundTimerBar v-if="deadlineMs !== null" :remaining="remaining" :total="roundTotalSeconds" />
             <div class="play__prompt">
                 <GamePromptBanner :prompt="prompt" :revealed="promptRevealed" />
             </div>
         </template>
 
-        <!-- No drawer for now — SideMenu is /draw-specific (file/canvas).
-             TODO(play-api): a play-specific drawer (leave/rematch/profile). -->
+        <!-- No drawer: SideMenu is /draw-specific.
+             TODO(play-api): a play drawer (leave/rematch/profile). -->
         <template #top-right>
             <SubmitButton :disabled="!canSubmit" :loading="submitting" @submit="submit" />
         </template>
@@ -859,22 +776,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* Clears the fixed RoundTimerBar clock chip and the top-corner islands so
-   nothing collides on a narrow phone where all three top zones crowd the
-   centre. Stays pointer-events:none like the region itself. */
+/* Clears the timer chip and the corner islands on a narrow phone. */
 .play__prompt {
     padding-top: 2.5rem;
     pointer-events: none;
 }
 
-/* The shell's bottom-center strip is pointer-events:none — the toolbar opts back
-   in so drawing passes through the empty flanks either side of it. */
+/* The shell's strip is pointer-events:none; the toolbar opts back in. */
 .play__toolbar-item {
     pointer-events: auto;
 }
 
-/* Same compact chrome as /draw's; mirrored, not shared, since it's island
-   visuals, not shell layout. */
+/* Mirrors /draw's zoom island: island visuals, not shell layout. */
 .play__zoom {
     display: flex;
     align-items: center;
@@ -894,8 +807,7 @@ onBeforeUnmount(() => {
     text-align: center;
 }
 
-/* Error / sign-in card — centred in the shell's pointer-events:none overlay, so
-   it opts back in. Same OriSurface chrome as the other overlays. */
+/* Opts back into pointer events inside the shell's passive overlay. */
 .play__notice {
     display: flex;
     flex-direction: column;

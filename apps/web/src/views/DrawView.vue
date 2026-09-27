@@ -1,8 +1,5 @@
 <script lang="ts">
-/**
- * 8px checkerboard tiles (SVG data-URIs, theme-specific). The two
- * HTMLImageElements are built lazily on first use and shared across mounts.
- */
+/** 8px checkerboard tiles per theme; the images are built lazily and shared across mounts. */
 const GRID_TILE_LIGHT =
     "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='8' height='8'%3e%3crect x='12' y='0' width='12' height='12' fill='%230002'/%3e%3crect x='0' y='12' width='12' height='12' fill='%230002'/%3e%3c/svg%3e"
 const GRID_TILE_DARK =
@@ -59,10 +56,8 @@ import SideMenu from '../components/SideMenu.vue'
 import EditorShell from '../components/shell/EditorShell.vue'
 import IconButton from '../components/ui/IconButton.vue'
 
-// The shell exposes its Konva mount element; read in onMounted to build the Editor.
 const shell = ref<{ canvasEl: HTMLDivElement | null } | null>(null)
-// Captured once at mount: blankDocument sizes to it, and it owns the
-// coords-readout pointer listeners added/removed below.
+// Captured at mount: blankDocument sizes to it, and the coords listeners live on it.
 let canvasHost: HTMLDivElement | null = null
 let editor: Editor | null = null
 let unsubscribe: (() => void) | null = null
@@ -72,7 +67,6 @@ const currentId = ref<string | null>(null)
 const DEFAULT_NAME = 'new art'
 const drawingName = ref(DEFAULT_NAME)
 
-// Toast duration scales with severity so errors stay readable longer than successes.
 const toaster = useToast()
 const TOAST_SUCCESS = 3500
 const TOAST_INFO = 5000
@@ -82,9 +76,8 @@ const saveMutation = useSaveDrawing()
 const loadMutation = useLoadLatestDrawing()
 const busy = computed(() => saveMutation.isPending.value || loadMutation.isPending.value)
 
-// A batch returned by assist previews as a ghost inside the editor (previewOps)
-// and isn't in the document or history until Accept; `pendingOps` is just the
-// panel's input/accept-reject phase flag (docs/ASSIST.md §4).
+// An assist batch is a ghost in the editor until Accept; `pendingOps` only flags the
+// panel's accept/reject phase.
 const assistMutation = useAssist()
 const assistPending = computed(() => assistMutation.isPending.value)
 const assistOpen = ref(false)
@@ -92,27 +85,21 @@ const assistPrompt = ref('')
 const pendingOps = ref<Op[] | null>(null)
 const assistNote = ref<string | null>(null)
 
-// `guessOpen` mounts the card; it can't be the mutation's own `isPending`
-// because the card must outlive the request to show the answer it returns.
+// Not the mutation's `isPending`: the card outlives the request to show its answer.
 const guessMutation = useGuess()
 const guessOpen = ref(false)
 /**
- * What the card shows. `guessResult`/`guessError`/`guessExhausted` are its
- * payloads; only `setGuessStatus` moves them, so a status is never read
- * against a stale payload. Distinct from `guessPending` (the transport's own
- * in-flight flag, which guards spending): they diverge only when the card is
- * dismissed mid-call, where status stays `pending` so reopening resumes the
- * wait instead of restarting an already-paid-for guess.
+ * What the card shows; only `setGuessStatus` moves it, together with the payloads below.
+ * It differs from `guessPending` only after a mid-call dismiss: the status stays
+ * `pending`, so reopening resumes the already-paid-for wait.
  */
 const guessStatus = ref<GuessStatus>('idle')
 const guessPending = computed(() => guessMutation.isPending.value)
 const guessResult = ref<Guess | null>(null)
 const guessError = ref('')
 const guessExhausted = ref(false)
-// Set when the document is replaced (New/Load) mid-guess, so a late answer
-// about a drawing that's gone is dropped rather than shown. A plain dismiss
-// does not set this — that guess is already paid for and still about the
-// canvas in front of you.
+// Set when New or Load replaces the document mid-guess, so a late answer is dropped. A
+// plain dismiss does not set it: that answer is still about the canvas on screen.
 let guessStale = false
 
 const ui = reactive({
@@ -123,16 +110,14 @@ const ui = reactive({
     fill: DEFAULT_STYLE.fill ?? '#ffffff'
 })
 
-// Kept in sync via the editor's onChange subscription so Vue re-renders the
-// toolbar, layers panel, zoom and the side menu's canvas-size fields.
+// Mirrors of editor state, refreshed through its onChange subscription.
 const layers = ref<LayerView[]>([])
 const activeLayerId = ref('')
 const canUndo = ref(false)
 const canRedo = ref(false)
 const zoom = ref(1)
 const zoomPercent = computed(() => Math.round(zoom.value * 100))
-// Shown next to the Layers toggle when the panel is closed, since strokes and
-// the eraser land on this layer and it must be discoverable without opening it.
+// Shown by the Layers toggle while the panel is closed, since new strokes land there.
 const activeLayerName = computed(() => layers.value.find((l) => l.id === activeLayerId.value)?.name ?? '')
 // DEFAULT_CANVAS is `as const`; a bare ref() would narrow to the literal.
 const docWidth = ref<number>(DEFAULT_CANVAS.width)
@@ -142,10 +127,8 @@ const MAX_LAYERS = LIMITS.maxLayers
 const session = useSessionStore()
 const gate = useAuthGate()
 
-// A different account signed in mid-visit: the open drawing belongs to the
-// previous one, so forget its id. Saving would otherwise PUT a row this user
-// doesn't own, and the ownership-scoped query 404s — read as "not found"
-// rather than what actually happened.
+// Another account signed in: the open drawing is the previous one's, and saving it
+// would 404 on the ownership-scoped PUT.
 watch(
     () => session.user?.id,
     (now, before) => {
@@ -154,24 +137,21 @@ watch(
 )
 const theme = useThemeStore()
 
-// Konva can't read CSS custom properties, so the brush cursor ring gets
-// `--ori-color-primary` resolved through the oriui token bridge, re-resolving on
-// every theme flip. The editor itself stays token-agnostic — only a color string.
+// Konva can't read CSS variables, so the ring gets the primary token resolved on every
+// theme flip.
 const cursorRingColor = useThemeColor('primary')
 watch(cursorRingColor, (color) => editor?.setCursorColor(color || null))
 
 const menuOpen = ref(false)
 const shortcutsOpen = ref(false)
-// Closed by default on small screens — matches the CSS reflow breakpoint
-// (oriui --ori-size-screen_xs, 600px; 601px+ has room for the island).
+// Closed by default at the 600px reflow breakpoint (oriui --ori-size-screen_xs).
 const layersOpen = ref(window.innerWidth > 600)
 
 const isEmpty = computed(() => layers.value.every((l) => l.strokeCount === 0))
 
 const HINT_KEY = 'jp.hintDismissed'
 const hintDismissed = ref(false)
-// Hidden once dismissed, once a stroke lands, or while the guess card is up —
-// both are centred in the same `#overlay` slot and the card wins the conflict.
+// The hint and the guess card share the `#overlay` slot; the card wins.
 const showHint = computed(() => !hintDismissed.value && isEmpty.value && !guessOpen.value)
 function dismissHint() {
     hintDismissed.value = true
@@ -185,8 +165,7 @@ function dismissHint() {
 const confirmNewOpen = ref(false)
 const pendingSize = ref<{ w: number; h: number } | null>(null)
 
-// Clearing resets history irreversibly, so confirm only when there's work to
-// lose; an already-empty canvas clears straight away.
+// Clearing drops history, so confirm only when there is work to lose.
 function requestNew() {
     pendingSize.value = null
     if (isEmpty.value) {
@@ -221,9 +200,7 @@ function clampDim(n: number): number {
     return Math.min(LIMITS.maxCanvasDimension, Math.max(1, Math.round(n)))
 }
 
-// Unsized, it matches the current viewport (falling back to DEFAULT_CANVAS
-// before layout). Background is null so the view-only paper/checkerboard
-// backdrop shows through.
+// Unsized, it fits the viewport. A null background lets the view-only backdrop show.
 function blankDocument(w?: number, h?: number): Document {
     const el = canvasHost
     const width = clampDim(w ?? (el && el.clientWidth > 0 ? el.clientWidth : DEFAULT_CANVAS.width))
@@ -252,8 +229,7 @@ function syncEditorState() {
 const BACKDROP_KEY = 'jp.backdropGrid'
 const backdropGrid = ref(false)
 
-// View-only: the editor guarantees the backdrop never leaks into exports or
-// the judged raster. Grid on uses the theme-specific tile; off uses flat paper.
+// View-only: the editor keeps the backdrop out of exports and the judged raster.
 async function applyBackdrop() {
     if (!editor) return
     if (!backdropGrid.value) {
@@ -267,7 +243,7 @@ async function applyBackdrop() {
         } catch {
             return // a data-URI that fails to decode won't succeed on retry
         }
-        // Re-check the pref/theme still want this tile after the async decode.
+        // The pref or theme may have changed during the decode.
         if (!editor || !backdropGrid.value || img !== gridTile(theme.isDark)) return
     }
     editor.setCanvasBackdrop({ type: 'pattern', image: img })
@@ -284,11 +260,9 @@ function onToggleGrid(on: boolean) {
     }
 }
 
-// Pointer's document coordinates, mapped through the editor's stage transform
-// (matches where a stroke would land at any zoom/pan). Null when hidden:
-// off-canvas, over chrome, or touch (chip is display:none <=600px).
+// Pointer position in document coords; null off-canvas or over chrome.
 const coords = ref<{ x: number; y: number } | null>(null)
-// rAF throttle: coalesce to one read per frame instead of per raw pointermove.
+// One read per animation frame, not per pointermove.
 let coordsRaf = 0
 let lastPointer: { x: number; y: number } | null = null
 
@@ -321,13 +295,10 @@ onMounted(() => {
     const container = shell.value?.canvasEl ?? null
     if (!container) return
     canvasHost = container
-    // The editor sizes its Konva stage to the container and fits the document to
-    // it (a ResizeObserver keeps it fitted); it never CSS-transforms the canvas.
     editor = new Editor(container, blankDocument())
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
-    // useThemeColor resolves in its own mounted hook, registered before this one,
-    // so the value is usually ready here; the watch above covers late changes.
+    // useThemeColor resolves in an earlier mounted hook; the watch covers late changes.
     editor.setCursorColor(cursorRingColor.value || null)
     void applyBackdrop()
     unsubscribe = editor.onChange(syncEditorState)
@@ -347,8 +318,7 @@ onBeforeUnmount(() => {
     canvasHost = null
     unsubscribe?.()
     unsubscribe = null
-    // Destroys the Konva stage and releases its <canvas> elements; dropping the
-    // ref alone would leak it (Konva keeps its own module-global registry).
+    // Dropping the ref alone would leak the stage: Konva keeps a module-global registry.
     editor?.destroy()
     editor = null
 })
@@ -357,15 +327,10 @@ const KEY_TO_TOOL = new Map<string, ToolId>(
     (Object.keys(TOOLS) as ToolId[]).map((id) => [TOOL_META[id].key.toLowerCase(), id])
 )
 
-// Shortcuts: Ctrl/Cmd+Z/Y undo-redo, Ctrl/Cmd+0/+/- zoom, Ctrl/Cmd+S save,
-// modifier-free tool keys, "?" for the cheat-sheet (docs/DECISIONS.md). Skips
-// form fields/contenteditable. The side menu is non-modal — the canvas stays
-// interactive behind it — so it does not suppress single keys; only modal
-// overlays do.
+// Skips form fields. The side menu is non-modal, so it does not suppress single keys;
+// only modal overlays do.
 function onKeydown(e: KeyboardEvent) {
-    // The sign-in modal owns the keyboard while open — without this, Ctrl+Z
-    // still mutated the canvas behind it and Ctrl+S queued a second save on
-    // the same modal, producing two POSTs and two rows from one save.
+    // The sign-in modal owns the keyboard: Ctrl+S behind it would queue a second save.
     if (gate.open) return
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
@@ -395,10 +360,8 @@ function onKeydown(e: KeyboardEvent) {
         return
     }
     if (e.altKey) return
-    // Esc order: the non-modal menu first (focus may still sit on the canvas,
-    // where its own Esc never fires), then the cheat-sheet, then the guess
-    // card — last because it has no backdrop or focus trap, but it is still
-    // floating chrome over the drawing so Esc must reach it.
+    // The menu first, since its own Esc never fires while focus is on the canvas; then
+    // the cheat-sheet, then the guess card.
     if (e.key === 'Escape') {
         if (menuOpen.value) menuOpen.value = false
         else if (shortcutsOpen.value) shortcutsOpen.value = false
@@ -413,8 +376,7 @@ function onKeydown(e: KeyboardEvent) {
         shortcutsOpen.value = !shortcutsOpen.value
         return
     }
-    // Every modal overlay must be listed here, or its tool hotkeys leak to this
-    // window listener and fire underneath it. The non-modal side menu is not.
+    // Every modal overlay must be listed here, or tool hotkeys fire underneath it.
     if (shortcutsOpen.value || confirmNewOpen.value) return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
@@ -467,8 +429,7 @@ function fitView() {
 
 function clearCanvas(w?: number, h?: number) {
     if (!editor) return
-    // The outgoing document's AI ghost/guess describe a drawing about to be
-    // thrown away, so drop both before the fresh blank doc replaces it.
+    // The ghost and the guess describe the outgoing drawing.
     clearAssistProposal()
     invalidateGuess()
     editor.loadDocument(blankDocument(w, h))
@@ -498,8 +459,7 @@ function renameLayer(id: string, name: string) {
     editor?.renameLayer(id, name)
 }
 
-// Ungated: the name is a local ref until someone saves, and save() is where a
-// session is actually needed — a modal here would gate editing a string in memory.
+// Ungated: only save() needs a session.
 function onRename(name: string) {
     drawingName.value = name.trim() || DEFAULT_NAME
 }
@@ -545,10 +505,8 @@ async function copyPngToClipboard() {
     }
 }
 
-// Guards a race before the modal is up: `busy` doesn't go true until the
-// mutation starts, which is after the gate awaits the store's cookie restore.
-// A second trigger in that window would queue a second waiter and one sign-in
-// would resolve both, saving the same canvas twice.
+// Covers the gap before `busy` turns true, while the gate awaits the cookie restore: a
+// second trigger there would queue a second waiter, and one sign-in would save twice.
 let awaitingGate = false
 
 async function gated(reason: string): Promise<boolean> {
@@ -563,10 +521,8 @@ async function gated(reason: string): Promise<boolean> {
 
 function reportError(err: unknown, action: string) {
     if (isAuthError(err)) {
-        // Ask for a new session but don't replay the action: minutes may have
-        // passed and the visitor may sign in as someone else entirely, so
-        // re-firing could save something nobody asked to save. Close the
-        // cheat-sheet first — its focus trap would fight the incoming dialog.
+        // Don't replay the action: the visitor may sign in as someone else. Close the
+        // cheat-sheet first, or its focus trap fights the dialog.
         shortcutsOpen.value = false
         void gated(`Your session expired — sign in to ${action}.`)
         return
@@ -581,8 +537,7 @@ function reportError(err: unknown, action: string) {
 async function save() {
     if (!editor || busy.value) return
     if (!(await gated('Sign in to save your drawing.'))) return
-    // The modal can stay up for minutes; browser Back can unmount this view
-    // and null `editor` underneath us in the meantime.
+    // Browser Back can unmount the view while the modal is up.
     if (!editor) return
     const existing = currentId.value
     saveMutation.mutate(
@@ -611,8 +566,7 @@ async function load() {
                 return
             }
             editor?.loadDocument(full.document)
-            // The old document's AI ghost/guess describe a drawing that's just
-            // been replaced, so drop both before the incoming doc lands.
+            // The ghost and the guess describe the replaced drawing.
             clearAssistProposal()
             invalidateGuess()
             currentId.value = full.id
@@ -623,8 +577,7 @@ async function load() {
     })
 }
 
-// The minimal summary the endpoint receives (docs/ASSIST.md §4): canvas size
-// and the layer inventory, never point paths.
+// Canvas size and layer inventory only, never point paths (docs/ASSIST.md §4).
 function buildDocSummary(): DocSummary {
     const doc = editor!.getDocument()
     return {
@@ -666,7 +619,6 @@ async function submitAssist() {
     )
 }
 
-/** Commits the previewed batch as one composite command — one Ctrl+Z undoes it all. */
 function acceptAssist() {
     editor?.acceptOps()
     pendingOps.value = null
@@ -680,8 +632,7 @@ function rejectAssist() {
     assistNote.value = null
 }
 
-/** Moves the card to `status`, dropping every payload with it — the one place
- *  the card's four state pieces change together. */
+/** Move the card to `status`, clearing every payload with it. */
 function setGuessStatus(status: GuessStatus) {
     guessStatus.value = status
     guessResult.value = null
@@ -691,14 +642,11 @@ function setGuessStatus(status: GuessStatus) {
 
 function dismissGuess() {
     guessOpen.value = false
-    // A call still in flight keeps `pending`: it's already paid for, so
-    // reopening must land back on the wait rather than a blank `idle`.
+    // An in-flight call keeps `pending`, so reopening lands back on the paid-for wait.
     if (!guessPending.value) setGuessStatus('idle')
 }
 
-// A guess describes the document it was asked about, so drop it (and disown any
-// in-flight call) whenever that document is replaced — unlike dismissGuess,
-// this resets an in-flight call's status too, since its answer is now about a
+// Unlike dismissGuess, this also disowns an in-flight call: its answer is about a
 // canvas that no longer exists.
 function invalidateGuess() {
     guessStale = true
@@ -706,18 +654,14 @@ function invalidateGuess() {
     setGuessStatus('idle')
 }
 
-// Undoing back to a blank canvas is a document swap in everything but name: an
-// answer left standing would violate the guess/hint overlay-slot exclusivity
-// and can't be told from a real "draw something first" once the trigger is
-// always enabled. A redo pays for a new guess, same as any dismiss always has.
+// Undoing to a blank canvas is a document swap too, and a standing answer would share
+// the overlay slot with the hint.
 watch(isEmpty, (empty) => {
     if (empty) invalidateGuess()
 })
 
-// A failed guess stays in the card, never reportError's toast — with only two
-// guesses a day, running out is an expected outcome, not a crash. A lapsed
-// session is the exception: it isn't a verdict on the drawing, so it goes
-// through the shared gate instead (docs/API.md §3.1 on the two kinds of 429).
+// Failures stay in the card, not a toast: with two guesses a day, running out is
+// expected. A lapsed session goes through the auth gate instead.
 function onGuessError(err: unknown) {
     if (guessStale) return
     if (isAuthError(err)) {
@@ -732,28 +676,23 @@ function onGuessError(err: unknown) {
         guessError.value = api?.message ?? 'That is every AI guess you get today.'
         return
     }
-    // The per-IP write-tier 429 clears in seconds and keeps its retry, unlike
-    // the daily-budget 429 above; only this side knows waiting will help.
+    // Unlike the daily budget, the per-IP 429 clears in seconds (docs/API.md §3.1).
     guessError.value = isRateLimited(err)
         ? `${api?.message ?? 'Too many requests just now'} — try again in a moment.`
         : (api?.message ?? 'The AI could not be reached. Try again.')
 }
 
-// Sends the whole document (the server renders it before judging) and is
-// capped at a couple of calls a day, so every guard below exists to avoid
-// spending one on nothing: a blank canvas, a double-fire, or a dead view.
+// A couple of guesses a day, so every guard below avoids spending one on nothing.
 async function requestGuess() {
     if (!editor || guessPending.value) return
-    // A disabled button's tooltip can't reach touch/keyboard, so the card
-    // — already the one home for every outcome — states the empty-canvas
-    // reason itself instead of just refusing silently.
+    // A disabled button's tooltip can't reach touch or keyboard, so the card explains.
     if (isEmpty.value) {
         setGuessStatus('idle')
         guessOpen.value = true
         return
     }
     if (!(await gated('Sign in to have the AI guess your drawing.'))) return
-    // The modal can stay up for minutes; browser Back can null `editor` (as in save()).
+    // Browser Back can unmount the view while the modal is up.
     if (!editor) return
     guessStale = false
     // Open before firing, so the several-second wait has somewhere to live.
@@ -769,10 +708,8 @@ async function requestGuess() {
     })
 }
 
-// A toggle, not a fire button: a second click on an open card hides it instead
-// of spending another of the day's calls; re-asking is the card's own "Guess
-// again". Anything but `idle` here means an answer nobody has seen yet
-// (dismiss resets the status), so reopen onto it rather than paying twice.
+// A toggle: a second click hides the card rather than paying again, and a non-idle
+// status is an unseen answer to reopen onto.
 function toggleGuess() {
     if (guessOpen.value) {
         dismissGuess()
@@ -787,8 +724,6 @@ function toggleGuess() {
 </script>
 
 <template>
-    <!-- The shared shell owns the desk, the Konva mount, and the floating-region
-         layout; /play composes the same shell with game chrome instead. -->
     <EditorShell ref="shell" mode="draw">
         <template #top-left>
             <OriSurface class="draw__actions">
@@ -814,10 +749,7 @@ function toggleGuess() {
                     :pressed="assistOpen"
                     @click="toggleAssist"
                 />
-                <!-- Lives in this island, not the top-center strip, because the assist
-                     panel already owns that slot. Not disabled on a blank canvas: a
-                     disabled button can't show an oriui tooltip on touch, so the guard
-                     stays in requestGuess and the card explains the empty-canvas case. -->
+                <!-- Not disabled on a blank canvas: requestGuess explains it in the card. -->
                 <IconButton
                     icon="guess"
                     label="Guess my drawing — ask the AI what it sees"
@@ -825,8 +757,7 @@ function toggleGuess() {
                     :pressed="guessOpen"
                     @click="toggleGuess"
                 />
-                <!-- Active-layer chip: hidden when the panel is open (it highlights
-                     the row itself); clicking here opens the panel. -->
+                <!-- Hidden while the panel is open; the panel highlights the row itself. -->
                 <button
                     v-if="!layersOpen"
                     class="draw__active-layer"
@@ -840,12 +771,10 @@ function toggleGuess() {
             </OriSurface>
         </template>
 
-        <!-- The shell's centering strip is pointer-events:none; the panel opts back
-             in. Flips from input to accept/reject while a proposal is pending. -->
+        <!-- Flips from input to accept/reject while a proposal is pending. -->
         <template #top-center>
             <OriSurface v-if="assistOpen" class="draw__assist" role="group" aria-label="AI assist">
-                <!-- Explicit close: the actions-island toggle can be off-screen on
-                     narrow widths, so the panel stays dismissible from within. -->
+                <!-- The actions-island toggle can be off-screen on narrow widths. -->
                 <div class="draw__assist-head">
                     <span class="draw__assist-title">AI assist</span>
                     <IconButton icon="close" label="Close AI assist" placement="bottom" @click="toggleAssist" />
@@ -880,8 +809,6 @@ function toggleGuess() {
             </OriSurface>
         </template>
 
-        <!-- The shell's centering strip is pointer-events:none; the toolbar opts
-             back in so drawing passes through the flanks beside it. -->
         <template #bottom-center>
             <FloatingToolbar
                 class="draw__toolbar-item"
@@ -902,7 +829,6 @@ function toggleGuess() {
             />
         </template>
 
-        <!-- Default placement="top" suits a bottom-edge island; no override needed. -->
         <template #bottom-right>
             <OriSurface class="draw__zoom" role="group" aria-label="Zoom">
                 <IconButton icon="minus" label="Zoom out — Ctrl+-" @click="zoomOut" />
@@ -919,8 +845,6 @@ function toggleGuess() {
             </OriSurface>
         </template>
 
-        <!-- All but EmptyState teleport to body or manage their own stacking; the
-             shell overlay is pointer-events:none, so each opts back in as needed. -->
         <template #overlay>
             <OriToaster position="top-center" align="center" />
 
@@ -935,8 +859,6 @@ function toggleGuess() {
                 />
             </Transition>
 
-            <!-- The one surface for guess: wait, answer, every failure, and the
-                 empty-canvas message. showHint stands down whenever this is open. -->
             <Transition name="jp-pop">
                 <GuessResult
                     v-if="guessOpen"
@@ -989,11 +911,8 @@ function toggleGuess() {
             />
         </template>
 
-        <!-- Free-floating /draw chrome, self-positioned as direct children of the
-             shell's default (non-stacking-context) slot. -->
-
-        <!-- z-110, above the drawer's z-100, so the same chip stays clickable to
-             close it; tooltip drops below to stay on-screen at the top edge. -->
+        <!-- Self-positioned chrome in the shell's default slot. The toggle sits above
+             the drawer, so the same chip closes it. -->
         <OriSurface class="draw__menu-toggle">
             <IconButton
                 :icon="menuOpen ? 'close' : 'menu'"
@@ -1004,8 +923,7 @@ function toggleGuess() {
             />
         </OriSurface>
 
-        <!-- Phones only: the toolbar hides its history group <=600px, so this
-             keeps undo/redo a one-tap home clear of the tool row. -->
+        <!-- Phones only: the toolbar hides its history group <=600px. -->
         <OriSurface class="draw__history" role="group" aria-label="History">
             <IconButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
             <IconButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
@@ -1034,9 +952,6 @@ function toggleGuess() {
 </template>
 
 <style scoped>
-/* The desk, Konva mount and floating-region positioning live in EditorShell
-   (the shared /draw+/play skeleton); what remains here is /draw's own chrome. */
-
 .draw__menu-toggle {
     position: absolute;
     top: var(--ori-size-gap_md, 0.5rem);
@@ -1055,8 +970,7 @@ function toggleGuess() {
     padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
 }
 
-/* Neutral structural hover only (docs/DESIGN-SYSTEM.md §1), never a brand-role
-   mix; the global focus-visible ring covers keyboard. */
+/* Neutral structural hover only, never a brand-role mix (docs/DESIGN-SYSTEM.md §1). */
 .draw__active-layer {
     max-width: 8rem;
     padding: 0.15rem 0.4rem;
@@ -1079,14 +993,12 @@ function toggleGuess() {
     background-color: var(--jp-neutral-hover-bg, color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent));
 }
 
-/* EditorShell's bottom-center strip is pointer-events:none (its empty flanks
-   never eat canvas events) — the toolbar opts back in so it stays interactive. */
+/* The shell's strips are pointer-events:none, so chrome in them opts back in. */
 .draw__toolbar-item {
     pointer-events: auto;
 }
 
-/* Like the toolbar, the top-center strip is pointer-events:none, so the panel
-   opts back in. Clamped so it never spills past the viewport on a phone. */
+/* Clamped so it never spills past a phone's viewport. */
 .draw__assist {
     pointer-events: auto;
 
@@ -1137,22 +1049,17 @@ function toggleGuess() {
     font-size: var(--ori-font-size_sm, 0.85rem);
 }
 
-/* EditorShell's overlay layer is full-bleed but pointer-events:none so it never
-   blocks drawing; only the card (pointer-events:auto) is interactive. */
 .draw__empty {
     pointer-events: auto;
 }
 
-/* The card owns its own width/scroll/pointer-events; /draw's business is WHERE
-   it sits (the small-screen rule below). The lift is named here because the
-   overlay centers its children and the toolbar owns the bottom ~4rem of a
-   small screen — 5rem of margin buys a ~2.5rem rise so tools stay tappable. */
+/* The card sizes itself; /draw only places it. On a small screen the lift clears the
+   ~4rem toolbar. */
 .draw__guess {
     --jp-guess-lift: 5rem;
 }
 
-/* The card fades + settles in place (a straight fade/scale — NOT the toast's
-   horizontal slide, which reads wrong on a centered welcome card). */
+/* A plain fade and scale; the toast's slide reads wrong on a centered card. */
 .jp-pop-enter-active,
 .jp-pop-leave-active {
     transition:
@@ -1166,7 +1073,6 @@ function toggleGuess() {
     transform: scale(0.96);
 }
 
-/* The bottom-right zoom island — EditorShell's bottom-right region positions it. */
 .draw__zoom {
     display: flex;
     align-items: center;
@@ -1186,8 +1092,7 @@ function toggleGuess() {
     text-align: center;
 }
 
-/* The bottom-left region is itself pointer-events:none; this stays a passive
-   readout too, so it never intercepts canvas drawing at any zoom/pan. */
+/* A passive readout that never intercepts drawing. */
 .draw__coords {
     display: flex;
     align-items: center;
@@ -1210,14 +1115,12 @@ function toggleGuess() {
     opacity: 0.8;
 }
 
-/* display:none here so it can never show on desktop; the media block below
-   flips it on. */
+/* Hidden by default; the <=600px block shows it. */
 .draw__history {
     position: absolute;
 
-    /* Second row: the top row belongs to the actions island + toggler, which
-       can stretch across a narrow phone — same-row placement overlapped them
-       (verified at 405px). 3.125rem = the 50px top-row island height. */
+    /* The second row: the top row's islands can span a narrow phone. 3.125rem is the
+       50px top-row island height. */
     top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3.125rem);
     left: var(--ori-size-gap_md, 0.5rem);
     z-index: 10;
@@ -1245,8 +1148,7 @@ function toggleGuess() {
     max-height: calc(100dvh - 10rem);
 }
 
-/* Scrim behind the mobile layers sheet — display:none here so it can never
-   show on desktop; the <=600px media query turns it on. */
+/* Hidden by default; the <=600px block shows it. */
 .draw__layers-scrim {
     position: fixed;
     inset: 0;
@@ -1270,16 +1172,12 @@ function toggleGuess() {
     transform: translateX(-50%) translateY(-0.4rem);
 }
 
-/* The assist panel drops to its own full-width row so its opaque surface can
-   never cover the actions island (holds its only external close affordance)
-   or the menu toggle. Breakpoint = 1050px, not 768px: the panel is a centered
-   ~30rem box, and its left edge reaches the actions island until the viewport
-   is this wide (measured overlap persists to ~1050px, verified at 800px). */
+/* Below ~1050px the centered 30rem assist panel reaches the actions island, which
+   holds its only outside close, so it drops to its own full-width row. */
 @media (width <= 1050px) {
     .draw__assist {
         position: absolute;
-        /* Region top is already offset by gap_md, so +gap_md lands the panel on
-           the same visual row as .draw__history (2*gap_md + island height). */
+        /* The region is already offset by gap_md: this is .draw__history's row. */
         top: calc(var(--ori-size-gap_md, 0.5rem) + 3.125rem);
         left: var(--ori-size-gap_md, 0.5rem);
         right: var(--ori-size-gap_md, 0.5rem);
@@ -1288,10 +1186,7 @@ function toggleGuess() {
     }
 }
 
-/* Keyed on both axes: a width-only rule misses a phone in landscape (667x375),
-   where a full answer (label + certainty + two runner-ups) leaves single-digit
-   pixels above the toolbar. Measured with the lift on: card ends at 231, bar
-   starts at 309 — 500px height is where the two start competing for space. */
+/* Height too: on a landscape phone a full answer ends pixels above the toolbar. */
 @media (width <= 600px), (height <= 500px) {
     .draw__guess {
         margin-bottom: var(--jp-guess-lift);
@@ -1299,8 +1194,7 @@ function toggleGuess() {
 }
 
 @media (width <= 600px) {
-    /* The mobile history island claims that second row (top-left), so the assist
-       panel drops one row further to clear it. */
+    /* The history island takes the second row, so the assist panel drops one more. */
     .draw__assist {
         top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3.125rem * 2);
     }
@@ -1309,9 +1203,8 @@ function toggleGuess() {
         display: block;
     }
 
-    /* The layers island becomes a full-width bottom sheet over the scrim. The
-       wrapper carries the sheet chrome (top radius + surface) so the panel's
-       own rounded bottom corners can't notch the screen edge. */
+    /* A full-width bottom sheet. The wrapper carries the sheet chrome, so the panel's
+       rounded bottom corners can't notch the screen edge. */
     .draw__layers {
         position: fixed;
         inset: auto 0 0;
@@ -1325,19 +1218,16 @@ function toggleGuess() {
         background-color: var(--ori-color-surface);
     }
 
-    /* Undo/redo island on — the toolbar hides its own history group here. */
     .draw__history {
         display: flex;
     }
 
-    /* The Help button goes on phones (no hardware keyboard); Layers stays in the
-       same island. The class rides the IconButton directly, so display:none
-       drops the whole control (no empty flex gap). */
+    /* Phones have no keyboard, so no shortcuts help. */
     .draw__help-btn {
         display: none;
     }
 
-    /* No hover on touch — the coordinate readout has nothing to track. */
+    /* No hover on touch, so nothing to track. */
     .draw__coords {
         display: none;
     }

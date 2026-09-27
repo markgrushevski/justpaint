@@ -1,16 +1,8 @@
 <script lang="ts" setup>
 /**
- * PracticeView — single-player practice (`/practice`), the duel's little sibling:
- * the same EditorShell, toolbar, judged canvas and judge as /play, minus
- * matchmaking, the opponent chip, the WS socket and the reveal (docs/GAME.md §10).
- *
- * No round timer: a duel counts down because two players wait on each other;
- * practice has nobody to be fair to. The prompt is never redacted either.
- *
- * Flow: fetch a prompt, draw, submit — the server renders the raster and asks
- * a vision model synchronously for a score plus feedback. The PNG captured at
- * submit is advisory only, the thumbnail beside the feedback, never what was
- * judged (docs/GAME.md §6).
+ * Single-player practice (`/practice`): /play's shell, canvas and judge without
+ * matchmaking, the socket or a timer (docs/GAME.md §10). The server renders the raster
+ * and scores it synchronously; the PNG captured here is only the result thumbnail.
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -37,17 +29,14 @@ import JudgingOverlay from '../components/game/JudgingOverlay.vue'
 import PracticeResult from '../components/game/PracticeResult.vue'
 import SubmitButton from '../components/game/SubmitButton.vue'
 
-// Practice draws on the same 1080² canvas a duel does (docs/GAME.md §2),
-// judged the same way, so scores stay comparable.
+// The duel's canvas (docs/GAME.md §2), so scores stay comparable.
 const GAME_CANVAS = 1080
 
 const shell = ref<{ canvasEl: HTMLDivElement | null } | null>(null)
 let editor: Editor | null = null
 let unsubscribe: (() => void) | null = null
 
-// Konva can't read CSS custom properties; the cursor ring gets the resolved
-// --ori-color-primary through the oriui token bridge, kept right across a
-// theme flip mid-session.
+// Konva can't read CSS variables (same wiring as DrawView).
 const cursorRingColor = useThemeColor('primary')
 watch(cursorRingColor, (color) => editor?.setCursorColor(color || null))
 
@@ -79,8 +68,7 @@ const canRedo = ref(false)
 const zoom = ref(1)
 const zoomPercent = computed(() => Math.round(zoom.value * 100))
 
-// Gates Submit: a blank canvas scores 0 and burns one of a finite number of
-// daily judge calls to tell the player what they already know.
+// Gates Submit: a blank canvas would spend a daily judge call on a 0.
 const hasStrokes = ref(false)
 
 function syncEditorState() {
@@ -92,14 +80,9 @@ function syncEditorState() {
 }
 
 /**
- * Phases:
- *  loading  → waiting on a prompt (or on the sign-in modal in front of it)
- *  drawing  → prompt on screen, canvas live
- *  judging  → the submit POST is in flight; slow by nature (server render + a
- *             vision model, in-request), so this is a real state, not a spinner
- *             on a button
- *  done     → the score + feedback card
- *  error    → there is no usable prompt, so there is nothing to draw
+ * `loading` (a prompt, or the sign-in modal before it), `drawing`, `judging` (the submit
+ * POST: a server render plus a model call, slow enough to be a state), `done`, and
+ * `error` (no usable prompt).
  */
 type Phase = 'loading' | 'drawing' | 'judging' | 'done' | 'error'
 const phase = ref<Phase>('loading')
@@ -112,22 +95,18 @@ const run = ref<PracticeRun | null>(null)
 
 const loadError = ref('')
 
-// Not a phase: unlike a duel, nothing is lost when the judge can't be
-// reached — the drawing and prompt are both still there — so this is a
-// dismissible notice over a live `drawing` phase, not an error screen.
+// Not a phase: a failed submit loses nothing, so it is a notice over `drawing`.
 const submitError = ref('')
-// A refusal the player can't retry: a spent daily budget. The notice drops
-// "Try again" for it. isBudgetExhausted, not isRateLimited: the per-IP write
-// tier also answers 429 (docs/API.md §3.1) but clears in seconds, so treating
-// every 429 as a spent day would take away a retry that would have worked.
+// A spent daily budget drops "Try again". Not isRateLimited: the per-IP 429 clears in
+// seconds (docs/API.md §3.1).
 const submitExhausted = ref(false)
 
-/** Object URL of the advisory raster captured at submit — revoked on reset/unmount. */
+/** Object URL of the thumbnail captured at submit, revoked on reset and unmount. */
 const drawingImage = ref<string | null>(null)
 
 const submitting = computed(() => phase.value === 'judging')
 const canSubmit = computed(() => phase.value === 'drawing' && hasStrokes.value && prompt.value !== null)
-// A disabled button that never says why is the frustrating half of the guard.
+// Says why Submit is disabled.
 const showEmptyHint = computed(() => phase.value === 'drawing' && !hasStrokes.value)
 
 function revokeDrawingImage(): void {
@@ -154,8 +133,7 @@ async function captureDrawing(): Promise<string | null> {
     }
 }
 
-// Nothing to draw is terminal until the player retries, so a lapsed session
-// recovers through the shared gate and resumes into a fresh fetch.
+// Without a prompt there is nothing to draw, so a lapsed session signs in and refetches.
 function handlePromptError(err: unknown): void {
     if (isAuthError(err)) {
         void (async () => {
@@ -169,14 +147,12 @@ function handlePromptError(err: unknown): void {
     toLoadError(toApiError(err)?.message ?? 'Could not get a prompt. Try again.')
 }
 
-// Drops back onto the canvas with a notice, never an error screen: the
-// drawing and the prompt both survive.
+// Back onto the canvas with a notice: the drawing and the prompt survive.
 function handleSubmitError(err: unknown): void {
     phase.value = 'drawing'
     if (isAuthError(err)) {
-        // Don't re-submit once signed back in: minutes can pass behind the
-        // modal, a submit spends one of a finite number of daily judge calls,
-        // and the drawing is untouched with the Submit button right there.
+        // Don't re-submit after sign-in: minutes may pass, and a submit spends a daily
+        // judge call.
         submitExhausted.value = false
         submitError.value = 'Your session expired — sign in, then submit again.'
         void (async () => {
@@ -192,8 +168,7 @@ function handleSubmitError(err: unknown): void {
         submitError.value = api?.message ?? 'That is every scored drawing you get today.'
         return
     }
-    // A transient throttle clears in seconds, so say that waiting will help —
-    // the server's own wording for it is just "too many requests".
+    // The server only says "too many requests"; say that waiting will help.
     submitError.value = isRateLimited(err)
         ? `${api?.message ?? 'Too many requests just now'} — try again in a moment.`
         : (api?.message ?? 'The judge could not be reached. Try again.')
@@ -218,8 +193,7 @@ async function loadPrompt(): Promise<void> {
 async function submit(): Promise<void> {
     const target = prompt.value
     if (!canSubmit.value || !target || !editor) return
-    // Snapshot before the capture await, so the thumbnail and the judged
-    // document are the same instant of the canvas.
+    // Snapshot before the await, so the thumbnail and the judged document match.
     const doc = editor.getDocument()
     phase.value = 'judging'
     submitError.value = ''
@@ -309,8 +283,7 @@ const KEY_TO_TOOL = new Map<string, ToolId>(
 )
 
 function onKeydown(e: KeyboardEvent) {
-    // The sign-in modal owns the keyboard while it is up — including Ctrl+Enter,
-    // which would otherwise submit into the session being replaced.
+    // The sign-in modal owns the keyboard: Ctrl+Enter would submit into the old session.
     if (gate.open) return
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
@@ -340,7 +313,7 @@ function onKeydown(e: KeyboardEvent) {
         return
     }
     if (e.altKey) return
-    // Only bind tool keys while actually drawing (not during judging/result).
+    // Tool keys only while drawing.
     if (phase.value !== 'drawing') return
     const tool = KEY_TO_TOOL.get(key)
     if (tool) {
@@ -352,8 +325,6 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(async () => {
     const container = shell.value?.canvasEl ?? null
     if (!container) return
-    // The editor sizes its Konva stage to the container and fits the 1080²
-    // document into it; a ResizeObserver keeps it fitted (never CSS-transforms).
     editor = new Editor(container, blankGameDocument())
     editor.setTool(TOOLS[ui.activeTool])
     editor.setStyle({ ...DEFAULT_STYLE })
@@ -362,14 +333,10 @@ onMounted(async () => {
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
 
-    // Practice is judged and recorded, so it needs a session. `ensure` waits
-    // for the store's cookie restore, then raises the one shared sign-in
-    // modal; signing in drops straight into a prompt.
+    // `ensure` waits for the cookie restore, then raises the shared sign-in modal.
     const signedIn = await gate.ensure('Sign in to practice.')
     if (disposed) return
     if (!signedIn) {
-        // "Try again" re-fetches, which re-raises this same gate on the next
-        // 401 — always a way back in.
         toLoadError('Sign in to practice.')
         return
     }
@@ -388,20 +355,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <!-- Same shared shell as /draw and /play. `mode="play"` is a layout choice,
-         not a claim to be a duel: the variant with no drawer toggler, so the
-         top-right corner belongs to Submit. -->
+    <!-- `mode="play"` is the layout without a drawer toggle, so Submit gets the corner. -->
     <EditorShell ref="shell" mode="play">
         <template #top-left>
-            <!-- Shell is pixel-identical to /play; without this there's no way
-                 to tell a practice run from a duel. -->
+            <!-- The shell is identical to /play; this tells a practice run apart. -->
             <OriBadge content="Practice" color="primary" variant="tonal" label="Practice mode" />
         </template>
 
-        <!-- Banner mounts only once a prompt exists — its unrevealed state is
-             duel copy ("Waiting for opponent…") and would be a lie here. The
-             hint sits under the prompt, not the bottom-left readout corner,
-             because the toolbar's full-width strip overlaps that corner on a phone. -->
+        <!-- The banner waits for a prompt: its unrevealed state is duel copy. The hint
+             sits here because the toolbar covers the bottom-left corner on a phone. -->
         <template #top-center>
             <div class="practice__prompt">
                 <GamePromptBanner v-if="prompt" :prompt="prompt.text" revealed solo />
@@ -442,8 +404,7 @@ onBeforeUnmount(() => {
             </OriSurface>
         </template>
 
-        <!-- The submit notice comes last because it rides on top of a live
-             `drawing` phase, not a terminal state of its own. -->
+        <!-- The submit notice is last: it rides over a live `drawing` phase. -->
         <template #overlay>
             <OriSurface v-if="phase === 'error'" class="practice__notice" role="alert">
                 <h2 class="practice__notice-title">Nothing to draw yet</h2>
@@ -475,8 +436,7 @@ onBeforeUnmount(() => {
                 </h2>
                 <p class="practice__notice-msg">{{ submitError }}</p>
                 <div class="practice__notice-actions">
-                    <!-- The drawing is untouched either way, so "Keep drawing" is
-                         always offered; a spent budget drops the retry instead. -->
+                    <!-- The drawing is untouched, so "Keep drawing" is always offered. -->
                     <OriButton
                         v-if="!submitExhausted"
                         class="practice__notice-action"
@@ -515,9 +475,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* Stays pointer-events:none like the region itself. With no round timer above
-   it, the banner sits right at the top edge — /play's 2.5rem offset exists to
-   clear its clock chip, which would just be dead space here. */
+/* Passive like its region; with no timer above it, no /play-style offset. */
 .practice__prompt {
     display: flex;
     flex-direction: column;
@@ -527,28 +485,24 @@ onBeforeUnmount(() => {
     pointer-events: none;
 }
 
-/* The shell's bottom-center strip is pointer-events:none — the toolbar opts back
-   in so drawing passes through the empty flanks either side of it. */
+/* The shell's strip is pointer-events:none; the toolbar opts back in. */
 .practice__toolbar-item {
     pointer-events: auto;
 }
 
-/* Quiet on purpose: no surface chrome, so it reads as a note on the desk
-   rather than another island. */
+/* No surface chrome: a note on the desk, not another island. */
 .practice__hint {
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_xs, 0.75rem);
 
-    /* Only ever shown on an empty canvas, so the ground under it is always
-       paper or desk, never a stroke; 0.7 keeps it past WCAG AA on both. */
+    /* Shown only over paper or desk, where 0.7 still passes WCAG AA. */
     opacity: 0.7;
     pointer-events: none;
     user-select: none;
 }
 
-/* Same compact chrome as /draw and /play; mirrored, not shared, since it's
-   island visuals, not shell layout. */
+/* Mirrors /draw's zoom island: island visuals, not shell layout. */
 .practice__zoom {
     display: flex;
     align-items: center;
@@ -568,8 +522,7 @@ onBeforeUnmount(() => {
     text-align: center;
 }
 
-/* Prompt-fetch spinner + the notice cards — centred in the shell's
-   pointer-events:none overlay, so each opts back in. */
+/* The spinner and the notices opt back into pointer events in the passive overlay. */
 .practice__loading {
     display: flex;
     flex-direction: column;
@@ -627,10 +580,8 @@ onBeforeUnmount(() => {
     flex: 1 1 8rem;
 }
 
-/* The banner is a centered box that grows with the prompt (up to 34rem), so its
-   right edge reaches under the Submit button on a narrow viewport — measured
-   overlap at 375px, a long prompt still colliding at ~768px. Breakpoint = 900px:
-   at 900px a full-width banner clears Submit by ~60px, at 768px it does not. */
+/* The banner grows with the prompt (up to 34rem) and reaches under Submit on narrow
+   viewports; from 900px up a full-width banner clears it. */
 @media (width <= 900px) {
     .practice__prompt {
         padding-top: calc(var(--ori-size-action_md, 2.75rem) + var(--ori-size-gap_sm, 0.25rem));
