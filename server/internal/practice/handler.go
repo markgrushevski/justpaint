@@ -162,7 +162,7 @@ func (h *Handler) fail(w http.ResponseWriter, what string, err error) {
 	if errors.Is(err, ErrNotConfigured) {
 		h.logger.Error(what+": practice has no critic — JUDGE_MODE=http scores duels only", "err", err)
 		web.Error(w, http.StatusInternalServerError, web.CodeInternal,
-			"practice is not available on this server: the configured judge cannot score a single drawing")
+			"practice is turned off on this server")
 		return
 	}
 	h.logger.Error(what, "err", err)

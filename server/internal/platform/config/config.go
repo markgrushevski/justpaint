@@ -43,6 +43,10 @@ type Config struct {
 
 	JudgeMode    string
 	JudgeBaseURL string
+	// PracticeMode and GuessMode pick the critic and the guesser; each defaults to
+	// JUDGE_MODE, or to off when the judge is the external HTTP one.
+	PracticeMode string
+	GuessMode    string
 	// JudgeTimeout bounds one attempt of a judge, critic or guesser call.
 	JudgeTimeout  time.Duration
 	GeminiAPIKey  string
@@ -106,6 +110,14 @@ const (
 
 	AssistModeFake   = "fake"
 	AssistModeGemini = "gemini"
+)
+
+// Practice and guess modes. JUDGE_MODE=http has no endpoint for either, so off is
+// their default there.
+const (
+	SeamModeFake   = "fake"
+	SeamModeGemini = "gemini"
+	SeamModeOff    = "off"
 )
 
 // DefaultJudgeTimeout bounds one judge attempt (docs/JUDGE.md §7).
@@ -261,6 +273,13 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: JUDGE_MODE must be %q, %q or %q", JudgeModeFake, JudgeModeHTTP, JudgeModeGemini)
 	}
 
+	if cfg.PracticeMode, err = seamMode("PRACTICE_MODE", cfg.JudgeMode, cfg.GeminiAPIKey); err != nil {
+		return Config{}, err
+	}
+	if cfg.GuessMode, err = seamMode("GUESS_MODE", cfg.JudgeMode, cfg.GeminiAPIKey); err != nil {
+		return Config{}, err
+	}
+
 	assistTimeout, err := getenvDuration("ASSIST_TIMEOUT", DefaultAssistTimeout)
 	if err != nil {
 		return Config{}, err
@@ -281,6 +300,25 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// seamMode reads PRACTICE_MODE or GUESS_MODE, defaulting to the judge's mode.
+func seamMode(name, judgeMode, apiKey string) (string, error) {
+	fallback := judgeMode
+	if fallback == JudgeModeHTTP {
+		fallback = SeamModeOff
+	}
+	mode := strings.ToLower(getenv(name, fallback))
+	switch mode {
+	case SeamModeFake, SeamModeOff:
+	case SeamModeGemini:
+		if apiKey == "" {
+			return "", fmt.Errorf("config: GEMINI_API_KEY is required when %s=%s", name, SeamModeGemini)
+		}
+	default:
+		return "", fmt.Errorf("config: %s must be %q, %q or %q", name, SeamModeFake, SeamModeGemini, SeamModeOff)
+	}
+	return mode, nil
 }
 
 func getenv(key, fallback string) string {

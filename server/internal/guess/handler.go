@@ -131,7 +131,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrNotConfigured) {
 		h.logger.Error("guess: no guesser is configured — JUDGE_MODE=http scores duels only", "err", err)
 		web.Error(w, http.StatusInternalServerError, web.CodeInternal,
-			"the AI guess is not available on this server: the configured judge cannot look at a single drawing")
+			"the AI guess is turned off on this server")
 		return
 	}
 	h.logger.Error("guess drawing", "err", err)

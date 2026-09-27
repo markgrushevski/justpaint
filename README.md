@@ -46,6 +46,7 @@ Every external dependency has an offline stand-in, so dev and CI need no keys:
 |---|---|---|
 | `RENDER_MODE` | `stub` — an ink block sized by stroke count, not the drawing | `node` + `RENDER_CLI=/abs/path/packages/render/dist/render.mjs` (build it with `npm run build -w @justpaint/render`) |
 | `JUDGE_MODE` | `fake` — scores ink coverage, never reads the prompt | `gemini` (vision model), or `http` for the external ML judge ([docs/JUDGE.md](docs/JUDGE.md)) |
+| `PRACTICE_MODE`, `GUESS_MODE` | follow `JUDGE_MODE` (`off` under `http`) | `gemini` for a real critic or guesser, `off` to turn one off |
 | `ASSIST_MODE` | `fake` — returns the same canned drawing | `gemini` |
 
 The Gemini options need `GEMINI_API_KEY`. Pair a real judge with `RENDER_MODE=node`; on the stub it scores ink

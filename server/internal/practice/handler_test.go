@@ -229,7 +229,7 @@ func TestPractice_UnconfiguredRefusesHonestly(t *testing.T) {
 		if strings.Contains(rec.Body.String(), `"score"`) {
 			t.Errorf("an unconfigured practice returned something score-shaped: %s", rec.Body.String())
 		}
-		if !strings.Contains(rec.Body.String(), "not available") {
+		if !strings.Contains(rec.Body.String(), "turned off") {
 			t.Errorf("the message should name the cause, got %s", rec.Body.String())
 		}
 	})

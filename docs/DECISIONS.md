@@ -71,7 +71,7 @@ A duel needs two people online at once. With no player base, a lone visitor sat 
 
 - **Not a `matches` row.** The duel lifecycle (matchmaking, a shared deadline, forfeit, abandonment, the judging watchdog) exists because two people wait on each other. Its deadline logic expects two submissions, and a single-seat round would wedge in `judging`. `practice_runs` is a flat table with no status, no sweeper and no deadline.
 - **A separate `Critic` seam.** Scoring one drawing inside the frozen, comparative `Judge` contract would mean sending the same image twice or widening the contract. `judge.Critic` is ours, has fake and Gemini impls, and is selected by the same `JUDGE_MODE`.
-- **`JUDGE_MODE=http` leaves practice unconfigured.** Every run answers a `500` naming the cause (*"the configured judge cannot score a single drawing"*). A fake critique presented as real would be a lie the player can't detect.
+- **Practice can be off.** `PRACTICE_MODE=off` (the default under `JUDGE_MODE=http`) makes every run answer a `500` naming the cause (*"practice is turned off on this server"*). A fake critique presented as real would be a lie the player can't detect.
 - **Practice uses the same daily budget as the duel, under its own `practice` kind.** The attempt row is written before the render and critique, and the verdict is stamped afterwards, deliberately not in one transaction: a failed critique still spent quota.
 - **No Elo.** Rating a run nobody else played would let a player farm rating alone. `practice_runs` has no rating columns, and the leaderboard never reads it.
 

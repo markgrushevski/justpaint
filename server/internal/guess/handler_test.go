@@ -226,7 +226,7 @@ func TestGuess_UnconfiguredRefusesHonestly(t *testing.T) {
 	if strings.Contains(rec.Body.String(), `"label"`) {
 		t.Errorf("an unconfigured guess returned something answer-shaped: %s", rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "not available") {
+	if !strings.Contains(rec.Body.String(), "turned off") {
 		t.Errorf("the message should name the cause, got %s", rec.Body.String())
 	}
 }

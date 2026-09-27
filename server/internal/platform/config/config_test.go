@@ -652,3 +652,49 @@ func TestLoad_AIBudget(t *testing.T) {
 		})
 	}
 }
+
+// TestLoad_SeamModes pins PRACTICE_MODE and GUESS_MODE: they follow JUDGE_MODE,
+// default to off under the external HTTP judge, and can be set on their own.
+func TestLoad_SeamModes(t *testing.T) {
+	tests := []struct {
+		name         string
+		env          map[string]string
+		wantPractice string
+		wantGuess    string
+		wantErr      string
+	}{
+		{"follow the fake judge", nil, SeamModeFake, SeamModeFake, ""},
+		{"follow the gemini judge",
+			map[string]string{"JUDGE_MODE": "gemini", "GEMINI_API_KEY": "k"}, SeamModeGemini, SeamModeGemini, ""},
+		{"off under the http judge",
+			map[string]string{"JUDGE_MODE": "http", "JUDGE_BASE_URL": "https://judge.example"}, SeamModeOff, SeamModeOff, ""},
+		{"an http judge with gemini practice and guess",
+			map[string]string{"JUDGE_MODE": "http", "JUDGE_BASE_URL": "https://judge.example", "GEMINI_API_KEY": "k",
+				"PRACTICE_MODE": "gemini", "GUESS_MODE": "Gemini"}, SeamModeGemini, SeamModeGemini, ""},
+		{"turned off beside a gemini judge",
+			map[string]string{"JUDGE_MODE": "gemini", "GEMINI_API_KEY": "k", "GUESS_MODE": "off"}, SeamModeGemini, SeamModeOff, ""},
+		{"gemini without a key", map[string]string{"PRACTICE_MODE": "gemini"}, "", "", "GEMINI_API_KEY"},
+		{"an unknown mode", map[string]string{"GUESS_MODE": "http"}, "", "", "GUESS_MODE"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requireBaseEnv(t)
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			cfg, err := Load()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want one naming %s", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.PracticeMode != tt.wantPractice || cfg.GuessMode != tt.wantGuess {
+				t.Errorf("practice, guess = %q, %q; want %q, %q", cfg.PracticeMode, cfg.GuessMode, tt.wantPractice, tt.wantGuess)
+			}
+		})
+	}
+}

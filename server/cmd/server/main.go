@@ -140,12 +140,14 @@ func run() error {
 		arbiter = judge.NewFakeJudge()
 		logger.Info("judge: fake (ink coverage — it never reads the prompt; set JUDGE_MODE for a real verdict)")
 	}
-	// A real judge on the stub renderer scores ink coverage, not the drawing
-	// (docs/NOTES.md) — confident, meaningless verdicts, since the pairing works.
+	// A real model on the stub renderer sees ink-coverage blocks, not the drawing
+	// (docs/NOTES.md) — confident, meaningless answers, since the pairing works.
 	// Not a boot error: still legitimate for exercising the wiring in dev.
-	if cfg.JudgeMode != config.JudgeModeFake && cfg.RenderMode != config.RenderModeNode {
-		logger.Warn("judge: a real judge is scoring STUB rasters, which are ink-coverage blocks and not the drawings — set RENDER_MODE=node",
-			"judge_mode", cfg.JudgeMode, "render_mode", cfg.RenderMode)
+	realModel := cfg.JudgeMode != config.JudgeModeFake ||
+		cfg.PracticeMode == config.SeamModeGemini || cfg.GuessMode == config.SeamModeGemini
+	if realModel && cfg.RenderMode != config.RenderModeNode {
+		logger.Warn("render: a real model is reading STUB rasters, which are ink-coverage blocks and not the drawings — set RENDER_MODE=node",
+			"judge_mode", cfg.JudgeMode, "practice_mode", cfg.PracticeMode, "guess_mode", cfg.GuessMode, "render_mode", cfg.RenderMode)
 	}
 	// The judge retries up to 3 times inside game.JudgePassBudget (docs/JUDGE.md
 	// §7). A JUDGE_TIMEOUT loose enough to overflow that budget won't fail
@@ -157,41 +159,41 @@ func run() error {
 	}
 
 	// Single-player practice (internal/practice, docs/GAME.md §10) scores one
-	// drawing alone on the same prompts, renderer and quota. Its critic
-	// (judge.Critic) follows JUDGE_MODE like the judge; JUDGE_MODE=http has none,
-	// so practice refuses honestly rather than fake a score (docs/JUDGE.md §8.2).
+	// drawing alone on the same prompts, renderer and quota. PRACTICE_MODE picks its
+	// critic (judge.Critic); off leaves practice refusing honestly rather than faking
+	// a score (docs/JUDGE.md §8.2).
 	var critic judge.Critic
 	var practiceProvider aibudget.Provider
-	switch cfg.JudgeMode {
-	case config.JudgeModeGemini:
+	switch cfg.PracticeMode {
+	case config.SeamModeGemini:
 		model := aiModelByKind[aibudget.KindPractice]
 		critic = gemini.NewCritic(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
 		practiceProvider = aibudget.ProviderGoogle.WithModel(model)
 		logger.Info("practice: gemini critic (scores one drawing against its prompt)", "model", model)
-	case config.JudgeModeHTTP:
+	case config.SeamModeOff:
 		// No critic, no calls, no quota — the empty provider here is the same rule as a fake.
-		logger.Warn("practice: DISABLED — JUDGE_MODE=http has no critique endpoint (docs/JUDGE.md §2 is a two-image contract); /api/practice answers 500 until JUDGE_MODE is fake or gemini")
+		logger.Warn("practice: DISABLED — PRACTICE_MODE=off (the default under JUDGE_MODE=http, which has no critique endpoint); /api/practice answers 500 until PRACTICE_MODE is fake or gemini")
 	default:
 		critic = judge.NewFakeCritic()
-		logger.Info("practice: fake critic (ink coverage — it never reads the prompt; set JUDGE_MODE=gemini for a real critique)")
+		logger.Info("practice: fake critic (ink coverage — it never reads the prompt; set PRACTICE_MODE=gemini for a real critique)")
 	}
 
 	// "What did I draw?" on /draw (internal/guess, docs/JUDGE.md §8.3): the third
-	// vision seam off JUDGE_MODE, with no prompt to score against, only to
-	// describe. JUDGE_MODE=http has no endpoint, so a nil guesser refuses honestly.
+	// vision seam, with no prompt to score against, only to describe. GUESS_MODE picks
+	// the guesser; off leaves a nil guesser that refuses honestly.
 	var guesser judge.Guesser
 	var guessProvider aibudget.Provider
-	switch cfg.JudgeMode {
-	case config.JudgeModeGemini:
+	switch cfg.GuessMode {
+	case config.SeamModeGemini:
 		model := aiModelByKind[aibudget.KindGuess]
 		guesser = gemini.NewGuesser(cfg.GeminiAPIKey, model, cfg.GeminiBaseURL, cfg.JudgeTimeout)
 		guessProvider = aibudget.ProviderGoogle.WithModel(model)
 		logger.Info("guess: gemini vision (names what one drawing depicts)", "model", model)
-	case config.JudgeModeHTTP:
-		logger.Warn("guess: DISABLED — JUDGE_MODE=http has no endpoint for it (docs/JUDGE.md §2 is a two-image contract); /api/guess answers 500 until JUDGE_MODE is fake or gemini")
+	case config.SeamModeOff:
+		logger.Warn("guess: DISABLED — GUESS_MODE=off (the default under JUDGE_MODE=http, which has no endpoint for it); /api/guess answers 500 until GUESS_MODE is fake or gemini")
 	default:
 		guesser = judge.NewFakeGuesser()
-		logger.Info("guess: fake (a canned answer that never looks at the drawing; set JUDGE_MODE=gemini for a real one)")
+		logger.Info("guess: fake (a canned answer that never looks at the drawing; set GUESS_MODE=gemini for a real one)")
 	}
 
 	// AI assist is a seam like render/judge (docs/ASSIST.md §3), swapped by
