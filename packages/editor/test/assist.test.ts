@@ -1,14 +1,10 @@
 /**
- * AI Assist — the editor half (ASSIST.md §5):
- * `compositeCommand` (one undo entry for a whole accepted batch, inverted in
- * reverse) and the `Editor.previewOps` / `acceptOps` / `rejectOps` ghost-preview
- * flow. The ghost is a top overlay only — the proposal enters the document and
- * history solely on Accept, as a SINGLE composite command.
+ * AI Assist — the editor half (ASSIST.md §5): `compositeCommand` and the
+ * `Editor.previewOps`/`acceptOps`/`rejectOps` ghost-preview flow.
  *
  * Headless Konva, same trick as backdrop.test.ts: node-canvas backs
- * `Util.createCanvasElement` (import "konva/canvas-backend" first), and the few
- * DOM surfaces the editor touches are stubbed. Assertions focus on the document +
- * command/undo state (the runner is DOM-less), not pixels.
+ * `Util.createCanvasElement` (import "konva/canvas-backend" first). Assertions
+ * focus on document + command/undo state, not pixels.
  */
 import 'konva/canvas-backend'
 import { describe, expect, it, afterEach } from 'vitest'
@@ -191,7 +187,6 @@ describe('Editor previewOps / acceptOps / rejectOps', () => {
         expect(roof.strokes.map((s) => s.id)).toEqual(['s-roof'])
 
         expect(e.canUndo()).toBe(true)
-        // A SINGLE undo removes the whole batch → back to the pre-accept document.
         e.undo()
         expect(e.getDocument()).toEqual(beforeAccept)
         expect(e.canUndo()).toBe(false)
@@ -213,7 +208,6 @@ describe('Editor previewOps / acceptOps / rejectOps', () => {
         e.previewOps([{ kind: 'add_stroke', layerId: 'L1', stroke: lineStroke('first') }])
         e.previewOps([{ kind: 'add_stroke', layerId: 'L1', stroke: lineStroke('second') }])
         e.acceptOps()
-        // Only the second proposal is committed.
         expect(e.getDocument().layers[0]!.strokes.map((s) => s.id)).toEqual(['second'])
     })
 

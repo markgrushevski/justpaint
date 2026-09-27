@@ -1,17 +1,14 @@
-// packages/editor/src/tools/ellipse.ts — the ellipse tool (DOCUMENT-FORMAT §5.6).
 import type { EllipseStroke } from '../document'
 import type { StrokeTool } from '../types'
 
 /**
- * Ellipse tool: a PURE transformer from a drag gesture to a single
- * {@link EllipseStroke}. The ellipse is the axis-aligned bbox of the drag's
- * first and last points (§5.6):
+ * Ellipse tool: builds a single {@link EllipseStroke} from a drag gesture — the
+ * axis-aligned bbox of its first and last points (§5.6):
  *
  *   cx = x + w/2,  cy = y + h/2,  rx = |w|/2,  ry = |h|/2
  *
- * No `/√2` quirk (the old engine's bug is dropped). Intermediate gesture points
- * are ignored — only the down/up corners define the bbox. Returns `null` for a
- * degenerate gesture (rx ≤ 0 or ry ≤ 0), which the editor discards.
+ * Intermediate gesture points are ignored — only the down/up corners define the
+ * bbox. Returns `null` for a degenerate gesture (rx ≤ 0 or ry ≤ 0).
  */
 export const ellipseTool: StrokeTool = {
     kind: 'stroke',

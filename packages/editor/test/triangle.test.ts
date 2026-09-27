@@ -21,7 +21,6 @@ describe('triangleTool', () => {
         expect(triangleTool.id).toBe('triangle')
     })
 
-    // Test A: a normal gesture builds the expected apex-top triangle.
     it('builds the expected closed 3-point polygon', () => {
         // Drag bottom-right → top-left to also exercise bbox normalization.
         const gesture: readonly LogicalPoint[] = [pt(60, 80), pt(20, 30)]
@@ -48,7 +47,6 @@ describe('triangleTool', () => {
         ])
     })
 
-    // Test B: a degenerate gesture (zero height) returns null.
     it('returns null for a degenerate gesture (no area)', () => {
         // Same y for both samples → height 0.
         const flat: readonly LogicalPoint[] = [pt(10, 40), pt(70, 40)]

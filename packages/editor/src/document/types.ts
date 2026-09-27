@@ -164,11 +164,7 @@ export interface PolygonStroke extends StrokeBase {
 /** The discriminated union on `type`. Closed for v1. */
 export type Stroke = FreehandStroke | LineStroke | RectStroke | EllipseStroke | PolygonStroke
 
-// --- AI Assist ops (docs/ASSIST.md §2) ---
-// A derived, additive contract over Stroke/Layer: what the LLM is allowed to say.
-// The Op schema adds no new stroke invariants — it composes the existing ones —
-// but narrows the stroke subset (freehand excluded) and is validated by the
-// server (ValidateOpBatch).
+// AI Assist ops: what the LLM may say over Stroke/Layer. Contract: docs/ASSIST.md §2.
 
 /** Op-eligible stroke-type subset. Freehand is excluded from AI ops (§2). */
 export type OpStrokeType = 'line' | 'rect' | 'ellipse' | 'polygon'
@@ -177,11 +173,8 @@ export type OpStrokeType = 'line' | 'rect' | 'ellipse' | 'polygon'
 export type OpStroke = LineStroke | RectStroke | EllipseStroke | PolygonStroke
 
 /**
- * One AI-assist operation over the document. Discriminated on `kind`; closed for
- * Phase A (`update_stroke`/`delete_stroke` are v2, ASSIST.md §2). camelCase on the
- * wire. `add_layer.id` is LLM-assigned and validated in the same single id
- * namespace as document layers/strokes; `add_stroke.layerId` must resolve to a
- * summary layer or an earlier `add_layer` in the same batch.
+ * One AI-assist operation over the document. Discriminated on `kind`; wire
+ * contract and id-resolution rules: docs/ASSIST.md §2.
  */
 export type Op = { kind: 'add_layer'; id: Id; name: string } | { kind: 'add_stroke'; layerId: Id; stroke: OpStroke }
 

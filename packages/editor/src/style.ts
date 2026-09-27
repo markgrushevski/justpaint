@@ -3,8 +3,8 @@ import type { ToolStyle } from './types'
 
 /**
  * The editor's default drawing style. `color`/`fill`/`strokeWidth` live here
- * (not in the document) so defaults are identical everywhere — the old
- * dev/prod default-color divergence (DOCUMENT-FORMAT §5.2) must not recur.
+ * (not in the document) so defaults are identical everywhere (DOCUMENT-FORMAT.md
+ * §5.2).
  */
 export const DEFAULT_STYLE: ToolStyle = {
     color: '#1b1b1b',

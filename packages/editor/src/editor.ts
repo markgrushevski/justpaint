@@ -1,28 +1,15 @@
 /**
  * The editor runtime: owns the canonical {@link Document}, drives a
  * `Konva.Stage` projection, and turns pointer drags into committed strokes via
- * the active {@link Tool}. Every document mutation goes through a command on the
- * {@link History} stack, so undo/redo is exact and the old PNG-snapshot history
- * is gone (ROADMAP Phase 2).
+ * the active {@link Tool}. Every mutation goes through a command on the
+ * {@link History} stack, so undo/redo is exact.
  *
  * The document is authoritative; the stage is a derived projection re-rendered
  * via {@link toKonva} on commit. Tools are pure (no Konva, no state) — the
- * editor feeds them LOGICAL points captured from
- * `stage.getRelativePointerPosition()` (never `pageX`/`offsetLeft`, the old
- * engine's DPR bug — DOCUMENT-FORMAT §2).
- *
- * FIT / ZOOM (ROADMAP Phase 2): the stage is sized to the VIEWPORT (the
- * container) and the document is scaled into it via the stage's own transform
- * (size + scale + position) — never a CSS transform on the `<canvas>`, so
- * `getRelativePointerPosition` keeps returning logical coordinates at any zoom.
- * The editor auto-fits on resize (until the user zooms/pans), zooms toward the
- * cursor on wheel, and pans on a middle-button drag with any tool — or on a
- * PRIMARY drag (mouse or single-finger touch) when the hand tool is active.
- * Both routes share one pan path. See {@link ./view}.
- *
- * Host UIs (a Vue view) subscribe with {@link Editor.onChange} and read
- * {@link Editor.getLayers} / {@link Editor.canUndo} / {@link Editor.getZoom}
- * after each change — the editor never imports Vue (ARCHITECTURE §3).
+ * editor feeds them LOGICAL points from `stage.getRelativePointerPosition()`,
+ * never `pageX`/`offsetLeft` (a DPR trap — DOCUMENT-FORMAT.md §2). Zoom/pan
+ * math lives in {@link ./view}; the editor never imports Vue or any host
+ * framework (ARCHITECTURE.md §3).
  *
  * BROWSER-ONLY: needs a real DOM container + Konva stage.
  */
@@ -69,12 +56,10 @@ const BACKDROP_SHADOW = {
 const BACKDROP_BORDER = { color: 'rgb(0 0 0 / 25%)', width: 1 } as const
 
 /**
- * The AI-assist ghost overlay (ASSIST.md §5): a proposed batch renders on a
- * non-listening top layer at reduced opacity with a dashed accent frame — a
- * proposal, NOT yet in the document or history. The frame reuses the host-bridged
- * cursor color (its brand accent) when present, else this neutral fallback; it is
- * view chrome only and can never leak into an export (the layer lives solely on
- * the interactive stage — {@link Editor.toPNG} builds a fresh stage from the doc).
+ * The AI-assist ghost overlay (ASSIST.md §5): view chrome only, never exported —
+ * {@link Editor.toPNG} builds a fresh stage from the document, on which this
+ * layer does not exist. Its frame reuses the host-bridged cursor color when
+ * present, else this fallback.
  */
 const GHOST_OPACITY = 0.55
 const GHOST_ACCENT = '#4f7cff'
@@ -121,20 +106,13 @@ export class Editor {
     private stage: Konva.Stage
     /** In-progress gesture points, in logical coords; null when not drawing. */
     private gesture: LogicalPoint[] | null = null
-    /**
-     * Transient group holding the live, uncommitted stroke — mounted ON the active
-     * layer's Konva layer (not an isolated preview layer), so the stroke's
-     * composite previews exactly as it will commit: the eraser's destination-out
-     * visibly erases while dragging (DECISIONS 2026-07-04).
-     */
+    /** Live, uncommitted stroke group; mounted per {@link renderPreview}. */
     private previewGroup: Konva.Group | null = null
 
     /**
-     * The brush-size cursor ring (UI chrome, never document data). The color is a
-     * RESOLVED CSS color string passed in by the host (canvas cannot read CSS
-     * custom properties, and the editor stays design-token-agnostic — the host
-     * bridges its theme, e.g. oriUI's `--ori-color-primary`, and re-calls
-     * {@link setCursorColor} on theme flips). `null` disables the ring.
+     * Resolved CSS color for the cursor ring (canvas can't read CSS vars, so the
+     * host resolves its theme and re-calls {@link setCursorColor} on flips).
+     * `null` disables the ring.
      */
     private cursorColor: string | null = null
     /** Last hover position in logical coords; null = hidden (touch, off-canvas). */
@@ -143,22 +121,13 @@ export class Editor {
     private cursorLayer: Konva.Layer | null = null
     private cursorRing: Konva.Circle | null = null
 
-    /**
-     * The view-only backdrop (see {@link CanvasBackdrop}); null = none. Like the
-     * cursor ring it is stage chrome: remounted on every rerender, never part of
-     * the document.
-     */
+    /** The view-only backdrop ({@link CanvasBackdrop}); like the cursor ring, stage chrome remounted every rerender. */
     private backdrop: CanvasBackdrop | null = null
-    /** Non-listening BOTTOM-MOST layer holding the backdrop rect; rebuilt with the stage. */
+    /** Non-listening bottom-most layer holding the backdrop rect; rebuilt with the stage. */
     private backdropLayer: Konva.Layer | null = null
     private backdropRect: Konva.Rect | null = null
 
-    /**
-     * A pending AI-assist proposal (see {@link previewOps}). `ghostOps` is the
-     * batch data — kept so the overlay can be REMOUNTED after a `rerender` rebuilds
-     * the stage (mirroring the cursor overlay); `ghostLayer` is its non-listening
-     * top Konva layer. Neither is in the document or history until {@link acceptOps}.
-     */
+    /** A pending AI-assist proposal ({@link previewOps}); kept so {@link rerender} can remount the overlay. */
     private ghostOps: Op[] | null = null
     private ghostLayer: Konva.Layer | null = null
 
@@ -214,9 +183,8 @@ export class Editor {
 
     /**
      * Enable/re-color the brush-size cursor ring — a circle following the pointer,
-     * `strokeWidth` in diameter in LOGICAL units (so it scales with zoom), shown
-     * for mouse/pen and hidden on touch or off-canvas. Pass a resolved CSS color
-     * (e.g. a design token resolved by the host); `null` turns the ring off.
+     * `strokeWidth` in diameter in logical units (so it scales with zoom), shown
+     * for mouse/pen and hidden on touch or off-canvas.
      */
     setCursorColor(color: string | null): void {
         this.cursorColor = color
@@ -231,14 +199,10 @@ export class Editor {
     }
 
     /**
-     * Set (or clear, with `null`) the view-only canvas backdrop painted BEHIND
-     * the document — below even a non-null `doc.background`. Presentation state
-     * only: {@link getDocument} is unaffected, and exports cannot pick it up
-     * (see {@link mountBackdrop}). A pattern tiles in ~SCREEN space: its scale is
-     * re-compensated on every zoom change so a checkerboard never zooms with the
-     * drawing. Either flavor reads as a sheet of paper on a desk: the rect
-     * carries a drop shadow + a 1px border, both ~screen-space too (see
-     * {@link syncBackdropScreenSpace}) — view chrome only, never exported.
+     * Set (or clear, with `null`) the {@link CanvasBackdrop}, painted below even a
+     * non-null `doc.background`. A pattern tiles in ~screen space: its scale is
+     * re-compensated on every zoom change (see {@link syncBackdropScreenSpace}) so
+     * a checkerboard never zooms with the drawing.
      */
     setCanvasBackdrop(backdrop: CanvasBackdrop | null): void {
         this.backdrop = backdrop
@@ -273,10 +237,9 @@ export class Editor {
     }
 
     /**
-     * Subscribe to editor-state changes (a commit, undo/redo, layer op, active-
-     * layer switch, or zoom). Returns an unsubscribe function. The callback should
-     * re-read {@link getLayers} / {@link getActiveLayerId} / {@link canUndo} /
-     * {@link canRedo} / {@link getZoom}.
+     * Subscribe to editor-state changes. Returns an unsubscribe function; re-read
+     * {@link getLayers} / {@link getActiveLayerId} / {@link canUndo} /
+     * {@link canRedo} / {@link getZoom} from the callback.
      */
     onChange(cb: () => void): () => void {
         this.listeners.add(cb)
@@ -293,17 +256,12 @@ export class Editor {
     }
 
     /**
-     * Map a viewport/client point (e.g. `PointerEvent.clientX`/`clientY`) to
-     * LOGICAL document coordinates through the current stage transform — the
-     * inverse of the same transform `getRelativePointerPosition` reads for
-     * drawing, so a host coordinate readout matches where a stroke would land
-     * exactly, at any zoom/pan.
-     *
-     * Returns `null` when the point lies outside the stage container. Inside it,
-     * coordinates are returned RAW (unrounded) and may fall outside the document
-     * rect (the letterbox maps to negative / >size values) — rounding, clamping,
-     * and formatting are presentation and belong to the host. The editor adds NO
-     * listeners for this: subscribe to `pointermove` yourself and call it.
+     * Map a viewport/client point to logical document coordinates — the inverse
+     * of the transform `getRelativePointerPosition` uses for drawing, so a host
+     * readout matches where a stroke would land. Returns `null` outside the
+     * stage container; inside it, coordinates are raw (unrounded, may fall
+     * outside the document rect) — rounding/clamping is the host's job. Adds no
+     * listeners: call this from your own `pointermove` handler.
      */
     toDocumentCoords(clientX: number, clientY: number): { x: number; y: number } | null {
         // Konva's own pointer math measures stage.content; headless (tests, no
@@ -348,9 +306,8 @@ export class Editor {
     }
 
     /**
-     * Tear down the editor: stop observing resize, then destroy the Konva stage so
-     * it leaves Konva's module-global stage registry and its backing `<canvas>`
-     * elements are released. Call from the host's unmount hook; the instance is
+     * Tear down the editor: stop observing resize and destroy the Konva stage
+     * (docs/NOTES.md). Call from the host's unmount hook; the instance is
      * unusable afterwards.
      */
     destroy(): void {
@@ -400,13 +357,10 @@ export class Editor {
     // --- ai assist (ghost preview; see ASSIST.md §5) --------------------------
 
     /**
-     * Render an AI-assist proposal as a GHOST overlay — a top, non-listening Konva
-     * layer at reduced opacity with a dashed accent frame, clipped to the doc rect,
-     * projecting the batch's strokes. The proposal is NOT in the document and NOT in
-     * history until {@link acceptOps}. Re-previewing replaces the prior proposal.
-     *
-     * The op → command mapping and this overlay live entirely inside the editor: the
-     * app passes validated {@link Op}s and never touches Konva or a command.
+     * Preview an AI-assist proposal as the ghost overlay (ASSIST.md §5).
+     * Re-previewing replaces the prior proposal. The op → command mapping lives
+     * entirely in the editor — the app passes validated {@link Op}s and never
+     * touches Konva or a command directly.
      */
     previewOps(ops: Op[]): void {
         this.clearGhost()
@@ -415,18 +369,18 @@ export class Editor {
     }
 
     /**
-     * Commit the previewed proposal as ONE composite command — a single undo entry,
-     * so one Ctrl+Z removes the whole batch — through the normal commit path, then
-     * tear down the ghost. No-op when nothing is previewed. Ops apply in array order
-     * with a batch-local id map: an `add_layer` mints a fresh layer id and an
-     * `add_stroke` resolves its `layerId` against that map (an earlier batch layer)
-     * or an existing document layer. Strokes arrive pre-built + server-validated —
-     * they map straight onto commands, never re-run through a tool.
+     * Commit the previewed proposal as a single composite command — one undo
+     * entry, so one Ctrl+Z removes the whole batch — then tear down the ghost.
+     * No-op when nothing is previewed. Ops apply in array order with a
+     * batch-local id map: an `add_layer` mints a fresh layer id and an
+     * `add_stroke` resolves its `layerId` against that map or an existing
+     * document layer. Strokes arrive pre-built and server-validated — they map
+     * straight onto commands, never re-run through a tool.
      */
     acceptOps(): void {
         const ops = this.ghostOps
         if (ops == null) return
-        // An empty batch is a VALID proposal (nothing to add) but committing an empty
+        // An empty batch is a valid proposal (nothing to add) but committing an empty
         // composite would still push a no-op entry onto the undo stack — a phantom
         // Ctrl+Z that does nothing. Tear down the ghost and bail before committing.
         if (ops.length === 0) {
@@ -436,9 +390,8 @@ export class Editor {
         const commands: Command[] = []
         /** Batch-local `add_layer.id` → the fresh real id assigned here. */
         const idMap = new Map<string, string>()
-        // addLayerCommand clamps its index at APPLY time against doc.layers.length, so
-        // several add_layer ops need a RUNNING top index — a stale length would clamp
-        // every new layer to the same slot and collide their z-order.
+        // Running top index — addLayerCommand clamps at apply time, not
+        // construction, so a stale length collides every new layer (docs/NOTES.md).
         let topIndex = this.doc.layers.length
         for (const op of ops) {
             if (op.kind === 'add_layer') {
@@ -604,9 +557,9 @@ export class Editor {
     }
 
     /**
-     * Push the current viewport + view onto the stage: size it to the container,
-     * scale + position it so the document sits at `view.zoom`/`view.pan`. This is
-     * the ONLY place the stage transform is set — pointer coords stay logical.
+     * Push the current viewport + view onto the stage: size, scale, position.
+     * This is the only place the stage transform is set — pointer coords stay
+     * logical.
      */
     private applyView(): void {
         const w = this.viewport.width || this.doc.width
@@ -614,45 +567,37 @@ export class Editor {
         this.stage.size({ width: w, height: h })
         this.stage.scale({ x: this.view.zoom, y: this.view.zoom })
         this.stage.position({ x: this.view.panX, y: this.view.panY })
-        // The ONE zoom hook: every zoom/pan/fit funnels through here, so the
-        // backdrop's screen-space compensation (pattern tiles, shadow) can't
-        // drift out of sync.
+        // Every zoom/pan/fit funnels through here, keeping the backdrop's
+        // screen-space compensation from drifting out of sync.
         this.syncBackdropScreenSpace()
         this.stage.batchDraw()
     }
 
     /** Tear down the stage and re-project the current document, keeping the view. */
     private rerender(): void {
+        // Stage-bound chrome dies with it too; remount whatever is still active
+        // below or it silently disappears (docs/NOTES.md).
         this.stage.destroy()
         this.previewGroup = null
         this.cursorLayer = null
         this.cursorRing = null
         this.backdropLayer = null
         this.backdropRect = null
-        // The ghost layer died with the stage; keep ghostOps (the proposal data) so it
-        // can remount below, but clear the stale layer handle.
         this.ghostLayer = null
-        // Any in-flight gesture/pan belongs to the destroyed stage — its pointer id
-        // can never match the new stage, so drop it or it becomes stuck dead state.
+        // An in-flight gesture/pan belongs to the destroyed stage — its pointer id can
+        // never match the new one, so drop it rather than leave it stuck.
         this.gesture = null
         this.pan = null
         this.stage = toKonva(this.doc, this.container)
         this.bindPointerEvents()
-        // The backdrop died with the old stage; remount it against the CURRENT doc
-        // (loadDocument may have changed the canvas size) before any layer math runs.
         if (this.backdrop != null) this.mountBackdrop()
-        // The overlay died with the old stage; remount it (the ring reappears at the
-        // last hover point instead of blinking out after every commit).
         if (this.cursorColor != null) {
             this.mountCursorOverlay()
             this.syncCursorRing()
         }
-        // A pending AI-assist proposal (previewOps) also died with the stage; remount
-        // it the same way or it silently vanishes on the next commit/undo/redo.
         if (this.ghostOps != null) this.mountGhostOverlay()
         this.applyView()
-        // The pan was force-dropped above — don't leave a stale "grabbing" cursor.
-        this.syncContainerCursor()
+        this.syncContainerCursor() // clears a stale "grabbing" left by the force-dropped pan
     }
 
     /** Capture the current pointer position in LOGICAL document coords. */
@@ -663,10 +608,9 @@ export class Editor {
     }
 
     /**
-     * Draw the in-flight stroke onto the ACTIVE layer's Konva layer (topmost via
-     * the preview group), so its composite previews exactly as it will commit —
-     * an isolated preview layer could never show destination-out erasing the
-     * content beneath it. The target layer's clip also bounds the preview.
+     * Draw the in-flight stroke onto the active layer's own Konva layer, clipped
+     * like a committed layer, so it previews exactly as it will commit
+     * (docs/NOTES.md).
      */
     private renderPreview(): void {
         const tool = this.strokeTool()
@@ -698,9 +642,8 @@ export class Editor {
     /**
      * The stage layer projecting the active document layer. Stage z-order is
      * `[backdrop?] [background?] [doc layers...] [cursor overlay?]`, so the
-     * document-index → stage-index mapping is offset by BOTH optional bottom
-     * layers. This is the single place that mapping lives — the preview group
-     * (eraser preview included) mounts through here.
+     * document-index → stage-index mapping is offset by both optional bottom
+     * layers — the one place that mapping lives.
      */
     private activeKonvaLayer(): Konva.Layer | null {
         const idx = this.doc.layers.findIndex((l) => l.id === this.activeLayerId)
@@ -719,8 +662,8 @@ export class Editor {
     }
 
     /**
-     * A gesture may only START inside the document; it may extend past the edge
-     * (visually clipped — Figma-frame style, DECISIONS 2026-07-04).
+     * A gesture may only start inside the document; it may extend past the edge
+     * (visually clipped — docs/DECISIONS.md).
      */
     private insideDocument(pt: LogicalPoint): boolean {
         return pt.x >= 0 && pt.y >= 0 && pt.x <= this.doc.width && pt.y <= this.doc.height
@@ -757,21 +700,16 @@ export class Editor {
     // --- canvas backdrop (see setCanvasBackdrop) -------------------------------
 
     /**
-     * Create the backdrop layer + rect on the CURRENT stage and sink it to the
-     * bottom, below even the document background layer. Reads `this.backdrop` and
-     * the CURRENT doc dimensions, so {@link rerender} / {@link loadDocument} can
-     * simply remount after the stage is rebuilt.
-     *
-     * EXPORT SAFETY: this layer lives ONLY on the interactive stage. `toPNG` /
-     * `renderToPNG` (src/render.ts) project a FRESH stage from the document via
-     * `renderToStage`, and the backdrop is not document state — it can never leak
-     * into an exported or judged raster.
+     * Create the backdrop layer + rect on the current stage and sink it to the
+     * bottom, below even the document background layer. Reads `this.backdrop`
+     * and the current doc dimensions, so {@link rerender} / {@link loadDocument}
+     * can simply remount after the stage is rebuilt.
      */
     private mountBackdrop(): void {
         if (!this.backdrop) return
         const { width, height } = this.doc
-        // NOT clipped, unlike every projected layer (konva.ts): the drop shadow and
-        // the outer half of the centered border render OUTSIDE the doc rect, and a
+        // Not clipped, unlike every projected layer (konva.ts): the drop shadow and
+        // the outer half of the centered border render outside the doc rect, and a
         // doc-rect clip would swallow both. Safe to skip — the rect itself covers
         // exactly the doc bounds and nothing else ever mounts on this layer.
         const layer = new Konva.Layer({ listening: false })
@@ -781,9 +719,9 @@ export class Editor {
             width,
             height,
             listening: false,
-            // "Paper on a desk": drop shadow + 1px document edge. Shadow blur/offset
-            // are zoom-compensated in syncBackdropScreenSpace; the border stays a
-            // 1-screen-px hairline via strokeScaleEnabled (the cursor-ring trick).
+            // Shadow blur/offset are zoom-compensated in syncBackdropScreenSpace; the
+            // border stays a 1-screen-px hairline via strokeScaleEnabled (see the
+            // cursor ring, which uses the same trick).
             shadowColor: BACKDROP_SHADOW.color,
             shadowOpacity: BACKDROP_SHADOW.opacity,
             shadowForStrokeEnabled: false,
@@ -809,14 +747,11 @@ export class Editor {
     }
 
     /**
-     * Keep the backdrop's screen-space attrs ~SCREEN-SPACE: the stage transform
-     * scales everything by `view.zoom`, so anything that must read constant on
-     * screen is counter-scaled by `1/zoom` — pattern tiles (a checkerboard
-     * shouldn't zoom with the drawing) and the drop shadow's blur/offset (the
-     * paper sits the same height off the desk at any zoom). The border needs no
-     * entry here: `strokeScaleEnabled: false` already pins it to 1 screen px.
-     * Called from {@link applyView} — the one place the stage transform is set —
-     * and on backdrop creation.
+     * Counter-scale the backdrop's screen-space attrs by `1/zoom`: the stage
+     * transform scales everything, so anything that must stay constant on
+     * screen — pattern tiles, the drop shadow's blur/offset — needs the inverse
+     * applied here. The border needs no entry: `strokeScaleEnabled: false`
+     * already pins it to 1 screen px.
      */
     private syncBackdropScreenSpace(): void {
         if (!this.backdropRect) return
@@ -834,19 +769,17 @@ export class Editor {
     // --- ai assist ghost overlay (see previewOps) ------------------------------
 
     /**
-     * Build the ghost layer on the CURRENT stage from `this.ghostOps` and float it
-     * on top. Reads `this.ghostOps` + the CURRENT doc, so {@link rerender} simply
-     * remounts after the stage is rebuilt (mirroring the cursor overlay). Only
-     * `add_stroke` ops paint — `add_layer` ops make empty layers (nothing to draw).
-     * The strokes project through a throwaway one-layer doc, the same idiom as
-     * {@link renderPreview}; the layer is clipped to the doc rect exactly like a
-     * committed layer ({@link toLayer}), so a ghost stroke past the edge previews
-     * identically to how it will commit.
+     * Build the ghost layer on the current stage from `this.ghostOps`, floated on
+     * top. Only `add_stroke` ops paint — `add_layer` ops make empty layers,
+     * nothing to draw. Strokes project through a throwaway one-layer doc (same
+     * idiom as {@link renderPreview}) and clip to the doc rect exactly like a
+     * committed layer, so a ghost stroke past the edge previews identically to
+     * how it will commit.
      */
     private mountGhostOverlay(): void {
-        // An empty batch (a valid proposal — nothing to add) has nothing to preview;
-        // skip mounting so we don't float a bare dashed frame over the whole canvas.
-        // This guard covers both call sites: previewOps() and the rerender() remount.
+        // An empty batch is a valid proposal (nothing to add); skip mounting so no
+        // bare dashed frame floats over the canvas. Covers both call sites:
+        // previewOps and the rerender remount.
         if (this.ghostOps == null || this.ghostOps.length === 0) return
         const { width, height } = this.doc
         const layer = new Konva.Layer({
@@ -869,7 +802,7 @@ export class Editor {
             }
             projected.destroy()
         }
-        // A dashed accent frame marks the region as a PROPOSAL (ASSIST.md §5). Hairline
+        // A dashed accent frame marks the region as a proposal (ASSIST.md §5). Hairline
         // at any zoom via strokeScaleEnabled; color reuses the host-bridged accent.
         layer.add(
             new Konva.Rect({
@@ -906,7 +839,7 @@ export class Editor {
             listening: false,
             visible: false,
             strokeWidth: 1,
-            // A hairline at every zoom: the RADIUS is logical (scales with the stage
+            // A hairline at every zoom: the radius is logical (scales with the stage
             // transform = brush size in canvas units), the outline stays 1 screen px.
             strokeScaleEnabled: false
         })
@@ -917,7 +850,7 @@ export class Editor {
     /** Push color/diameter/position/visibility onto the ring and repaint its layer. */
     private syncCursorRing(): void {
         if (!this.cursorRing || !this.cursorLayer || this.cursorColor == null) return
-        // Hidden while panning AND while the hand tool is armed — the hand never
+        // Hidden while panning and while the hand tool is armed — the hand never
         // draws, so a brush-size ring would lie (the grab cursor takes over).
         const visible = this.cursor != null && this.pan == null && this.activeTool.kind !== 'pan'
         this.cursorRing.visible(visible)
@@ -932,7 +865,7 @@ export class Editor {
     /** Track the hover point in logical coords; touch never shows the ring. */
     private trackCursor(evt: Konva.KonvaEventObject<PointerEvent>): void {
         if (!this.cursorRing) return
-        // Konva maps BOTH DOM pointermove and touchmove onto its "pointermove": a
+        // Konva maps both DOM pointermove and touchmove onto its "pointermove": a
         // touch drag can arrive as a PointerEvent (pointerType "touch") or as a raw
         // TouchEvent (no pointerType at all) — mirror Konva's own touch check.
         const isTouch = evt.evt.type.startsWith('touch') || evt.evt.pointerType === 'touch'
@@ -971,12 +904,11 @@ export class Editor {
     // --- pan (middle-button with any tool; primary pointer with the hand tool) --
 
     /**
-     * Anchor a view-pan drag at the CURRENT pointer position (screen coords —
-     * deliberately NOT `readPoint`/`insideDocument`: a pan may grab the letterbox
-     * outside the document rect). One shared path: the hand tool's primary drag
-     * and the always-available middle-button drag both come through here, so the
-     * clamping/transform behavior can never fork. Ignored while another pan is
-     * live (a second touch must not re-anchor the view mid-drag).
+     * Anchor a view-pan drag at the current pointer position (screen coords —
+     * deliberately not `readPoint`/`insideDocument`: a pan may grab the
+     * letterbox). One shared path for the hand tool's primary drag and the
+     * always-available middle-button drag, so the transform behavior can never
+     * fork. Ignored while another pan is live (a second touch can't re-anchor).
      */
     private beginPan(pointerId: number): void {
         if (this.pan) return
@@ -1059,11 +991,11 @@ export class Editor {
             this.finishGesture(this.readPoint(evt))
         })
 
-        // Wheel zooms toward the cursor.
         this.stage.on('wheel', (evt) => {
             evt.evt.preventDefault()
             const p = this.stage.getPointerPosition()
             if (!p) return
+            // deltaY < 0 (scroll/pinch up) zooms in.
             const factor = evt.evt.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP
             this.autoFit = false
             this.view = zoomAround(this.view, factor, p.x, p.y)

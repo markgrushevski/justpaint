@@ -2,12 +2,10 @@ import type { LineStroke } from '../document'
 import type { LogicalPoint, StrokeTool, ToolContext } from '../types'
 
 /**
- * Line tool — a straight, two-point segment (docs/DOCUMENT-FORMAT.md §5.4).
- *
- * Pure: the stroke is derived entirely from `ctx` + `gesture`, with no Konva,
- * no module-level state, and no side effects. The endpoints are the first and
- * last samples of the gesture (pointerdown → pointerup); everything in between
- * is ignored — a line is anchored at its ends, not its path.
+ * Line tool — a straight, two-point segment (docs/DOCUMENT-FORMAT.md §5.4). The
+ * endpoints are the first and last samples of the gesture (pointerdown →
+ * pointerup); everything in between is ignored — a line is anchored at its
+ * ends, not its path.
  */
 export const lineTool = {
     kind: 'stroke',

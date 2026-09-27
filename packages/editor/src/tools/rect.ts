@@ -4,12 +4,9 @@ import type { StrokeTool } from '../types'
 /**
  * Rectangle tool. Builds a {@link RectStroke} from the axis-aligned bounding
  * box of the gesture's first (pointerdown) and last (current/pointerup) points.
- *
- * PURE: no Konva, no module state, no side effects — everything is derived from
- * `ctx` + `gesture`. Negative drags (bottom-right → top-left) are normalized to
- * a non-negative width/height with a corrected top-left x/y, per
- * docs/DOCUMENT-FORMAT.md §5.5. Returns `null` for a zero-area (degenerate)
- * rect, which the validator would reject anyway.
+ * Negative drags (bottom-right → top-left) are normalized to a non-negative
+ * width/height with a corrected top-left x/y (docs/DOCUMENT-FORMAT.md §5.5).
+ * Returns `null` for a zero-area rect, which the validator would reject anyway.
  */
 export const rectTool: StrokeTool = {
     kind: 'stroke',
