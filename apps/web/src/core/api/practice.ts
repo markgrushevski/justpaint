@@ -4,19 +4,15 @@ import { request } from './http'
 
 /**
  * Typed client for single-player practice (`/api/practice`), on the shared
- * cookie-session `fetch` plumbing (`./http`). Practice is the duel's little
- * sibling: one player, one prompt, the SAME real judge — it exists because a duel
- * needs two people at once and there is nobody to match with yet.
+ * `fetch` plumbing (`./http`). Practice is the duel's little sibling: one
+ * player, one prompt, the same real judge — it exists because a duel needs two
+ * people and there's nobody to match with yet.
  *
- * Two auth-required calls. `prompt()` hands out something to draw; `run()` posts
- * the vector document and comes back with the verdict. Unlike the duel there is
- * no lifecycle to poll: `run()` is SYNCHRONOUS and slow — the server renders the
- * authoritative raster and waits on a vision model — so callers must budget
- * several seconds and show a judging state, not a frozen button.
- *
- * The Go DTOs are the source of truth for these shapes (camelCase, exact). The
- * trust boundary is the duel's: only the vector document goes up, never a
- * client-rendered PNG (DOCUMENT-FORMAT §10).
+ * `prompt()` hands out something to draw; `run()` posts the vector document and
+ * returns the verdict synchronously — the server renders the raster and waits
+ * on a vision model in-request, so callers must budget several seconds and show
+ * a judging state. Same trust boundary as the duel: only the vector document
+ * goes up, never a client-rendered PNG (docs/DOCUMENT-FORMAT.md §10).
  */
 
 /** Something to draw. `text` is never redacted — there is no opponent to be fair

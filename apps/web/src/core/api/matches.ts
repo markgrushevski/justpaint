@@ -4,16 +4,15 @@ import { request } from './http'
 
 /**
  * Typed client for the async drawing-duel API (docs/API.md §8, docs/GAME.md), on
- * the shared cookie-session `fetch` plumbing (`./http`). Every route is under
- * `/api/matches` and auth-required. The Go DTOs (`server/internal/game`) are the
- * source of truth for these shapes — camelCase, exact.
+ * the shared `fetch` plumbing (`./http`). Every route is under `/api/matches`
+ * and auth-required.
  *
- * The lifecycle: create/auto-join (`POST /matches`) → both draw the SAME prompt →
- * submit the vector document (`POST /matches/:id/submit`) → poll the verdict
- * (`GET /matches/:id/result`) until `ready`. `GET /matches/:id` is the roster poll
- * used while waiting for the opponent to join / submit. The authoritative judged
- * raster is rendered server-side — the client never sends a scored PNG (trust
- * boundary, DOCUMENT-FORMAT §10).
+ * Lifecycle: create/auto-join (`POST /matches`) -> both draw the same prompt ->
+ * submit the vector document (`POST /matches/:id/submit`) -> poll the verdict
+ * (`GET /matches/:id/result`) until `ready`. `GET /matches/:id` is the roster
+ * poll used while waiting for the opponent to join or submit. The judged raster
+ * is rendered server-side — the client never sends a scored PNG (trust
+ * boundary, docs/DOCUMENT-FORMAT.md §10).
  */
 
 /** Match lifecycle states (`matches.status`, docs/GAME.md §3). */
@@ -49,13 +48,9 @@ export interface Match {
     prompt: MatchPrompt
     canvas: MatchCanvas
     players: MatchPlayer[]
-    /** Absolute round deadline (RFC3339Nano, UTC) — null while `open` (not stamped
-     *  until the match enters `drawing`). The client counts down against this,
-     *  reconciled with `serverTime` (docs/API.md §8). */
+    /** RFC3339Nano UTC, null while `open` (docs/API.md §8). */
     drawingDeadline: string | null
-    /** The response-build instant (RFC3339Nano, UTC), always present — lets the
-     *  client correct clock skew before computing the countdown from
-     *  `drawingDeadline`. */
+    /** Response-build instant; reconciles client clock skew for the countdown. */
     serverTime: string
     createdAt: string
     updatedAt: string
@@ -67,8 +62,7 @@ export interface SubmitMatch {
     id: string
     status: MatchStatus
     you: { submitted: boolean; drawingId: string }
-    /** Same deadline/clock pair as `Match`, so the submit ack re-anchors the
-     *  client countdown without a follow-up GET (docs/API.md §8.3). */
+    /** Same deadline/clock pair as `Match` (docs/API.md §8, submit). */
     drawingDeadline: string | null
     serverTime: string
 }
@@ -92,7 +86,7 @@ export interface MatchResultPending {
     ready: false
 }
 
-/** The decided result body (`status: 'done'`, `ready: true`). Both canvases revealed. */
+/** The decided result body. Both canvases revealed. */
 export interface MatchResultDone {
     status: 'done'
     ready: true
@@ -101,11 +95,8 @@ export interface MatchResultDone {
     winnerUserId: string | null
     isTie: boolean
     reason: string | null
-    /** How the match was decided: `judged` (the ML judge ran), `forfeit` (one
-     *  player never submitted before the deadline, default win, no judge run), or
-     *  `aborted` (judging exhausted its retries — both players drew, nobody was
-     *  scored, no rating moved; docs/GAME.md §3). The client branches its copy on
-     *  this, never on the free-text `reason` (docs/API.md §8.4). */
+    /** `judged` / `forfeit` / `aborted` (docs/API.md §8, result). Branch on this,
+     *  never on the free-text `reason`. */
     resolution: 'judged' | 'forfeit' | 'aborted'
     players: ResultPlayer[]
 }
@@ -150,11 +141,9 @@ export const matches = {
         return (await request<ResultEnvelope>('/matches/' + id + '/result')).result
     },
     /**
-     * A fellow participant's submitted vector document — how the reveal shows the
-     * OPPONENT's canvas. Authorized by match membership + `done` status, since the
-     * ownership-scoped `GET /drawings/:id` 404s a non-owner (docs/API.md §8). No
-     * object storage: the client renders the returned document. `userId` may be the
-     * caller's own too (a uniform participant-drawing read).
+     * A participant's submitted vector document — how the reveal shows the
+     * opponent's canvas, since the ownership-scoped `GET /drawings/:id` 404s a
+     * non-owner (docs/API.md §8). No object storage: the client renders it.
      */
     async playerDrawing(matchId: string, userId: string): Promise<Document> {
         return (await request<PlayerDrawingEnvelope>('/matches/' + matchId + '/players/' + userId + '/drawing'))
@@ -162,15 +151,11 @@ export const matches = {
     }
 }
 
-/* --- WS realtime (docs/API.md §9 wire protocol) --- */
+// WS realtime (docs/API.md §9 wire protocol).
 
-/**
- * The 8 server→client frames the WS hub (`server/internal/ws/events.go`) emits,
- * mirrored here EXACTLY, discriminated on `type`. `match` / `result` carry the
- * SAME DTOs as the equivalent REST responses (`Match` / `MatchResultDone`) — the
- * hub builds them through the identical viewer-scoped read the REST handlers use,
- * so there is one shape, two transports.
- */
+/** The 8 server→client frames (docs/API.md §9.2, `server/internal/ws/events.go`),
+ *  discriminated on `type`. `match` / `result` carry the same DTOs as the
+ *  equivalent REST responses, rebuilt per recipient. */
 export type WsFrame =
     | { type: 'match_state'; match: Match }
     | { type: 'opponent_submitted'; userId: string }
@@ -192,9 +177,9 @@ const WS_FRAME_TYPES = new Set<WsFrame['type']>([
     'pong'
 ])
 
-/** Parse one WS text message into a {@link WsFrame}, or null for anything
- *  unparseable / not one of the known `type`s (silently dropped by the caller —
- *  never thrown, since a stray frame must not take down the socket). */
+/** Parse one WS text message into a {@link WsFrame}, or null if it's unparseable
+ *  or an unknown `type` — never thrown, since a stray frame must not take down
+ *  the socket. */
 function parseWsFrame(raw: string): WsFrame | null {
     let parsed: unknown
     try {
@@ -221,24 +206,21 @@ export interface MatchSocketHandlers {
 export interface MatchSocketHandle {
     /** Close the socket. Safe to call more than once. */
     close(): void
-    /** Send the ONE client→server frame the wire protocol allows (heartbeat).
+    /** Send the one client→server frame the wire protocol allows (heartbeat).
      *  A no-op if the socket isn't currently open. */
     ping(): void
     readonly readyState: number
 }
 
 /**
- * Open the live match socket: same-origin `GET /api/matches/:id/ws` (the
- * `jp_session` cookie rides the handshake automatically — a WS handshake can't
- * carry a custom header, so cookie auth is the only mechanism, same as REST).
- * Built from `location.*` rather than the request base, which is equivalent: the
- * base is always the relative `/api`, so this is same-origin in dev (through the
- * Vite proxy) and in production (the Go binary serves the SPA) alike.
+ * Open the live match socket: same-origin `GET /api/matches/:id/ws` (cookie
+ * auth rides the handshake automatically, docs/API.md §9.1). Built from
+ * `location.*` rather than the request base, equivalent since the base is
+ * always the relative `/api`.
  *
- * A thin wrapper over native `WebSocket`: JSON-parses each message into a
- * {@link WsFrame} (dropping anything unparseable or of an unknown `type`) and
- * forwards open/close/error. No reconnect/backoff/dispatch policy here — the
- * caller owns all of that.
+ * A thin wrapper over native `WebSocket`: parses each message into a
+ * {@link WsFrame}, drops anything unparseable, and forwards open/close/error.
+ * No reconnect/backoff/dispatch policy — the caller owns that.
  */
 export function openMatchSocket(matchId: string, handlers: MatchSocketHandlers): MatchSocketHandle {
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'

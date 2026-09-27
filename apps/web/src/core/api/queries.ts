@@ -15,19 +15,13 @@ import { guess } from './guess'
 import type { Guess } from './guess'
 
 /**
- * TanStack Query bindings for the drawings API (ROADMAP Phase 2 "state" pass:
- * TanStack Query owns server data; Pinia owns session/UI state; the editor owns
- * its own document/view state). Save + load are modelled as mutations (they're
- * imperative button actions), giving the view standardized `isPending`/`error`
- * and cache invalidation for free. The typed fetch client (`./drawings`) stays
- * the single source of the request shapes; these only wrap it.
- *
- * The leaderboard is the FIRST genuine `useQuery` here (everything above is a
- * mutation): it's a cached READ the UI displays, not an imperative action a
- * button fires — so it wants Query's fetch-on-mount, dedupe, background refresh,
- * and `staleTime` window, none of which a mutation models. The duel result then
- * `invalidateQueries({ queryKey: leaderboardKeys.all })` so the ladder re-fetches
- * once a rating moves (see `useLeaderboard`).
+ * TanStack Query bindings for the drawings/matches/practice/leaderboard/assist
+ * APIs. TanStack Query owns server data; Pinia owns session/UI state; the
+ * editor owns its own document/view state. Save/load and the imperative duel
+ * and practice actions are mutations, giving the view standardized
+ * `isPending`/`error` and cache invalidation for free; the leaderboard below is
+ * the one cached `useQuery` read. The typed fetch clients stay the single
+ * source of the request shapes; these only wrap them.
  */
 
 /** Query keys for the drawings cache (a future saved-drawings list reads these). */
@@ -76,11 +70,10 @@ export function useLoadLatestDrawing() {
 }
 
 /**
- * The ranked-players ladder (docs/API.md §11) — a cached read the leaderboard
- * page renders. `staleTime` holds the page fresh for 30s so navigating back to it
- * doesn't re-fetch on every visit, while a rating change still invalidates it
- * (PlayView, on the duel result) to force an immediate refresh. `limit` is fixed
- * for a page's lifetime, so a plain key is enough (no reactive key needed).
+ * The ranked-players ladder (docs/API.md §11) — a cached read, unlike the
+ * mutations above. `staleTime` holds it fresh for 30s; a rating change still
+ * invalidates it (PlayView) for an immediate refresh. `limit` is fixed per
+ * page, so a plain key suffices.
  */
 export function useLeaderboard(limit = 20) {
     return useQuery({
@@ -95,13 +88,11 @@ export function useLeaderboard(limit = 20) {
 }
 
 /**
- * Match mutations for the imperative duel actions (create/auto-join + submit).
- * The reads that DRIVE the flow — the roster poll (`matches.get`) and the verdict
- * poll (`matches.result`) — are called directly from the /play phase machine (an
- * ephemeral per-round flow with no shared cache to own, mirroring how
- * `useLoadLatestDrawing` reaches straight to `drawings.get`). The live WS push
- * (docs/API.md §9) now carries those same transitions, which demotes that polling
- * to a reconciliation fallback rather than removing it.
+ * Match mutations for the imperative duel actions. The reads that drive the
+ * flow — the roster poll (`matches.get`) and verdict poll (`matches.result`) —
+ * are called directly from the /play phase machine, an ephemeral flow with no
+ * shared cache to own. The live WS push (docs/API.md §9) carries those same
+ * transitions, demoting the polling to a reconciliation fallback.
  */
 
 /** Create or auto-join an async match. */
@@ -120,10 +111,9 @@ export function useSubmitMatch() {
 }
 
 /**
- * Practice mutations. Both are imperative button actions with no cache to own, so
- * they take the store-free mutation shape rather than `useQuery` — and the prompt
- * fetch in particular MUST NOT be cached: "New prompt" means give me a different
- * one, which a cached read would refuse to do.
+ * Practice mutations: imperative button actions with no cache to own. The
+ * prompt fetch in particular must not be cached — "New prompt" means a
+ * different one, which a cached read would refuse to give.
  */
 
 /** Fetch a prompt to draw. */
@@ -133,9 +123,8 @@ export function usePracticePrompt() {
     })
 }
 
-/** Submit a practice drawing and wait on the judge. Slow by nature (the server
- *  renders the raster and calls a vision model in-request) — the caller shows a
- *  judging state for the several seconds this takes. */
+/** Submit a practice drawing and wait on the judge (seconds): the server renders
+ *  the raster and calls a vision model in-request. */
 export function useSubmitPractice() {
     return useMutation({
         mutationFn: ({ promptId, document }: { promptId: string; document: Document }): Promise<PracticeRun> =>
@@ -144,11 +133,9 @@ export function useSubmitPractice() {
 }
 
 /**
- * Generate an AI-assist Op batch from a prompt (docs/ASSIST.md §5). Imperative
- * (a button action) with no cache to own — the returned ops are previewed as a
- * ghost and only enter the document on Accept — so it mirrors the store-free
- * `useLoadLatestDrawing` shape: a thin mutation over the fetch client, no
- * invalidation.
+ * Generate an AI-assist Op batch (docs/ASSIST.md §5). Imperative, no cache to
+ * own — the returned ops preview as a ghost and only enter the document on
+ * Accept.
  */
 export function useAssist() {
     return useMutation({
@@ -157,11 +144,9 @@ export function useAssist() {
 }
 
 /**
- * Ask the AI what the current drawing is. Same store-free mutation shape as
- * `useAssist` — a button action whose answer is read once and thrown away, so
- * there is no cache to own and nothing to invalidate. Slow by nature (the server
- * renders the raster and calls a vision model in-request), so the caller shows a
- * pending card for the several seconds this takes rather than a frozen button.
+ * Ask the AI what the current drawing is. Same shape as `useAssist`: no cache,
+ * nothing to invalidate. Slow by nature (raster render + vision model
+ * in-request), so the caller shows a pending card, not a frozen button.
  */
 export function useGuess() {
     return useMutation({

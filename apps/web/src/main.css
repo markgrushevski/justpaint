@@ -1,16 +1,14 @@
 /*
- * justpaint brand tokens — the LEGACY palette: a pure orange over neutral grays,
- * layered on the oriui design system. We only set the
- * `*-light`/`*-dark` SOURCES here; oriui resolves them into `--ori-color-*` per
- * theme (its NOTES: a global brand override sets the source at `:root`).
- * Components read the resolved aliases, never these.
+ * justpaint brand tokens: a pure orange over neutral grays, layered on the
+ * oriui design system. This file only sets the `*-light`/`*-dark` SOURCES;
+ * oriui resolves them into `--ori-color-*` per theme (a global brand override
+ * sets the source at `:root`, per oriui's own convention). Components read the
+ * resolved aliases, never these sources. Contrast is enforced by
+ * `npm run lint:contrast` (`apps/web/scripts/check-contrast.mjs`).
  */
 :root {
-    /* Primary — the legacy justpaint orange. On-primary is a dark ink, NOT white:
-       white on this vivid orange is only 3.21:1 (fails WCAG AA for the fill-button
-       labels — Save / Log in). Dark ink is 5.42:1 on the light orange and 6.57:1 on
-       the dark one, and keeps the brand hue (the conventional a11y choice for a
-       bright accent). */
+    /* Primary — the justpaint orange. On-primary is dark ink, not white: white
+       fails WCAG AA on this orange; dark ink clears it and keeps the brand hue. */
     --ori-color-primary-light: hsl(20 100% 50%);
     --ori-color-on-primary-light: hsl(24 45% 10%);
     --ori-color-primary-dark: hsl(20 100% 60%);
@@ -22,10 +20,8 @@
     --ori-color-secondary-dark: hsl(30 32% 26%);
     --ori-color-on-secondary-dark: hsl(38 90% 92%);
 
-    /* Surface (cards, panels, toolbar) + page background — the legacy NEUTRAL grays
-       (the warm tint is gone). Ink/text retinted to match: a near-black cool ink in
-       light (13.7:1 on the surface, 15.4:1 on the background) and a near-white gray
-       in dark (14.7:1 / 15.7:1) — all well past the 7:1 AAA text bar. */
+    /* Surface (cards, panels, toolbar) + page background — neutral grays. Ink
+       retinted to match, well past the AA text bar in both themes. */
     --ori-color-surface-light: #f0f2f6;
     --ori-color-on-surface-light: hsl(220 10% 15%);
     --ori-color-surface-dark: #191919;
@@ -36,18 +32,14 @@
     --ori-color-background-dark: #121212;
     --ori-color-on-background-dark: hsl(0 0% 92%);
 
-    /* Outline (borders, dividers) — neutral hues, recomputed for the >=3:1 non-text
-       bar (WCAG 1.4.11) against the NEW surfaces. Light: hsl(220 5% 55%) is 3.45:1
-       on the #ffffff background and 3.08:1 on the #f0f2f6 surface (the binding case —
-       the tinted surface is darker than white, so it, not #ffffff, sets the floor).
-       Dark: hsl(0 0% 46%) is 3.83:1 on the #191919 surface (binding), 4.08:1 on the
-       #121212 background. */
+    /* Outline (borders, dividers) — neutral hues, cleared for the >=3:1 non-text
+       bar (WCAG 1.4.11) against both surfaces they draw against. */
     --jp-color-outline-light: hsl(220 5% 55%);
     --jp-color-outline-dark: hsl(0 0% 46%);
 
     /* Outline is ours: oriui ships no outline token, so it carries the --jp-*
-       prefix rather than squatting in the vendor --ori-* namespace, where a future
-       oriui token of the same name would silently collide (JP-I-02). Resolved for
+       prefix rather than squatting in the vendor --ori-* namespace, where a
+       future oriui token of the same name would silently collide. Resolved for
        light here; the dark block below repoints it. */
     --jp-color-outline: var(--jp-color-outline-light);
 
@@ -69,12 +61,10 @@
 }
 
 /*
- * Dark theme fires on `.ori-theme_dark` (oriui's own theme class), applied to
- * <html> by useThemeStore — which also implements the `auto` mode by following
- * `prefers-color-scheme` via matchMedia. ONE source for "dark": the class, never
- * a media query here (a query could not be overridden by the in-app toggle).
- * Repoint the RESOLVED aliases to the dark sources — the documented per-scope
- * override. Semantic roles (success/warn/danger/info) keep oriui's defaults.
+ * Dark theme fires on `.ori-theme_dark` (oriui's own theme class, applied by
+ * useThemeStore). One source for "dark": the class, never a media query here,
+ * since a query could not be overridden by the in-app toggle. Repoints the
+ * resolved aliases to the dark sources; semantic roles keep oriui's defaults.
  */
 /* stylelint-disable-next-line selector-class-pattern -- oriui's own theme class */
 :root.ori-theme_dark {
@@ -89,12 +79,10 @@
     --jp-color-outline: var(--jp-color-outline-dark);
     --jp-desk: var(--jp-desk-dark);
 
-    /* oriui's `danger` is a single light-tuned red (#b91c1c) with no dark variant —
-       on our #191919 dark surface it drops to 2.72:1 (the delete-layer button all but
-       vanishes). Lift it for dark only; 6.29:1 on the #191919 surface, 6.70:1 on the
-       #121212 background (>=4.5:1 text AND >=3:1 border, re-verified against the new
-       neutral surfaces). success/warn/info aren't used as foreground colour yet, so
-       they stay oriui's defaults. */
+    /* oriui's `danger` is a single light-tuned red with no dark variant — on our
+       dark surface it fails AA (the delete-layer button all but vanishes).
+       Lifted for dark only; success/warn/info aren't used as foreground colour
+       yet, so they stay oriui's defaults. */
     --ori-color-danger: hsl(0 80% 70%);
 }
 

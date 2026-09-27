@@ -9,23 +9,15 @@ export type ThemeMode = 'auto' | 'light' | 'dark'
 const STORAGE_KEY = 'jp-theme'
 
 /**
- * Light/dark theme (the legacy ThemeToggler pattern: cycle auto → light → dark,
- * persist, apply on <html>). ONE source of truth for "dark": the `ori-theme_dark`
- * class — oriui flips its own tokens on it, and main.css keys the justpaint brand
- * aliases off the same class.
- *
- * The whole state machine is delegated to oriui's headless `useTheme` (a thin Vue
- * wrapper over `createThemeController`): it owns the `auto` matchMedia plumbing, the
- * persistence under `STORAGE_KEY`, and applying the class via `applyTheme` — which
- * flips `ori-theme_{light,dark}` on <html> AND works around a Chromium
- * style-invalidation bug where styled components otherwise keep the PREVIOUS theme's
- * colours after a runtime toggle (see oriui `theme.ts` / `flushThemeInvalidation`).
- * The controller applies the persisted/default theme immediately on construction
- * (no post-mount flash) and tears its OS-scheme listener down on store dispose.
- *
- * This store is now just the reactive Pinia projection of that controller: it keeps
- * the exact `{ mode, isDark, cycle }` shape the hand-rolled store exposed, so existing
- * callers (DrawView) are unchanged.
+ * Light/dark theme, delegated to oriui's headless `useTheme` (a thin Vue
+ * wrapper over `createThemeController`): it owns the `auto` matchMedia
+ * plumbing, persistence under `STORAGE_KEY`, and applying the
+ * `ori-theme_dark` class via `applyTheme` — the one source of truth for
+ * "dark" that both oriui and main.css key off. `applyTheme` also works around
+ * a Chromium style-invalidation bug where components otherwise keep the
+ * previous theme's colours after a runtime toggle (oriui `theme.ts`,
+ * `flushThemeInvalidation`). This store just wraps that controller as Pinia
+ * state.
  */
 export const useThemeStore = defineStore('theme', () => {
     const { theme, resolvedTheme, cycleTheme, setTheme } = useTheme({
@@ -34,19 +26,18 @@ export const useThemeStore = defineStore('theme', () => {
     })
 
     /**
-     * The current SETTING (`auto` → follow the OS live, or a pinned `light` / `dark`).
-     * Writable: a direct assignment routes through the controller (apply + persist),
-     * matching the old writable `mode` ref whose `watchEffect` applied on every change.
+     * The current setting (`auto` → follow the OS live, or a pinned `light` / `dark`).
+     * Writable: a direct assignment routes through the controller (apply + persist).
      */
     const mode = computed<ThemeMode>({
         get: () => theme.value,
         set: (next) => setTheme(next)
     })
 
-    /** True when the RESOLVED theme on the DOM is dark (tracks the OS scheme in `auto`). */
+    /** True when the resolved theme on the DOM is dark (tracks the OS scheme in `auto`). */
     const isDark = computed(() => resolvedTheme.value === 'dark')
 
-    /** Cycle auto → light → dark → auto (the legacy toggle order). */
+    /** Cycle auto → light → dark → auto. */
     function cycle(): void {
         cycleTheme()
     }

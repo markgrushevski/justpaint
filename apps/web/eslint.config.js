@@ -13,7 +13,7 @@ export default [
     {
         // The app is browser code — provide browser globals to all source.
         // eslint-plugin-vue v10 no longer injects these via its shared config,
-        // so they must be declared here (was mis-scoped to a nonexistent lib/).
+        // so they must be declared here.
         files: ['**/*.{js,ts,vue}'],
         languageOptions: {
             globals: { ...globals.browser },
