@@ -467,7 +467,7 @@ The socket is additive, never a replacement for §8's poll loop (`GET /matches/{
 
 ## 10. AI assist — `POST /api/assist/ops`
 
-Turns a natural-language prompt into a validated batch of document operations (**Ops**) the client applies as one composite editor command. **`docs/ASSIST.md` is the contract owner** — the Op schema (§2), the `internal/assist` seam (§3), the doc-summary shape (§4), and the ghost-preview/accept UX (§5) are defined there; this entry carries only the HTTP edge.
+Turns a natural-language prompt into a validated batch of document operations (**Ops**) the client applies as one composite editor command. **`docs/ASSIST.md` is the contract owner** — the Op schema (§2), the `internal/assist` seam (§3), what the model sees (§4), and the ghost-preview/accept UX (§5) are defined there; this entry carries only the HTTP edge.
 
 ### `POST /api/assist/ops`
 **Auth: required** (session cookie, like every write route). Rate-limited per user **twice over** — an in-process token bucket on the request *rate*, plus the durable daily AI-call ceiling on the *quota* behind it — because each call can cost real API money (`docs/ASSIST.md` §3.4, `GAME.md` §4.3).
@@ -475,12 +475,12 @@ Turns a natural-language prompt into a validated batch of document operations (*
 Request:
 ```json
 {
-  "prompt": "draw a house with a red roof",
-  "docSummary": { "canvas": { "width": 1920, "height": 1080 }, "layers": [ { "id": "…", "name": "Layer 1", "strokeCount": 3 } ] },
+  "prompt": "add a red roof to the house",
+  "document": { "version": 1, "width": 1920, "height": 1080, "background": null, "layers": [ … ] },
   "targetLayerId": "…"        // optional: bias generation onto this layer
 }
 ```
-- The full document is **never** sent — only the compact `docSummary` (`docs/ASSIST.md` §4). Request body cap: **~64 KiB** (a prompt plus the minimal summary sits well under it; no document ever rides this route, so it does not share the 8 MB cap in §6).
+- `document` is the current canvas: the same **8 MB body cap and full document validator** as the other document-bearing routes (§6, §7), unknown fields tolerated (§1). The server derives the layer summary from it and, for an impl that reads images, renders it for the model (`docs/ASSIST.md` §4); the prompt is capped separately at 8 KiB.
 
 Success `200 OK`:
 ```json
@@ -492,7 +492,8 @@ Success `200 OK`:
 - The batch is capped at **`maxOpsPerBatch` = 64** ops and is re-validated server-side (the Go document validator) before the response is sent — the client never receives an unvalidated batch (trust boundary).
 
 Errors:
-- `400 validation_failed` — malformed/oversized request body, an empty or over-long prompt, the handler's defense-in-depth re-validation of the impl's output, **or** the model's output still failing validation after the impl's retry budget (`ErrInvalidBatch`; under `ASSIST_MODE=gemini` that is one try plus one retry carrying the validator's own complaint — `docs/ASSIST.md` §3.3). All fold into the same code/status — never `422` (§3 reserves it unused in v1).
+- `400 validation_failed` — a malformed body, an invalid or missing document, an empty or over-long prompt, the handler's defense-in-depth re-validation of the impl's output, **or** the model's output still failing validation after the impl's retry budget (`ErrInvalidBatch`; under `ASSIST_MODE=gemini` that is one try plus one retry carrying the validator's own complaint — `docs/ASSIST.md` §3.3). All fold into the same code/status — never `422` (§3 reserves it unused in v1).
+- `413 document_too_large` — over 8 MB.
 - `401 unauthorized` — no/expired/invalid `jp_session`.
 - `429 rate_limited` — **two distinct limits**, same code/status. First, the per-user **token bucket** (`docs/ASSIST.md` §3.4), checked before the body is even decoded and the only one of the two that carries a **`Retry-After`** header (seconds). Then the **daily AI-call budget** (`GAME.md` §4.3), checked last of the guards and immediately before the model call — itself two causes in order: the caller's own `assist` allowance is spent (message *"you have used all 40 of your AI drawing requests for today — new ones unlock as the day rolls over"*; the number is the caller's own configured `assist` cap, 40 by default), or, only once they've cleared that, the whole daily budget of the provider behind assist is spent (message *"the AI budget for today is spent — this feature resumes tomorrow"*). The per-kind refusal can come from **either** the check or the ledger write that records the call a line later — the write re-tests the same cap and returns the same error, so the two are indistinguishable on the wire, by design. Neither budget refusal carries a `Retry-After`: the window rolls continuously, so there is no fixed reset to name (§3.1). The budget half fires only when the impl really calls a provider: **`ASSIST_MODE=gemini` is budgeted** (provider `google:<model>`, since 2026-09-20), while `fake` calls nobody and is never billed, so on that mode only the token bucket can produce this status (`GAME.md` §4.3, `ASSIST.md` §3.4). A **third** cause joins them under `gemini`: the provider's *own* quota running out (`judge.ErrQuotaExhausted`) answers with the same global refusal rather than a `500`, exactly as on `/api/practice` and `/api/guess` (`JUDGE.md` §8.1).
 

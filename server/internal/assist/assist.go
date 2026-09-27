@@ -6,7 +6,7 @@
 // like the render and judge seams.
 //
 // Assist is stateless: no DB, no migration, no sqlc. Every request is
-// self-contained — prompt + minimal doc summary in, validated ops out.
+// self-contained — prompt and the current document in, validated ops out.
 package assist
 
 import (
@@ -16,14 +16,16 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
-// Request is one assist call: the natural-language prompt, the minimal document
-// summary (canvas + layer inventory — docs/ASSIST.md §4, never the full
-// document), and an optional layer to bias generation onto. camelCase JSON, like
-// the rest of the live API (docs/ASSIST.md §3.1).
+// Request is one assist call: the prompt, the canvas as it is now and an optional
+// layer to bias generation onto (docs/ASSIST.md §4). The handler builds it from a
+// validated document; Image, the server-rendered PNG of that document, is set only
+// for an impl that reads images.
 type Request struct {
-	Prompt        string              `json:"prompt"`
-	DocSummary    document.DocSummary `json:"docSummary"`
-	TargetLayerID *string             `json:"targetLayerId"`
+	Prompt        string
+	Document      document.Document
+	DocSummary    document.DocSummary
+	Image         []byte
+	TargetLayerID *string
 }
 
 // Result is the impl's output: a validated op batch plus an optional human-facing
@@ -45,4 +47,16 @@ var ErrInvalidBatch = errors.New("assist: model output failed validation after r
 // and tests depend on.
 type Assist interface {
 	GenerateOps(ctx context.Context, req Request) (Result, error)
+}
+
+// ImageReader is implemented by an Assist impl that looks at the rendered canvas.
+type ImageReader interface {
+	ReadsImage() bool
+}
+
+// ReadsImage reports whether the handler should render the canvas for this impl.
+// An impl that does not say so is sent no image: rendering costs a worker process.
+func ReadsImage(a Assist) bool {
+	ir, ok := a.(ImageReader)
+	return ok && ir.ReadsImage()
 }

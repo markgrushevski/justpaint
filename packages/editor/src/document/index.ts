@@ -7,7 +7,6 @@ export type {
     BrushOptions,
     Color,
     Composite,
-    DocSummary,
     DocVersion,
     Document,
     DocumentMeta,

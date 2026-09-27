@@ -144,10 +144,12 @@ func run() error {
 	// (docs/NOTES.md) — confident, meaningless answers, since the pairing works.
 	// Not a boot error: still legitimate for exercising the wiring in dev.
 	realModel := cfg.JudgeMode != config.JudgeModeFake ||
-		cfg.PracticeMode == config.SeamModeGemini || cfg.GuessMode == config.SeamModeGemini
+		cfg.PracticeMode == config.SeamModeGemini || cfg.GuessMode == config.SeamModeGemini ||
+		cfg.AssistMode == config.AssistModeGemini
 	if realModel && cfg.RenderMode != config.RenderModeNode {
 		logger.Warn("render: a real model is reading STUB rasters, which are ink-coverage blocks and not the drawings — set RENDER_MODE=node",
-			"judge_mode", cfg.JudgeMode, "practice_mode", cfg.PracticeMode, "guess_mode", cfg.GuessMode, "render_mode", cfg.RenderMode)
+			"judge_mode", cfg.JudgeMode, "practice_mode", cfg.PracticeMode, "guess_mode", cfg.GuessMode,
+			"assist_mode", cfg.AssistMode, "render_mode", cfg.RenderMode)
 	}
 	// The judge retries up to 3 times inside game.JudgePassBudget (docs/JUDGE.md
 	// §7). A JUDGE_TIMEOUT loose enough to overflow that budget won't fail
@@ -277,7 +279,7 @@ func run() error {
 	// resets on every deploy; the daily quota lives in Postgres and actually holds
 	// (docs/ASSIST.md §3.4).
 	assistCheck, assistSpend := aiBudget.For(aibudget.KindAssist)
-	assistHandler := assist.NewHandler(assistImpl, assistLimiter, assistCheck, assistSpend, gemini.AssistRunBudget(cfg.AssistTimeout), logger)
+	assistHandler := assist.NewHandler(assistImpl, assistLimiter, assistCheck, assistSpend, renderer, gemini.AssistRunBudget(cfg.AssistTimeout), logger)
 
 	// The leaderboard is a read-only slice (docs/API.md §11): a small single-route
 	// module over the shared queries, like assist — a global top-N read that shares

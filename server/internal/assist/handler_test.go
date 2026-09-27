@@ -27,7 +27,10 @@ const testSecret = "assist-test-secret-please-ignore-0000000"
 // unexported); the tests hardcode the wire name.
 const sessionCookieName = "jp_session"
 
-const validBody = `{"prompt":"draw a house","docSummary":{"canvas":{"width":1080,"height":1080},"layers":[]},"targetLayerId":null}`
+// blankDoc is a valid one-layer document with nothing drawn yet.
+const blankDoc = `{"version":1,"width":1080,"height":1080,"background":null,"layers":[{"id":"l1","name":"Layer 1","visible":true,"opacity":1,"strokes":[]}]}`
+
+const validBody = `{"prompt":"draw a house","document":` + blankDoc + `,"targetLayerId":null}`
 
 // authMiddleware builds the real RequireAuth middleware over a nil-DB auth service
 // (RequireAuth only reads the JWT secret, never the DB), so the assist tests
@@ -110,10 +113,8 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 func TestGenerateOps(t *testing.T) {
-	// A prompt one byte over the cap, wrapped in an otherwise-valid body (stays well
-	// under the 64 KiB body cap, so it reaches the prompt guard, not the decoder).
-	longPromptBody := `{"prompt":"` + strings.Repeat("a", maxPromptBytes+1) +
-		`","docSummary":{"canvas":{"width":1080,"height":1080},"layers":[]},"targetLayerId":null}`
+	// A prompt one byte over the cap, in an otherwise-valid body well under the body cap.
+	longPromptBody := `{"prompt":"` + strings.Repeat("a", maxPromptBytes+1) + `","document":` + blankDoc + `}`
 
 	tests := []struct {
 		name       string
@@ -139,10 +140,25 @@ func TestGenerateOps(t *testing.T) {
 			wantCode:   "unauthorized",
 		},
 		{
-			name:       "400 on an unknown field (strict decode)",
+			name:       "200 with an unknown field (document routes decode laxly)",
 			impl:       NewFakeAssist(),
 			withCookie: true,
-			body:       `{"prompt":"x","docSummary":{"canvas":{"width":1,"height":1},"layers":[]},"bogus":true}`,
+			body:       `{"prompt":"x","document":` + blankDoc + `,"bogus":true}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "400 on an invalid document",
+			impl:       NewFakeAssist(),
+			withCookie: true,
+			body:       `{"prompt":"x","document":{"version":1,"width":0,"height":1080,"background":null,"layers":[]}}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "validation_failed",
+		},
+		{
+			name:       "400 without a document",
+			impl:       NewFakeAssist(),
+			withCookie: true,
+			body:       `{"prompt":"x"}`,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "validation_failed",
 		},
@@ -158,7 +174,7 @@ func TestGenerateOps(t *testing.T) {
 			name:       "400 on a whitespace-only prompt",
 			impl:       NewFakeAssist(),
 			withCookie: true,
-			body:       `{"prompt":"   ","docSummary":{"canvas":{"width":1080,"height":1080},"layers":[]},"targetLayerId":null}`,
+			body:       `{"prompt":"   ","document":` + blankDoc + `}`,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "validation_failed",
 		},
@@ -200,7 +216,7 @@ func TestGenerateOps(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			h := NewHandler(tc.impl, NewRateLimiter(DefaultBurst, time.Minute), nil, nil, 0, slog.New(slog.DiscardHandler))
+			h := NewHandler(tc.impl, NewRateLimiter(DefaultBurst, time.Minute), nil, nil, nil, 0, slog.New(slog.DiscardHandler))
 			var cookie *http.Cookie
 			if tc.withCookie {
 				cookie = mintCookie(t, "u1")
@@ -236,7 +252,7 @@ func TestGenerateOps(t *testing.T) {
 // second request gets 429 rate_limited plus a Retry-After header (set before
 // web.Error, per the ordering trap in NOTES.md).
 func TestGenerateOps_RateLimited(t *testing.T) {
-	h := NewHandler(NewFakeAssist(), NewRateLimiter(1, time.Minute), nil, nil, 0, slog.New(slog.DiscardHandler))
+	h := NewHandler(NewFakeAssist(), NewRateLimiter(1, time.Minute), nil, nil, nil, 0, slog.New(slog.DiscardHandler))
 	cookie := mintCookie(t, "u1")
 
 	if rec := serve(t, h, cookie, validBody); rec.Code != http.StatusOK {
@@ -270,7 +286,7 @@ func TestGenerateOps_DailyBudget(t *testing.T) {
 		refuse := func(context.Context, string) error {
 			return &aibudget.KindSpentError{Kind: aibudget.KindAssist, Cap: 40}
 		}
-		h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute), refuse, nil, 0, slog.New(slog.DiscardHandler))
+		h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute), refuse, nil, nil, 0, slog.New(slog.DiscardHandler))
 
 		rec := serve(t, h, mintCookie(t, "u1"), validBody)
 		if rec.Code != http.StatusTooManyRequests {
@@ -295,7 +311,7 @@ func TestGenerateOps_DailyBudget(t *testing.T) {
 			return nil
 		}
 		h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute),
-			func(context.Context, string) error { return nil }, spend, 0, slog.New(slog.DiscardHandler))
+			func(context.Context, string) error { return nil }, spend, nil, 0, slog.New(slog.DiscardHandler))
 
 		if rec := serve(t, h, mintCookie(t, "u1"), validBody); rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body)
@@ -317,7 +333,7 @@ func TestGenerateOps_SpendRefusalIs429(t *testing.T) {
 		return &aibudget.KindSpentError{Kind: aibudget.KindAssist, Cap: 40, Noun: aibudget.KindAssist.Noun()}
 	}
 	h := NewHandler(impl, NewRateLimiter(DefaultBurst, time.Minute),
-		func(context.Context, string) error { return nil }, refuse, 0, slog.New(slog.DiscardHandler))
+		func(context.Context, string) error { return nil }, refuse, nil, 0, slog.New(slog.DiscardHandler))
 
 	rec := serve(t, h, mintCookie(t, "u1"), validBody)
 	if rec.Code != http.StatusTooManyRequests {
@@ -371,4 +387,53 @@ type callCountingAssist struct{ onCall func() }
 func (c callCountingAssist) GenerateOps(ctx context.Context, req Request) (Result, error) {
 	c.onCall()
 	return NewFakeAssist().GenerateOps(ctx, req)
+}
+
+// imageAssist records the request it was sent and says it reads images.
+type imageAssist struct{ got *Request }
+
+func (a imageAssist) ReadsImage() bool { return true }
+
+func (a imageAssist) GenerateOps(ctx context.Context, req Request) (Result, error) {
+	*a.got = req
+	return NewFakeAssist().GenerateOps(ctx, req)
+}
+
+// countingRenderer returns a fixed PNG stand-in and counts the renders.
+type countingRenderer struct{ calls *int }
+
+func (r countingRenderer) Render(context.Context, document.Document) ([]byte, error) {
+	*r.calls++
+	return []byte("png"), nil
+}
+
+func TestGenerateOps_RendersTheCanvasForAnImageReader(t *testing.T) {
+	var got Request
+	calls := 0
+	h := NewHandler(imageAssist{got: &got}, NewRateLimiter(DefaultBurst, time.Minute),
+		nil, nil, countingRenderer{&calls}, 0, slog.New(slog.DiscardHandler))
+
+	if rec := serve(t, h, mintCookie(t, "u1"), validBody); rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if calls != 1 || string(got.Image) != "png" {
+		t.Errorf("renders = %d, image = %q; want one render handed to the impl", calls, got.Image)
+	}
+	// The summary is derived from the document, not taken from the client.
+	if s := got.DocSummary; s.Canvas.Width != 1080 || len(s.Layers) != 1 || s.Layers[0].ID != "l1" {
+		t.Errorf("summary = %+v, want the document's canvas and its one layer", s)
+	}
+}
+
+func TestGenerateOps_DoesNotRenderForAnImplThatReadsNoImage(t *testing.T) {
+	calls := 0
+	h := NewHandler(NewFakeAssist(), NewRateLimiter(DefaultBurst, time.Minute),
+		nil, nil, countingRenderer{&calls}, 0, slog.New(slog.DiscardHandler))
+
+	if rec := serve(t, h, mintCookie(t, "u1"), validBody); rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if calls != 0 {
+		t.Errorf("rendered %d times for an impl that reads no image", calls)
+	}
 }

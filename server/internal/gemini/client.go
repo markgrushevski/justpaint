@@ -61,6 +61,9 @@ func NewClient(label, apiKey, model, baseURL string, timeout time.Duration) Clie
 // JSONRequest is one text-only structured-output ask.
 type JSONRequest struct {
 	System string
+	// Before and Image, when set, open the user turn: text, then the PNG, then User.
+	Before string
+	Image  []byte
 	User   string
 	Schema *Schema
 	// MaxOutputTokens of zero means the model's default. A list answer must set it: a
@@ -69,11 +72,22 @@ type JSONRequest struct {
 	MaxOutputTokens int
 }
 
-// GenerateJSON runs one text-only structured-output call at geminiTemperature.
+// GenerateJSON runs one structured-output call at geminiTemperature.
 func (c *Client) GenerateJSON(ctx context.Context, req JSONRequest) (Output, error) {
+	var parts []geminiPart
+	if req.Before != "" {
+		parts = append(parts, geminiPart{Text: req.Before})
+	}
+	if req.Image != nil {
+		if err := checkGeminiPNG("image", req.Image); err != nil {
+			return Output{}, err
+		}
+		parts = append(parts, geminiPart{InlineData: geminiPNGPart(req.Image)})
+	}
+	parts = append(parts, geminiPart{Text: req.User})
 	body, err := json.Marshal(geminiRequest{
 		SystemInstruction: &geminiContent{Parts: []geminiPart{{Text: req.System}}},
-		Contents:          []geminiContent{{Role: "user", Parts: []geminiPart{{Text: req.User}}}},
+		Contents:          []geminiContent{{Role: "user", Parts: parts}},
 		GenerationConfig: geminiGenerationConfig{
 			Temperature:      geminiTemperature,
 			ResponseMIMEType: "application/json",

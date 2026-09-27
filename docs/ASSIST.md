@@ -38,12 +38,12 @@ type Op =
 
 | Rule | Why |
 |---|---|
-| `stroke` is restricted to `line \| rect \| ellipse \| polygon` | **Freehand is excluded in v1**: LLM point-path generation is low quality (jittery, self-intersecting paths); `polygon` already covers arbitrary shapes. Freehand generation is Phase C. |
+| `stroke` is restricted to `line \| rect \| ellipse \| polygon` | **Freehand is excluded in v1**: `polygon` already covers arbitrary shapes, and LLM point paths are poor. Allowing it was tried on two prompts: the model left a cat without it and drew grass as five sparse three-point strokes, no better than lines and worse than a filled rect. It does not produce the dense paths a brush needs. Freehand generation is Phase C. |
 | `add_layer` carries an LLM-assigned **`id`**; `add_stroke.layerId` resolves against (existing summary layer ids) ∪ (`add_layer` ids **earlier in the same batch**), in array order | Lets one prompt "add a layer, then draw on it" without a round-trip. The `id` lives in the single id-namespace (deduped like any layer/stroke id); a **dangling or forward** reference is a validation failure. |
-| Every produced stroke passes the existing per-stroke validators; the batch is capped at `maxOpsPerBatch` (**64**) | The Op schema adds no new stroke invariants — it composes the existing `Stroke`/`Layer` contract. The endpoint sees only the doc summary, so **whole-document** caps (maxLayers/maxStrokes/maxTotalPoints) fire at the drawings save write-edge, not here — the op validator enforces per-stroke + per-batch caps. |
+| Every produced stroke passes the existing per-stroke validators; the batch is capped at `maxOpsPerBatch` (**64**) | The Op schema adds no new stroke invariants — it composes the existing `Stroke`/`Layer` contract. The op validator checks the batch against the summary alone, so **whole-document** caps (maxLayers/maxStrokes/maxTotalPoints) on the document *with* the batch fire at the drawings save write-edge, not here; the op validator enforces per-stroke and per-batch caps. |
 | The Op schema is validated on the server only | `server/internal/document` (`ValidateOpBatch`) enforces every invariant; the TS `Op` type mirrors this doc. A schema change lands in this doc, the Go validator and its tests, and the TS type together. |
 
-`update_stroke` / `delete_stroke` are **v2**: they require the LLM to reference existing stroke ids from the doc summary (§4), which only pays off with iterative chat (Phase B). The union is designed so adding them is additive — new `kind` values, no change to v1 ops.
+`update_stroke` / `delete_stroke` are **v2**: they require the LLM to reference existing strokes by id (§4 lists them without ids today), which only pays off with iterative chat (Phase B). The union is designed so adding them is additive — new `kind` values, no change to v1 ops.
 
 ## 3. Server — `internal/assist` (a judge-style seam)
 
@@ -60,8 +60,8 @@ A new Go module `server/internal/assist/` mirroring the `internal/judge` seam pa
 ```jsonc
 // request
 {
-  "prompt": "draw a house with a red roof",
-  "docSummary": { /* §4 */ },
+  "prompt": "add a red roof to the house",
+  "document": { /* the current vector document — §4 */ },
   "targetLayerId": "l1"        // optional: bias generation onto this layer
 }
 
@@ -89,7 +89,7 @@ There are exactly two modes, `fake` and `gemini`. An unrecognized `ASSIST_MODE` 
 
 **What `gemini.Assist` sends:**
 
-- **One `generateContent` call per attempt, text only** — no image part, since the endpoint sees only the doc summary (§4). Non-streaming; op batches are small and streaming buys nothing (a non-goal, §8).
+- **One `generateContent` call per attempt:** the canvas facts, the rendered picture and the request (§4). Non-streaming; op batches are small and streaming buys nothing (a non-goal, §8).
 - **Structured output**, exactly as the judge does it: `responseMimeType: "application/json"` plus a `responseSchema`, and `temperature: 0` (pinned by the shared client, not an argument a caller may pass — a caller that wants a different answer has to ask a different question).
 - **The model is the same knob every Gemini seam reads**: `GEMINI_MODEL` (default `gemini-3.6-flash`), overridden for this kind alone by `AI_MODEL_PER_KIND=assist=…`; `GEMINI_BASE_URL` for the API root. Assist gets **no model knob of its own**, because the quota assist spends is counted per provider **and model** (`GAME.md` §4.3), so the model id and the budget key have to be the same fact, and a second knob could only ever disagree with it.
 - **`maxOutputTokens: 8192`**, and this one is not a preference. Left unset, a thinking model spends its whole default output budget reasoning and runs out partway through the shape list; the API then **closes the JSON so it stays parseable**, and what arrives is a syntactically perfect object whose last shape is half written (`{"type":"rect","x":0,"y":0` and then the brackets). It fails validation as a zero-area rect and reads exactly like a model that cannot draw a house. The impl checks `gemini.Output.Finish == "MAX_TOKENS"` and says so in the retry (§3.3). The number is deliberately loose: a whole house costs ~450 tokens, and the budget also pays for the thinking.
@@ -147,21 +147,15 @@ The bucket bounds the **rate** — how fast one user may ask — and it lives *i
 
 Order in the handler: the bucket first, before the body is even decoded; then the body/prompt guards; then the daily ceiling, last of the guards and immediately before the one line that costs money — the point of a quota is to refuse *before* the call, never after paying for it. The spend is recorded **before** the impl is invoked, never after: a call that fails still spent the provider's quota. That record is itself a gate — a conditional insert that writes the call's rows only while the caller is under their cap — so the same `429` can come from the write as well as from the check above it, and the two are deliberately indistinguishable on the wire. The budget's two refusals are also `429 rate_limited` but carry **no** `Retry-After` (the window rolls continuously, so there is no fixed reset to name); exact messages and status map: `docs/API.md` §10.
 
-## 4. The doc summary (token thrift)
+## 4. What the model sees
 
-The full document jsonb is **never** sent to the LLM (a max doc is ~2.5–3 MB — pure token waste, and freehand point arrays are noise to a shape-composing model). The client sends a compact summary:
+The client sends the **current document**, rounded to write precision and validated by the server like any other write (8 MB cap). The jsonb itself never reaches the model: a max doc is ~2.5–3 MB, and point arrays are noise to a shape-composing model. The server turns it into three parts of the user turn, in this order:
 
-```ts
-interface DocSummary {
-  canvas: { width: number; height: number };
-  layers: Array<{ id: string; name: string; strokeCount: number }>;
-}
-// This MINIMAL shape ships (the fake Assist ignores the summary). Per-stroke
-// `bbox` / `recent_strokes` / a `style` projection are deferred until a real
-// prompt-composition need justifies the token cost.
-```
+1. **The canvas facts, in our words:** the size, the layer inventory, and the **visible** strokes with integer canvas coordinates — a rect as its x and y spans, an ellipse as centre and radii, a polygon or line as its corners (or its bounds past eight), a pen or eraser stroke as its bounds. Past 60 strokes the list keeps the largest, in drawing order, and says how many it left out. The layer inventory is `document.Summarize(doc)`, the same `DocSummary` the op batch is validated against — derived by the server, no longer taken from the client.
+2. **The picture:** the document rendered by the worker that renders judged rasters (1024² contain-fit, opaque white). Only an impl that reads images gets it (`assist.ReadsImage`); the fake does not, so it costs no render.
+3. **The request,** last, labelled and `%q`-quoted (§3.2).
 
-This gives the LLM the canvas size and the layer inventory without ever sending point paths. (Phase A stops here; per-stroke bboxes / recent strokes / styling — the richer signals for *placing* shapes — are a deferred enrichment the deterministic fake Assist doesn't need. Stroke ids, once summarized, are what v2 edit ops will reference.)
+The picture is letterboxed when the canvas is not square, so the instruction tells the model to take **positions from the list** and use the picture for **meaning**: what the shapes depict. That split is what lets "add a roof to the house" land exactly on the walls. The model still only adds shapes; changing what is drawn needs the edit ops of Phase B (§7).
 
 ## 5. Client (`apps/web`)
 
@@ -186,7 +180,7 @@ Same playbook as the judge seam:
 
 - **Phase A (MVP, 2026-07-13):** v1 ops (`add_layer`, `add_stroke`), ghost preview + accept/reject, `FakeAssist`, the prompt panel in `/draw`.
 - **The real impl (2026-09-20):** `gemini.Assist` behind `ASSIST_MODE=gemini` — same ops, same client, same UX, a prompt that is finally read (§3.2). The external ML judge may still take this seam later, which is what the interface is for.
-- **Phase B:** edit ops (`update_stroke`, `delete_stroke`); iterative chat that references existing stroke ids from the doc summary.
+- **Phase B:** edit ops (`update_stroke`, `delete_stroke`); iterative chat that references existing strokes by id.
 - **Phase C:** freehand generation; **AI inpainting** via the render worker (`renderToPNG`) + an image API — requires an image/raster stroke type in the document contract (a separate decision, format §9 additive-field rules).
 
 ## 8. Non-goals (v1)

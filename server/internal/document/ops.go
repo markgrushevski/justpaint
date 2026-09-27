@@ -83,13 +83,24 @@ type SummaryLayer struct {
 	StrokeCount int    `json:"strokeCount"`
 }
 
-// DocSummary is the minimal document summary the assist endpoint receives: just
-// enough to seed the id namespace and resolve layer references, never the full
-// document (docs/ASSIST.md §4). It is the client's own already-validated data, so
-// it is trusted here — only the ops are validated. Mirror of the TS DocSummary.
+// DocSummary is what an op batch is validated against: the canvas size and the layer
+// inventory, enough to seed the id namespace and resolve layer references
+// (docs/ASSIST.md §4). It is derived from a validated document by Summarize.
 type DocSummary struct {
 	Canvas SummaryCanvas  `json:"canvas"`
 	Layers []SummaryLayer `json:"layers"`
+}
+
+// Summarize derives the DocSummary of a validated document.
+func Summarize(doc Document) DocSummary {
+	s := DocSummary{
+		Canvas: SummaryCanvas{Width: doc.Width, Height: doc.Height},
+		Layers: make([]SummaryLayer, 0, len(doc.Layers)),
+	}
+	for _, l := range doc.Layers {
+		s.Layers = append(s.Layers, SummaryLayer{ID: l.ID, Name: l.Name, StrokeCount: len(l.Strokes)})
+	}
+	return s
 }
 
 // ParseAndValidateOpBatch decodes a raw op-batch JSON array, enforces required

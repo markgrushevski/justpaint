@@ -41,7 +41,7 @@ func postThroughServer(t *testing.T, h *Handler, writeTimeout time.Duration) (*h
 
 func newSlowHandler(delay, runBudget time.Duration) *Handler {
 	return NewHandler(slowAssist{delay: delay}, NewRateLimiter(DefaultBurst, time.Minute),
-		nil, nil, runBudget, slog.New(slog.DiscardHandler))
+		nil, nil, nil, runBudget, slog.New(slog.DiscardHandler))
 }
 
 func TestGenerateOps_OutlivesTheServerWriteTimeout(t *testing.T) {

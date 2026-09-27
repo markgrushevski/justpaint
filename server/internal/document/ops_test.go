@@ -127,3 +127,23 @@ func TestDecodeOpBatch_Union(t *testing.T) {
 		t.Errorf("op 1: got %T, want *AddStrokeOp", ops[1])
 	}
 }
+
+func TestSummarize(t *testing.T) {
+	doc, err := document.ParseAndValidate([]byte(validFull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := document.Summarize(doc)
+	if got.Canvas.Width != 1920 || got.Canvas.Height != 1080 {
+		t.Errorf("canvas = %+v, want 1920x1080", got.Canvas)
+	}
+	want := []document.SummaryLayer{{ID: "shapes", Name: "Shapes", StrokeCount: 4}, {ID: "ink", Name: "Ink", StrokeCount: 2}}
+	if len(got.Layers) != len(want) {
+		t.Fatalf("layers = %+v, want %+v", got.Layers, want)
+	}
+	for i := range want {
+		if got.Layers[i] != want[i] {
+			t.Errorf("layer %d = %+v, want %+v", i, got.Layers[i], want[i])
+		}
+	}
+}

@@ -2,6 +2,13 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-09-27 — The assist model sees the canvas
+
+- **Why:** the model got the prompt, the canvas size and the layer names, so "add a roof to my house" had nothing to place against.
+- **What:** the client sends the document (8 MB cap, the full validator), and the server gives the model a list of the visible shapes with integer coordinates plus the canvas rendered by the judged-raster worker (`docs/ASSIST.md` §4). The layer summary the ops are validated against is now derived server-side instead of trusted from the client.
+- **Positions from the list, meaning from the picture:** the picture is letterboxed into a square, so the instruction forbids measuring it.
+- **Only an impl that reads images gets a render** (`assist.ReadsImage`), so the fake costs no worker process.
+
 ## 2026-09-27 — A practice run keeps its drawing, in `practice_runs`
 
 - **Why:** a practice history needs the picture, and until now nothing outlived the response but the score.

@@ -373,15 +373,17 @@ func TestAssist_UserTurn(t *testing.T) {
 		t.Fatalf("contents has %d turns, want 1", len(contents))
 	}
 	parts := geminiArr(t, geminiObj(t, contents[0], "contents[0]")["parts"], "contents[0].parts")
-	if len(parts) != 1 {
-		t.Fatalf("the user turn has %d parts, want 1 — there are no images in this seam", len(parts))
+	// No image on this request, so two text parts: the canvas facts, then the request.
+	if len(parts) != 2 {
+		t.Fatalf("the user turn has %d parts, want 2", len(parts))
 	}
-	userText := geminiStr(t, geminiObj(t, parts[0], "parts[0]")["text"], "user text")
+	canvasText := geminiStr(t, geminiObj(t, parts[0], "parts[0]")["text"], "canvas text")
+	userText := geminiStr(t, geminiObj(t, parts[1], "parts[1]")["text"], "user text")
 
-	if !strings.Contains(userText, "1080 wide and 1080 tall") {
-		t.Errorf("the user turn does not state the canvas size:\n%s", userText)
+	if !strings.Contains(canvasText, "1080 wide and 1080 tall") {
+		t.Errorf("the user turn does not state the canvas size:\n%s", canvasText)
 	}
-	if !strings.Contains(userText, "(the one they are working on)") {
+	if !strings.Contains(canvasText, "(the one they are working on)") {
 		t.Error("targetLayerId reached the model as nothing at all; it is documented as a BIAS")
 	}
 	// Quoted, so the model sees where the request starts and ends, and labelled with
@@ -394,8 +396,8 @@ func TestAssist_UserTurn(t *testing.T) {
 	}
 	// The untrusted text is last: everything about the canvas is stated before
 	// the model reads any of it.
-	if strings.Index(userText, strconv.Quote(prompt)) < strings.Index(userText, "The canvas is") {
-		t.Error("the prompt precedes the canvas facts; untrusted text belongs last")
+	if strings.Contains(canvasText, prompt) {
+		t.Error("the prompt leaked into the canvas facts; untrusted text belongs last")
 	}
 }
 
@@ -426,7 +428,7 @@ func TestAssist_RetriesOnInvalidBatch(t *testing.T) {
 		t.Fatalf("second request is not JSON: %v", err)
 	}
 	parts := geminiArr(t, geminiObj(t, geminiArr(t, second["contents"], "contents")[0], "turn")["parts"], "parts")
-	retryText := geminiStr(t, geminiObj(t, parts[0], "parts[0]")["text"], "user text")
+	retryText := geminiStr(t, geminiObj(t, parts[len(parts)-1], "last part")["text"], "user text")
 	if !strings.Contains(retryText, "could not be drawn") {
 		t.Errorf("the retry does not tell the model what went wrong:\n%s", retryText)
 	}
@@ -534,7 +536,7 @@ func TestAssist_TruncatedAnswerSaysSo(t *testing.T) {
 		t.Fatalf("second request is not JSON: %v", err)
 	}
 	parts := geminiArr(t, geminiObj(t, geminiArr(t, second["contents"], "contents")[0], "turn")["parts"], "parts")
-	if retry := geminiStr(t, geminiObj(t, parts[0], "parts[0]")["text"], "user text"); !strings.Contains(retry, "cut off") {
+	if retry := geminiStr(t, geminiObj(t, parts[len(parts)-1], "last part")["text"], "user text"); !strings.Contains(retry, "cut off") {
 		t.Errorf("the retry does not tell the model its answer was truncated:\n%s", retry)
 	}
 }
@@ -688,5 +690,84 @@ func TestAssist_CallsProvider(t *testing.T) {
 	}
 	if assist.CallsProvider(assist.NewFakeAssist()) {
 		t.Error("FakeAssist is offline by construction and must never be billed")
+	}
+}
+
+// TestAssist_SeesTheCanvas: the model gets the canvas as it is now, as a list of
+// what is drawn (for positions) and a picture between that list and the request.
+func TestAssist_SeesTheCanvas(t *testing.T) {
+	a, stub := newTestAssist(t, replyWith(houseOutput))
+	fill, outline := document.Color("#cfe8ff"), document.Color("#1b1b1b")
+	doc := document.Document{Version: 1, Width: 1080, Height: 1080, Layers: []document.Layer{
+		{ID: "l1", Name: "House", Visible: true, Opacity: 1, Strokes: []document.Stroke{
+			&document.RectStroke{StrokeBase: document.StrokeBase{ID: "body", Type: document.StrokeRect},
+				X: 300, Y: 400, Width: 400, Height: 400, Fill: &fill, Stroke: &outline},
+			&document.FreehandStroke{StrokeBase: document.StrokeBase{ID: "pen", Type: document.StrokeFreehand},
+				Color: "#000000", Points: []document.FreehandPoint{{100, 100, 0.5}, {200, 150, 0.5}},
+				Brush: document.BrushOptions{Size: 10}},
+		}},
+		{ID: "l2", Name: "Hidden", Visible: false, Opacity: 1, Strokes: []document.Stroke{
+			&document.RectStroke{StrokeBase: document.StrokeBase{ID: "ghost", Type: document.StrokeRect},
+				X: 1, Y: 1, Width: 5, Height: 5},
+		}},
+	}}
+	png := append(append([]byte{}, geminiPNGMagic...), 1, 2, 3)
+
+	if _, err := a.GenerateOps(context.Background(), assist.Request{
+		Prompt: "add a roof", Document: doc, DocSummary: document.Summarize(doc), Image: png,
+	}); err != nil {
+		t.Fatalf("GenerateOps: %v", err)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(stub.body(t, 1), &body); err != nil {
+		t.Fatalf("request body is not JSON: %v", err)
+	}
+	parts := geminiArr(t, geminiObj(t, geminiArr(t, body["contents"], "contents")[0], "turn")["parts"], "parts")
+	if len(parts) != 3 {
+		t.Fatalf("the user turn has %d parts, want the canvas facts, the picture and the request", len(parts))
+	}
+	image := geminiObj(t, geminiObj(t, parts[1], "parts[1]")["inlineData"], "inlineData")
+	if image["mimeType"] != "image/png" {
+		t.Errorf("parts[1] is %v, want the PNG", image["mimeType"])
+	}
+	canvasText := geminiStr(t, geminiObj(t, parts[0], "parts[0]")["text"], "canvas text")
+	for _, want := range []string{
+		`layer "House": rectangle x 300..700, y 400..800, fill #cfe8ff, outline #1b1b1b`,
+		`layer "House": pen stroke, colour #000000, x 95..205, y 95..155`,
+		"This is how the canvas looks now:",
+	} {
+		if !strings.Contains(canvasText, want) {
+			t.Errorf("the canvas facts lack %q:\n%s", want, canvasText)
+		}
+	}
+	if strings.Contains(canvasText, "Hidden\": rectangle") {
+		t.Error("a hidden layer's shapes were listed, though the picture does not show them")
+	}
+	if user := geminiStr(t, geminiObj(t, parts[2], "parts[2]")["text"], "user text"); !strings.Contains(user, `"add a roof"`) {
+		t.Errorf("the request is not the last part:\n%s", user)
+	}
+}
+
+// TestDescribeShapes_KeepsTheLargest: past the cap the list keeps the largest
+// shapes, in drawing order, and says how many it left out.
+func TestDescribeShapes_KeepsTheLargest(t *testing.T) {
+	strokes := make([]document.Stroke, maxListedShapes+10)
+	for i := range strokes {
+		size := float64(i + 1) // stroke i is (i+1)² in area
+		strokes[i] = &document.RectStroke{StrokeBase: document.StrokeBase{ID: strconv.Itoa(i), Type: document.StrokeRect},
+			X: 0, Y: 0, Width: size, Height: size}
+	}
+	got := describeShapes(document.Document{Layers: []document.Layer{{Name: "L", Visible: true, Strokes: strokes}}})
+
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	if len(lines) != maxListedShapes+1 {
+		t.Fatalf("got %d lines, want %d shapes and a count", len(lines), maxListedShapes)
+	}
+	if !strings.Contains(lines[0], "x 0..11,") {
+		t.Errorf("first listed shape is %q, want the 11th, the smallest kept", lines[0])
+	}
+	if want := "- and 10 smaller strokes not listed"; lines[len(lines)-1] != want {
+		t.Errorf("last line = %q, want %q", lines[len(lines)-1], want)
 	}
 }
