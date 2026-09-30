@@ -55,8 +55,8 @@ docs                contracts and decisions
   `server/`).
 - **Web:** `npm run dev -w @justpaint/web` (:7777) · `lint:all` / `lint:ci` · `test:a11y` ·
   `test:layout` — the last two need the dev server running.
-- **Server:** `npm run dev` (root) runs it on :8080 with `server/.env` loaded (copy `server/.env.example`,
-  which holds every default). In `server/`: `gofmt -l .` · `go vet ./...` · `go test ./...`; DB-backed
+- **Server:** `npm run dev` (root) builds the render worker, then runs the server on :8080 with
+  `server/.env` loaded (copy `server/.env.example`, which holds every default). In `server/`: `gofmt -l .` · `go vet ./...` · `go test ./...`; DB-backed
   tests skip without `DATABASE_URL` — `npx dotenv run -- go test ./...` runs them.
 - **DB:** `docker compose up -d`; `goose` and `sqlc` (`server/sqlc.yaml`) are external CLIs.
 - **CI** runs the same gates, but Go tests run with `-race`, which needs cgo and so doesn't run on a stock

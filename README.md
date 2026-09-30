@@ -32,7 +32,7 @@ docker compose up -d                  # Postgres 17 on :5432
 cp server/.env.example server/.env    # every server setting with its default; works as is for dev
 npm install
 
-npm run dev                           # API on :8080; loads server/.env, migrates the database at boot
+npm run dev                           # API on :8080; builds the render worker, loads server/.env, migrates
 npm run dev -w @justpaint/web         # app on :7777 (second terminal), proxies /api to :8080
 ```
 
@@ -58,7 +58,7 @@ model, so every AI call goes through a daily ledger with a per-player and a glob
 
 | Command | Does |
 |---|---|
-| `npm run dev` | the server on :8080 with `server/.env` loaded |
+| `npm run dev` | the render worker build, then the server on :8080 with `server/.env` loaded |
 | `npm run build` / `types` / `test` | build, typecheck, test every TS workspace |
 | `npm run format` / `format:check` | prettier (skips `docs/` and `server/`) |
 | `npm run lint:all -w @justpaint/web` | prettier, stylelint, eslint, contrast and stylesheet checks |
