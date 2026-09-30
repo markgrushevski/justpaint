@@ -136,12 +136,12 @@ async function captureDrawing(): Promise<string | null> {
 // Without a prompt there is nothing to draw, so a lapsed session signs in and refetches.
 function handlePromptError(err: unknown): void {
     if (isAuthError(err)) {
-        void (async () => {
-            const signedIn = await gate.ensure('Sign in to practice.')
-            if (disposed) return
-            if (signedIn) void loadPrompt()
-            else toLoadError('Sign in to practice.')
-        })()
+        gate.ensure('Sign in to practice.').then((signedIn) => {
+            if (!disposed) {
+                if (signedIn) loadPrompt()
+                else toLoadError('Sign in to practice.')
+            }
+        })
         return
     }
     toLoadError(toApiError(err)?.message ?? 'Could not get a prompt. Try again.')
@@ -155,11 +155,10 @@ function handleSubmitError(err: unknown): void {
         // judge call.
         submitExhausted.value = false
         submitError.value = 'Your session expired — sign in, then submit again.'
-        void (async () => {
-            const signedIn = await gate.ensure('Sign in to have your drawing judged.')
+        gate.ensure('Sign in to have your drawing judged.').then((signedIn) => {
             if (disposed || !signedIn) return
             dismissSubmitError()
-        })()
+        })
         return
     }
     const api = toApiError(err)
@@ -226,7 +225,7 @@ function newPrompt(): void {
     prompt.value = null
     editor?.loadDocument(blankGameDocument())
     syncEditorState()
-    void loadPrompt()
+    loadPrompt()
 }
 
 function dismissSubmitError(): void {
@@ -235,11 +234,11 @@ function dismissSubmitError(): void {
 }
 
 function playDuel(): void {
-    void router.push('/play')
+    router.push('/play')
 }
 
 function viewLeaderboard(): void {
-    void router.push('/leaderboard')
+    router.push('/leaderboard')
 }
 
 function pickTool(id: ToolId) {
@@ -293,7 +292,7 @@ function onKeydown(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey) {
         if (key === 'enter') {
             e.preventDefault()
-            void submit()
+            submit()
         } else if (key === 'z' && !e.shiftKey) {
             e.preventDefault()
             editor?.undo()
@@ -340,7 +339,7 @@ onMounted(async () => {
         toLoadError('Sign in to practice.')
         return
     }
-    void loadPrompt()
+    loadPrompt()
 })
 
 onBeforeUnmount(() => {

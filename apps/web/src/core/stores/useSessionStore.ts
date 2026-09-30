@@ -9,6 +9,7 @@ import { auth, isAuthError, type User } from '../api'
  */
 export const useSessionStore = defineStore('session', () => {
     const user = ref<User | null>(null)
+
     const isLoggedIn = computed(() => user.value !== null)
 
     /**
@@ -16,21 +17,22 @@ export const useSessionStore = defineStore('session', () => {
      * A 401 is the expected anonymous case; any other failure (500 / network) is
      * logged, then also falls back to anonymous — it must not hide a real error.
      */
-    const restored = (async () => {
-        try {
-            user.value = await auth.me()
-        } catch (err) {
-            if (!isAuthError(err)) console.warn('session check failed:', err)
+    const restored = auth
+        .me()
+        .then((profile) => {
+            user.value = profile
+        })
+        .catch((err) => {
+            if (!isAuthError(err)) console.warn('Session check failed:', err)
             user.value = null
-        }
-    })()
+        })
 
     /**
      * Await that restore before concluding someone is anonymous. Nothing in the
      * app wants a re-restore: `login`/`register`/`clear` already write the
      * authoritative answer, so this resolves once and stays resolved.
      */
-    function ready(): Promise<void> {
+    async function ready(): Promise<void> {
         return restored
     }
 
