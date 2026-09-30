@@ -8,7 +8,7 @@
  * imports a host framework (ARCHITECTURE.md §3).
  */
 import Konva from 'konva'
-import { DEFAULT_BACKGROUND, DEFAULT_CANVAS, LIMITS } from './document'
+import { blankDocument, DEFAULT_BACKGROUND, LIMITS } from './document'
 import type { Document, Layer, Op, Stroke } from './document'
 import { newId } from './ids'
 import {
@@ -57,16 +57,6 @@ const GHOST_FRAME_DASH = [6, 4] as const
  */
 export type CanvasBackdrop = { type: 'color'; color: string } | { type: 'pattern'; image: CanvasImageSource }
 
-function blankDocument(): Document {
-    return {
-        version: 1,
-        width: DEFAULT_CANVAS.width,
-        height: DEFAULT_CANVAS.height,
-        background: DEFAULT_BACKGROUND,
-        layers: [{ id: newId(), name: 'Layer 1', visible: true, opacity: 1, strokes: [] }]
-    }
-}
-
 /** Clamp a name to the document's rune limit, falling back when empty. */
 function clampName(name: string, fallback: string): string {
     const runes = [...name.trim()]
@@ -114,7 +104,7 @@ export class Editor {
 
     constructor(container: HTMLDivElement, doc?: Document) {
         this.container = container
-        this.doc = doc ?? blankDocument()
+        this.doc = doc ?? { ...blankDocument(), background: DEFAULT_BACKGROUND }
         const first = this.doc.layers[0]
         this.activeLayerId = first ? first.id : newId()
         this.stage = toKonva(this.doc, container)
