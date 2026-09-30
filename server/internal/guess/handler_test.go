@@ -148,8 +148,8 @@ func TestGuess_RejectsBadRequests(t *testing.T) {
 	}
 }
 
-// A free-draw canvas is any size the format allows; the duel's square rule
-// (game.ValidateSubmission, reused by internal/practice) belongs to the duel.
+// A free-draw canvas is any size the format allows; the square canvas
+// (document.ValidateScored) belongs to scoring.
 func TestGuess_AcceptsAnyFreeDrawCanvas(t *testing.T) {
 	mux := workingMux(t)
 	sizes := [][2]int{

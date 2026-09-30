@@ -156,7 +156,7 @@ async function logout() {
 // double up on chrome.
 const signIn = () => {
     emit('close')
-    void gate.ensure()
+    gate.ensure()
 }
 
 // File actions: emit the action, then close the drawer (the action runs in the

@@ -2,6 +2,16 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-09-30 — sqlc without a repository layer; a feature never imports another
+
+- **No repository interfaces over sqlc.** Modules call the generated `db.Queries` directly (`docs/ARCHITECTURE.md` §4).
+  - The duel bills the AI budget inside the transaction that starts its round: `aibudget.BillPlayers` takes the caller's tx-scoped queries. Repositories per module would need a unit of work across two modules to keep that atomic.
+  - Handlers map rows to their own response types, so a query change can't reshape the API.
+  - DB-backed tests run against real Postgres and check the SQL itself (row locks, forfeits), which a fake repository could not.
+  - Revisit when a module is lifted out (`docs/ARCHITECTURE.md` §9) or a second store appears.
+- **A feature never imports another feature.** A rule two features share moves into the module that owns its subject. The scored-canvas rule is `document.ValidateScored`, used by the duel and by practice.
+- **The composition root is split by file, not moved to a package.** `cmd/server` holds `main.go` (process and shutdown), `app.go` (modules and routes) and `ai.go` (AI impls and their budget). An `internal/app` package would add an import path and nothing else.
+
 ## 2026-09-27 — The assist model sees the canvas
 
 - **Why:** the model got the prompt, the canvas size and the layer names, so "add a roof to my house" had nothing to place against.
@@ -201,7 +211,7 @@ The rate limiter and the request log both need an honest answer to "what is the 
 A WS layer pushes match-room state so both players see transitions instantly. Wire protocol: `docs/API.md` §9. Lifecycle: `docs/GAME.md` §9. Gotchas: `docs/NOTES.md`.
 
 - **An actor, not a mutex.** `internal/ws.Hub` is one goroutine servicing register/unregister/publish channels. The rooms map is touched only inside that loop, so there is no lock on the hot path. A stalled client is force-closed on a non-blocking send and never waited on, so one bad socket can't stall the fan-out. This is right for a single process; sharding would only pay off at a scale we aren't at.
-- **`game.Publisher` is defined in `game` and implemented by `ws`,** so there is no import cycle. `NopPublisher` is the default, which lets the game and its tests run with no realtime code at all. `main.go` wires the hub with `SetPublisher`.
+- **`game.Publisher` is defined in `game` and implemented by `ws`,** so there is no import cycle. `NopPublisher` is the default, which lets the game and its tests run with no realtime code at all. The composition root (`cmd/server/app.go`) wires the hub with `SetPublisher`.
 - **`match_state` and `result` are built per recipient.** `drawingId` depends on the viewer (own vs. opponent, `docs/GAME.md` §4.2), so the hub rebuilds those two frames once per user in the room, through the same viewer-scoped read the REST handlers use. Marshalling once would either leak the opponent's drawing mid-round or strip it from everyone. The other frame types carry nothing viewer-specific and are marshalled once.
 - **Postgres stays authoritative.** The hub only fans out snapshots of transitions `internal/game` has already committed, and submit stays an HTTP POST. The REST poll loop is never removed: it drops to a 15s reconciliation cadence while a socket is live and snaps back to 2s on disconnect, so a round completes without the socket.
 - **Cookie auth, a `4001` expiry close, strict same-origin.** The handshake reuses the `jp_session` cookie, `RequireAuth` and the membership-hidden 404, all before `Accept`. Nothing re-validates the cookie mid-connection, so the JWT `exp` arms a close with code `4001`, which the client reads as "re-authenticate". `OriginPatterns` is an explicit allow-list, never `*` or `InsecureSkipVerify`. A WS handshake bypasses CORS preflight, so otherwise a cross-site page could ride the victim's cookie.

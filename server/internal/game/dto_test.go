@@ -3,6 +3,8 @@ package game
 import (
 	"testing"
 	"time"
+
+	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
 func strptr(s string) *string { return &s }
@@ -111,8 +113,8 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 
 	t.Run("canvas echoes the canonical game size", func(t *testing.T) {
 		m := buildMatchDTO(roster(statusOpen, nil, nil), me, fixedNow)
-		if m.Canvas.Width != GameCanvasSize || m.Canvas.Height != GameCanvasSize {
-			t.Errorf("canvas = %dx%d, want %dx%d", m.Canvas.Width, m.Canvas.Height, GameCanvasSize, GameCanvasSize)
+		if m.Canvas.Width != document.ScoredCanvasSize || m.Canvas.Height != document.ScoredCanvasSize {
+			t.Errorf("canvas = %dx%d, want %dx%d", m.Canvas.Width, m.Canvas.Height, document.ScoredCanvasSize, document.ScoredCanvasSize)
 		}
 	})
 

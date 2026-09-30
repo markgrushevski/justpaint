@@ -72,7 +72,7 @@ type GuessView struct {
 
 // Guess renders the caller's drawing and asks the model what it is. doc is
 // already validated by the handler (document.ParseAndValidate, not
-// game.ValidateSubmission — see the handler for why).
+// document.ValidateScored — see the handler for why).
 //
 // Order matters: guesser configured, then budget checked, then render, then the
 // ledger spent immediately before the call (it re-checks the cap at write time,

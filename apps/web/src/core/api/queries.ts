@@ -53,7 +53,7 @@ export function useSaveDrawing() {
         mutationFn: ({ id, document, name }: SaveDrawingVars): Promise<DrawingMeta> =>
             id ? drawings.update(id, document, name) : drawings.create(document, name),
         onSuccess: () => {
-            void qc.invalidateQueries({ queryKey: drawingsKeys.list })
+            qc.invalidateQueries({ queryKey: drawingsKeys.list })
         }
     })
 }

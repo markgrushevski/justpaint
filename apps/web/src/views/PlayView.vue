@@ -210,7 +210,7 @@ function startCountdown(): void {
         const remainingMsNow = deadlineMs.value - (Date.now() + clockOffsetMs)
         if (remainingMsNow <= AUTO_SUBMIT_MARGIN_MS) {
             stopCountdown()
-            void submit() // near the server cutoff — auto-submit whatever is on the canvas
+            submit() // near the server cutoff — auto-submit whatever is on the canvas
         }
     }, 1000)
 }
@@ -243,7 +243,7 @@ async function recoverFromAuthError(): Promise<void> {
         if (signedIn && session.user) {
             // The visitor may have signed in as another account.
             myUserId = session.user.id
-            void startMatch()
+            startMatch()
         } else {
             toError('Sign in to play a duel.')
         }
@@ -254,7 +254,7 @@ async function recoverFromAuthError(): Promise<void> {
 
 function handleError(err: unknown): void {
     if (isAuthError(err)) {
-        void recoverFromAuthError()
+        recoverFromAuthError()
         return
     }
     // Not isRateLimited: the per-IP 429 clears in seconds (docs/API.md §3.1).
@@ -408,7 +408,7 @@ function openSocket(id: string): void {
             pollCadence.value = POLL_MS
             if (code === 4001) {
                 // Armed at the JWT exp (docs/API.md §9.1): the session is gone.
-                void recoverFromAuthError()
+                recoverFromAuthError()
                 return
             }
             scheduleReconnect()
@@ -551,11 +551,11 @@ function applyResult(r: MatchResultDone): void {
     }
     // The session store only refreshes user.rating at login or restore.
     if (session.user && me) session.user.rating = after
-    void queryClient.invalidateQueries({ queryKey: leaderboardKeys.all })
+    queryClient.invalidateQueries({ queryKey: leaderboardKeys.all })
     phase.value = 'done'
     stopCountdown()
     // Off the critical path; skipped for a forfeiter with no drawing.
-    if (matchId !== null && opp?.drawingId) void renderOpponentRaster(matchId, opp.userId)
+    if (matchId !== null && opp?.drawingId) renderOpponentRaster(matchId, opp.userId)
 }
 
 function playAgain(): void {
@@ -566,11 +566,11 @@ function playAgain(): void {
     result.value = null
     editor?.loadDocument(blankGameDocument())
     syncEditorState()
-    void startMatch()
+    startMatch()
 }
 
 function viewLeaderboard(): void {
-    void router.push('/leaderboard')
+    router.push('/leaderboard')
 }
 
 function pickTool(id: ToolId) {
@@ -624,7 +624,7 @@ function onKeydown(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey) {
         if (key === 'enter') {
             e.preventDefault()
-            void submit()
+            submit()
         } else if (key === 'z' && !e.shiftKey) {
             e.preventDefault()
             editor?.undo()
@@ -673,7 +673,7 @@ onMounted(async () => {
     }
     if (!session.user) return // gate only resolves true once a session exists
     myUserId = session.user.id
-    void startMatch()
+    startMatch()
 })
 
 onBeforeUnmount(() => {

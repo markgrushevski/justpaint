@@ -300,7 +300,7 @@ onMounted(() => {
     editor.setStyle({ ...DEFAULT_STYLE })
     // useThemeColor resolves in an earlier mounted hook; the watch covers late changes.
     editor.setCursorColor(cursorRingColor.value || null)
-    void applyBackdrop()
+    applyBackdrop()
     unsubscribe = editor.onChange(syncEditorState)
     syncEditorState()
     window.addEventListener('keydown', onKeydown)
@@ -524,7 +524,7 @@ function reportError(err: unknown, action: string) {
         // Don't replay the action: the visitor may sign in as someone else. Close the
         // cheat-sheet first, or its focus trap fights the dialog.
         shortcutsOpen.value = false
-        void gated(`Your session expired — sign in to ${action}.`)
+        gated(`Your session expired — sign in to ${action}.`)
         return
     }
     const api = toApiError(err)
@@ -711,7 +711,7 @@ function toggleGuess() {
         guessOpen.value = true
         return
     }
-    void requestGuess()
+    requestGuess()
 }
 </script>
 
@@ -860,7 +860,7 @@ function toggleGuess() {
                     class="draw__empty"
                     :signed-in="session.isLoggedIn"
                     @dismiss="dismissHint"
-                    @sign-in="void gated('Sign in to save and load your drawings.')"
+                    @sign-in="gated('Sign in to save and load your drawings.')"
                     @shortcuts="shortcutsOpen = true"
                 />
             </Transition>

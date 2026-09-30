@@ -13,7 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/markgrushevski/justpaint/server/internal/auth"
-	"github.com/markgrushevski/justpaint/server/internal/game"
+	"github.com/markgrushevski/justpaint/server/internal/document"
 )
 
 // testSecret signs the test session cookies; the same secret builds the auth
@@ -157,7 +157,7 @@ func TestPracticeRun_RejectsBadRequests(t *testing.T) {
 			body:     `{"promptId":"` + testPromptID + `","document":` + docOfSize(800, 600) + `}`,
 			wantCode: http.StatusBadRequest,
 			wantErr:  "validation_failed",
-			wantSaid: fmt.Sprintf("%d×%d", game.GameCanvasSize, game.GameCanvasSize),
+			wantSaid: fmt.Sprintf("%d×%d", document.ScoredCanvasSize, document.ScoredCanvasSize),
 		},
 		{
 			name:     "a missing document",
@@ -169,13 +169,13 @@ func TestPracticeRun_RejectsBadRequests(t *testing.T) {
 			// A non-UUID id can never name a row, so it is hidden as 404 exactly like a
 			// foreign one rather than reaching the ::uuid cast as a 500.
 			name:     "a promptId that is not a uuid",
-			body:     `{"promptId":"not-a-uuid","document":` + docOfSize(game.GameCanvasSize, game.GameCanvasSize) + `}`,
+			body:     `{"promptId":"not-a-uuid","document":` + docOfSize(document.ScoredCanvasSize, document.ScoredCanvasSize) + `}`,
 			wantCode: http.StatusNotFound,
 			wantErr:  "not_found",
 		},
 		{
 			name:     "a missing promptId",
-			body:     `{"document":` + docOfSize(game.GameCanvasSize, game.GameCanvasSize) + `}`,
+			body:     `{"document":` + docOfSize(document.ScoredCanvasSize, document.ScoredCanvasSize) + `}`,
 			wantCode: http.StatusNotFound,
 			wantErr:  "not_found",
 		},
@@ -216,7 +216,7 @@ func TestPractice_UnconfiguredRefusesHonestly(t *testing.T) {
 	mux := unconfiguredMux(t)
 
 	t.Run("run", func(t *testing.T) {
-		body := `{"promptId":"` + testPromptID + `","document":` + docOfSize(game.GameCanvasSize, game.GameCanvasSize) + `}`
+		body := `{"promptId":"` + testPromptID + `","document":` + docOfSize(document.ScoredCanvasSize, document.ScoredCanvasSize) + `}`
 		rec := post(t, mux, body, true)
 		if rec.Code != http.StatusInternalServerError {
 			t.Fatalf("status = %d, want 500 (body %s)", rec.Code, rec.Body.String())

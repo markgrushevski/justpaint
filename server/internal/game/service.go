@@ -23,9 +23,6 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/render"
 )
 
-// GameCanvasSize is the square game canvas (docs/GAME.md §2), enforced at submit.
-const GameCanvasSize = 1080
-
 // modeAsync is the only mode: live realtime is a transport, not a mode (docs/GAME.md §9).
 const modeAsync = "async"
 

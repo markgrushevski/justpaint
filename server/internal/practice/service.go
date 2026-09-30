@@ -99,8 +99,8 @@ func (s *Service) Prompt(ctx context.Context) (PromptView, error) {
 }
 
 // Run scores one drawing against the prompt it claims to answer. doc is already
-// validated by the handler (game.ValidateSubmission — one validator for both
-// modes); raw is the same document as sent, stored with the attempt.
+// validated by the handler (document.ValidateScored, as in a duel); raw is the
+// same document as sent, stored with the attempt.
 //
 // Order matters: budget checked first, then the prompt looked up (a foreign or
 // retired id is a 404), then an attempt row written before the critic runs, then

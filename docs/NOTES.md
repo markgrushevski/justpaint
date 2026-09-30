@@ -340,7 +340,7 @@ Don't unify them.
 line per request (`method`, `path`, `status`, `duration_ms`, `request_id`, `client_ip`). If `Recover`
 were the outer one, its closure would hold the original `r` and every panic log would have an empty
 `request_id`. `RateLimit` sits inside both. Re-check this, and `Unwrap()` below, before reordering the
-chain in `main.go`.
+chain in `cmd/server/app.go`.
 
 ### `TRUST_PROXY` decides what the client IP is
 
@@ -450,8 +450,8 @@ sweeper re-fire safe alongside a live pass. Keep it when refactoring.
 
 A pass (two renders plus the judge call with retries) runs under `game.JudgePassBudget` (60s). The
 judge makes up to 3 attempts (`JUDGE.md` §7), so at `JUDGE_TIMEOUT=10s` it alone may need 30s; a
-tighter budget silently cancels the last retry. `main.go` warns at boot when `3 × JUDGE_TIMEOUT` does
-not fit.
+tighter budget silently cancels the last retry. The server warns at boot (`cmd/server/ai.go`) when
+`3 × JUDGE_TIMEOUT` does not fit.
 
 ### The sweeper's `SKIP LOCKED` lists are only candidates
 

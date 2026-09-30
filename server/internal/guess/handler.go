@@ -75,10 +75,9 @@ func (h *Handler) Guess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// document.ParseAndValidate, NOT game.ValidateSubmission (which internal/practice
-	// uses): the duel's square GameCanvasSize rule belongs to the duel, where two
-	// players are compared on the same canvas. A free-draw canvas is any size the
-	// format allows, and importing that rule here would 400 exactly the drawings
+	// ParseAndValidate, not ValidateScored: the square canvas belongs to scoring,
+	// where drawings are compared on the same canvas. A free-draw canvas is any
+	// size the format allows, and the scoring rule would 400 exactly the drawings
 	// this feature exists to look at.
 	doc, err := document.ParseAndValidate(req.Document)
 	if err != nil {

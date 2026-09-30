@@ -11,7 +11,6 @@ import (
 	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/auth"
 	"github.com/markgrushevski/justpaint/server/internal/document"
-	"github.com/markgrushevski/justpaint/server/internal/game"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/platform/web"
 )
@@ -110,10 +109,9 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// One validator for anything that gets scored — the vector-document contract
-	// plus the square game canvas (game.ValidateSubmission). A practice drawing and
-	// a duel submission are the same artefact put to the same use.
-	doc, err := game.ValidateSubmission(req.Document)
+	// A practice drawing and a duel submission are the same artefact put to the
+	// same use, so they share one validator.
+	doc, err := document.ValidateScored(req.Document)
 	if err != nil {
 		msg := "invalid document"
 		var ve *document.ValidationError
