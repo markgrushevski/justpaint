@@ -22,7 +22,7 @@ The ML judge is an external service: this repo owns the `Judge` contract and its
 ```
 packages/editor     the vector document types and the Konva editor, consumed from source
 packages/render     headless worker that renders the judged raster
-apps/web            the Vue app
+apps/web            the Vue app, grouped by feature (src/features; ARCHITECTURE §3)
 server              Go modular monolith (internal/*)
 docs                contracts and decisions
 ```
