@@ -27,7 +27,7 @@ const emit = defineEmits<{
             <li>
                 <OriButton
                     class="empty__action"
-                    text="Start drawing"
+                    label="Start drawing"
                     variant="text"
                     color="surface"
                     radius="md"
@@ -39,12 +39,12 @@ const emit = defineEmits<{
             </li>
             <li>
                 <!-- RouterLink renders an <a>; color="primary" is the AA-safe
-                     text-role accent oriui derives for text/plain variants. -->
+                     text-role accent oriui derives for text/quiet variants. -->
                 <OriButton
                     class="empty__action"
                     :as="RouterLink"
                     to="/play"
-                    text="Play a duel"
+                    label="Play a duel"
                     variant="text"
                     color="primary"
                     radius="md"
@@ -62,7 +62,7 @@ const emit = defineEmits<{
                     class="empty__action"
                     :as="RouterLink"
                     to="/practice"
-                    text="Practice solo"
+                    label="Practice solo"
                     variant="text"
                     color="primary"
                     radius="md"
@@ -79,7 +79,7 @@ const emit = defineEmits<{
                     class="empty__action"
                     :as="RouterLink"
                     to="/leaderboard"
-                    text="Leaderboard"
+                    label="Leaderboard"
                     variant="text"
                     color="surface"
                     radius="md"
@@ -91,7 +91,7 @@ const emit = defineEmits<{
             <li v-if="!props.signedIn">
                 <OriButton
                     class="empty__action"
-                    text="Sign in"
+                    label="Sign in"
                     variant="text"
                     color="surface"
                     radius="md"
@@ -106,7 +106,7 @@ const emit = defineEmits<{
             <li class="empty__row--desktop">
                 <OriButton
                     class="empty__action"
-                    text="Keyboard shortcuts"
+                    label="Keyboard shortcuts"
                     variant="text"
                     color="surface"
                     radius="md"

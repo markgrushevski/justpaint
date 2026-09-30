@@ -44,7 +44,7 @@ const inProgress = computed(() => props.status !== 'submitted')
 
 <template>
     <OriSurface class="opp" :class="{ 'opp--offline': online === false }">
-        <OriAvatar class="opp__avatar" :text="name" color="secondary" size="sm" />
+        <OriAvatar class="opp__avatar" :name="name" color="secondary" size="sm" />
         <div class="opp__who">
             <span class="opp__name">{{ name }}</span>
             <span class="opp__status" :class="`opp__status--${status}`">
@@ -117,7 +117,7 @@ const inProgress = computed(() => props.status !== 'submitted')
 }
 
 .opp__status--drawing {
-    --dot-color: var(--ori-color-warn);
+    --dot-color: var(--ori-color-warning);
 }
 
 .opp__status--submitted {

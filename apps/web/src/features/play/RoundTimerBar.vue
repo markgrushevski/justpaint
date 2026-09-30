@@ -107,7 +107,7 @@ const clock = computed(() => {
 }
 
 .timer--warn {
-    --timer-color: var(--ori-color-warn);
+    --timer-color: var(--ori-color-warning);
 }
 
 .timer--danger {

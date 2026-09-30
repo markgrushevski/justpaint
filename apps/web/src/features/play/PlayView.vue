@@ -468,8 +468,8 @@ onBeforeUnmount(() => {
             <OriBadge
                 v-if="wsReconnecting"
                 content="reconnecting…"
-                color="warn"
-                variant="tonal"
+                color="warning"
+                variant="soft"
                 label="Reconnecting to the match"
             />
         </template>
@@ -520,14 +520,14 @@ onBeforeUnmount(() => {
                 <p class="play__notice-msg">{{ errorMsg }}</p>
                 <OriButton
                     v-if="exhausted"
-                    text="Leaderboard"
+                    label="Leaderboard"
                     variant="outline"
                     radius="md"
                     :icon="icons.podium"
                     icon-position="left"
                     @click="viewLeaderboard"
                 />
-                <OriButton v-else text="Try again" variant="fill" color="primary" radius="md" @click="startMatch" />
+                <OriButton v-else label="Try again" variant="solid" color="primary" radius="md" @click="startMatch" />
             </OriSurface>
             <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
             <ResultReveal

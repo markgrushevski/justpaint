@@ -117,7 +117,7 @@ Once a duel could be scored by a real model, every duel spent a metered resource
 - **`game.JudgePassBudget` (60s) bounds one judging pass.** A flat 30s pass timeout was incompatible with 3 judge attempts of 10s each: the third attempt could never finish once the renders had run. The budget is named, and boot warns when `3 × JUDGE_TIMEOUT` doesn't fit inside it (`docs/NOTES.md`).
 - **`GEMINI_MODEL` / `GEMINI_BASE_URL` are configurable, and the default model is pinned** (`gemini-3.6-flash`, not the floating `-latest` alias). Google renames and retires models on its own schedule, and a rename should be a config edit, not a code change. Because the judge decides ratings, a model that changes silently is worse than one that stops loudly.
 
-## 2026-09-18 — oriui pinned at exactly `1.0.0-rc.18`; we keep our own outline token
+## 2026-09-18 — oriui pinned to one exact version; we keep our own outline token
 
 - **Exact pins on all three packages, in lockstep.** A caret range on a prerelease would start matching a future stable `1.0.0`, which we'd then ship without deciding to. The `rc` dist-tag moves.
 - **We don't adopt `--ori-color-outline`.** It is a 12% tint of `currentcolor`, a hairline that follows text colour. `--jp-color-outline` is a fixed per-theme colour that `scripts/check-contrast.mjs` holds to the 3:1 non-text bar, which a tint can't meet. The two tokens share a name but do different jobs.

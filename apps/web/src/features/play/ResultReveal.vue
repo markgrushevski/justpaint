@@ -92,7 +92,7 @@ function scoreText(score: number): string {
             <!-- You -->
             <OriCard
                 class="result__side"
-                :variant="youWon ? 'tonal' : 'outline'"
+                :variant="youWon ? 'soft' : 'outline'"
                 :color="youWon ? 'primary' : 'surface'"
                 radius="md"
             >
@@ -115,7 +115,7 @@ function scoreText(score: number): string {
             <!-- Opponent -->
             <OriCard
                 class="result__side"
-                :variant="winnerIsOpp ? 'tonal' : 'outline'"
+                :variant="winnerIsOpp ? 'soft' : 'outline'"
                 :color="winnerIsOpp ? 'primary' : 'surface'"
                 radius="md"
             >
@@ -164,8 +164,8 @@ function scoreText(score: number): string {
         <div class="result__actions">
             <OriButton
                 class="result__again"
-                text="Play again"
-                variant="fill"
+                label="Play again"
+                variant="solid"
                 color="primary"
                 radius="md"
                 fluid
@@ -173,7 +173,7 @@ function scoreText(score: number): string {
             />
             <OriButton
                 class="result__leaderboard"
-                text="View leaderboard"
+                label="View leaderboard"
                 variant="outline"
                 color="surface"
                 radius="md"
@@ -228,7 +228,7 @@ function scoreText(score: number): string {
 }
 
 .result__side {
-    /* Winner tint is owned by OriCard's variant/color props (tonal+primary vs
+    /* Winner tint is owned by OriCard's variant/color props (soft+primary vs
        outline+surface) — no local border/background here. A hardcoded border
        would double up with OriCard's own variant border and always win, since
        unlayered styles beat oriui's @layer rules. */
@@ -252,7 +252,7 @@ function scoreText(score: number): string {
 
     padding: 0.05rem 0.5rem;
 
-    border-radius: var(--ori-size-radius_rounded, 999px);
+    border-radius: var(--ori-size-radius_full, 999px);
     background-color: var(--ori-color-primary);
     color: var(--ori-color-on-primary);
 
@@ -314,7 +314,7 @@ function scoreText(score: number): string {
     height: 0.5rem;
     overflow: hidden;
 
-    border-radius: var(--ori-size-radius_rounded, 999px);
+    border-radius: var(--ori-size-radius_full, 999px);
     background-color: color-mix(in srgb, var(--ori-color-on-surface) 12%, transparent);
 }
 
@@ -384,7 +384,7 @@ function scoreText(score: number): string {
 .result__delta {
     padding: 0.05rem 0.45rem;
 
-    border-radius: var(--ori-size-radius_rounded, 999px);
+    border-radius: var(--ori-size-radius_full, 999px);
 
     font-size: var(--ori-font-size_sm, 0.85rem);
     font-weight: 800;

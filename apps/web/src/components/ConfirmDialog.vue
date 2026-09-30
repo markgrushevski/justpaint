@@ -30,10 +30,10 @@ function onOpenChange(open: boolean) {
         <p v-if="props.message" class="confirm__message">{{ props.message }}</p>
 
         <div class="confirm__actions">
-            <OriButton :text="props.cancelText ?? 'Cancel'" variant="outline" radius="md" @click="emit('cancel')" />
+            <OriButton :label="props.cancelText ?? 'Cancel'" variant="outline" radius="md" @click="emit('cancel')" />
             <OriButton
-                :text="props.confirmText ?? 'Confirm'"
-                variant="fill"
+                :label="props.confirmText ?? 'Confirm'"
+                variant="solid"
                 :color="props.danger ? 'danger' : undefined"
                 radius="md"
                 @click="emit('confirm')"

@@ -224,9 +224,9 @@ onBeforeUnmount(() => assist.clear())
                     <p v-if="assist.note" class="draw__assist-note">{{ assist.note }}</p>
                     <div class="draw__assist-actions">
                         <OriButton
-                            variant="fill"
+                            variant="solid"
                             radius="md"
-                            :text="isEmpty ? 'Accept' : 'Add on top'"
+                            :label="isEmpty ? 'Accept' : 'Add on top'"
                             fluid
                             @click="assist.accept('add')"
                         />
@@ -234,11 +234,11 @@ onBeforeUnmount(() => assist.clear())
                             v-if="!isEmpty"
                             variant="outline"
                             radius="md"
-                            text="Replace drawing"
+                            label="Replace drawing"
                             fluid
                             @click="assist.accept('replace')"
                         />
-                        <OriButton variant="outline" radius="md" text="Reject" fluid @click="assist.reject" />
+                        <OriButton variant="outline" radius="md" label="Reject" fluid @click="assist.reject" />
                     </div>
                 </template>
                 <template v-else>
@@ -252,9 +252,9 @@ onBeforeUnmount(() => assist.clear())
                             @keydown.enter="assist.submit"
                         />
                         <OriButton
-                            variant="fill"
+                            variant="solid"
                             radius="md"
-                            text="Draw"
+                            label="Draw"
                             :loading="assist.pending"
                             :disabled="!assist.prompt.trim() || assist.pending"
                             @click="assist.submit"

@@ -69,7 +69,7 @@ function onKeydown(e: KeyboardEvent, index: number): void {
             role="radio"
             :aria-checked="opt.value === modelValue"
             :tabindex="opt.value === modelValue ? 0 : -1"
-            :variant="opt.value === modelValue ? 'fill' : 'outline'"
+            :variant="opt.value === modelValue ? 'solid' : 'outline'"
             :color="opt.value === modelValue ? color : 'surface'"
             radius="md"
             size="sm"

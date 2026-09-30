@@ -30,8 +30,8 @@ const emit = defineEmits<{ submit: [] }>()
 <template>
     <OriButton
         class="submit"
-        text="Submit"
-        variant="fill"
+        label="Submit"
+        variant="solid"
         color="primary"
         radius="md"
         :icon="icon"

@@ -80,7 +80,7 @@ for (const name of ['desk-light', 'desk-dark']) {
 }
 // Dark-only danger override (oriui's light-tuned red is too dim on our dark surfaces).
 tokens['danger-dark'] = parseColor(prop(dark, '--ori-color-danger', 'dark'), '--ori-color-danger (dark)')
-// Role-as-text AA (outline/tonal/text buttons, selected tab, tag, link) is
+// Role-as-text AA (outline/soft/text buttons, selected tab, tag, link) is
 // oriui's own concern — its --ori-color-<role>-text tokens, guarded by its
 // own e2e/text-contrast.spec.ts — so it isn't re-verified here.
 

@@ -216,16 +216,16 @@ function onKeydown(e: KeyboardEvent) {
                  actions below). -->
             <div class="menu__copy">
                 <OriButton
-                    text="Copy as text"
-                    variant="tonal"
+                    label="Copy as text"
+                    variant="soft"
                     radius="md"
                     :icon="icons.mdiContentCopy"
                     icon-position="left"
                     @click="emit('copyText')"
                 />
                 <OriButton
-                    text="Copy as image"
-                    variant="tonal"
+                    label="Copy as image"
+                    variant="soft"
                     radius="md"
                     :icon="icons.mdiContentCopy"
                     icon-position="left"
@@ -238,8 +238,8 @@ function onKeydown(e: KeyboardEvent) {
                 <h2 class="menu__section-title">File</h2>
                 <div class="menu__stack">
                     <OriButton
-                        text="Save"
-                        variant="fill"
+                        label="Save"
+                        variant="solid"
                         radius="md"
                         fluid
                         :icon="icons.mdiContentSaveOutline"
@@ -247,7 +247,7 @@ function onKeydown(e: KeyboardEvent) {
                         @click="fileSave"
                     />
                     <OriButton
-                        text="Load"
+                        label="Load"
                         variant="outline"
                         radius="md"
                         fluid
@@ -255,9 +255,9 @@ function onKeydown(e: KeyboardEvent) {
                         :loading="props.busy"
                         @click="fileLoad"
                     />
-                    <OriButton text="New" variant="outline" radius="md" fluid :icon="icons.mdiPlus" @click="fileNew" />
+                    <OriButton label="New" variant="outline" radius="md" fluid :icon="icons.mdiPlus" @click="fileNew" />
                     <OriButton
-                        text="Export"
+                        label="Export"
                         variant="outline"
                         radius="md"
                         fluid
@@ -273,8 +273,8 @@ function onKeydown(e: KeyboardEvent) {
                  visitors (both gate on mount); the ladder isn't, since
                  GET /api/leaderboard requires a session.
 
-                 `tonal`, not `outline`, which would read as more file actions
-                 here (docs/DESIGN-SYSTEM.md §2: tonal for grouped mid-emphasis). -->
+                 `soft`, not `outline`, which would read as more file actions
+                 here (docs/DESIGN-SYSTEM.md §2: soft for grouped mid-emphasis). -->
             <section class="menu__section" aria-label="Play">
                 <h2 class="menu__section-title">Play</h2>
                 <div class="menu__stack">
@@ -283,8 +283,8 @@ function onKeydown(e: KeyboardEvent) {
                     <OriButton
                         :as="RouterLink"
                         to="/play"
-                        text="Play a duel"
-                        variant="tonal"
+                        label="Play a duel"
+                        variant="soft"
                         radius="md"
                         fluid
                         :icon="icons.mdiSwordCross"
@@ -293,8 +293,8 @@ function onKeydown(e: KeyboardEvent) {
                     <OriButton
                         :as="RouterLink"
                         to="/practice"
-                        text="Practice solo"
-                        variant="tonal"
+                        label="Practice solo"
+                        variant="soft"
                         radius="md"
                         fluid
                         :icon="icons.target"
@@ -304,8 +304,8 @@ function onKeydown(e: KeyboardEvent) {
                         v-if="session.isLoggedIn"
                         :as="RouterLink"
                         to="/leaderboard"
-                        text="Leaderboard"
-                        variant="tonal"
+                        label="Leaderboard"
+                        variant="soft"
                         radius="md"
                         fluid
                         :icon="icons.podium"
@@ -321,7 +321,7 @@ function onKeydown(e: KeyboardEvent) {
                     <OriInput v-model="customW" label="W" type="number" min="1" max="8192" fluid />
                     <OriInput v-model="customH" label="H" type="number" min="1" max="8192" fluid />
                 </div>
-                <OriButton text="Apply size" variant="outline" radius="md" size="sm" @click="applySize" />
+                <OriButton label="Apply size" variant="outline" radius="md" size="sm" @click="applySize" />
                 <OriSwitch label="Checkerboard" :model-value="props.backdropGrid" @update:model-value="onToggleGrid" />
             </section>
 
@@ -341,7 +341,7 @@ function onKeydown(e: KeyboardEvent) {
                  are the /draw priority, so auth stays out of the way. -->
             <section v-if="session.isLoggedIn" class="menu__section menu__section--bottom" aria-label="Profile">
                 <div class="menu__profile">
-                    <OriAvatar :text="session.user?.displayName ?? session.user?.login ?? '?'" color="primary" />
+                    <OriAvatar :name="session.user?.displayName ?? session.user?.login ?? '?'" color="primary" />
                     <div class="menu__who">
                         <b class="menu__name">{{ session.user?.displayName ?? session.user?.login }}</b>
                         <span class="menu__login">{{ session.user?.login }}</span>
@@ -350,12 +350,12 @@ function onKeydown(e: KeyboardEvent) {
                 <div class="menu__rating">
                     Rating <b>{{ session.user?.rating }}</b>
                 </div>
-                <OriButton text="Log out" variant="outline" radius="md" :icon="icons.mdiLogout" @click="logout" />
+                <OriButton label="Log out" variant="outline" radius="md" :icon="icons.mdiLogout" @click="logout" />
             </section>
 
             <!-- Auth (anonymous): one entry point into the shared sign-in modal. -->
             <section v-else class="menu__section menu__section--bottom" aria-label="Sign in">
-                <OriButton text="Sign in" variant="outline" radius="md" :icon="icons.mdiLogin" @click="signIn" />
+                <OriButton label="Sign in" variant="outline" radius="md" :icon="icons.mdiLogin" @click="signIn" />
             </section>
         </aside>
     </Teleport>

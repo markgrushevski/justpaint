@@ -86,8 +86,8 @@ const topBand = computed(() => band.value === BANDS[0])
         <div class="pr__actions">
             <OriButton
                 class="pr__action"
-                text="Draw it again"
-                variant="fill"
+                label="Draw it again"
+                variant="solid"
                 color="primary"
                 radius="md"
                 fluid
@@ -95,7 +95,7 @@ const topBand = computed(() => band.value === BANDS[0])
             />
             <OriButton
                 class="pr__action"
-                text="New prompt"
+                label="New prompt"
                 variant="outline"
                 color="surface"
                 radius="md"
@@ -110,7 +110,7 @@ const topBand = computed(() => band.value === BANDS[0])
              prompt and been scored, they know how to duel. -->
         <OriButton
             class="pr__duel"
-            text="Play a duel"
+            label="Play a duel"
             variant="text"
             color="primary"
             radius="md"
@@ -230,7 +230,7 @@ const topBand = computed(() => band.value === BANDS[0])
     height: 0.5rem;
     overflow: hidden;
 
-    border-radius: var(--ori-size-radius_rounded, 999px);
+    border-radius: var(--ori-size-radius_full, 999px);
     background-color: color-mix(in srgb, var(--ori-color-on-surface) 12%, transparent);
 }
 

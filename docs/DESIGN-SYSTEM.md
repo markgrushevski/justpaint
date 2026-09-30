@@ -8,7 +8,7 @@
 > `ARCHITECTURE.md` (boundaries), `REVIEW.md` (the per-change bar), `NOTES.md` (gotchas).
 >
 > **oriui is a separate library**, maintained alongside this project and consumed as a pinned dependency
-> (`@oriui/{vue,css,headless}`, currently `1.0.0-rc.18`, all three in lockstep).
+> (`@oriui/{vue,css,headless}`, currently `1.0.0-rc.19`, all three in lockstep).
 >
 > **Read the oriui source, not `dist`.** The authority is the oriui repo checked out alongside this one —
 > **`../vueinjar`** (`@oriui/{css,headless,vue}` under `packages/`, guides under `docs/content/guides/`) — and the
@@ -16,12 +16,6 @@
 > Reading `node_modules/**/dist` instead cost two wrong claims about the Button API (2026-07-09); don't repeat that.
 > When this doc disagrees with that source, **the library wins — fix this doc.** If a needed component is genuinely
 > missing, it gets added to oriui upstream — report the gap in `docs/ISSUES-OUTER.md` rather than only wrapping it here.
->
-> **Naming heads-up.** The next oriui release renames the variant vocabulary this doc uses below —
-> `variant="fill"`→`"solid"`, `"tonal"`→`"soft"`, `color="warn"`→`"warning"`, `radius="zero"`→`"none"`,
-> `"rounded"`→`"full"`, `size="text"`→`"inherit"`, and the content prop `text`→`label` on
-> Button/Tag/Kbd/Divider/ToolbarButton. This doc describes the API as pinned today (`rc.18`); when upgrading,
-> the migration table is oriui's `.changeset/api-vocabulary-rename.md`.
 
 ## 0. The one rule
 
@@ -44,19 +38,19 @@ not an override.)
 ## 1. Color — set once at the root, never in components
 
 - The **entire palette is defined once** in `apps/web/src/main.css` (`:root` + `:root.ori-theme_dark`):
-  `--ori-color-primary/secondary/surface/background/outline/danger/warn/success/info` (+ `-on-*`), light & dark.
+  `--ori-color-primary/secondary/surface/background/outline/danger/warning/success/info` (+ `-on-*`), light & dark.
   That is the **only** place brand color is chosen.
 - **Components MUST NOT re-derive brand colors.** `background: color-mix(in srgb, var(--ori-color-primary) 18%, transparent)`
-  is **banned** — it hand-copies `.ori-variant_tonal` / `[data-active]`. Pick a `variant` + `color` prop and the
+  is **banned** — it hand-copies `.ori-variant_soft` / `[data-active]`. Pick a `variant` + `color` prop and the
   library computes every state (rest/hover/active/disabled) from `--ori-color`.
 - Every oriui variant is pure token math off `--ori-color`:
   | variant | rest | `[data-active]` / hover |
   |---|---|---|
-  | `fill` | `bg=--ori-color`, `text=--ori-color-on` | `bg = mix(--ori-color, #fff 15%)` |
-  | `tonal` | `bg = mix(--ori-color, transparent 75%)`, `text=--ori-color-text` | `bg = mix(…, transparent 70%)` |
+  | `solid` | `bg=--ori-color`, `text=--ori-color-on` | `bg = mix(--ori-color, #fff 15%)` |
+  | `soft` | `bg = mix(--ori-color, transparent 75%)`, `text=--ori-color-text` | `bg = mix(…, transparent 70%)` |
   | `outline` | `border=--ori-color-text`, transparent bg | `bg = mix(…, transparent 90%)` |
   | `text` | transparent, `text=--ori-color-text` | `bg = mix(…, transparent 90%)` |
-  | `plain` | transparent, **opacity 0.5** | opacity 1 |
+  | `quiet` | transparent, **opacity 0.85** | opacity 1 |
 - **Allowed** local color use: neutral structural tokens (`--ori-color-surface` for a panel bg) and justpaint's own
   **non-brand** tokens (`--jp-desk`, `--jp-color-outline` for a hairline). Re-mixing a *brand* role is not.
   The hairline is deliberately **ours**, not oriui's `--ori-color-outline`: theirs is a `currentcolor` tint that
@@ -66,25 +60,25 @@ not an override.)
 ## 2. Buttons — always `OriButton`, drive state with props
 
 `OriButton` props (from `@oriui/vue` `ori-button.vue.d.ts`): `variant`, `color` (`ThemeColor`), `active`,
-`disabled`, `loading`, `icon`, `iconPosition`, `radius`, `size`, `fluid`, `text`, `as`.
+`pressed`, `disabled`, `loading`, `icon`, `iconPosition`, `radius`, `size`, `fluid`, `label`, `as`.
 
 - **No raw `<button>` for an action.** Use `OriButton` (or the `IconButton` wrapper, §4). A raw `<button>` is only
   acceptable for a bespoke non-button control that oriui genuinely doesn't model.
 - **Toggle state = the `active` prop.** `<OriButton :active="panelOpen" …>` → sets `[data-active]`, which the variant
-  styles. **Never** a hand-rolled `--active` class that swaps `tonal`↔`fill` or re-mixes a color.
+  styles. **Never** a hand-rolled `--active` class that swaps `soft`↔`solid` or re-mixes a color.
 - **Disabled = the `disabled` prop.** Never an `opacity: 0.35` override. (oriui dims to `.45` + blocks pointer events.)
 - **Loading = the `loading` prop** (spinner + `[aria-busy]`), not a manual spinner.
 - **Variant ladder (semantics we commit to):**
-  - `fill` — the **one** primary/confirming action of a surface (Save, Submit, Confirm, Play again).
+  - `solid` — the **one** primary/confirming action of a surface (Save, Submit, Confirm, Play again).
   - `outline` — secondary neutral actions (Cancel, New/Load/Export, Log out).
-  - `tonal` — grouped/segmented mid-emphasis (auth tabs, theme segmented).
-  - `text` / `plain` — quiet, low-chrome, icon-only toolbar actions; `plain` is the ghost (50% until hover/active).
+  - `soft` — grouped/segmented mid-emphasis (auth tabs, theme segmented).
+  - `text` / `quiet` — low-chrome, icon-only toolbar actions; `quiet` is the ghost (85% until hover/active).
   - `active` overlays any of them for the toggled state.
 
 ## 3. Icon buttons — a circle/rounded-square is built in
 
 - `OriButton` in **icon mode** (the `ori-button_icon` sizing — via the `icon` prop or the public class) renders a
-  square of `--ori-size-action` with `radius`: `radius="rounded"` (the default) ⇒ **circle**; `radius="md"` ⇒ rounded
+  square of `--ori-size-action` with `radius`: `radius="full"` (the default) ⇒ **circle**; `radius="md"` ⇒ rounded
   square. There is **no** need to hand-roll a square `<button>` for an icon — that was a stale assumption in the old
   `/draw` chrome.
 - **One icon set per surface.** `ToolIcon` (custom 24×24 stroke SVGs, zero-dep) is the app's icon set; toolbar/island
@@ -99,15 +93,15 @@ Build a justpaint component **only** where oriui has a genuine gap or we want a 
 
 - **`IconButton`** — `OriButton` preset for icon-only toolbar actions: `icon`, `variant` (default `text`), `active`,
   `disabled`, `label` (a11y + `OriTooltip`). Centralizes the toolbar-chip look so every island matches and no view
-  re-styles a `<button>`. A SELECTED/on toggle passes `color="primary"` + `active`; a PRIMARY action is a `fill`
+  re-styles a `<button>`. A SELECTED/on toggle passes `color="primary"` + `active`; a PRIMARY action is a `solid`
   `OriButton`, not this.
 - **`SegmentedControl`** — single-select segmented button group (the theme Light/Dark/Auto picker; reusable for any
-  small settings pick). COMPOSES `.ori-join` (oriui's segment-joiner) + `OriButton` (selected = `fill`, others =
+  small settings pick). COMPOSES `.ori-join` (oriui's segment-joiner) + `OriButton` (selected = `solid`, others =
   `outline` — no hand-rolled `--active`/`color-mix`) and ADDS the single-select model + radiogroup a11y
   (`role="radiogroup"`/`radio`, `aria-checked`, roving-tabindex arrow keys). `OriRadioGroup` exists but is the wrong
   visual here (radio circles, not a segmented look).
 
-Everything else is **oriui direct**: **content** → `OriCard` (the ResultReveal sides — winner = `tonal`/`primary`).
+Everything else is **oriui direct**: **content** → `OriCard` (the ResultReveal sides — winner = `soft`/`primary`).
 **Floating chrome** (toolbar / zoom / panel over the canvas) → **`OriSurface`** — oriui's elevation primitive
 (alpha-11; `as`, `bordered` default `true`, `elevation` default `'lg'` → **`--ori-shadow-lg`**, `radius` default
 `'lg'`, its DEFAULTS are exactly the old `.jp-float` island look). **`JpFloat` is deleted** — use `OriSurface`
@@ -152,6 +146,8 @@ Every "gap" first assumed (from `dist`) turned out to already exist in the sourc
   `IconButton`; the mobile 32px shrink repoints `--ori-size-action` on the button (the §0 token escape-hatch). The
   active tool renders the intended **neutral 18% fill + inset ring** (OriToolbar's `[aria-pressed=true]`) with a
   **brand-tinted glyph** (`:color="active ? 'primary' : 'surface'"`); resting tools are the neutral `surface` glyph.
+  Every item passes its own `aria-label`: oriui treats a filled content slot as a visible name, so an icon there
+  would leave the button nameless and the tooltip only describes it ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-12).
 
   **Two oriui-side bugs this migration surfaced — both FIXED in alpha-13 (2026-07-10), kept here as the lesson:**
   - **(A) layer order beat specificity — the pressed FILL didn't land.** alpha-12's
