@@ -21,13 +21,13 @@ import {
     useSubmitPractice
 } from '@core'
 import type { PracticePrompt, PracticeRun } from '@core'
-import EditorShell from '../components/shell/EditorShell.vue'
-import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
-import IconButton from '../components/ui/IconButton.vue'
-import GamePromptBanner from '../components/game/GamePromptBanner.vue'
-import JudgingOverlay from '../components/game/JudgingOverlay.vue'
-import PracticeResult from '../components/game/PracticeResult.vue'
-import SubmitButton from '../components/game/SubmitButton.vue'
+import EditorShell from '../editor/EditorShell.vue'
+import FloatingToolbar, { TOOL_META } from '../editor/FloatingToolbar.vue'
+import IconButton from '../../components/ui/IconButton.vue'
+import GamePromptBanner from '../game/GamePromptBanner.vue'
+import JudgingOverlay from '../game/JudgingOverlay.vue'
+import PracticeResult from './PracticeResult.vue'
+import SubmitButton from '../game/SubmitButton.vue'
 
 // The duel's canvas (docs/GAME.md §2), so scores stay comparable.
 const GAME_CANVAS = 1080

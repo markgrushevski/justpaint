@@ -46,15 +46,15 @@ import {
     useThemeStore
 } from '@core'
 import type { Guess } from '@core'
-import ConfirmDialog from '../components/ConfirmDialog.vue'
-import EmptyState from '../components/EmptyState.vue'
-import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
-import GuessResult, { type GuessStatus } from '../components/GuessResult.vue'
-import LayersPanel from '../components/LayersPanel.vue'
-import ShortcutsDialog from '../components/ShortcutsDialog.vue'
-import SideMenu from '../components/SideMenu.vue'
-import EditorShell from '../components/shell/EditorShell.vue'
-import IconButton from '../components/ui/IconButton.vue'
+import ConfirmDialog from '../../components/ConfirmDialog.vue'
+import EmptyState from './EmptyState.vue'
+import FloatingToolbar, { TOOL_META } from '../editor/FloatingToolbar.vue'
+import GuessResult, { type GuessStatus } from './GuessResult.vue'
+import LayersPanel from './LayersPanel.vue'
+import ShortcutsDialog from '../editor/ShortcutsDialog.vue'
+import SideMenu from './SideMenu.vue'
+import EditorShell from '../editor/EditorShell.vue'
+import IconButton from '../../components/ui/IconButton.vue'
 
 const shell = ref<{ canvasEl: HTMLDivElement | null } | null>(null)
 // Captured at mount: blankDocument sizes to it, and the coords listeners live on it.

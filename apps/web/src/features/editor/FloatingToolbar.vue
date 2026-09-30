@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ToolId } from '@justpaint/editor'
-import type { IconName } from './icons/ToolIcon.vue'
+import type { IconName } from '../../components/icons/ToolIcon.vue'
 
 /**
  * Label + hotkey per tool — the single source of hotkey hint text. The toolbar
@@ -40,7 +40,7 @@ import {
     OriToolbarToggleItem
 } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'
-import ToolIcon from './icons/ToolIcon.vue'
+import ToolIcon from '../../components/icons/ToolIcon.vue'
 
 const toolIds = Object.keys(TOOLS) as ToolId[]
 

@@ -228,7 +228,7 @@ The `/play` result screen must show the opponent's drawing, but `GET /api/drawin
 - **We borrow Excalidraw's patterns, not its look:** a warm empty-state card with quick actions, corner discipline, tool hotkey badges and cleaner menu organization, all rendered in oriui and the brand orange. A pixel clone would fight the design system, mean maintaining two visual languages, and edge toward brand mimicry.
 - **We kept the right-side slide-in drawer** rather than a top-left dropdown. It is non-modal, so the canvas and an in-progress duel stay live behind it, and it can hold the persistent `/play` profile, rating and match context.
 - **We kept the bottom-centre floating toolbar** rather than a top bar. `/play` owns the top band for the prompt banner and round timer, so a top toolbar would force the two modes to diverge.
-- **The shared shell is a component, not a convention.** `apps/web/src/components/shell/EditorShell.vue` owns the desk, the Konva mount element (`defineExpose({ canvasEl })`) and named region slots (`#top-left/-center/-right`, `#bottom-left/-center/-right`, `#overlay`, `#drawer`). `DrawView` and `PlayView` both compose it. A `mode: 'draw' | 'play'` prop handles the per-mode differences.
+- **The shared shell is a component, not a convention.** `apps/web/src/features/editor/EditorShell.vue` owns the desk, the Konva mount element (`defineExpose({ canvasEl })`) and named region slots (`#top-left/-center/-right`, `#bottom-left/-center/-right`, `#overlay`, `#drawer`). `DrawView` and `PlayView` both compose it. A `mode: 'draw' | 'play'` prop handles the per-mode differences.
 
 ## 2026-07-08 — Shell details: right-side menu, drawing names, canvas backdrop, palette
 

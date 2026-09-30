@@ -46,7 +46,7 @@ const ACTION_TEXT: Record<GuessStatus, string> = {
  */
 import { computed } from 'vue'
 import { OriButton, OriSurface } from '@oriui/vue'
-import IconButton from './ui/IconButton.vue'
+import IconButton from '../../components/ui/IconButton.vue'
 
 const props = withDefaults(
     defineProps<{

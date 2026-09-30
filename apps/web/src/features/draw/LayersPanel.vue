@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { OriButton, OriCheckbox, OriSlider, OriSurface } from '@oriui/vue'
 import type { LayerView } from '@justpaint/editor'
-import IconButton from './ui/IconButton.vue'
+import IconButton from '../../components/ui/IconButton.vue'
 
 const props = defineProps<{
     layers: LayerView[]

@@ -25,17 +25,17 @@ import {
     leaderboardKeys
 } from '@core'
 import type { Match, MatchResultDone, WsFrame, MatchSocketHandle } from '@core'
-import EditorShell from '../components/shell/EditorShell.vue'
-import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
-import IconButton from '../components/ui/IconButton.vue'
-import RoundTimerBar from '../components/game/RoundTimerBar.vue'
-import GamePromptBanner from '../components/game/GamePromptBanner.vue'
-import OpponentStatusChip from '../components/game/OpponentStatusChip.vue'
-import type { OpponentStatus } from '../components/game/OpponentStatusChip.vue'
-import SubmitButton from '../components/game/SubmitButton.vue'
-import JudgingOverlay from '../components/game/JudgingOverlay.vue'
-import ResultReveal from '../components/game/ResultReveal.vue'
-import type { DuelResult } from '../components/game/ResultReveal.vue'
+import EditorShell from '../editor/EditorShell.vue'
+import FloatingToolbar, { TOOL_META } from '../editor/FloatingToolbar.vue'
+import IconButton from '../../components/ui/IconButton.vue'
+import RoundTimerBar from './RoundTimerBar.vue'
+import GamePromptBanner from '../game/GamePromptBanner.vue'
+import OpponentStatusChip from './OpponentStatusChip.vue'
+import type { OpponentStatus } from './OpponentStatusChip.vue'
+import SubmitButton from '../game/SubmitButton.vue'
+import JudgingOverlay from '../game/JudgingOverlay.vue'
+import ResultReveal from './ResultReveal.vue'
+import type { DuelResult } from './ResultReveal.vue'
 
 /** The square duel canvas (GAME.md §2). */
 const GAME_CANVAS = 1080
