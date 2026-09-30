@@ -2,6 +2,16 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-09-30 — A mode switcher on every screen, a welcome over the canvas, a gallery
+
+- **The welcome is a layer over the empty canvas, not a card in front of it.** A centered card sat where the first stroke goes. `WelcomeOverlay` covers the canvas but takes no pointer events except on its mode cards, so a stroke anywhere else lands on the canvas, and the first pointerdown on the canvas drops it. It shows again on the next visit, while the canvas is empty, and hides while the menu, layers, assist or guess panel is open. Nothing is stored: there is no dismissed flag to go stale.
+- **The mode switcher is on every screen.** `ModeNav` (the wordmark plus Draw / Practice / Duel) sits top-left on `/draw`, `/practice`, `/play`, `/gallery` and `/leaderboard`, so a visitor can change mode from any screen. The current mode comes from route metadata (`meta.mode`); the gallery counts as Draw and the leaderboard as Duel. Narrower than a per-screen width it folds into one menu button: 600px by default, 720px on `/draw`, 1100px on the game screens, where the prompt banner sits top-center. The menu on `/draw` stays top-right, since the top-left belongs to the switcher.
+- **The name is asked on the first save, and renaming lives in the gallery.** `SaveDialog` asks once (default "Untitled drawing"); later saves send no `name`, and the server keeps the stored one (`docs/API.md` §7). The gallery is where the names are read, so it is where they are edited. The API has no rename-only route, so a rename re-sends the document, fetched fresh first so it can't overwrite a newer save from another tab. A gallery replaces "load the latest drawing": the menu's "My drawings" goes to `/gallery`, and `/draw?id=<id>` opens one.
+- **Gallery previews are rendered in the browser.** Each card renders its drawing from the document with the editor's `renderToPNG`, the same approach as the duel reveal (2026-07-11). There is no object storage, migration or endpoint, and `thumbnail_url` stays null. The cost is one document fetch per visible card, which is why a page is 24 drawings and a fetched document is trusted for a minute. Object storage is the way out if a page of previews gets slow.
+- **Leaving asks when work would be lost.** `useLeaveGuard` puts a `ConfirmDialog` on a route change: `/draw` asks when there are unsaved changes, `/practice` when a drawing is in progress (nothing keeps it), `/play` while drawing or waiting. Leaving a duel never cancels it on the server, so the dialog says the round runs on and an opponent who submits alone wins by forfeit (`docs/GAME.md` §4.1). With the switcher one click away on every screen, a stray click would otherwise leave a live round.
+- **The sheet is visible in every editor view.** `/practice` and `/play` paint the same paper backdrop as `/draw` (`useBackdrop(editor, { allowGrid: false })`); without one the 1080×1080 sheet's edge is invisible on the desk. Only `/draw` offers the checkerboard, because the judge sees none of it.
+- **The neutrals are warm paper tones, and the orange stays the one accent.** The values are in `docs/DESIGN-SYSTEM.md` §1. A red accent was rejected because it collides with the danger color: a destructive button and a brand button would read alike. The wordmark sits on the page background rather than the surface, since the orange clears the large-text 3:1 bar only there.
+
 ## 2026-09-30 — The web app is grouped by feature, with one editor host
 
 - **Why:** `DrawView`, `PlayView` and `PracticeView` each carried about 150 identical lines that mounted the editor, mirrored its state, wired the toolbar and handled the shortcuts. Each view then mixed its own features on top, up to 715 lines of script in one file.
@@ -42,7 +52,7 @@ Key decisions and the reasons behind them, newest first. Each entry states a dec
 
 - **Why:** the zoom island overlapping the bottom toolbar passed every existing gate. vue-tsc sees types, Vitest renders into happy-dom (no layout), stylelint reads declarations, axe reads the accessibility tree. None of them can see two boxes painted on top of each other, and only a rendered browser can.
 - **What:** `apps/web/tests/layout/chrome-overlap.spec.ts`, a second Playwright suite sharing one config with `tests/a11y`, run by `npm run test:layout -w @justpaint/web`. Like `test:a11y`, it is a local gate rather than a CI one, because both need a running dev server.
-- **The test asserts the invariant, not the threshold.** The CSS lift (`@media (width <= 1200px)` in `EditorShell.vue`) is arithmetic over today's toolbar and island widths and will change. The test renders the real page at eleven viewports (both sides of the 600px phone breakpoint and of the 1200px threshold, plus a landscape phone) and asserts that no two of the shell's three bottom regions overlap. It measures each region's first element child, because the centre region is a full-width strip.
+- **The test asserts the invariant, not the threshold.** The CSS lift (`@media (width <= 1200px)` in `EditorShell.vue`) is arithmetic over today's toolbar and island widths and will change. The test renders the real page at eleven viewports (both sides of the 600px phone breakpoint and of the 1200px threshold, plus a landscape phone) and asserts that no two of the shell's three bottom regions overlap, and no two islands of the top row (mode switcher, actions, Save, menu toggle). It measures each bottom region's first element child, because the centre region is a full-width strip.
 - **Checked against the bug:** with the old CSS restored, 6 of the 11 cases fail, so the suite does not pass vacuously.
 
 ## 2026-09-20 — A model per kind, a quota pool per model, and a real assist impl
@@ -86,7 +96,7 @@ A `/draw` button asks the AI what the canvas depicts (`POST /api/guess`, `intern
 - **2 guesses per player per day**, the smallest allowance of any kind. Otherwise a novelty question would be the cheapest way to empty the provider's quota.
 - **`JUDGE_MODE=http` answers a `500` that names the cause** instead of falling back to the fake. The external service has no endpoint that names one drawing, and a fake guess is a more convincing lie than a fake score: a wrong guess reads as the feature working.
 - **Prompt injection is narrowed, not closed.** No player text enters the prompt, so pixels are the only untrusted channel. The instruction treats everything in the image as drawing, with the carve-out that writing may be the drawing. What actually bounds the risk is that a guess affects nothing and is stored nowhere.
-- **UX.** The guess button is an icon in `/draw`'s top-left island, because assist owns the top-centre slot. It is disabled on an empty canvas and toggles the card. Re-asking happens only from the card's "Guess again", where the cost is visible. Every outcome, including a `429`, renders calmly in one `OriSurface` card. With two a day, "that was your last one" is an expected outcome, not an error.
+- **UX.** Guess is the "What did I draw?" row of `/draw`'s AI menu (top right), beside "Draw with AI", because assist owns the top-centre slot. It toggles the card. On an empty canvas the row still opens the card, which says to draw something first, because a disabled control's tooltip can't reach touch or keyboard (`docs/NOTES.md`). Re-asking happens only from the card's "Guess again", where the cost is visible. Every outcome, including a `429`, renders calmly in one `OriSurface` card. With two a day, "that was your last one" is an expected outcome, not an error.
 
 ## 2026-09-20 — Single-player practice: its own table, its own seam, the same budget
 
@@ -231,18 +241,18 @@ The `/play` result screen must show the opponent's drawing, but `GET /api/drawin
 
 ## 2026-07-08 — Excalidraw-inspired shared shell for `/draw` and `/play`
 
-- **We borrow Excalidraw's patterns, not its look:** a warm empty-state card with quick actions, corner discipline, tool hotkey badges and cleaner menu organization, all rendered in oriui and the brand orange. A pixel clone would fight the design system, mean maintaining two visual languages, and edge toward brand mimicry.
-- **We kept the right-side slide-in drawer** rather than a top-left dropdown. It is non-modal, so the canvas and an in-progress duel stay live behind it, and it can hold the persistent `/play` profile, rating and match context.
+- **We borrow Excalidraw's patterns, not its look:** a welcome with quick actions over the empty canvas, corner discipline, tool hotkey badges and cleaner menu organization, all rendered in oriui and the brand orange. A pixel clone would fight the design system, mean maintaining two visual languages, and edge toward brand mimicry.
+- **The `/draw` menu stays on the right** rather than in a top-left dropdown. It is non-modal, so the canvas stays live behind it, and the top-left is the mode switcher (2026-09-30).
 - **We kept the bottom-centre floating toolbar** rather than a top bar. `/play` owns the top band for the prompt banner and round timer, so a top toolbar would force the two modes to diverge.
 - **The shared shell is a component, not a convention.** `apps/web/src/features/editor/EditorShell.vue` owns the desk, the Konva mount element (`defineExpose({ canvasEl })`) and named region slots (`#top-left/-center/-right`, `#bottom-left/-center/-right`, `#overlay`, `#drawer`). `DrawView` and `PlayView` both compose it. A `mode: 'draw' | 'play'` prop handles the per-mode differences.
 
 ## 2026-07-08 — Shell details: right-side menu, drawing names, canvas backdrop, palette
 
-- **The menu opens from the right and is non-modal:** no backdrop, the canvas stays interactive, and it goes full-screen on phones. Because it is non-modal there is no focus trap and no `aria-modal`, but Esc and focus-return are kept.
-- **On `/draw`, signed-out visitors come first:** menu actions first, auth at the bottom. "Copy as text" copies the document JSON; "Copy as image" copies a PNG.
+- **The menu opens from the right and is non-modal:** no backdrop, the canvas stays interactive, and it is a right-edge drawer on phones. Because it is non-modal there is no focus trap and no `aria-modal`, but Esc and focus-return are kept.
+- **On `/draw`, signed-out visitors come first:** menu actions first, auth at the bottom. "Copy as JSON" copies the document; "Copy as image" copies a PNG.
 - **A drawing's `name` is metadata, not document format.** It is a `drawings.name` column (64-rune cap, default `'new art'`) that the validators never see.
 - **The canvas backdrop is a view preference, not document state.** New documents have `background: null`. The editor paints theme paper or a checkerboard behind them on a view-only layer that is never exported (`Editor.setCanvasBackdrop`, persisted in `localStorage['jp.backdropGrid']`). A transparent document exports as a transparent PNG, and the judge renders on white regardless.
-- **Palette:** surfaces `#f0f2f6`/`#191919`, backgrounds `#ffffff`/`#121212`, primary `hsl(20 100% 50%)`/`hsl(20 100% 60%)` with dark ink on primary, because white fails AA on this orange. Outlines hold 3:1 against the surfaces.
+- **Palette:** primary `hsl(20 100% 50%)`/`hsl(20 100% 60%)` with dark ink on primary, because white fails AA on this orange. Outlines hold 3:1 against the surfaces. The neutrals are in `docs/DESIGN-SYSTEM.md` §1.
 - **The layers panel is a dropdown on desktop and a bottom sheet on phones.** On phones the toolbar's style controls collapse into an `OriPopover`, and the shortcuts cheat-sheet is desktop-only.
 
 ## 2026-07-08 — Hand tool, and a three-layer accessibility check
@@ -269,7 +279,7 @@ The first AI-in-product feature: the player types a prompt and gets drawing oper
 
 ## 2026-07-04 — UX-first: a polished `/draw` and one shared shell, before the `/play` UI
 
-- **`/draw` stays focused but polished:** proper layout and spacing, the slide-in side menu (auth and profile live there, replacing the top session bar), and correct canvas interaction (no drawing outside the document, immediate eraser feedback).
+- **`/draw` stays focused but polished:** proper layout and spacing, the side menu (auth and profile live there, replacing the top session bar), and correct canvas interaction (no drawing outside the document, immediate eraser feedback).
 - **A floating bottom toolbar** (tldraw/FigJam style), chosen over patching a top toolbar.
 - **One shell for `/draw` and `/play`.** The game adds its chrome (prompt banner, timer, submit) around the same shell, and the two must not diverge.
 - **All common keyboard shortcuts** (tool hotkeys, Ctrl+Z/Y, Ctrl+0/±, Ctrl+S), plus a shortcuts cheat-sheet.

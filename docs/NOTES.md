@@ -193,7 +193,6 @@ justify-content: center`) with `pointer-events: none`, and `pointer-events: auto
 
 ### Small ones
 
-- `layersOpen` (DrawView) is computed once at mount from `innerWidth`, not re-evaluated on resize.
 - In SFC templates `eslint-disable-next-line` covers only the literal next line; with one attribute per
   line it must sit directly above the offending attribute, or use a block disable.
 
@@ -246,7 +245,8 @@ one, which resolves to an invisible color there.
 ### The oriui CSS import list is hand-maintained
 
 `main.ts` imports `@oriui/css/components/*.css`, one file per component. A missing line renders that
-component unstyled with no error. `npm run lint:styles` (`apps/web/scripts/check-styles.mjs`, part of
+component unstyled with no error, so the first use of a new `Ori*` component (`OriMenu` needed
+`menu.css`) comes with its import. `npm run lint:styles` (`apps/web/scripts/check-styles.mjs`, part of
 `lint:all` and `lint:ci`) guards it by checking selectors, not filenames, because some component CSS is
 inlined elsewhere (`.ori-spinner` ships in `button.css`).
 
@@ -647,10 +647,11 @@ backdrop.
 
 Type checks, Vitest (happy-dom has no layout), stylelint and axe never see pixel geometry, so absolutely
 positioned chrome can overlap with every gate green. `npm run test:layout -w @justpaint/web`
-(`tests/layout/chrome-overlap.spec.ts`, Playwright at eleven viewports) checks the shell's bottom
-regions; like `test:a11y` it needs a dev server, so it is a local gate, not a CI one. Key a breakpoint to
-the condition, not the device class: the zoom-island lift uses `width <= 1200px` because the
-shrink-to-fit toolbar reaches the island below about 1169px, not only on phones.
+(`tests/layout/chrome-overlap.spec.ts`, Playwright at eleven viewports) checks the top row (mode
+switcher, actions island, Save, menu toggle) and the shell's bottom regions; like `test:a11y` it needs a
+dev server, so it is a local gate, not a CI one. Key a breakpoint to the condition, not the device class:
+the zoom-island lift uses `width <= 1200px` because the shrink-to-fit toolbar reaches the island below
+about 1169px, not only on phones.
 
 ### Tool scripts must resolve packages, not assume the root `node_modules`
 

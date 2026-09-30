@@ -40,6 +40,13 @@ not an override.)
 - The **entire palette is defined once** in `apps/web/src/main.css` (`:root` + `:root.ori-theme_dark`):
   `--ori-color-primary/secondary/surface/background/outline/danger/warning/success/info` (+ `-on-*`), light & dark.
   That is the **only** place brand color is chosen.
+- **The neutrals are warm paper tones, and the orange is the one accent.** Light: surface `#f3f1eb`, page background
+  `#faf8f3`, ink `#202326`. Dark: `#1d1b19` / `#151412` / `#eeebe4`. The hairline is `#8a857c` / `#75716a` and the
+  desk behind the sheet `#ebe7de` / `#201e1b`. The sheet itself is `paperColor(dark)` in
+  `features/editor/useBackdrop.ts` (`#fdfcf8` / `#12110f`): view-only, never exported or judged. No second brand hue.
+- **The orange wordmark sits on the page background, not the surface.** It is large text, and the orange clears the
+  3:1 bar only there (3.02:1 on `#faf8f3`, 2.83:1 on `#f3f1eb`). `scripts/check-contrast.mjs` checks
+  `primary-light` against `background-light`; `ModeNav` gives its `OriSurface` the page background for this reason.
 - **Components MUST NOT re-derive brand colors.** `background: color-mix(in srgb, var(--ori-color-primary) 18%, transparent)`
   is **banned** — it hand-copies `.ori-variant_soft` / `[data-active]`. Pick a `variant` + `color` prop and the
   library computes every state (rest/hover/active/disabled) from `--ori-color`.
@@ -70,7 +77,7 @@ not an override.)
 - **Loading = the `loading` prop** (spinner + `[aria-busy]`), not a manual spinner.
 - **Variant ladder (semantics we commit to):**
   - `solid` — the **one** primary/confirming action of a surface (Save, Submit, Confirm, Play again).
-  - `outline` — secondary neutral actions (Cancel, New/Load/Export, Log out).
+  - `outline` — secondary neutral actions (Cancel, Apply size, Log out).
   - `soft` — grouped/segmented mid-emphasis (auth tabs, theme segmented).
   - `text` / `quiet` — low-chrome, icon-only toolbar actions; `quiet` is the ghost (85% until hover/active).
   - `active` overlays any of them for the toggled state.
@@ -83,9 +90,9 @@ not an override.)
   `/draw` chrome.
 - **One icon set per surface.** `ToolIcon` (custom 24×24 stroke SVGs, zero-dep) is the app's icon set; toolbar/island
   icon buttons render it through `IconButton` (§4), so every glyph in a cluster is one size. `OriIcon` (mdi paths from
-  `icons.ts`) is used only where an oriui component takes an `icon` **path** prop (drawer/dialog buttons). **Never mix
-  `ToolIcon` and `OriIcon` in the same cluster** — that was the "icons look different sizes" bug (Save via `OriIcon`
-  next to Layers/Help via `ToolIcon`).
+  `icons.ts`) is used only where an oriui component takes an `icon` **path** prop, and in the rows of a menu panel
+  (`MenuRow`, §4). **Never mix `ToolIcon` and `OriIcon` in the same cluster** — that was the "icons look different
+  sizes" bug (Save via `OriIcon` next to Layers/Help via `ToolIcon`).
 
 ## 4. justpaint UI primitives (thin wrappers, `apps/web/src/components/ui/`)
 
@@ -100,8 +107,15 @@ Build a justpaint component **only** where oriui has a genuine gap or we want a 
   `outline` — no hand-rolled `--active`/`color-mix`) and ADDS the single-select model + radiogroup a11y
   (`role="radiogroup"`/`radio`, `aria-checked`, roving-tabindex arrow keys). `OriRadioGroup` exists but is the wrong
   visual here (radio circles, not a segmented look).
+- **`MenuRow`** — one row of a menu panel (the `/draw` menu): an `OriButton` (`variant="text"`, `color="surface"`,
+  `fluid`) holding an icon, a label, and a shortcut hint or a chevron into a sub-panel; `to` renders it as a link.
+  It exists because oriui has no list row outside `OriMenu`, whose `role="menu"` can't hold the panel's inline
+  controls (the theme picker, the canvas-size form), so the panel is an `OriSurface` of rows
+  ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-13). The row left-aligns its content with `justify-content: flex-start`
+  from an unlayered class of its own, since oriui centers a button's content.
 
-Everything else is **oriui direct**: **content** → `OriCard` (the ResultReveal sides — winner = `soft`/`primary`).
+Everything else is **oriui direct**: **content** → `OriCard` (the ResultReveal sides — winner = `soft`/`primary`;
+the welcome's mode cards, which also carry `data-ori-interactive`, §7).
 **Floating chrome** (toolbar / zoom / panel over the canvas) → **`OriSurface`** — oriui's elevation primitive
 (alpha-11; `as`, `bordered` default `true`, `elevation` default `'lg'` → **`--ori-shadow-lg`**, `radius` default
 `'lg'`, its DEFAULTS are exactly the old `.jp-float` island look). **`JpFloat` is deleted** — use `OriSurface`
@@ -110,7 +124,7 @@ directly, no wrapper needed. **Every island now uses `OriSurface`; the `.jp-floa
 (native `<dialog>`: focus-trap, scroll-lock, Esc,
 backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`close` emits, `v-model:open`);
 **ConfirmDialog / ShortcutsDialog are migrated to it.** A bespoke overlay whose layout isn't a textbook card
-(EmptyState, JudgingOverlay) stays an `OriSurface` with custom content — don't force it into `OriCard`.
+(JudgingOverlay) stays an `OriSurface` with custom content — don't force it into `OriCard`.
 
 ## 5. Migration checklist (a change touching chrome)
 
@@ -119,6 +133,8 @@ backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`clos
 - [ ] No `opacity` disabled override → `disabled` prop.
 - [ ] One icon component per cluster — `ToolIcon` is the app's set (§3); `OriIcon` only where a path prop is passed.
 - [ ] Floating chrome → `OriSurface`; content card → `OriCard`.
+- [ ] Motion sits on our own elements or glyphs, never on `.ori-*` or `--ori-variant-*`, and each animation has a
+      `prefers-reduced-motion: reduce` rule (§7).
 - [ ] `npm run lint:all` (incl. contrast) + `npm run test:a11y` + `npm run test:layout` still green — the last one whenever the change touches floating/absolute chrome.
 
 ## 6. oriui capability map — read the source, don't assume gaps
@@ -166,3 +182,25 @@ Every "gap" first assumed (from `dist`) turned out to already exist in the sourc
 
 **If something IS genuinely missing** (or broken, like A/B above), it gets added to oriui upstream — report the gap in
 `docs/ISSUES-OUTER.md`, but confirm against `../vueinjar` first, never assume from `dist`.
+
+## 7. Motion and hover — ours on ours
+
+oriui owns how its components react. Hover and active tints come from the variant vocabulary (§1), so a
+component's own hover is never restyled: not through `.ori-*` rules, and not by repointing its internal
+`--ori-variant-*` variables.
+
+What we may animate:
+
+- **Our own elements** — the `ModeNav` underline drawing in under the current mode, the `/draw` menu card fading
+  and scaling in.
+- **Our glyphs inside an oriui component** — the `ToolIcon` in each `OriToolbar` item lifts on hover, squashes on
+  press and bounces when its tool is picked. The transform is on the glyph; the button's background states stay
+  oriui's.
+- **A wrapper we own around an oriui component** — a gallery card lifts on a `div` around the `OriCard`, and the
+  welcome's mode cards nudge on the link or button around them, so the card keeps its own transitions.
+
+A block that isn't a button but should react like one, such as an `OriCard` used as a mode card, opts in with
+`data-ori-interactive` (public oriui API since rc.18). The variant vocabulary's hover and active tints then apply
+to it exactly as they do to an `OriButton`; don't rebuild them with `color-mix` (§1).
+
+Every animation has a `prefers-reduced-motion: reduce` rule that turns it off.

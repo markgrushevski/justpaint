@@ -43,13 +43,10 @@ AI features belong **inside** the product itself, not just as a dev tool — clo
 - **Custom canvas guides** — user-placed guide lines on `/draw`: unlimited count, horizontal and vertical, draggable, view-only (never exported/judged). Later: snap-to-guide for shape tools. *When:* a `/draw` power-user pass after `/play`.
 - **Document background-color control** — the document's `background` is `null` by default; there's no UI to set a real background color. Needs an undoable `setBackground` editor command + a color well in the menu. *When:* when someone asks for exports with a baked background.
 - **Theme picker as `OriMenu`** — the theme chip blind-cycles auto→light→dark; a menu with the three states would make them discoverable (blocked until Firefox ships CSS anchor positioning, which `OriMenu` needs). *When:* shell polish.
-- **Extend browser test coverage past `/draw`** — the a11y suite (`test:a11y`) and the layout/chrome-overlap suite (`test:layout`) both only cover `/draw`; extend to `/play` and `/practice`. Both are local-only gates today (they need a dev server up) — finding a way to run them in CI is a separate open item.
+- **Extend browser test coverage past `/draw`** — the a11y suite (`test:a11y`) covers `/draw`, `/gallery` and `/leaderboard`, and the layout/chrome-overlap suite (`test:layout`) only `/draw`; extend both to `/play` and `/practice`. Both are local-only gates today (they need a dev server up) — finding a way to run them in CI is a separate open item.
 - **APCA (`apca-w3`) as a supplementary advisory** — an additional contrast signal in the WCAG-3 direction, better-behaved for the brand orange than the WCAG-2 ratio. Advisory only, not a gate. *When:* alongside the next a11y touch.
 - **Adopt oriui `data-ori-skin=neutral`** — delegate the base palette to oriui's `neutral` skin and drop the `main.css` palette override, keeping only the desk/backdrop token. *When:* a shell-token cleanup pass.
-- **`/draw` contrast triage (pre-existing, non-blocking)** — two oriui tokens (tonal-button text, selected-tab text) sit under the 3:1 non-text bar against their surfaces; both are upstream (`@oriui/css`, see `docs/ISSUES-OUTER.md`). The brand-orange wordmark on `/draw` is 2.85:1 as large text (a brand-token decision, desktop-only). The floating `/draw` chrome also isn't wrapped in a landmark region. *When:* next a11y touch.
-
-## Saved drawings
-- **A browser for saved drawings** — a list with thumbnail and date, instead of picking by name. Needs thumbnails, which need object storage or a client-rendered preview.
+- **`/draw` contrast triage (pre-existing, non-blocking)** — two oriui tokens (tonal-button text, selected-tab text) sit under the 3:1 non-text bar against their surfaces; both are upstream (`@oriui/css`, see `docs/ISSUES-OUTER.md`). The floating `/draw` chrome also isn't wrapped in a landmark region. *When:* next a11y touch.
 
 ## Design & UX ideas (from similar tools & games)
 Researched from drawing editors (Excalidraw, tldraw, Figma/FigJam, Photopea) and drawing-duel games (Skribbl.io, Gartic Phone, Draw Battle, Jackbox Drawful). **Recorded only — not building now.** Grouped by surface; the game items serve the north star (`/play`).
@@ -77,6 +74,6 @@ Researched from drawing editors (Excalidraw, tldraw, Figma/FigJam, Photopea) and
 **Cross-cutting — theme, responsive, feel**
 - **Mobile portrait layout** — canvas ~70%, toolbar bottom, panels collapse to icon-tabs; primary actions in the bottom third for one-handed reach.
 - **Game-feel polish** — smooth 200–400ms easings, toast notifications for match events, skeleton loaders while the judge scores, optional audio cues.
-- **Playful brand type** — a hand-drawn display font (Excalidraw's Virgil / Caveat) for lobby & result headings to set a fun tone; keep a clean system/`Nunito` body.
+- **Playful brand type** — a hand-drawn display font (Excalidraw's Virgil / Caveat) for lobby & result headings to set a fun tone; keep a clean system/`Nunito` body. Caveat is loaded already and sets the hints on the `/draw` welcome.
 
 *Priority for the game MVP:* bottom toolbar · compact color picker · animated result card · round timer · match summary · mobile layout. Editor polish (layer thumbnails, brush preview, zoom/pan) and juice (score pop, audio, replay) come after the core loop.

@@ -7,9 +7,9 @@ code wins — fix this file.
 
 A web drawing app built around an **AI-judged drawing duel** (`/play`): two players draw one prompt, a
 judge scores both, and Elo feeds a leaderboard. `/practice` is the single-player mode. `/draw` is the
-free editor and hosts the AI features that need a canvas without a clock (assist, "what did I draw?").
-The ML judge is an external service: this repo owns the `Judge` contract and its impls (`fake`, `http`,
-`gemini`), never the model.
+free editor and hosts the AI features that need a canvas without a clock (assist, "what did I draw?");
+`/gallery` lists its saved drawings. The ML judge is an external service: this repo owns the `Judge`
+contract and its impls (`fake`, `http`, `gemini`), never the model.
 
 ## Stack
 

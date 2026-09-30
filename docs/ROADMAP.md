@@ -25,11 +25,9 @@ ships.
 - **Teams and tournaments** — brackets on top of `match_players`, which already generalizes past 1v1.
 - **Replay** — animate a drawing from its document. Stroke order works on v1; true timing needs an
   additive field ([DOCUMENT-FORMAT.md](DOCUMENT-FORMAT.md) §9).
-- **Object storage** for the judged raster and thumbnails. Until then the result screen renders the
-  opponent's document client-side and `judgedImageUrl` is `null`.
+- **Object storage** for the judged raster and thumbnails. Until then the result screen and the gallery
+  render documents client-side, `judgedImageUrl` is `null` and `thumbnail_url` stays null.
 
 **Editor**
 - **Object selection, tldraw-style** — a select tool, per-stroke hit testing, marquee, move/scale and
   multi-select, all through the command stack. Mostly `packages/editor`; a phase, not a slice.
-- **Editor chrome layout** — rearrange the floating islands, then make the layout hold at every
-  breakpoint (`npm run test:layout` guards overlaps).

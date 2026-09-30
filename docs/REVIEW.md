@@ -126,9 +126,9 @@ The UI is built on the **oriui** design system.
 
 ## Scope
 
-- [ ] `/draw` stays the editor, save/load and the AI-in-product surfaces (assist, guess) — anything
-      with a score, a ladder or an opponent belongs in the game, and a feature that serves only
-      free-draw needs a decision first (the two-products trap).
+- [ ] `/draw` stays the editor, save/load (with its `/gallery`) and the AI-in-product surfaces (assist,
+      guess) — anything with a score, a ladder or an opponent belongs in the game, and a feature that
+      serves only free-draw needs a decision first (the two-products trap).
 - [ ] The external judge's `Judge` contract stays frozen and nothing blocks on the ML — a new impl is a
       new impl behind the interface (`JUDGE_MODE`), never a widening of the contract, and a question
       that is ours to ask gets its own seam (`Critic`, `Guesser`). The positional `winner`
