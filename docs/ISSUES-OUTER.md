@@ -39,7 +39,7 @@ renames the component API vocabulary with no aliases, so bump and migrate the ca
   hits a busy button too — the "Thinking…" label on a fill-primary button measures **1.68:1** (light)
   and **2.30:1** (dark). A busy control is not an inactive one, so the WCAG exemption doesn't cover it.
 - **Upstream fix:** both dim selectors skip `[aria-busy='true']`; worst reading afterwards is 4.91:1.
-- **Workaround (keep until the bump):** `apps/web/src/components/GuessResult.vue` states the wait in
+- **Workaround (keep until the bump):** `apps/web/src/features/draw/GuessResult.vue` states the wait in
   full-ink body copy and never relies on the button label to say the app is working.
 
 ## JP-O-09 — `OriDialog` fades its whole body below AA

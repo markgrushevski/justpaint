@@ -4,12 +4,10 @@
  * matchmaking, the socket or a timer (docs/GAME.md §10). The server renders the raster
  * and scores it synchronously; the PNG captured here is only the result thumbnail.
  */
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { OriBadge, OriButton, OriSpinner, OriSurface } from '@oriui/vue'
-import { useThemeColor } from '@oriui/headless/vue'
-import { DEFAULT_STYLE, DOC_VERSION, Editor, newId, TOOLS } from '@justpaint/editor'
-import type { Document, ToolId } from '@justpaint/editor'
+import { blankDocument } from '@justpaint/editor'
 import {
     icons,
     isAuthError,
@@ -21,63 +19,49 @@ import {
     useSubmitPractice
 } from '@core'
 import type { PracticePrompt, PracticeRun } from '@core'
-import EditorShell from '../components/shell/EditorShell.vue'
-import FloatingToolbar, { TOOL_META } from '../components/FloatingToolbar.vue'
-import IconButton from '../components/ui/IconButton.vue'
-import GamePromptBanner from '../components/game/GamePromptBanner.vue'
-import JudgingOverlay from '../components/game/JudgingOverlay.vue'
-import PracticeResult from '../components/game/PracticeResult.vue'
-import SubmitButton from '../components/game/SubmitButton.vue'
-
-// The duel's canvas (docs/GAME.md §2), so scores stay comparable.
-const GAME_CANVAS = 1080
-
-const shell = ref<{ canvasEl: HTMLDivElement | null } | null>(null)
-let editor: Editor | null = null
-let unsubscribe: (() => void) | null = null
-
-// Konva can't read CSS variables (same wiring as DrawView).
-const cursorRingColor = useThemeColor('primary')
-watch(cursorRingColor, (color) => editor?.setCursorColor(color || null))
+import EditorShell from '../editor/EditorShell.vue'
+import FloatingToolbar from '../editor/FloatingToolbar.vue'
+import ZoomControls from '../editor/ZoomControls.vue'
+import { useEditorHost } from '../editor/useEditorHost'
+import { GAME_CANVAS } from '../game/canvas'
+import GamePromptBanner from '../game/GamePromptBanner.vue'
+import JudgingOverlay from '../game/JudgingOverlay.vue'
+import SubmitButton from '../game/SubmitButton.vue'
+import PracticeResult from './PracticeResult.vue'
 
 const gate = useAuthGate()
 const router = useRouter()
 const fetchPrompt = usePracticePrompt()
 const submitRun = useSubmitPractice()
 
-function blankGameDocument(): Document {
-    return {
-        version: DOC_VERSION,
-        width: GAME_CANVAS,
-        height: GAME_CANVAS,
-        background: null,
-        layers: [{ id: newId(), name: 'Layer 1', visible: true, opacity: 1, strokes: [] }]
-    }
-}
+const blankGameDocument = () => blankDocument(GAME_CANVAS, GAME_CANVAS)
 
-const ui = reactive({
-    activeTool: 'pen' as ToolId,
-    color: DEFAULT_STYLE.color,
-    strokeWidth: DEFAULT_STYLE.strokeWidth,
-    fillEnabled: DEFAULT_STYLE.fill !== null,
-    fill: DEFAULT_STYLE.fill ?? '#ffffff'
+const {
+    shell,
+    editor,
+    ui,
+    canUndo,
+    canRedo,
+    zoomPercent,
+    isEmpty,
+    pickTool,
+    setColor,
+    setWidth,
+    toggleFill,
+    setFill,
+    undo,
+    redo,
+    zoomIn,
+    zoomOut,
+    fitView,
+    load,
+    toPNG
+} = useEditorHost({
+    initialDocument: blankGameDocument,
+    commands: { enter: () => submit() },
+    // Tool keys only while drawing.
+    beforeToolKeys: () => phase.value !== 'drawing'
 })
-
-const canUndo = ref(false)
-const canRedo = ref(false)
-const zoom = ref(1)
-const zoomPercent = computed(() => Math.round(zoom.value * 100))
-
-// Gates Submit: a blank canvas would spend a daily judge call on a 0.
-const hasStrokes = ref(false)
-
-function syncEditorState() {
-    if (!editor) return
-    canUndo.value = editor.canUndo()
-    canRedo.value = editor.canRedo()
-    zoom.value = editor.getZoom()
-    hasStrokes.value = editor.getLayers().some((l) => l.strokeCount > 0)
-}
 
 /**
  * `loading` (a prompt, or the sign-in modal before it), `drawing`, `judging` (the submit
@@ -105,9 +89,10 @@ const submitExhausted = ref(false)
 const drawingImage = ref<string | null>(null)
 
 const submitting = computed(() => phase.value === 'judging')
-const canSubmit = computed(() => phase.value === 'drawing' && hasStrokes.value && prompt.value !== null)
+// A blank canvas would spend a daily judge call on a 0.
+const canSubmit = computed(() => phase.value === 'drawing' && !isEmpty.value && prompt.value !== null)
 // Says why Submit is disabled.
-const showEmptyHint = computed(() => phase.value === 'drawing' && !hasStrokes.value)
+const showEmptyHint = computed(() => phase.value === 'drawing' && isEmpty.value)
 
 function revokeDrawingImage(): void {
     if (drawingImage.value) {
@@ -123,11 +108,9 @@ function toLoadError(msg: string): void {
 
 // The result card's thumbnail only; the judged raster is rendered server-side.
 async function captureDrawing(): Promise<string | null> {
-    if (!editor) return null
     try {
-        const doc = editor.getDocument()
-        const blob = await editor.toPNG({ outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
-        return URL.createObjectURL(blob)
+        const blob = await toPNG()
+        return blob && URL.createObjectURL(blob)
     } catch {
         return null
     }
@@ -191,9 +174,9 @@ async function loadPrompt(): Promise<void> {
 
 async function submit(): Promise<void> {
     const target = prompt.value
-    if (!canSubmit.value || !target || !editor) return
+    if (!canSubmit.value || !target || !editor.value) return
     // Snapshot before the await, so the thumbnail and the judged document match.
-    const doc = editor.getDocument()
+    const doc = editor.value.getDocument()
     phase.value = 'judging'
     submitError.value = ''
     submitExhausted.value = false
@@ -214,8 +197,7 @@ async function submit(): Promise<void> {
 function drawAgain(): void {
     revokeDrawingImage()
     run.value = null
-    editor?.loadDocument(blankGameDocument())
-    syncEditorState()
+    load(blankGameDocument())
     phase.value = 'drawing'
 }
 
@@ -223,8 +205,7 @@ function newPrompt(): void {
     revokeDrawingImage()
     run.value = null
     prompt.value = null
-    editor?.loadDocument(blankGameDocument())
-    syncEditorState()
+    load(blankGameDocument())
     loadPrompt()
 }
 
@@ -241,97 +222,7 @@ function viewLeaderboard(): void {
     router.push('/leaderboard')
 }
 
-function pickTool(id: ToolId) {
-    ui.activeTool = id
-    editor?.setTool(TOOLS[id])
-}
-function setColor(hex: string) {
-    ui.color = hex
-    editor?.setStyle({ color: hex })
-}
-function setWidth(width: number) {
-    ui.strokeWidth = width
-    editor?.setStyle({ strokeWidth: width })
-}
-function toggleFill(enabled: boolean) {
-    ui.fillEnabled = enabled
-    editor?.setStyle({ fill: enabled ? ui.fill : null })
-}
-function setFill(hex: string) {
-    ui.fill = hex
-    if (ui.fillEnabled) editor?.setStyle({ fill: hex })
-}
-function undo() {
-    editor?.undo()
-}
-function redo() {
-    editor?.redo()
-}
-function zoomIn() {
-    editor?.zoomIn()
-}
-function zoomOut() {
-    editor?.zoomOut()
-}
-function fitView() {
-    editor?.fitToViewport()
-}
-
-const KEY_TO_TOOL = new Map<string, ToolId>(
-    (Object.keys(TOOLS) as ToolId[]).map((id) => [TOOL_META[id].key.toLowerCase(), id])
-)
-
-function onKeydown(e: KeyboardEvent) {
-    // The sign-in modal owns the keyboard: Ctrl+Enter would submit into the old session.
-    if (gate.open) return
-    const target = e.target as HTMLElement | null
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return
-    }
-    const key = e.key.toLowerCase()
-    if (e.ctrlKey || e.metaKey) {
-        if (key === 'enter') {
-            e.preventDefault()
-            submit()
-        } else if (key === 'z' && !e.shiftKey) {
-            e.preventDefault()
-            editor?.undo()
-        } else if ((key === 'z' && e.shiftKey) || key === 'y') {
-            e.preventDefault()
-            editor?.redo()
-        } else if (key === '0') {
-            e.preventDefault()
-            editor?.fitToViewport()
-        } else if (key === '=' || key === '+') {
-            e.preventDefault()
-            editor?.zoomIn()
-        } else if (key === '-') {
-            e.preventDefault()
-            editor?.zoomOut()
-        }
-        return
-    }
-    if (e.altKey) return
-    // Tool keys only while drawing.
-    if (phase.value !== 'drawing') return
-    const tool = KEY_TO_TOOL.get(key)
-    if (tool) {
-        e.preventDefault()
-        pickTool(tool)
-    }
-}
-
 onMounted(async () => {
-    const container = shell.value?.canvasEl ?? null
-    if (!container) return
-    editor = new Editor(container, blankGameDocument())
-    editor.setTool(TOOLS[ui.activeTool])
-    editor.setStyle({ ...DEFAULT_STYLE })
-    editor.setCursorColor(cursorRingColor.value || null)
-    unsubscribe = editor.onChange(syncEditorState)
-    syncEditorState()
-    window.addEventListener('keydown', onKeydown)
-
     // `ensure` waits for the cookie restore, then raises the shared sign-in modal.
     const signedIn = await gate.ensure('Sign in to practice.')
     if (disposed) return
@@ -344,12 +235,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     disposed = true
-    window.removeEventListener('keydown', onKeydown)
     revokeDrawingImage()
-    unsubscribe?.()
-    unsubscribe = null
-    editor?.destroy()
-    editor = null
 })
 </script>
 
@@ -395,12 +281,7 @@ onBeforeUnmount(() => {
         </template>
 
         <template #bottom-right>
-            <OriSurface class="practice__zoom" role="group" aria-label="Zoom">
-                <IconButton icon="minus" label="Zoom out — Ctrl+-" @click="zoomOut" />
-                <span class="practice__zoom-value">{{ zoomPercent }}%</span>
-                <IconButton icon="plus" label="Zoom in — Ctrl+=" @click="zoomIn" />
-                <IconButton icon="fit" label="Fit — Ctrl+0" @click="fitView" />
-            </OriSurface>
+            <ZoomControls :percent="zoomPercent" @zoom-in="zoomIn" @zoom-out="zoomOut" @fit="fitView" />
         </template>
 
         <!-- The submit notice is last: it rides over a live `drawing` phase. -->
@@ -499,26 +380,6 @@ onBeforeUnmount(() => {
     opacity: 0.7;
     pointer-events: none;
     user-select: none;
-}
-
-/* Mirrors /draw's zoom island: island visuals, not shell layout. */
-.practice__zoom {
-    display: flex;
-    align-items: center;
-    gap: 0;
-
-    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
-}
-
-.practice__zoom-value {
-    min-width: 3.1rem;
-    padding: 0.25rem;
-
-    color: var(--ori-color-on-surface);
-
-    font-size: var(--ori-font-size_sm, 0.85rem);
-    font-variant-numeric: tabular-nums;
-    text-align: center;
 }
 
 /* The spinner and the notices opt back into pointer events in the passive overlay. */

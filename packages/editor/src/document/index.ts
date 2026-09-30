@@ -40,6 +40,8 @@ export {
     PRESSURE_DP
 } from './constants'
 
+export { blankDocument } from './blank'
+
 export { roundDocument } from './round'
 
 export { computeFitTransform } from './fit'

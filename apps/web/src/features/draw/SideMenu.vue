@@ -12,8 +12,8 @@ import { RouterLink } from 'vue-router'
 import { OriAvatar, OriButton, OriIcon, OriInput, OriSelect, OriSwitch } from '@oriui/vue'
 import { icons, useAuthGate, useSessionStore, useThemeStore } from '@core'
 import type { ThemeMode } from '@core'
-import SegmentedControl from './ui/SegmentedControl.vue'
-import type { IconName } from './icons/ToolIcon.vue'
+import SegmentedControl from '../../components/ui/SegmentedControl.vue'
+import type { IconName } from '../../components/icons/ToolIcon.vue'
 
 const props = defineProps<{
     open: boolean

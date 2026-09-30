@@ -11,7 +11,7 @@ import { useRouter } from 'vue-router'
 import { OriAvatar, OriBadge, OriButton, OriSkeleton, OriSurface } from '@oriui/vue'
 import { icons, isAuthError, toApiError, useLeaderboard, useSessionStore } from '@core'
 import type { LeaderboardEntry } from '@core'
-import AuthForm from '../components/auth/AuthForm.vue'
+import AuthForm from '../../components/auth/AuthForm.vue'
 
 /** Top-N shown. Fixed for the page's lifetime (a plain query key is enough). */
 const LIMIT = 20

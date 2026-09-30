@@ -2,6 +2,12 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-09-30 — The web app is grouped by feature, with one editor host
+
+- **Why:** `DrawView`, `PlayView` and `PracticeView` each carried about 150 identical lines that mounted the editor, mirrored its state, wired the toolbar and handled the shortcuts. Each view then mixed its own features on top, up to 715 lines of script in one file.
+- **What:** a folder per route under `apps/web/src/features`, with `editor` and `game` as the shared features (`docs/ARCHITECTURE.md` §3). `useEditorHost` mounts the editor for every canvas route. Each view's features are composables beside it, for example `useAssistPanel` and `useMatchSocket`.
+- **Not a `shared/` or `utils/` folder:** this code has state and belongs to one feature. A common folder would collect it without saying whose it is. `core/utils` keeps pure helpers only.
+
 ## 2026-09-30 — sqlc without a repository layer; a feature never imports another
 
 - **No repository interfaces over sqlc.** Modules call the generated `db.Queries` directly (`docs/ARCHITECTURE.md` §4).
@@ -228,7 +234,7 @@ The `/play` result screen must show the opponent's drawing, but `GET /api/drawin
 - **We borrow Excalidraw's patterns, not its look:** a warm empty-state card with quick actions, corner discipline, tool hotkey badges and cleaner menu organization, all rendered in oriui and the brand orange. A pixel clone would fight the design system, mean maintaining two visual languages, and edge toward brand mimicry.
 - **We kept the right-side slide-in drawer** rather than a top-left dropdown. It is non-modal, so the canvas and an in-progress duel stay live behind it, and it can hold the persistent `/play` profile, rating and match context.
 - **We kept the bottom-centre floating toolbar** rather than a top bar. `/play` owns the top band for the prompt banner and round timer, so a top toolbar would force the two modes to diverge.
-- **The shared shell is a component, not a convention.** `apps/web/src/components/shell/EditorShell.vue` owns the desk, the Konva mount element (`defineExpose({ canvasEl })`) and named region slots (`#top-left/-center/-right`, `#bottom-left/-center/-right`, `#overlay`, `#drawer`). `DrawView` and `PlayView` both compose it. A `mode: 'draw' | 'play'` prop handles the per-mode differences.
+- **The shared shell is a component, not a convention.** `apps/web/src/features/editor/EditorShell.vue` owns the desk, the Konva mount element (`defineExpose({ canvasEl })`) and named region slots (`#top-left/-center/-right`, `#bottom-left/-center/-right`, `#overlay`, `#drawer`). `DrawView` and `PlayView` both compose it. A `mode: 'draw' | 'play'` prop handles the per-mode differences.
 
 ## 2026-07-08 — Shell details: right-side menu, drawing names, canvas backdrop, palette
 
