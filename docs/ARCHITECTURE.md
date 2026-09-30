@@ -66,15 +66,15 @@ This is what makes `editor` genuinely reusable: because it can't reach into `web
 
 ## 4. The Go modular monolith (one binary, internal modules)
 
-One Go service, one Postgres (DECISIONS: "one Go service … one Postgres"). Microservices would be over-engineering at this scale. Internal structure is **modules under `internal/`**, wired together in `main`:
+One Go service, one Postgres (DECISIONS: "one Go service … one Postgres"). Microservices would be over-engineering at this scale. Internal structure is **modules under `internal/`**, wired together in `cmd/server`:
 
 ```
 server/
-  cmd/server/main.go           # compose modules, start the http server + the ws hub [done]
+  cmd/server/    # main.go: process + shutdown · app.go: modules + routes · ai.go: AI impls + budget
   internal/
     auth/        # signup/login, bcrypt, golang-jwt issue/verify, middleware           [done]
     drawings/    # CRUD over the vector document (jsonb); validate on write            [done]
-    document/    # the vector-doc validator, the only one                            [done]
+    document/    # the vector-doc validator, the only one, plus the scored-canvas rule [done]
     db/          # sqlc-generated typed queries (+ queries/ SQL source)                [done]
     platform/    # shared infra: pgx pool, http server/router, config, slog, errors    [done]
     game/        # match lifecycle: create → both draw → submit → judge → result       [done: full loop]
@@ -87,15 +87,16 @@ server/
     guess/       # "what did I draw?" on /draw: judge.Guesser, no row anywhere; docs/API.md §13        [done]
     aibudget/    # the daily AI-call ceiling, over ONE ledger table (ai_calls); docs/GAME.md §4.3      [done]
     ws/          # coder/websocket hub pushing match-room state to both duelists                       [done]
-  migrations/    # goose, embedded and applied at boot (00001_initial_schema … 00007_ai_calls)
+  migrations/    # goose, embedded and applied at boot (00001_initial_schema … 00008_practice_run_document)
 ```
 
 Module rules:
-- **Modules talk through narrow Go interfaces**, not by reaching into each other's internals. `game` depends on a `judge.Judge` interface and a `drawings` read port; it does not know the judge is HTTP or that drawings live in jsonb.
-- **A shared ceiling belongs in its own module, not in whichever module needed it first.** The daily AI-call budget used to live in `game` and be derived from the tables each feature wrote, which made `game` the owner of every other feature's quota — `practice` imported it for exactly one function. It is now `aibudget`, counting one ledger table (`ai_calls`, migration `00007`), and the direction it created is gone: **`practice` no longer imports `game` for the budget** (only for `game.ValidateSubmission`, the one write-edge validator both modes share), and `assist` gains a durable ceiling without importing `game` at all. Consumers hold plain funcs, bound to a kind once in `main`, so a module never learns its own kind's name, another feature's quota, or the budget's shape. There are **two port shapes**, because a single-actor call and a duel are differently shaped: `aibudget.For` hands back `Check` + `Spend` for a feature whose "this player is allowed" and "a request is being made" are the same instant (practice, guess, assist), while `aibudget.ForSplit` hands back `BillPlayers` + `BillProvider` for the duel, whose two halves happen minutes apart, in transactions the caller owns, and a different number of times. Which provider each kind spends is resolved once by `aibudget.Policies`, from the impls the composition root actually built rather than from a second reading of the mode envs — an impl declares for itself whether it calls anybody, through the narrow `assist.ProviderCaller` interface, which the `assist.CallsProvider` helper asks on its behalf. Full rule: `docs/GAME.md` §4.3.
+- **Modules talk through narrow Go interfaces**, not by reaching into each other's internals. `game` depends on the `judge.Judge` and `render.Renderer` interfaces; it does not know whether the judge is the ML service, Gemini or the fake.
+- **A feature never imports another feature.** Features import seams (`judge`, `render`, `assist`), shared modules (`document`, `auth`, `aibudget`) and `platform`. A rule two features share moves into the module that owns its subject: the duel and practice share the scored-canvas rule through `document.ValidateScored`. `ws` is the one exception, as the game's realtime transport: it imports `game`, and `game` reaches it only through `game.Publisher`.
+- **A shared ceiling belongs in its own module.** The daily AI-call budget is `aibudget`, counting one ledger table (`ai_calls`), so no feature owns another's quota. Consumers hold plain funcs, bound to a kind once at the composition root, so a module never learns its own kind's name, another feature's quota, or the budget's shape. There are **two port shapes**, because a single-actor call and a duel are differently shaped: `aibudget.For` hands back `Check` + `Spend` for a feature whose "this player is allowed" and "a request is being made" are the same instant (practice, guess, assist), while `aibudget.ForSplit` hands back `BillPlayers` + `BillProvider` for the duel, whose two halves happen minutes apart, in transactions the caller owns, and a different number of times. Which provider each kind spends is resolved once by `aibudget.Policies`, from the impls the composition root actually built rather than from a second reading of the mode envs — an impl declares for itself whether it calls anybody, through the narrow `assist.ProviderCaller` interface, which the `assist.CallsProvider` helper asks on its behalf. Full rule: `docs/GAME.md` §4.3.
 - **`platform` is the only shared-infra dependency.** It owns the pgx pool, router, config, and logger so modules don't each re-wire infrastructure.
-- **Persistence:** pgx v5 + sqlc (typed queries) + goose (migrations). The `document` column is `jsonb`, bound as `json.RawMessage` (opaque to SQL); queryable fields are promoted to columns (§7, and `docs/DOCUMENT-FORMAT.md` §7).
-- **One process, clean seams** means a module can later become its own binary by lifting it out behind its existing interface — but only when a trigger in §9 fires.
+- **Persistence:** pgx v5 + sqlc (typed queries) + goose (migrations). Modules call the generated `db.Queries` directly, with no repository layer (DECISIONS 2026-09-30); handlers map rows to their own response types. The `document` column is `jsonb`, bound as `json.RawMessage` (opaque to SQL); queryable fields are promoted to columns (§7, and `docs/DOCUMENT-FORMAT.md` §7).
+- **One process, clean seams** means a module can later become its own binary by lifting it out, with its tables and queries, behind its existing interface — but only when a trigger in §9 fires.
 
 ## 5. The Judge seam (interface + fake + external service)
 

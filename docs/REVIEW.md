@@ -81,9 +81,9 @@ The vector document ([DOCUMENT-FORMAT.md](DOCUMENT-FORMAT.md)) is validated by
 
 ## Go backend
 
-- [ ] Modules talk through narrow interfaces — the **judge stays a seam** (game depends on a
-      `Judge` interface + a drawings read port, never on "judge is HTTP" or "drawings are jsonb");
-      infra stays in `internal/platform`.
+- [ ] Modules talk through narrow interfaces — the **judge stays a seam** (game depends on the
+      `Judge` interface, never on a concrete judge); a feature never imports another feature
+      (`ARCHITECTURE.md` §4); infra stays in `internal/platform`.
 - [ ] All SQL goes through **sqlc** (parameterized); jsonb is bound as `json.RawMessage` and stays
       opaque to SQL; a field you need to query is promoted to a column, not left in jsonb; migrations
       are additive and goose-managed.

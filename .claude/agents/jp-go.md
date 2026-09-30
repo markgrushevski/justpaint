@@ -15,9 +15,11 @@ gotchas), and the files under review (typically under `server/internal/`).
 Hunt, adversarially, grounded in `file:line`:
 
 - **Module boundaries** — a module reaching into another's internals instead of a narrow interface:
-  the game (Phase 3) must depend on a `judge.Judge` interface + a drawings read port, never on "judge
-  is HTTP" or "drawings are jsonb"; infra stays in `internal/platform`; the judge seam not collapsed
-  (game importing the concrete HTTP client instead of the interface).
+  the game depends on the `judge.Judge` interface, never on a concrete judge; a feature never imports
+  another feature (a shared rule lives in the module that owns its subject, e.g.
+  `document.ValidateScored`); infra stays in `internal/platform`; the judge seam not collapsed (game
+  importing a concrete judge instead of the interface). sqlc without a repository layer is the
+  decided design (DECISIONS 2026-09-30), not a finding.
 - **Go idioms** — errors returned bare instead of wrapped with context (`%w`); ignored errors;
   `context.Context` not threaded to DB/HTTP calls; panics used as control flow; missing graceful-
   shutdown wiring; goroutine/lifecycle/leak issues in the (later) WS hub and render trigger.
