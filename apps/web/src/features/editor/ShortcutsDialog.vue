@@ -64,7 +64,7 @@ function onOpenChange(open: boolean) {
                     <span class="shortcuts__keys">
                         <template v-for="(combo, i) in row.keys" :key="combo">
                             <span v-if="i > 0" class="shortcuts__or" aria-hidden="true">/</span>
-                            <OriKbd :text="combo" />
+                            <OriKbd :label="combo" />
                         </template>
                     </span>
                     <span class="shortcuts__action">{{ row.action }}</span>

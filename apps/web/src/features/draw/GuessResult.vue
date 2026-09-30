@@ -148,7 +148,7 @@ const pending = computed(() => props.status === 'pending')
         <OriButton
             v-if="!exhausted"
             class="guess__action"
-            :text="actionText"
+            :label="actionText"
             variant="outline"
             color="surface"
             radius="md"

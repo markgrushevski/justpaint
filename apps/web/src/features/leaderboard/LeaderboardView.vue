@@ -51,7 +51,7 @@ function goBack(): void {
                 </div>
                 <OriButton
                     class="lb__back"
-                    text="Back"
+                    label="Back"
                     variant="outline"
                     color="surface"
                     radius="md"
@@ -81,7 +81,7 @@ function goBack(): void {
                             <td class="lb__td lb__td--rank"><OriSkeleton class="lb__skel lb__skel--rank" /></td>
                             <td class="lb__td lb__td--player">
                                 <div class="lb__player">
-                                    <OriSkeleton class="lb__skel lb__skel--avatar" radius="rounded" />
+                                    <OriSkeleton class="lb__skel lb__skel--avatar" radius="full" />
                                     <OriSkeleton class="lb__skel lb__skel--name" />
                                 </div>
                             </td>
@@ -100,14 +100,14 @@ function goBack(): void {
                             <td class="lb__td lb__td--rank">{{ entry.rank }}</td>
                             <td class="lb__td lb__td--player">
                                 <div class="lb__player">
-                                    <OriAvatar class="lb__avatar" :text="nameFor(entry)" color="primary" size="sm" />
+                                    <OriAvatar class="lb__avatar" :name="nameFor(entry)" color="primary" size="sm" />
                                     <span class="lb__name">{{ nameFor(entry) }}</span>
                                     <OriBadge
                                         v-if="entry.userId === currentUserId"
                                         class="lb__you"
                                         content="You"
                                         color="primary"
-                                        variant="tonal"
+                                        variant="soft"
                                         label="This is you"
                                     />
                                 </div>

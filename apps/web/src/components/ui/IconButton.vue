@@ -27,11 +27,11 @@ withDefaults(
          */
         pressed?: boolean
         disabled?: boolean
-        /** Rest emphasis; default `text` (ghost). Selected states pass `tonal`/`fill`. */
+        /** Rest emphasis; default `text` (ghost). Selected states pass `soft`/`solid`. */
         variant?: Variant
         /** Role colour; default `surface` (neutral). Selected/on passes `primary`. */
         color?: ThemeColor
-        /** `md` = rounded square (default), `rounded` = circle. */
+        /** `md` = rounded square (default), `full` = circle. */
         radius?: RadiusSize
         placement?: AnchoredPlacement
     }>(),

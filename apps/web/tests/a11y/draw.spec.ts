@@ -27,18 +27,6 @@ const AUDIT_EXCLUSIONS: { selector: string; rule: string; reason: string }[] = [
         rule: 'color-contrast',
         // #ff5500 on #f0f2f6 = 2.85:1 — deliberate brand choice, not a bug.
         reason: 'brand wordmark in oriui --ori-color-primary — deliberate brand color, design decision'
-    },
-    {
-        selector: '.ori-variant_tonal',
-        rule: 'color-contrast',
-        // #c24100 on #e5c6b9 = 3.23:1 — @oriui/css's token pair; fix upstream, not here.
-        reason: 'oriui tonal-button token contrast (3.23:1) — third-party/oriui-owned'
-    },
-    {
-        selector: '.ori-tabs__tab[aria-selected="true"]',
-        rule: 'color-contrast',
-        // OriTabs selected tab ("Log in") — same primary-token question as the wordmark.
-        reason: 'oriui selected-tab uses --ori-color-primary (2.85:1) — third-party/oriui-owned'
     }
 ]
 
@@ -130,8 +118,6 @@ test.describe('/draw — open overlays (desktop)', () => {
         const signInDialog = page.getByRole('dialog', { name: 'Sign in' })
         await signInDialog.waitFor({ state: 'visible' })
         await expect(signInDialog).toHaveCSS('opacity', '1')
-        // Fails until the oriui bump: OriDialog's body-opacity fade drops the
-        // sign-in button below AA (docs/ISSUES-OUTER.md JP-O-09).
         await expectNoSeriousViolations(page, 'sign-in-open')
     })
 })

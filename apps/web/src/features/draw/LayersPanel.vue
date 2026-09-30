@@ -79,7 +79,7 @@ const top = () => props.layers.length - 1
             <span class="layers__title">Layers</span>
             <div class="layers__head-actions">
                 <OriButton
-                    text="+ Add"
+                    label="+ Add"
                     size="sm"
                     variant="outline"
                     radius="md"

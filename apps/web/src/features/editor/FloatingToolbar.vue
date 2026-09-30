@@ -115,6 +115,7 @@ function onWidth(e: Event) {
                         :value="id"
                         radius="md"
                         :color="props.activeTool === id ? 'primary' : 'surface'"
+                        :aria-label="TOOL_META[id].label"
                         :tooltip="`${TOOL_META[id].label} — ${TOOL_META[id].key}`"
                     >
                         <ToolIcon :name="TOOL_META[id].icon" />
@@ -246,6 +247,7 @@ function onWidth(e: Event) {
                 class="ori-button_icon"
                 radius="md"
                 color="surface"
+                aria-label="Undo"
                 tooltip="Undo — Ctrl/⌘+Z"
                 :disabled="!props.canUndo"
                 @click="emit('undo')"
@@ -256,6 +258,7 @@ function onWidth(e: Event) {
                 class="ori-button_icon"
                 radius="md"
                 color="surface"
+                aria-label="Redo"
                 tooltip="Redo — Ctrl/⌘+Y"
                 :disabled="!props.canRedo"
                 @click="emit('redo')"

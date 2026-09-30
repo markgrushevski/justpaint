@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
     <EditorShell ref="shell" mode="play">
         <template #top-left>
             <!-- The shell is identical to /play; this tells a practice run apart. -->
-            <OriBadge content="Practice" color="primary" variant="tonal" label="Practice mode" />
+            <OriBadge content="Practice" color="primary" variant="soft" label="Practice mode" />
         </template>
 
         <!-- The banner waits for a prompt: its unrevealed state is duel copy. The hint
@@ -289,7 +289,7 @@ onBeforeUnmount(() => {
             <OriSurface v-if="phase === 'error'" class="practice__notice" role="alert">
                 <h2 class="practice__notice-title">Nothing to draw yet</h2>
                 <p class="practice__notice-msg">{{ loadError }}</p>
-                <OriButton text="Try again" variant="fill" color="primary" radius="md" @click="loadPrompt" />
+                <OriButton label="Try again" variant="solid" color="primary" radius="md" @click="loadPrompt" />
             </OriSurface>
 
             <OriSurface v-else-if="phase === 'loading'" class="practice__loading" role="status">
@@ -320,8 +320,8 @@ onBeforeUnmount(() => {
                     <OriButton
                         v-if="!submitExhausted"
                         class="practice__notice-action"
-                        text="Try again"
-                        variant="fill"
+                        label="Try again"
+                        variant="solid"
                         color="primary"
                         radius="md"
                         fluid
@@ -330,7 +330,7 @@ onBeforeUnmount(() => {
                     <OriButton
                         v-else
                         class="practice__notice-action"
-                        text="Leaderboard"
+                        label="Leaderboard"
                         variant="outline"
                         color="surface"
                         radius="md"
@@ -341,7 +341,7 @@ onBeforeUnmount(() => {
                     />
                     <OriButton
                         class="practice__notice-action"
-                        text="Keep drawing"
+                        label="Keep drawing"
                         variant="outline"
                         color="surface"
                         radius="md"

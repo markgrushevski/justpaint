@@ -82,8 +82,8 @@ async function submit() {
                 />
             </OriField>
             <OriButton
-                :text="authMode === 'register' ? 'Create account' : 'Log in'"
-                variant="fill"
+                :label="authMode === 'register' ? 'Create account' : 'Log in'"
+                variant="solid"
                 radius="md"
                 fluid
                 :loading="authBusy"
