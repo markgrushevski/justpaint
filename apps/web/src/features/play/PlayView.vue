@@ -8,9 +8,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { OriBadge, OriButton, OriSurface } from '@oriui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { DEFAULT_STYLE, DOC_VERSION, Editor, newId, renderToPNG, TOOLS } from '@justpaint/editor'
-import type { Document, ToolId } from '@justpaint/editor'
-import { useThemeColor } from '@oriui/headless/vue'
+import { blankDocument, renderToPNG } from '@justpaint/editor'
 import {
     useSessionStore,
     useAuthGate,
@@ -21,46 +19,31 @@ import {
     isAuthError,
     isBudgetExhausted,
     toApiError,
-    openMatchSocket,
     leaderboardKeys
 } from '@core'
-import type { Match, MatchResultDone, WsFrame, MatchSocketHandle } from '@core'
+import type { Match, MatchResultDone, WsFrame } from '@core'
 import EditorShell from '../editor/EditorShell.vue'
-import FloatingToolbar, { TOOL_META } from '../editor/FloatingToolbar.vue'
-import IconButton from '../../components/ui/IconButton.vue'
-import RoundTimerBar from './RoundTimerBar.vue'
+import FloatingToolbar from '../editor/FloatingToolbar.vue'
+import ZoomControls from '../editor/ZoomControls.vue'
+import { useEditorHost } from '../editor/useEditorHost'
+import { GAME_CANVAS } from '../game/canvas'
 import GamePromptBanner from '../game/GamePromptBanner.vue'
+import JudgingOverlay from '../game/JudgingOverlay.vue'
+import SubmitButton from '../game/SubmitButton.vue'
 import OpponentStatusChip from './OpponentStatusChip.vue'
 import type { OpponentStatus } from './OpponentStatusChip.vue'
-import SubmitButton from '../game/SubmitButton.vue'
-import JudgingOverlay from '../game/JudgingOverlay.vue'
 import ResultReveal from './ResultReveal.vue'
 import type { DuelResult } from './ResultReveal.vue'
+import RoundTimerBar from './RoundTimerBar.vue'
+import { useMatchSocket } from './useMatchSocket'
+import { useRoundClock } from './useRoundClock'
 
-/** The square duel canvas (GAME.md §2). */
-const GAME_CANVAS = 1080
-
-// The poll cadence without a socket; pollCadence demotes it to WS_POLL_MS while the
-// socket is live (docs/API.md §9.5).
+// The poll cadence without a socket, demoted while the socket is live (docs/API.md §9.5).
 const POLL_MS = 2000
 const WS_POLL_MS = 15000
 
-// Notices a half-open socket without a TCP timeout; the server's WS_READ_IDLE_TIMEOUT
-// must clear it.
-const WS_PING_MS = 25000
-
-// Capped at the last entry; resets on a clean reconnect.
-const WS_RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 10000]
-
 // Early enough to land before the server's deadline: a late submit is a 409 and a forfeit.
 const AUTO_SUBMIT_MARGIN_MS = 3000
-
-const shell = ref<{ canvasEl: HTMLDivElement | null } | null>(null)
-let editor: Editor | null = null
-let unsubscribe: (() => void) | null = null
-
-// Konva can't read CSS variables (same wiring as DrawView).
-const cursorRingColor = useThemeColor('primary')
 
 const session = useSessionStore()
 const gate = useAuthGate()
@@ -69,35 +52,33 @@ const submitMatch = useSubmitMatch()
 const router = useRouter()
 const queryClient = useQueryClient()
 
-function blankGameDocument(): Document {
-    return {
-        version: DOC_VERSION,
-        width: GAME_CANVAS,
-        height: GAME_CANVAS,
-        background: null,
-        layers: [{ id: newId(), name: 'Layer 1', visible: true, opacity: 1, strokes: [] }]
-    }
-}
+const blankGameDocument = () => blankDocument(GAME_CANVAS, GAME_CANVAS)
 
-const ui = reactive({
-    activeTool: 'pen' as ToolId,
-    color: DEFAULT_STYLE.color,
-    strokeWidth: DEFAULT_STYLE.strokeWidth,
-    fillEnabled: DEFAULT_STYLE.fill !== null,
-    fill: DEFAULT_STYLE.fill ?? '#ffffff'
+const {
+    shell,
+    editor,
+    ui,
+    canUndo,
+    canRedo,
+    zoomPercent,
+    pickTool,
+    setColor,
+    setWidth,
+    toggleFill,
+    setFill,
+    undo,
+    redo,
+    zoomIn,
+    zoomOut,
+    fitView,
+    load,
+    toPNG
+} = useEditorHost({
+    initialDocument: blankGameDocument,
+    commands: { enter: () => submit() },
+    // Tool keys only while drawing.
+    beforeToolKeys: () => phase.value !== 'drawing'
 })
-
-const canUndo = ref(false)
-const canRedo = ref(false)
-const zoom = ref(1)
-const zoomPercent = computed(() => Math.round(zoom.value * 100))
-
-function syncEditorState() {
-    if (!editor) return
-    canUndo.value = editor.canUndo()
-    canRedo.value = editor.canRedo()
-    zoom.value = editor.getZoom()
-}
 
 /**
  * A client view over GAME.md's match states: `connecting` (POST /matches), `waiting`
@@ -124,23 +105,25 @@ const opponent = reactive<{ name: string; status: OpponentStatus }>({
     status: 'drawing'
 })
 
-const pollCadence = ref(POLL_MS)
-
-// Degraded, not broken: the poll keeps the round moving; only presence stops.
-const wsReconnecting = ref(false)
-
 // Best-effort presence; undefined until the first frame, and never load-bearing.
 const opponentOnline = ref<boolean | undefined>(undefined)
 
-// The deadline (epoch ms, null while waiting) and the server clock skew, re-anchored on
-// every response (docs/NOTES.md "The round countdown is anchored on the server clock").
-const deadlineMs = ref<number | null>(null)
-let clockOffsetMs = 0
+const clock = useRoundClock({
+    marginMs: AUTO_SUBMIT_MARGIN_MS,
+    armed: () => phase.value === 'drawing',
+    // Near the server cutoff: auto-submit whatever is on the canvas.
+    onDeadline: () => submit()
+})
+const { deadlineMs, totalSeconds: roundTotalSeconds, remaining } = clock
 
-// Captured at the first deadline; drives only the progress bar.
-const roundTotalSeconds = ref(0)
+const socket = useMatchSocket({
+    onFrame: handleWsFrame,
+    onSessionExpired: () => recoverFromAuthError(),
+    shouldReconnect: () => !disposed && !isTerminalPhase() && matchId !== null
+})
+const wsReconnecting = socket.reconnecting
+const pollCadence = computed(() => (socket.live.value ? WS_POLL_MS : POLL_MS))
 
-const remaining = ref(0)
 const submitting = computed(() => phase.value === 'submitting')
 const canSubmit = computed(() => phase.value === 'drawing')
 
@@ -151,16 +134,8 @@ const errorMsg = ref('')
 let youImageUrl: string | null = null
 let opponentImageUrl: string | null = null
 
-// Cleared on reset and unmount.
-let tick: number | null = null
+// The poll loop's timeouts, cleared on reset and unmount.
 const timeouts = new Set<number>()
-
-// wsGeneration marks callbacks from a replaced or closed socket as stale, so a late close
-// is not read as a drop.
-let socket: MatchSocketHandle | null = null
-let wsGeneration = 0
-let wsReconnectAttempt = 0
-let wsHeartbeat: number | null = null
 
 function later(fn: () => void, ms: number): void {
     const id = window.setTimeout(() => {
@@ -170,49 +145,10 @@ function later(fn: () => void, ms: number): void {
     timeouts.add(id)
 }
 
-function stopCountdown(): void {
-    if (tick !== null) {
-        clearInterval(tick)
-        tick = null
-    }
-}
-
 function clearTimers(): void {
-    stopCountdown()
+    clock.stop()
     for (const id of timeouts) clearTimeout(id)
     timeouts.clear()
-}
-
-// Also runs right after each re-anchor, so the display never lags a second.
-function tickRemaining(): void {
-    if (deadlineMs.value === null) {
-        remaining.value = 0
-        return
-    }
-    remaining.value = Math.max(0, (deadlineMs.value - (Date.now() + clockOffsetMs)) / 1000)
-}
-
-function anchorClock(drawingDeadline: string | null, serverTime: string): void {
-    clockOffsetMs = Date.parse(serverTime) - Date.now()
-    const nextDeadlineMs = drawingDeadline !== null ? Date.parse(drawingDeadline) : null
-    if (nextDeadlineMs !== null && roundTotalSeconds.value === 0) {
-        roundTotalSeconds.value = Math.max(0, (nextDeadlineMs - (Date.now() + clockOffsetMs)) / 1000)
-    }
-    deadlineMs.value = nextDeadlineMs
-    tickRemaining()
-}
-
-function startCountdown(): void {
-    stopCountdown()
-    tick = window.setInterval(() => {
-        tickRemaining()
-        if (phase.value !== 'drawing' || deadlineMs.value === null) return
-        const remainingMsNow = deadlineMs.value - (Date.now() + clockOffsetMs)
-        if (remainingMsNow <= AUTO_SUBMIT_MARGIN_MS) {
-            stopCountdown()
-            submit() // near the server cutoff — auto-submit whatever is on the canvas
-        }
-    }, 1000)
 }
 
 // A spent daily budget: the card offers the ladder instead of a doomed "Try again".
@@ -222,11 +158,11 @@ function toError(msg: string, spent = false): void {
     exhausted.value = spent
     errorMsg.value = msg
     phase.value = 'error'
-    stopCountdown()
+    clock.stop()
 }
 
-// A poll tick and the socket's 4001 close can both notice one dead session; this joins
-// them into one recovery.
+// A poll tick and the socket's session-expired close can both notice one dead session;
+// this joins them into one recovery.
 let recovering = false
 
 // Signing back in restarts with a fresh match; declining leaves the retry card, whose
@@ -236,7 +172,7 @@ async function recoverFromAuthError(): Promise<void> {
     recovering = true
     // Stop the clock first, or the auto-submit fires into the dead session, loops back
     // here and parks the player in `submitting`.
-    stopCountdown()
+    clock.stop()
     try {
         const signedIn = await gate.ensure('Sign in to play a duel.')
         if (disposed) return
@@ -269,7 +205,7 @@ function isTerminalPhase(): boolean {
 
 function applyRoster(m: Match): void {
     if (isTerminalPhase()) return
-    anchorClock(m.drawingDeadline, m.serverTime)
+    clock.anchor(m.drawingDeadline, m.serverTime)
     if (m.prompt.text) prompt.value = m.prompt.text
     const opp = m.players.find((p) => p.userId !== myUserId)
     if (opp) {
@@ -281,7 +217,7 @@ function applyRoster(m: Match): void {
 // Callers run applyRoster first, which anchors the deadline.
 function beginDrawing(): void {
     phase.value = 'drawing'
-    startCountdown()
+    clock.start()
 }
 
 // The round's one poll loop (docs/NOTES.md "/play runs exactly one poll loop");
@@ -322,22 +258,7 @@ async function pollTick(): Promise<void> {
 
 function scheduleNextPoll(): void {
     if (disposed) return
-    later(() => void pollTick(), pollCadence.value)
-}
-
-function stopHeartbeat(): void {
-    if (wsHeartbeat !== null) {
-        clearInterval(wsHeartbeat)
-        wsHeartbeat = null
-    }
-}
-
-// Bump the generation first, so this socket's late callbacks read as stale.
-function closeSocket(): void {
-    stopHeartbeat()
-    wsGeneration++
-    socket?.close()
-    socket = null
+    later(() => pollTick(), pollCadence.value)
 }
 
 // Dispatches into the poll loop's own handlers; no second state machine.
@@ -375,60 +296,11 @@ function handleWsFrame(frame: WsFrame): void {
     }
 }
 
-// Through later(), so clearTimers() cancels a pending attempt.
-function scheduleReconnect(): void {
-    if (disposed || isTerminalPhase() || matchId === null) return
-    wsReconnecting.value = true
-    pollCadence.value = POLL_MS
-    const id = matchId
-    const step = Math.min(wsReconnectAttempt, WS_RECONNECT_BACKOFF_MS.length - 1)
-    wsReconnectAttempt += 1
-    later(() => {
-        if (disposed || isTerminalPhase() || matchId !== id) return
-        openSocket(id)
-    }, WS_RECONNECT_BACKOFF_MS[step])
-}
-
-/** Open the match socket, replacing any existing one. */
-function openSocket(id: string): void {
-    closeSocket()
-    const gen = ++wsGeneration
-    socket = openMatchSocket(id, {
-        onOpen: () => {
-            if (disposed || gen !== wsGeneration) return
-            wsReconnecting.value = false
-            wsReconnectAttempt = 0
-            pollCadence.value = WS_POLL_MS
-            stopHeartbeat()
-            wsHeartbeat = window.setInterval(() => socket?.ping(), WS_PING_MS)
-        },
-        onClose: (code) => {
-            if (disposed || gen !== wsGeneration) return
-            stopHeartbeat()
-            pollCadence.value = POLL_MS
-            if (code === 4001) {
-                // Armed at the JWT exp (docs/API.md §9.1): the session is gone.
-                recoverFromAuthError()
-                return
-            }
-            scheduleReconnect()
-        },
-        onError: () => {
-            if (disposed || gen !== wsGeneration) return
-            // No detail here; the close event that follows carries the code.
-            pollCadence.value = POLL_MS
-        },
-        onFrame: handleWsFrame
-    })
-}
-
+// Advisory only: the judged raster is rendered server-side (docs/GAME.md §6).
 async function captureYourRaster(): Promise<string | null> {
-    if (!editor) return null
     try {
-        const doc = editor.getDocument()
-        // Advisory only: the judged raster is rendered server-side (docs/GAME.md §6).
-        const blob = await editor.toPNG({ outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
-        return URL.createObjectURL(blob)
+        const blob = await toPNG()
+        return blob && URL.createObjectURL(blob)
     } catch {
         return null
     }
@@ -472,21 +344,15 @@ async function startMatch(): Promise<void> {
     opponent.status = 'drawing'
     opponentOnline.value = undefined
     // "Try again" re-enters here directly too, so reset all socket and clock state.
-    wsReconnecting.value = false
-    pollCadence.value = POLL_MS
-    wsReconnectAttempt = 0
-    closeSocket()
-    deadlineMs.value = null
-    clockOffsetMs = 0
-    roundTotalSeconds.value = 0
-    remaining.value = 0
+    socket.reset()
+    clock.reset()
     try {
         const m = await createMatch.mutateAsync()
         if (disposed) return
         matchId = m.id
         applyRoster(m)
         // Open now, so a waiting player hears the instant the opponent joins.
-        openSocket(matchId)
+        socket.open(matchId)
         if (m.status === 'drawing') beginDrawing()
         else phase.value = 'waiting'
         scheduleNextPoll()
@@ -497,16 +363,16 @@ async function startMatch(): Promise<void> {
 }
 
 async function submit(): Promise<void> {
-    if (phase.value !== 'drawing' || matchId === null || !editor) return
+    if (phase.value !== 'drawing' || matchId === null || !editor.value) return
     phase.value = 'submitting'
-    stopCountdown()
+    clock.stop()
     revokeYourRaster()
     youImageUrl = await captureYourRaster()
-    if (disposed) return
+    if (disposed || !editor.value) return
     try {
-        const res = await submitMatch.mutateAsync({ id: matchId, document: editor.getDocument() })
+        const res = await submitMatch.mutateAsync({ id: matchId, document: editor.value.getDocument() })
         if (disposed) return
-        anchorClock(res.drawingDeadline, res.serverTime)
+        clock.anchor(res.drawingDeadline, res.serverTime)
         opponent.status = 'judging'
         phase.value = 'judging'
     } catch (err) {
@@ -553,19 +419,18 @@ function applyResult(r: MatchResultDone): void {
     if (session.user && me) session.user.rating = after
     queryClient.invalidateQueries({ queryKey: leaderboardKeys.all })
     phase.value = 'done'
-    stopCountdown()
+    clock.stop()
     // Off the critical path; skipped for a forfeiter with no drawing.
     if (matchId !== null && opp?.drawingId) renderOpponentRaster(matchId, opp.userId)
 }
 
 function playAgain(): void {
     clearTimers()
-    closeSocket()
+    socket.close()
     revokeYourRaster()
     revokeOpponentRaster()
     result.value = null
-    editor?.loadDocument(blankGameDocument())
-    syncEditorState()
+    load(blankGameDocument())
     startMatch()
 }
 
@@ -573,97 +438,7 @@ function viewLeaderboard(): void {
     router.push('/leaderboard')
 }
 
-function pickTool(id: ToolId) {
-    ui.activeTool = id
-    editor?.setTool(TOOLS[id])
-}
-function setColor(hex: string) {
-    ui.color = hex
-    editor?.setStyle({ color: hex })
-}
-function setWidth(width: number) {
-    ui.strokeWidth = width
-    editor?.setStyle({ strokeWidth: width })
-}
-function toggleFill(enabled: boolean) {
-    ui.fillEnabled = enabled
-    editor?.setStyle({ fill: enabled ? ui.fill : null })
-}
-function setFill(hex: string) {
-    ui.fill = hex
-    if (ui.fillEnabled) editor?.setStyle({ fill: hex })
-}
-function undo() {
-    editor?.undo()
-}
-function redo() {
-    editor?.redo()
-}
-function zoomIn() {
-    editor?.zoomIn()
-}
-function zoomOut() {
-    editor?.zoomOut()
-}
-function fitView() {
-    editor?.fitToViewport()
-}
-
-const KEY_TO_TOOL = new Map<string, ToolId>(
-    (Object.keys(TOOLS) as ToolId[]).map((id) => [TOOL_META[id].key.toLowerCase(), id])
-)
-
-function onKeydown(e: KeyboardEvent) {
-    // The sign-in modal owns the keyboard: Ctrl+Enter would submit into the old session.
-    if (gate.open) return
-    const target = e.target as HTMLElement | null
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return
-    }
-    const key = e.key.toLowerCase()
-    if (e.ctrlKey || e.metaKey) {
-        if (key === 'enter') {
-            e.preventDefault()
-            submit()
-        } else if (key === 'z' && !e.shiftKey) {
-            e.preventDefault()
-            editor?.undo()
-        } else if ((key === 'z' && e.shiftKey) || key === 'y') {
-            e.preventDefault()
-            editor?.redo()
-        } else if (key === '0') {
-            e.preventDefault()
-            editor?.fitToViewport()
-        } else if (key === '=' || key === '+') {
-            e.preventDefault()
-            editor?.zoomIn()
-        } else if (key === '-') {
-            e.preventDefault()
-            editor?.zoomOut()
-        }
-        return
-    }
-    if (e.altKey) return
-    // Tool keys only while drawing.
-    if (phase.value !== 'drawing') return
-    const tool = KEY_TO_TOOL.get(key)
-    if (tool) {
-        e.preventDefault()
-        pickTool(tool)
-    }
-}
-
 onMounted(async () => {
-    const container = shell.value?.canvasEl ?? null
-    if (!container) return
-    editor = new Editor(container, blankGameDocument())
-    editor.setTool(TOOLS[ui.activeTool])
-    editor.setStyle({ ...DEFAULT_STYLE })
-    editor.setCursorColor(cursorRingColor.value || null)
-    unsubscribe = editor.onChange(syncEditorState)
-    syncEditorState()
-    window.addEventListener('keydown', onKeydown)
-
     // `ensure` waits for the cookie restore, then raises the shared sign-in modal.
     const signedIn = await gate.ensure('Sign in to play a duel.')
     if (disposed) return
@@ -678,15 +453,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     disposed = true
-    window.removeEventListener('keydown', onKeydown)
     clearTimers()
-    closeSocket()
+    socket.close()
     revokeYourRaster()
     revokeOpponentRaster()
-    unsubscribe?.()
-    unsubscribe = null
-    editor?.destroy()
-    editor = null
 })
 </script>
 
@@ -739,12 +509,7 @@ onBeforeUnmount(() => {
         </template>
 
         <template #bottom-right>
-            <OriSurface class="play__zoom" role="group" aria-label="Zoom">
-                <IconButton icon="minus" label="Zoom out — Ctrl+-" @click="zoomOut" />
-                <span class="play__zoom-value">{{ zoomPercent }}%</span>
-                <IconButton icon="plus" label="Zoom in — Ctrl+=" @click="zoomIn" />
-                <IconButton icon="fit" label="Fit — Ctrl+0" @click="fitView" />
-            </OriSurface>
+            <ZoomControls :percent="zoomPercent" @zoom-in="zoomIn" @zoom-out="zoomOut" @fit="fitView" />
         </template>
 
         <template #overlay>
@@ -785,26 +550,6 @@ onBeforeUnmount(() => {
 /* The shell's strip is pointer-events:none; the toolbar opts back in. */
 .play__toolbar-item {
     pointer-events: auto;
-}
-
-/* Mirrors /draw's zoom island: island visuals, not shell layout. */
-.play__zoom {
-    display: flex;
-    align-items: center;
-    gap: 0;
-
-    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
-}
-
-.play__zoom-value {
-    min-width: 3.1rem;
-    padding: 0.25rem;
-
-    color: var(--ori-color-on-surface);
-
-    font-size: var(--ori-font-size_sm, 0.85rem);
-    font-variant-numeric: tabular-nums;
-    text-align: center;
 }
 
 /* Opts back into pointer events inside the shell's passive overlay. */
