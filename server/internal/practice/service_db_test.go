@@ -19,7 +19,7 @@ import (
 
 	"github.com/markgrushevski/justpaint/server/internal/aibudget"
 	"github.com/markgrushevski/justpaint/server/internal/db"
-	"github.com/markgrushevski/justpaint/server/internal/game"
+	"github.com/markgrushevski/justpaint/server/internal/document"
 	"github.com/markgrushevski/justpaint/server/internal/judge"
 	"github.com/markgrushevski/justpaint/server/internal/render"
 )
@@ -125,8 +125,8 @@ func TestPracticeRun_DB(t *testing.T) {
 
 	// The one document every case draws, through the same validator a duel
 	// submission goes through, so this test fails if the two ever stop agreeing.
-	raw := []byte(docOfSize(game.GameCanvasSize, game.GameCanvasSize))
-	doc, err := game.ValidateSubmission(raw)
+	raw := []byte(docOfSize(document.ScoredCanvasSize, document.ScoredCanvasSize))
+	doc, err := document.ValidateScored(raw)
 	if err != nil {
 		t.Fatalf("the shared submission validator rejected the fixture document: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestPracticeRun_DB(t *testing.T) {
 		NewHandler(svc, logger).Routes(mux, authMiddleware(t))
 
 		body := `{"promptId":"` + prompt.ID + `","document":` +
-			docOfSize(game.GameCanvasSize, game.GameCanvasSize) + `}`
+			docOfSize(document.ScoredCanvasSize, document.ScoredCanvasSize) + `}`
 		req := httptest.NewRequest(http.MethodPost, "/api/practice", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.AddCookie(mintCookie(t, uid))

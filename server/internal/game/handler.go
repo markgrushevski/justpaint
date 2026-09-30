@@ -3,7 +3,6 @@ package game
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -129,7 +128,7 @@ func buildMatchDTO(v MatchView, viewerID string, now time.Time) matchDTO {
 		Mode:            v.Mode,
 		Status:          v.Status,
 		Prompt:          prompt,
-		Canvas:          canvasDTO{Width: GameCanvasSize, Height: GameCanvasSize},
+		Canvas:          canvasDTO{Width: document.ScoredCanvasSize, Height: document.ScoredCanvasSize},
 		Players:         players,
 		DrawingDeadline: formatDeadline(v.DrawingDeadline),
 		ServerTime:      now.UTC().Format(time.RFC3339Nano),
@@ -292,7 +291,7 @@ func (h *Handler) decodeSubmission(w http.ResponseWriter, r *http.Request) (docu
 		return document.Document{}, nil, false
 	}
 
-	doc, err := ValidateSubmission(req.Document)
+	doc, err := document.ValidateScored(req.Document)
 	if err != nil {
 		msg := "invalid document"
 		var ve *document.ValidationError
@@ -303,25 +302,6 @@ func (h *Handler) decodeSubmission(w http.ResponseWriter, r *http.Request) (docu
 		return document.Document{}, nil, false
 	}
 	return doc, req.Document, true
-}
-
-// ValidateSubmission is the one rule set for a drawing to be scored: the
-// vector-document contract (docs/DOCUMENT-FORMAT.md) plus the square game canvas
-// (docs/GAME.md §2). Exported because practice submits for the same purpose — a
-// server-side render handed to a model — and must accept the same documents; a
-// second copy of these rules would be a second contract. Every failure is a
-// *document.ValidationError, mapped to 400 validation_failed.
-func ValidateSubmission(raw json.RawMessage) (document.Document, error) {
-	doc, err := document.ParseAndValidate(raw)
-	if err != nil {
-		return document.Document{}, err
-	}
-	if doc.Width != GameCanvasSize || doc.Height != GameCanvasSize {
-		return document.Document{}, &document.ValidationError{
-			Msg: fmt.Sprintf("submission must be %d×%d", GameCanvasSize, GameCanvasSize),
-		}
-	}
-	return doc, nil
 }
 
 // --- result ---
