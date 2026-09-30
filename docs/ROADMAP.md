@@ -33,9 +33,3 @@ ships.
   multi-select, all through the command stack. Mostly `packages/editor`; a phase, not a slice.
 - **Editor chrome layout** — rearrange the floating islands, then make the layout hold at every
   breakpoint (`npm run test:layout` guards overlaps).
-
-**Dependencies**
-- **Next oriui release.** It renames the API vocabulary (`fill` → `solid`, `text` → `label`, …) with no
-  aliases, so the bump and the call-site migration are one change: either half alone leaves buttons
-  silently unstyled. Migration table: oriui's `.changeset/api-vocabulary-rename.md`. The bump closes
-  JP-O-09, JP-O-10 and JP-O-11 ([ISSUES-OUTER.md](ISSUES-OUTER.md)).
