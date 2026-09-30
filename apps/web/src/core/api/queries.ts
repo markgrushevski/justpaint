@@ -1,8 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { computed, toValue } from 'vue'
+import type { MaybeRefOrGetter } from 'vue'
 import type { Document } from '@justpaint/editor'
-import { isAuthError } from './http'
+import { isAuthError, toApiError } from './http'
 import { drawings } from './drawings'
-import type { DrawingFull, DrawingMeta } from './drawings'
+import type { DrawingFull, DrawingList, DrawingMeta } from './drawings'
 import { matches } from './matches'
 import type { Match, SubmitMatch } from './matches'
 import { practice } from './practice'
@@ -19,15 +21,16 @@ import type { Guess } from './guess'
  * APIs. TanStack Query owns server data; Pinia owns session/UI state; the
  * editor owns its own document/view state. Save/load and the imperative duel
  * and practice actions are mutations, giving the view standardized
- * `isPending`/`error` and cache invalidation for free; the leaderboard below is
- * the one cached `useQuery` read. The typed fetch clients stay the single
- * source of the request shapes; these only wrap them.
+ * `isPending`/`error` and cache invalidation for free; the saved-drawings reads
+ * and the leaderboard are the cached queries. The typed fetch clients stay the
+ * single source of the request shapes; these only wrap them.
  */
 
-/** Query keys for the drawings cache (a future saved-drawings list reads these). */
+/** Query keys for the drawings cache. `all` is the invalidation root for every write. */
 export const drawingsKeys = {
     all: ['drawings'] as const,
-    list: ['drawings', 'list'] as const
+    list: ['drawings', 'list'] as const,
+    item: (id: string) => ['drawings', 'item', id] as const
 }
 
 /** Query keys for the leaderboard cache. `all` is the invalidation root (PlayView
@@ -46,25 +49,92 @@ export interface SaveDrawingVars {
     name?: string
 }
 
-/** Create-or-update the current drawing; invalidates the cached list on success. */
+/** Create-or-update the current drawing; invalidates every cached drawing on success, so a
+ *  re-saved drawing's list entry, document and gallery preview all refresh. */
 export function useSaveDrawing() {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: ({ id, document, name }: SaveDrawingVars): Promise<DrawingMeta> =>
             id ? drawings.update(id, document, name) : drawings.create(document, name),
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: drawingsKeys.list })
+            qc.invalidateQueries({ queryKey: drawingsKeys.all })
         }
     })
 }
 
-/** Load the most recent free drawing; resolves null when nothing is saved yet. */
-export function useLoadLatestDrawing() {
+/** Drawings per gallery page. */
+const GALLERY_PAGE_SIZE = 24
+
+/** How long a fetched document is trusted before a read fetches it again. */
+const DRAWING_STALE_MS = 60_000
+
+/** 401 and 404 are answers, not faults: retrying them only delays the sign-in or gone state. */
+function retryTransient(count: number, err: unknown): boolean {
+    return !isAuthError(err) && toApiError(err)?.status !== 404 && count < 3
+}
+
+/**
+ * The caller's free drawings, newest first (docs/API.md §7), one cursor page at a time.
+ * `owner` is the signed-in user's id: the query stays off while it is undefined, and it
+ * keys the cache so one account's list is never served to the next one in the same tab.
+ */
+export function useDrawingsList(owner: MaybeRefOrGetter<string | undefined>) {
+    return useInfiniteQuery({
+        queryKey: computed(() => [...drawingsKeys.list, toValue(owner) ?? null, 'free']),
+        queryFn: ({ pageParam }): Promise<DrawingList> =>
+            drawings.list({ kind: 'free', limit: GALLERY_PAGE_SIZE, cursor: pageParam }),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: (last) => last.nextCursor ?? undefined,
+        enabled: () => Boolean(toValue(owner)),
+        retry: retryTransient
+    })
+}
+
+/**
+ * One drawing with its document. `shallow` keeps the document raw: it can hold a hundred
+ * thousand points, and only the renderer reads it. A gallery mounts one of these per card,
+ * so a refetch on focus would re-download every document; a save invalidates them instead.
+ */
+export function useDrawing(id: MaybeRefOrGetter<string>) {
+    return useQuery({
+        queryKey: computed(() => drawingsKeys.item(toValue(id))),
+        queryFn: (): Promise<DrawingFull> => drawings.get(toValue(id)),
+        staleTime: DRAWING_STALE_MS,
+        shallow: true,
+        refetchOnWindowFocus: false,
+        retry: retryTransient
+    })
+}
+
+/**
+ * Rename a drawing. The API has no rename-only route (a PUT replaces the document), so
+ * this reads the document fresh, never from the cache: a copy saved from another tab in
+ * the meantime would be overwritten by the older one. Only the list is refetched: the
+ * other drawings' documents did not change, and a gallery page holds one live document
+ * query per card.
+ */
+export function useRenameDrawing() {
+    const qc = useQueryClient()
     return useMutation({
-        mutationFn: async (): Promise<DrawingFull | null> => {
-            const page = await drawings.list({ limit: 1, kind: 'free' })
-            const first = page.drawings[0]
-            return first ? drawings.get(first.id) : null
+        mutationFn: async ({ id, name }: { id: string; name: string }): Promise<DrawingMeta> => {
+            const full = await drawings.get(id)
+            return drawings.update(id, full.document, name)
+        },
+        onSuccess: (meta, { id }) => {
+            qc.setQueryData<DrawingFull>(drawingsKeys.item(id), (old) => old && { ...old, ...meta })
+            return qc.invalidateQueries({ queryKey: drawingsKeys.list })
+        }
+    })
+}
+
+/** Delete a drawing (409 while a live match references it). */
+export function useDeleteDrawing() {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string): Promise<void> => drawings.remove(id),
+        onSuccess: (_, id) => {
+            qc.removeQueries({ queryKey: drawingsKeys.item(id) })
+            return qc.invalidateQueries({ queryKey: drawingsKeys.list })
         }
     })
 }

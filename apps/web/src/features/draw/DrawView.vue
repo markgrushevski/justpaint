@@ -3,29 +3,38 @@
  * The free editor (`/draw`): layers, file actions, and the AI features that need a
  * canvas without a clock (assist, "what did I draw?").
  */
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
-import { OriButton, OriInput, OriSurface, OriToaster } from '@oriui/vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { OriButton, OriInput, OriMenu, OriSurface, OriToaster } from '@oriui/vue'
 import { LIMITS } from '@justpaint/editor'
-import { useSessionStore } from '@core'
 import ConfirmDialog from '../../components/ConfirmDialog.vue'
+import ModeNav from '../../components/ModeNav.vue'
+import ToolIcon from '../../components/icons/ToolIcon.vue'
 import IconButton from '../../components/ui/IconButton.vue'
 import EditorShell from '../editor/EditorShell.vue'
 import FloatingToolbar from '../editor/FloatingToolbar.vue'
 import ShortcutsDialog from '../editor/ShortcutsDialog.vue'
 import ZoomControls from '../editor/ZoomControls.vue'
+import { useBackdrop } from '../editor/useBackdrop'
 import { useEditorHost } from '../editor/useEditorHost'
-import EmptyState from './EmptyState.vue'
+import { useLeaveGuard } from '../editor/useLeaveGuard'
 import GuessResult from './GuessResult.vue'
 import LayersPanel from './LayersPanel.vue'
+import SaveDialog from './SaveDialog.vue'
 import SideMenu from './SideMenu.vue'
+import WelcomeOverlay from './WelcomeOverlay.vue'
 import { useAssistPanel } from './useAssistPanel'
-import { useBackdrop } from './useBackdrop'
 import { useCanvasCoords } from './useCanvasCoords'
 import { fittedDocument, useDrawingFile } from './useDrawingFile'
 import { useGatedActions } from './useGatedActions'
 import { useGuessPanel } from './useGuessPanel'
 
 const MAX_LAYERS = LIMITS.maxLayers
+
+const AI_ITEMS = [
+    { value: 'assist', label: 'Draw with AI' },
+    { value: 'guess', label: 'What did I draw?' }
+]
 
 const {
     shell,
@@ -59,12 +68,12 @@ const {
 })
 const canvas = () => shell.value?.canvasEl ?? null
 
-const session = useSessionStore()
+const route = useRoute()
+const router = useRouter()
 
 const menuOpen = ref(false)
 const shortcutsOpen = ref(false)
-// Closed by default at the 600px reflow breakpoint (oriui --ori-size-screen_xs).
-const layersOpen = ref(window.innerWidth > 600)
+const layersOpen = ref(false)
 
 // Shown by the Layers toggle while the panel is closed, since new strokes land there.
 const activeLayerName = computed(() => layers.value.find((l) => l.id === activeLayerId.value)?.name ?? '')
@@ -95,27 +104,50 @@ const file = reactive(
 const backdrop = reactive(useBackdrop(editor))
 const { coords } = useCanvasCoords(editor, canvas)
 
-const HINT_KEY = 'jp.hintDismissed'
-const hintDismissed = ref(readHintDismissed())
-// The hint and the guess card share the `#overlay` slot; the card wins.
-const showHint = computed(() => !hintDismissed.value && isEmpty.value && !guess.open)
+const aiActive = computed(() => assist.open || guess.open)
 
-function readHintDismissed(): boolean {
-    try {
-        return localStorage.getItem(HINT_KEY) === '1'
-    } catch {
-        return false // private mode / storage disabled — the hint shows
-    }
+function onAi(value: string) {
+    if (value === 'assist' && !assist.open) assist.toggle()
+    if (value === 'guess' && !guess.open) guess.toggle()
 }
 
-function dismissHint() {
-    hintDismissed.value = true
-    try {
-        localStorage.setItem(HINT_KEY, '1')
-    } catch {
-        /* private mode / storage disabled — the hint just won't persist */
-    }
+// The welcome is gone from the first touch of the canvas until the next visit. Panels
+// that sit where it draws hide it while they are open.
+const welcomeGone = ref(false)
+const showWelcome = computed(
+    () => !welcomeGone.value && isEmpty.value && !guess.open && !assist.open && !menuOpen.value && !layersOpen.value
+)
+watch(isEmpty, (empty) => {
+    if (!empty) welcomeGone.value = true
+})
+
+function dismissWelcome() {
+    welcomeGone.value = true
 }
+
+const {
+    pending: leavePending,
+    leave,
+    stay
+} = useLeaveGuard(() =>
+    file.isDirty()
+        ? {
+              title: 'Leave without saving?',
+              message: 'This drawing has changes that aren’t saved.',
+              confirmText: 'Leave'
+          }
+        : null
+)
+
+onMounted(() => {
+    canvas()?.addEventListener('pointerdown', dismissWelcome, { once: true })
+    // The gallery opens a drawing as /draw?id=…; the id leaves the URL once taken.
+    const id = route.query.id
+    if (typeof id === 'string' && id) {
+        router.replace({ query: {} })
+        file.open(id)
+    }
+})
 
 // The side menu is non-modal, so it does not suppress single keys; only modal overlays do.
 function onPlainKey(e: KeyboardEvent): boolean {
@@ -127,15 +159,15 @@ function onPlainKey(e: KeyboardEvent): boolean {
         else if (guess.open) guess.dismiss()
         return true
     }
-    // Desktop only — the cheat-sheet chip is hidden <=600px.
+    // Desktop only: phones have no keyboard to need the cheat-sheet.
     if (e.key === '?') {
-        if (window.innerWidth <= 600 || file.confirmOpen) return true
+        if (window.innerWidth <= 600 || file.confirmOpen || file.nameOpen) return true
         e.preventDefault()
         shortcutsOpen.value = !shortcutsOpen.value
         return true
     }
     // Every modal overlay must be listed here, or tool hotkeys fire underneath it.
-    return shortcutsOpen.value || file.confirmOpen
+    return shortcutsOpen.value || file.confirmOpen || file.nameOpen || leavePending.value !== null
 }
 
 function addLayer() {
@@ -167,57 +199,15 @@ onBeforeUnmount(() => assist.clear())
 <template>
     <EditorShell ref="shell" mode="draw">
         <template #top-left>
-            <OriSurface class="draw__actions">
-                <IconButton
-                    class="draw__help-btn"
-                    icon="help"
-                    label="Keyboard shortcuts — ?"
-                    placement="bottom"
-                    :pressed="shortcutsOpen"
-                    @click="shortcutsOpen = !shortcutsOpen"
-                />
-                <IconButton
-                    icon="layers"
-                    label="Toggle layers panel"
-                    placement="bottom"
-                    :pressed="layersOpen"
-                    @click="layersOpen = !layersOpen"
-                />
-                <IconButton
-                    icon="assist"
-                    label="AI assist — describe what to draw"
-                    placement="bottom"
-                    :pressed="assist.open"
-                    @click="assist.toggle"
-                />
-                <!-- Not disabled on a blank canvas: guess.request explains it in the card. -->
-                <IconButton
-                    icon="guess"
-                    label="Guess my drawing — ask the AI what it sees"
-                    placement="bottom"
-                    :pressed="guess.open"
-                    @click="guess.toggle"
-                />
-                <!-- Hidden while the panel is open; the panel highlights the row itself. -->
-                <button
-                    v-if="!layersOpen"
-                    class="draw__active-layer"
-                    type="button"
-                    :aria-label="`Active layer: ${activeLayerName}. Open layers panel`"
-                    :title="`Active layer: ${activeLayerName} — click to open layers`"
-                    @click="layersOpen = true"
-                >
-                    {{ activeLayerName }}
-                </button>
-            </OriSurface>
+            <ModeNav :collapse-below="720" />
         </template>
 
         <!-- Flips from input to accept/reject while a proposal is pending. -->
         <template #top-center>
             <OriSurface v-if="assist.open" class="draw__assist" role="group" aria-label="AI assist">
-                <!-- The actions-island toggle can be off-screen on narrow widths. -->
+                <!-- The AI menu can be off-screen on narrow widths. -->
                 <div class="draw__assist-head">
-                    <span class="draw__assist-title">AI assist</span>
+                    <span class="draw__assist-title">Draw with AI</span>
                     <IconButton icon="close" label="Close AI assist" placement="bottom" @click="assist.toggle" />
                 </div>
                 <template v-if="assist.pendingOps">
@@ -264,6 +254,59 @@ onBeforeUnmount(() => assist.clear())
             </OriSurface>
         </template>
 
+        <template #top-right>
+            <OriSurface class="draw__actions">
+                <IconButton
+                    icon="layers"
+                    label="Layers"
+                    placement="bottom"
+                    :pressed="layersOpen"
+                    @click="layersOpen = !layersOpen"
+                />
+                <!-- Only worth the room once there is a second layer to be on. -->
+                <button
+                    v-if="!layersOpen && layers.length > 1"
+                    class="draw__active-layer"
+                    type="button"
+                    :aria-label="`Active layer: ${activeLayerName}. Open layers panel`"
+                    :title="`Active layer: ${activeLayerName} — click to open layers`"
+                    @click="layersOpen = true"
+                >
+                    {{ activeLayerName }}
+                </button>
+                <OriMenu :items="AI_ITEMS" placement="bottom-end" @select="onAi">
+                    <template #trigger="{ props: trigger }">
+                        <OriButton
+                            v-bind="trigger"
+                            class="draw__ai"
+                            variant="text"
+                            :color="aiActive ? 'primary' : 'surface'"
+                            :active="aiActive"
+                            radius="md"
+                        >
+                            <ToolIcon name="assist" />
+                            <span>AI</span>
+                        </OriButton>
+                    </template>
+                    <template #item="{ item }">
+                        <span class="draw__ai-item">
+                            <ToolIcon :name="item.value === 'assist' ? 'assist' : 'guess'" />
+                            {{ item.label }}
+                        </span>
+                    </template>
+                </OriMenu>
+            </OriSurface>
+            <OriButton
+                class="draw__save"
+                label="Save"
+                variant="solid"
+                color="primary"
+                radius="md"
+                :loading="file.busy"
+                @click="file.save"
+            />
+        </template>
+
         <template #bottom-center>
             <FloatingToolbar
                 class="draw__toolbar-item"
@@ -298,15 +341,8 @@ onBeforeUnmount(() => assist.clear())
         <template #overlay>
             <OriToaster position="top-center" align="center" />
 
-            <Transition name="jp-pop">
-                <EmptyState
-                    v-if="showHint"
-                    class="draw__empty"
-                    :signed-in="session.isLoggedIn"
-                    @dismiss="dismissHint"
-                    @sign-in="gated('Sign in to save and load your drawings.')"
-                    @shortcuts="shortcutsOpen = true"
-                />
+            <Transition name="jp-fade">
+                <WelcomeOverlay v-if="showWelcome" @start="dismissWelcome" />
             </Transition>
 
             <Transition name="jp-pop">
@@ -337,6 +373,19 @@ onBeforeUnmount(() => assist.clear())
                 @confirm="file.confirmNew"
                 @cancel="file.cancelNew"
             />
+
+            <SaveDialog :open="file.nameOpen" :initial="file.name" @save="file.confirmName" @cancel="file.cancelName" />
+
+            <ConfirmDialog
+                :open="leavePending !== null"
+                :title="leavePending?.title ?? ''"
+                :message="leavePending?.message"
+                :confirm-text="leavePending?.confirmText"
+                cancel-text="Stay"
+                danger
+                @confirm="leave"
+                @cancel="stay"
+            />
         </template>
 
         <!-- Self-teleports to body; non-modal, canvas stays live. -->
@@ -344,25 +393,24 @@ onBeforeUnmount(() => assist.clear())
             <SideMenu
                 :open="menuOpen"
                 :busy="file.busy"
-                :title="file.name"
+                :title="file.savedName"
                 :backdrop-grid="backdrop.grid"
                 :canvas-width="docWidth"
                 :canvas-height="docHeight"
                 @close="menuOpen = false"
                 @new-drawing="file.requestNew"
-                @load="file.loadLatest"
                 @save="file.save"
                 @export-png="file.exportPng"
                 @copy-text="file.copyJson"
                 @copy-image="file.copyPng"
-                @rename="file.rename"
+                @shortcuts="shortcutsOpen = true"
                 @toggle-grid="backdrop.setGrid"
                 @apply-canvas-size="file.applyCanvasSize"
             />
         </template>
 
-        <!-- Self-positioned chrome in the shell's default slot. The toggle sits above
-             the drawer, so the same chip closes it. -->
+        <!-- Self-positioned chrome in the shell's default slot. The toggle sits above the
+             menu panel, so the same chip closes it. -->
         <OriSurface class="draw__menu-toggle">
             <IconButton
                 :icon="menuOpen ? 'close' : 'menu'"
@@ -382,7 +430,7 @@ onBeforeUnmount(() => assist.clear())
         <!-- Scrim behind the mobile layers bottom sheet (display:none >600px) -->
         <div v-if="layersOpen" class="draw__layers-scrim" @click="layersOpen = false"></div>
 
-        <!-- Layers: a dropdown under the actions island (desktop), bottom sheet (phones) -->
+        <!-- Layers: a dropdown under the top-right island (desktop), a bottom sheet (phones) -->
         <div v-show="layersOpen" class="draw__layers">
             <LayersPanel
                 :layers="layers"
@@ -414,10 +462,25 @@ onBeforeUnmount(() => assist.clear())
 .draw__actions {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
-    flex-wrap: wrap;
+    gap: var(--ori-size-gap_xs, 0.125rem);
 
     padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
+}
+
+.draw__ai {
+    gap: var(--ori-size-gap_sm, 0.25rem);
+
+    font-weight: 700;
+}
+
+.draw__ai-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+.draw__save {
+    align-self: stretch;
 }
 
 /* Neutral structural hover only, never a brand-role mix (docs/DESIGN-SYSTEM.md §1). */
@@ -500,14 +563,19 @@ onBeforeUnmount(() => assist.clear())
     font-size: var(--ori-font-size_sm, 0.85rem);
 }
 
-.draw__empty {
-    pointer-events: auto;
-}
-
 /* The card sizes itself; /draw only places it. On a small screen the lift clears the
    ~4rem toolbar. */
 .draw__guess {
     --jp-guess-lift: 5rem;
+}
+
+/* The welcome leaves with a plain fade: it is a whole layer, not a card. */
+.jp-fade-leave-active {
+    transition: opacity 0.25s ease-out;
+}
+
+.jp-fade-leave-to {
+    opacity: 0;
 }
 
 /* A plain fade and scale; the toast's slide reads wrong on a centered card. */
@@ -555,7 +623,8 @@ onBeforeUnmount(() => assist.clear())
        50px top-row island height. */
     top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3.125rem);
     left: var(--ori-size-gap_md, 0.5rem);
-    z-index: 10;
+    /* Under the top row, so the mode menu drops over it. */
+    z-index: 9;
 
     display: none;
     align-items: center;
@@ -570,7 +639,7 @@ onBeforeUnmount(() => assist.clear())
     top: calc(
         var(--ori-size-gap_md, 0.5rem) + var(--ori-size-action_md, 2.75rem) + var(--ori-size-gap_sm, 0.25rem) + 0.35rem
     );
-    left: var(--ori-size-gap_md, 0.5rem);
+    right: var(--ori-size-gap_md, 0.5rem);
     z-index: 9;
 
     display: flex;
@@ -654,8 +723,8 @@ onBeforeUnmount(() => assist.clear())
         display: flex;
     }
 
-    /* Phones have no keyboard, so no shortcuts help. */
-    .draw__help-btn {
+    /* The menu holds Save on a phone, where the top row has no room for it. */
+    .draw__save {
         display: none;
     }
 

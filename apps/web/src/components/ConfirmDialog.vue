@@ -4,8 +4,8 @@
  * gives focus trap, scroll lock, Esc and ::backdrop dismissal for free. The
  * parent owns `open` and never mutates it — controlled mode is optimistic, so
  * a user dismiss has already closed the dialog by the time `update:open(false)`
- * fires, and `onOpenChange` just maps that to `cancel`. /draw only: /play and
- * /practice use their own overlay cards.
+ * fires, and `onOpenChange` just maps that to `cancel`. /draw's confirms and every
+ * editor view's leave question use it.
  */
 import { OriButton, OriDialog } from '@oriui/vue'
 

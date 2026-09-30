@@ -6,7 +6,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { OriBadge, OriButton, OriSpinner, OriSurface } from '@oriui/vue'
+import { OriButton, OriSpinner, OriSurface } from '@oriui/vue'
 import { blankDocument } from '@justpaint/editor'
 import {
     icons,
@@ -19,10 +19,14 @@ import {
     useSubmitPractice
 } from '@core'
 import type { PracticePrompt, PracticeRun } from '@core'
+import ConfirmDialog from '../../components/ConfirmDialog.vue'
+import ModeNav from '../../components/ModeNav.vue'
 import EditorShell from '../editor/EditorShell.vue'
 import FloatingToolbar from '../editor/FloatingToolbar.vue'
 import ZoomControls from '../editor/ZoomControls.vue'
+import { useBackdrop } from '../editor/useBackdrop'
 import { useEditorHost } from '../editor/useEditorHost'
+import { useLeaveGuard } from '../editor/useLeaveGuard'
 import { GAME_CANVAS } from '../game/canvas'
 import GamePromptBanner from '../game/GamePromptBanner.vue'
 import JudgingOverlay from '../game/JudgingOverlay.vue'
@@ -60,8 +64,9 @@ const {
     initialDocument: blankGameDocument,
     commands: { enter: () => submit() },
     // Tool keys only while drawing.
-    beforeToolKeys: () => phase.value !== 'drawing'
+    beforeToolKeys: () => phase.value !== 'drawing' || leavePending.value !== null
 })
+useBackdrop(editor, { allowGrid: false })
 
 /**
  * `loading` (a prompt, or the sign-in modal before it), `drawing`, `judging` (the submit
@@ -93,6 +98,21 @@ const submitting = computed(() => phase.value === 'judging')
 const canSubmit = computed(() => phase.value === 'drawing' && !isEmpty.value && prompt.value !== null)
 // Says why Submit is disabled.
 const showEmptyHint = computed(() => phase.value === 'drawing' && isEmpty.value)
+
+// Nothing keeps an unsubmitted practice drawing.
+const {
+    pending: leavePending,
+    leave,
+    stay
+} = useLeaveGuard(() =>
+    phase.value === 'drawing' && !isEmpty.value
+        ? {
+              title: 'Leave practice?',
+              message: 'This drawing isn’t kept unless you submit it.',
+              confirmText: 'Leave'
+          }
+        : null
+)
 
 function revokeDrawingImage(): void {
     if (drawingImage.value) {
@@ -243,8 +263,7 @@ onBeforeUnmount(() => {
     <!-- `mode="play"` is the layout without a drawer toggle, so Submit gets the corner. -->
     <EditorShell ref="shell" mode="play">
         <template #top-left>
-            <!-- The shell is identical to /play; this tells a practice run apart. -->
-            <OriBadge content="Practice" color="primary" variant="soft" label="Practice mode" />
+            <ModeNav :collapse-below="1100" />
         </template>
 
         <!-- The banner waits for a prompt: its unrevealed state is duel copy. The hint
@@ -350,6 +369,17 @@ onBeforeUnmount(() => {
                     />
                 </div>
             </OriSurface>
+
+            <ConfirmDialog
+                :open="leavePending !== null"
+                :title="leavePending?.title ?? ''"
+                :message="leavePending?.message"
+                :confirm-text="leavePending?.confirmText"
+                cancel-text="Stay"
+                danger
+                @confirm="leave"
+                @cancel="stay"
+            />
         </template>
     </EditorShell>
 </template>

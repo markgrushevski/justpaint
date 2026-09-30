@@ -11,6 +11,7 @@ import { useRouter } from 'vue-router'
 import { OriAvatar, OriBadge, OriButton, OriSkeleton, OriSurface } from '@oriui/vue'
 import { icons, isAuthError, toApiError, useLeaderboard, useSessionStore } from '@core'
 import type { LeaderboardEntry } from '@core'
+import ModeNav from '../../components/ModeNav.vue'
 import AuthForm from '../../components/auth/AuthForm.vue'
 
 /** Top-N shown. Fixed for the page's lifetime (a plain query key is enough). */
@@ -43,6 +44,7 @@ function goBack(): void {
 
 <template>
     <main class="lb" aria-labelledby="lb-title">
+        <ModeNav class="lb__nav" />
         <OriSurface class="lb__panel">
             <header class="lb__header">
                 <div class="lb__heading">
@@ -144,9 +146,17 @@ function goBack(): void {
     justify-content: center;
     align-items: flex-start;
 
-    padding: clamp(1rem, 4vw, 3rem) 1rem;
+    /* The top clears the mode switcher, pinned where every other screen has it. */
+    padding: max(4.5rem, clamp(1rem, 4vw, 3rem)) 1rem clamp(1rem, 4vw, 3rem);
 
     background-color: var(--jp-desk);
+}
+
+.lb__nav {
+    position: fixed;
+    top: var(--ori-size-gap_md, 0.5rem);
+    left: var(--ori-size-gap_md, 0.5rem);
+    z-index: 10;
 }
 
 .lb__panel {

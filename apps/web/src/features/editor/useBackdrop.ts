@@ -1,12 +1,17 @@
 /**
- * The view-only paper behind the drawing: the theme's paper color, or a checkerboard.
- * The editor keeps it out of exports and the judged raster.
+ * The view-only paper behind the drawing: a warm paper color per theme, or, where the
+ * view allows it, a checkerboard. The editor keeps it out of exports and the judged raster.
  */
 import { onMounted, ref, watch, type ShallowRef } from 'vue'
 import type { Editor } from '@justpaint/editor'
 import { useThemeStore } from '@core'
 
 const PREF_KEY = 'jp.backdropGrid'
+
+/** The paper a drawing sits on; the gallery paints its previews on the same color. */
+export function paperColor(dark: boolean): string {
+    return dark ? '#12110f' : '#fdfcf8'
+}
 
 /** 8px checkerboard tiles per theme; the images are built lazily and shared across mounts. */
 const GRID_TILE_LIGHT =
@@ -27,7 +32,11 @@ function gridTile(dark: boolean): HTMLImageElement {
     return img
 }
 
-export function useBackdrop(editor: ShallowRef<Editor | null>) {
+/**
+ * `allowGrid` reads the stored checkerboard preference; the scored modes pass false and
+ * always show plain paper, since the judge sees none of it.
+ */
+export function useBackdrop(editor: ShallowRef<Editor | null>, { allowGrid = true } = {}) {
     const theme = useThemeStore()
     const grid = ref(false)
 
@@ -35,7 +44,7 @@ export function useBackdrop(editor: ShallowRef<Editor | null>) {
         const ed = editor.value
         if (!ed) return
         if (!grid.value) {
-            ed.setCanvasBackdrop({ type: 'color', color: theme.isDark ? '#000000' : '#ffffff' })
+            ed.setCanvasBackdrop({ type: 'color', color: paperColor(theme.isDark) })
             return
         }
         const img = gridTile(theme.isDark)
@@ -66,10 +75,12 @@ export function useBackdrop(editor: ShallowRef<Editor | null>) {
 
     // After the editor host's own onMounted, so the editor exists.
     onMounted(() => {
-        try {
-            grid.value = localStorage.getItem(PREF_KEY) === '1'
-        } catch {
-            /* private mode / storage disabled — the paper backdrop */
+        if (allowGrid) {
+            try {
+                grid.value = localStorage.getItem(PREF_KEY) === '1'
+            } catch {
+                /* private mode / storage disabled — the paper backdrop */
+            }
         }
         apply()
     })

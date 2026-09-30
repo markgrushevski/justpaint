@@ -21,14 +21,7 @@ const CANVAS_SELECTOR = '.konvajs-content'
  * oriui-owned token. color-contrast stays enabled everywhere else. Add an
  * entry only for a triaged, deliberate choice, never to silence a real bug.
  */
-const AUDIT_EXCLUSIONS: { selector: string; rule: string; reason: string }[] = [
-    {
-        selector: '.draw__brand',
-        rule: 'color-contrast',
-        // #ff5500 on #f0f2f6 = 2.85:1 — deliberate brand choice, not a bug.
-        reason: 'brand wordmark in oriui --ori-color-primary — deliberate brand color, design decision'
-    }
-]
+const AUDIT_EXCLUSIONS: { selector: string; rule: string; reason: string }[] = []
 
 /** Navigate to /draw and wait for the editor shell (toolbar + Konva canvas) to mount. */
 async function gotoDraw(page: Page): Promise<void> {
@@ -112,9 +105,10 @@ test.describe('/draw — open overlays (desktop)', () => {
 
     test('sign-in dialog open has no serious/critical a11y violations', async ({ page }) => {
         await gotoDraw(page)
-        // Click through the empty-state card's real "Sign in" row (not the
-        // store) so this exercises what a visitor actually reaches.
-        await page.getByRole('button', { name: 'Sign in' }).first().click()
+        // Click through the menu's real "Sign in" row (not the store) so this
+        // exercises what a visitor actually reaches.
+        await page.locator('.draw__menu-toggle').click()
+        await page.getByRole('button', { name: 'Sign in' }).click()
         const signInDialog = page.getByRole('dialog', { name: 'Sign in' })
         await signInDialog.waitFor({ state: 'visible' })
         await expect(signInDialog).toHaveCSS('opacity', '1')

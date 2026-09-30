@@ -270,6 +270,42 @@ function onWidth(e: Event) {
 </template>
 
 <style scoped>
+/* Motion lives on our own glyph, never on the oriui button: the icon lifts on hover,
+   squashes on press and bounces when its tool is picked. */
+.tool-icon {
+    transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (hover: hover) {
+    .bar__tool-wrap:hover .tool-icon {
+        transform: translateY(-2px) rotate(-6deg);
+    }
+}
+
+[aria-pressed='true'] > .tool-icon {
+    animation: bar-pick 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.bar__tool-wrap:active .tool-icon {
+    transform: scale(0.86);
+}
+
+@keyframes bar-pick {
+    40% {
+        transform: scale(1.22) rotate(-8deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tool-icon {
+        transition: none;
+    }
+
+    [aria-pressed='true'] > .tool-icon {
+        animation: none;
+    }
+}
+
 .bar {
     display: flex;
     align-items: center;

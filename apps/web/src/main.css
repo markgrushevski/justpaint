@@ -1,5 +1,5 @@
 /*
- * justpaint brand tokens: a pure orange over neutral grays, layered on the
+ * justpaint brand tokens: a pure orange over warm paper neutrals, layered on the
  * oriui design system. This file only sets the `*-light`/`*-dark` SOURCES;
  * oriui resolves them into `--ori-color-*` per theme (a global brand override
  * sets the source at `:root`, per oriui's own convention). Components read the
@@ -20,22 +20,24 @@
     --ori-color-secondary-dark: hsl(30 32% 26%);
     --ori-color-on-secondary-dark: hsl(38 90% 92%);
 
-    /* Surface (cards, panels, toolbar) + page background — neutral grays. Ink
-       retinted to match, well past the AA text bar in both themes. */
-    --ori-color-surface-light: #f0f2f6;
-    --ori-color-on-surface-light: hsl(220 10% 15%);
-    --ori-color-surface-dark: #191919;
-    --ori-color-on-surface-dark: hsl(0 0% 92%);
+    /* Surface (cards, panels, toolbar) + page background — warm paper neutrals under
+       one near-black ink, well past the AA text bar in both themes. The page
+       background also carries the orange wordmark, which is why it stays the lighter
+       of the two: the orange clears the large-text 3:1 bar there, not on the surface. */
+    --ori-color-surface-light: #f3f1eb;
+    --ori-color-on-surface-light: #202326;
+    --ori-color-surface-dark: #1d1b19;
+    --ori-color-on-surface-dark: #eeebe4;
 
-    --ori-color-background-light: #ffffff;
-    --ori-color-on-background-light: hsl(220 10% 15%);
-    --ori-color-background-dark: #121212;
-    --ori-color-on-background-dark: hsl(0 0% 92%);
+    --ori-color-background-light: #faf8f3;
+    --ori-color-on-background-light: #202326;
+    --ori-color-background-dark: #151412;
+    --ori-color-on-background-dark: #eeebe4;
 
-    /* Outline (borders, dividers) — neutral hues, cleared for the >=3:1 non-text
+    /* Outline (borders, dividers) — warm grays, cleared for the >=3:1 non-text
        bar (WCAG 1.4.11) against both surfaces they draw against. */
-    --jp-color-outline-light: hsl(220 5% 55%);
-    --jp-color-outline-dark: hsl(0 0% 46%);
+    --jp-color-outline-light: #8a857c;
+    --jp-color-outline-dark: #75716a;
 
     /* Outline is ours: oriui ships no outline token, so it carries the --jp-*
        prefix rather than squatting in the vendor --ori-* namespace, where a
@@ -46,8 +48,8 @@
     /* The letterbox "desk" behind the paper — one step darker (light) / lighter
        (dark) than the paper so the document edge reads at any zoom; the editor
        adds a paper shadow on top. Resolved for light here; dark repoints it. */
-    --jp-desk-light: #e9ebef;
-    --jp-desk-dark: #1e1e1e;
+    --jp-desk-light: #ebe7de;
+    --jp-desk-dark: #201e1b;
     --jp-desk: var(--jp-desk-light);
 
     /* Shared square-control sizes — two deliberate tiers across every floating island. */

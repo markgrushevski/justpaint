@@ -22,10 +22,14 @@ import {
     leaderboardKeys
 } from '@core'
 import type { Match, MatchResultDone, WsFrame } from '@core'
+import ConfirmDialog from '../../components/ConfirmDialog.vue'
+import ModeNav from '../../components/ModeNav.vue'
 import EditorShell from '../editor/EditorShell.vue'
 import FloatingToolbar from '../editor/FloatingToolbar.vue'
 import ZoomControls from '../editor/ZoomControls.vue'
+import { useBackdrop } from '../editor/useBackdrop'
 import { useEditorHost } from '../editor/useEditorHost'
+import { useLeaveGuard } from '../editor/useLeaveGuard'
 import { GAME_CANVAS } from '../game/canvas'
 import GamePromptBanner from '../game/GamePromptBanner.vue'
 import JudgingOverlay from '../game/JudgingOverlay.vue'
@@ -77,8 +81,9 @@ const {
     initialDocument: blankGameDocument,
     commands: { enter: () => submit() },
     // Tool keys only while drawing.
-    beforeToolKeys: () => phase.value !== 'drawing'
+    beforeToolKeys: () => phase.value !== 'drawing' || leavePending.value !== null
 })
+useBackdrop(editor, { allowGrid: false })
 
 /**
  * A client view over GAME.md's match states: `connecting` (POST /matches), `waiting`
@@ -87,6 +92,28 @@ const {
  */
 type Phase = 'connecting' | 'waiting' | 'drawing' | 'submitting' | 'judging' | 'done' | 'error'
 const phase = ref<Phase>('connecting')
+
+// Leaving never cancels the match on the server: the round runs on, and an opponent
+// who submits alone wins by forfeit (docs/GAME.md §4.1).
+const {
+    pending: leavePending,
+    leave,
+    stay
+} = useLeaveGuard(() => {
+    if (phase.value === 'drawing')
+        return {
+            title: 'Leave the duel?',
+            message: 'The round keeps running without you. If your opponent submits and you don’t, they win.',
+            confirmText: 'Leave'
+        }
+    if (phase.value === 'waiting')
+        return {
+            title: 'Leave the queue?',
+            message: 'If someone joins, the round starts without you, and they win if they submit.',
+            confirmText: 'Leave'
+        }
+    return null
+})
 
 // Set true on unmount; every async continuation checks it before touching state.
 let disposed = false
@@ -463,15 +490,21 @@ onBeforeUnmount(() => {
 <template>
     <EditorShell ref="shell" mode="play">
         <template #top-left>
-            <!-- Display name or "Player 2", never a login. -->
-            <OpponentStatusChip :name="opponent.name" :status="opponent.status" :online="opponentOnline" />
-            <OriBadge
-                v-if="wsReconnecting"
-                content="reconnecting…"
-                color="warning"
-                variant="soft"
-                label="Reconnecting to the match"
-            />
+            <!-- Two rows, so the opponent never reaches the prompt centered on the first. -->
+            <div class="play__top-left">
+                <ModeNav :collapse-below="1100" />
+                <div class="play__opponent">
+                    <!-- Display name or "Player 2", never a login. -->
+                    <OpponentStatusChip :name="opponent.name" :status="opponent.status" :online="opponentOnline" />
+                    <OriBadge
+                        v-if="wsReconnecting"
+                        content="reconnecting…"
+                        color="warning"
+                        variant="soft"
+                        label="Reconnecting to the match"
+                    />
+                </div>
+            </div>
         </template>
 
         <template #top-center>
@@ -482,8 +515,8 @@ onBeforeUnmount(() => {
             </div>
         </template>
 
-        <!-- No drawer: SideMenu is /draw-specific.
-             TODO(play-api): a play drawer (leave/rematch/profile). -->
+        <!-- No drawer: SideMenu is /draw-specific; leaving goes through ModeNav.
+             TODO(play-api): a play drawer (rematch/profile). -->
         <template #top-right>
             <SubmitButton :disabled="!canSubmit" :loading="submitting" @submit="submit" />
         </template>
@@ -536,11 +569,35 @@ onBeforeUnmount(() => {
                 @play-again="playAgain"
                 @view-leaderboard="viewLeaderboard"
             />
+
+            <ConfirmDialog
+                :open="leavePending !== null"
+                :title="leavePending?.title ?? ''"
+                :message="leavePending?.message"
+                :confirm-text="leavePending?.confirmText"
+                cancel-text="Stay"
+                danger
+                @confirm="leave"
+                @cancel="stay"
+            />
         </template>
     </EditorShell>
 </template>
 
 <style scoped>
+.play__top-left {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+}
+
+.play__opponent {
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+}
+
 /* Clears the timer chip and the corner islands on a narrow phone. */
 .play__prompt {
     padding-top: 2.5rem;

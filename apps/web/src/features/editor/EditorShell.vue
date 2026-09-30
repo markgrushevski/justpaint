@@ -157,7 +157,7 @@ defineExpose({ canvasEl })
     pointer-events: none;
 }
 
-/* Centered layer over the canvas (empty-state card, and a home for the
+/* Centered layer over the canvas (the /draw welcome, result cards, and a home for the
    body-teleported dialogs/toaster). pointer-events:none so it never blocks
    drawing; only opted-in slotted content is interactive. z-11 > toolbar z-10. */
 .shell__overlay {

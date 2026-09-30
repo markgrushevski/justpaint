@@ -1,15 +1,16 @@
 /**
- * The open drawing as a file: new, save, load, rename, export and copy. Save and load
- * need a session; everything else works signed out.
+ * The open drawing as a file: new, save, open, export and copy. The first save asks for
+ * a name; later saves keep it. Save and open need a session; everything else works
+ * signed out.
  */
 import { computed, ref, watch, type Ref, type ShallowRef } from 'vue'
 import { blankDocument, DEFAULT_CANVAS, LIMITS } from '@justpaint/editor'
 import type { Document, Editor } from '@justpaint/editor'
-import { copyImage, copyText, useLoadLatestDrawing, useSaveDrawing, useSessionStore } from '@core'
+import { copyImage, copyText, drawings, useSaveDrawing, useSessionStore } from '@core'
 import type { useToast } from '@oriui/vue'
 import { TOAST } from './useGatedActions'
 
-const DEFAULT_NAME = 'new art'
+const DEFAULT_NAME = 'Untitled drawing'
 
 function clampDim(n: number): number {
     return Math.min(LIMITS.maxCanvasDimension, Math.max(1, Math.round(n)))
@@ -39,10 +40,21 @@ export function useDrawingFile(deps: DrawingFileDeps) {
     const { editor, toaster } = deps
     const currentId = ref<string | null>(null)
     const name = ref(DEFAULT_NAME)
+    /** The name once the drawing is saved; null while it has never been. */
+    const savedName = computed(() => (currentId.value ? name.value : null))
 
     const saveMutation = useSaveDrawing()
-    const loadMutation = useLoadLatestDrawing()
-    const busy = computed(() => saveMutation.isPending.value || loadMutation.isPending.value)
+    const opening = ref(false)
+    const busy = computed(() => saveMutation.isPending.value || opening.value)
+
+    // The document as last saved or opened, to tell whether leaving would lose work.
+    // Compared only when asked, so drawing never pays for it.
+    let snapshot: string | null = null
+
+    function isDirty(): boolean {
+        if (deps.isEmpty.value || !editor.value) return false
+        return JSON.stringify(editor.value.getDocument()) !== snapshot
+    }
 
     // Another account signed in: the open drawing is the previous one's, and saving it
     // would 404 on the ownership-scoped PUT.
@@ -60,6 +72,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         deps.load(fittedDocument(deps.canvas(), w, h))
         currentId.value = null
         name.value = DEFAULT_NAME
+        snapshot = null
     }
 
     // Clearing drops history, so confirm only when there is work to lose.
@@ -93,48 +106,71 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         confirmOpen.value = false
     }
 
-    // Ungated: only save needs a session.
-    function rename(next: string) {
-        name.value = next.trim() || DEFAULT_NAME
-    }
+    // Only a first save asks for a name.
+    const nameOpen = ref(false)
 
     async function save() {
         if (!editor.value || busy.value) return
         if (!(await deps.gated('Sign in to save your drawing.'))) return
-        // Browser Back can unmount the view while the modal is up.
+        if (currentId.value) write()
+        else nameOpen.value = true
+    }
+
+    function confirmName(next: string) {
+        nameOpen.value = false
+        write(next)
+    }
+
+    function cancelName() {
+        nameOpen.value = false
+    }
+
+    /** Creates with `newName` when there is no id yet; an update keeps the stored name. */
+    function write(newName?: string) {
+        // Browser Back can unmount the view while a modal is up.
         const ed = editor.value
         if (!ed) return
         const existing = currentId.value
+        const document = ed.getDocument()
+        const sent = JSON.stringify(document)
         saveMutation.mutate(
-            { id: existing ?? undefined, document: ed.getDocument(), name: name.value },
+            { id: existing ?? undefined, document, name: existing ? undefined : newName },
             {
                 onSuccess: (meta) => {
                     currentId.value = meta.id
-                    toaster.success({ text: existing ? 'Saved.' : `Saved as ${meta.id}.`, duration: TOAST.success })
+                    name.value = meta.name
+                    snapshot = sent
+                    toaster.success({ text: `Saved “${meta.name}”.`, duration: TOAST.success })
                 },
                 onError: (err) => deps.reportError(err, 'save')
             }
         )
     }
 
-    async function loadLatest() {
-        if (!editor.value || busy.value) return
-        if (!(await deps.gated('Sign in to load your drawing.'))) return
-        if (!editor.value) return
-        loadMutation.mutate(undefined, {
-            onSuccess: (full) => {
-                if (!full) {
-                    toaster.info({ text: 'No saved drawings yet.', duration: TOAST.info })
-                    return
-                }
-                deps.onReplace()
-                deps.load(full.document)
-                currentId.value = full.id
-                name.value = full.name
-                toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST.success })
-            },
-            onError: (err) => deps.reportError(err, 'load')
-        })
+    /** Opens a saved drawing; the gallery links to /draw with its id. */
+    async function open(id: string) {
+        if (busy.value) return
+        if (!(await deps.gated('Sign in to open your drawing.'))) return
+        opening.value = true
+        try {
+            const full = await drawings.get(id)
+            if (!editor.value) return
+            deps.onReplace()
+            deps.load(full.document)
+            currentId.value = full.id
+            name.value = full.name
+            snapshot = JSON.stringify(editor.value.getDocument())
+        } catch (err) {
+            deps.reportError(err, 'open')
+        } finally {
+            opening.value = false
+        }
+    }
+
+    /** The saved name, stripped of characters a file name can't hold, or a timestamped default. */
+    function fileName(): string {
+        const safe = savedName.value?.replace(/[\\/:*?"<>|]+/g, '').trim()
+        return safe || `justpaint-${Date.now()}`
     }
 
     async function exportPng() {
@@ -143,7 +179,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `justpaint-${Date.now()}.png`
+        a.download = `${fileName()}.png`
         a.click()
         // Revoking in the same tick as click() can abort the download in some browsers.
         setTimeout(() => URL.revokeObjectURL(url), 0)
@@ -178,15 +214,19 @@ export function useDrawingFile(deps: DrawingFileDeps) {
 
     return {
         name,
+        savedName,
         busy,
+        isDirty,
         confirmOpen,
         requestNew,
         applyCanvasSize,
         confirmNew,
         cancelNew,
-        rename,
+        nameOpen,
         save,
-        loadLatest,
+        confirmName,
+        cancelName,
+        open,
         exportPng,
         copyJson,
         copyPng
