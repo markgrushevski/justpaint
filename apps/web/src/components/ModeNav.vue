@@ -33,7 +33,8 @@ onBeforeUnmount(() => query.removeEventListener('change', onQuery))
 
 function go(mode: string) {
     const target = MODES.find((m) => m.mode === mode)
-    if (target && target.mode !== current.value) router.push(target.to)
+    // By path, not mode: the gallery is in Draw's mode but isn't /draw.
+    if (target && route.path !== target.to) router.push(target.to)
 }
 </script>
 

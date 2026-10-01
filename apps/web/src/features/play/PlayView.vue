@@ -83,7 +83,7 @@ const {
     // Tool keys only while drawing.
     beforeToolKeys: () => phase.value !== 'drawing' || leavePending.value !== null
 })
-useBackdrop(editor, { allowGrid: false })
+useBackdrop(editor, { judged: true })
 
 /**
  * A client view over GAME.md's match states: `connecting` (POST /matches), `waiting`
@@ -492,7 +492,7 @@ onBeforeUnmount(() => {
         <template #top-left>
             <!-- Two rows, so the opponent never reaches the prompt centered on the first. -->
             <div class="play__top-left">
-                <ModeNav :collapse-below="1100" />
+                <ModeNav :collapse-below="1200" />
                 <div class="play__opponent">
                     <!-- Display name or "Player 2", never a login. -->
                     <OpponentStatusChip :name="opponent.name" :status="opponent.status" :online="opponentOnline" />

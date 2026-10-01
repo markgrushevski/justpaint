@@ -21,13 +21,20 @@ watch(
         if (!open) return
         name.value = props.initial
         await nextTick()
-        fieldRef.value?.querySelector('input')?.select()
+        const input = fieldRef.value?.querySelector('input')
+        input?.focus()
+        input?.select()
     }
 )
 
 function submit() {
     const next = name.value.trim().slice(0, NAME_MAX)
     if (next) emit('save', next)
+}
+
+// Enter that commits an IME composition is not a submit.
+function onEnter(event: KeyboardEvent) {
+    if (!event.isComposing) submit()
 }
 
 function onOpenChange(open: boolean) {
@@ -38,7 +45,7 @@ function onOpenChange(open: boolean) {
 <template>
     <OriDialog :open="props.open" modal title="Save drawing" @update:open="onOpenChange">
         <div ref="fieldRef">
-            <OriInput v-model="name" label="Name" :maxlength="NAME_MAX" fluid @keydown.enter="submit" />
+            <OriInput v-model="name" label="Name" :maxlength="NAME_MAX" fluid @keydown.enter="onEnter" />
         </div>
 
         <div class="save__actions">

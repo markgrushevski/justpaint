@@ -134,8 +134,16 @@ export function useDeleteDrawing() {
         mutationFn: (id: string): Promise<void> => drawings.remove(id),
         onSuccess: (_, id) => {
             qc.removeQueries({ queryKey: drawingsKeys.item(id) })
-            return qc.invalidateQueries({ queryKey: drawingsKeys.list })
-        }
+        },
+        // Also on failure: a 404 means the card shows a drawing that is already gone.
+        onSettled: () => qc.invalidateQueries({ queryKey: drawingsKeys.list })
+    })
+}
+
+/** Fetch a saved drawing to open in the editor; always fresh, since its next save overwrites the row. */
+export function useOpenDrawing() {
+    return useMutation({
+        mutationFn: (id: string): Promise<DrawingFull> => drawings.get(id)
     })
 }
 

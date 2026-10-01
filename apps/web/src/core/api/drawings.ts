@@ -94,15 +94,16 @@ export const drawings = {
         return (await request<DrawingMetaEnvelope>('/drawings', { method: 'POST', body })).drawing
     },
     async get(id: string): Promise<DrawingFull> {
-        return (await request<DrawingFullEnvelope>('/drawings/' + id)).drawing
+        return (await request<DrawingFullEnvelope>('/drawings/' + encodeURIComponent(id))).drawing
     },
     async update(id: string, doc: Document, name?: string): Promise<DrawingMeta> {
         const rounded = roundDocument(doc)
         const body = name === undefined ? { document: rounded } : { document: rounded, name }
-        return (await request<DrawingMetaEnvelope>('/drawings/' + id, { method: 'PUT', body })).drawing
+        return (await request<DrawingMetaEnvelope>('/drawings/' + encodeURIComponent(id), { method: 'PUT', body }))
+            .drawing
     },
     async remove(id: string): Promise<void> {
-        await request<void>('/drawings/' + id, { method: 'DELETE' })
+        await request<void>('/drawings/' + encodeURIComponent(id), { method: 'DELETE' })
     },
     async list(params: ListParams = {}): Promise<DrawingList> {
         return await request<DrawingList>('/drawings', {

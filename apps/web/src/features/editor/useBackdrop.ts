@@ -13,6 +13,9 @@ export function paperColor(dark: boolean): string {
     return dark ? '#12110f' : '#fdfcf8'
 }
 
+/** What the judge renders a scored drawing on (`JUDGE_BG` in packages/render), in either theme. */
+const JUDGED_PAPER = '#ffffff'
+
 /** 8px checkerboard tiles per theme; the images are built lazily and shared across mounts. */
 const GRID_TILE_LIGHT =
     "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='8' height='8'%3e%3crect x='12' y='0' width='12' height='12' fill='%230002'/%3e%3crect x='0' y='12' width='12' height='12' fill='%230002'/%3e%3c/svg%3e"
@@ -33,10 +36,10 @@ function gridTile(dark: boolean): HTMLImageElement {
 }
 
 /**
- * `allowGrid` reads the stored checkerboard preference; the scored modes pass false and
- * always show plain paper, since the judge sees none of it.
+ * `judged` is for the scored modes: the sheet is what the judge sees, white in both
+ * themes, so ink that vanishes for the judge vanishes on screen too; no checkerboard.
  */
-export function useBackdrop(editor: ShallowRef<Editor | null>, { allowGrid = true } = {}) {
+export function useBackdrop(editor: ShallowRef<Editor | null>, { judged = false } = {}) {
     const theme = useThemeStore()
     const grid = ref(false)
 
@@ -44,7 +47,7 @@ export function useBackdrop(editor: ShallowRef<Editor | null>, { allowGrid = tru
         const ed = editor.value
         if (!ed) return
         if (!grid.value) {
-            ed.setCanvasBackdrop({ type: 'color', color: paperColor(theme.isDark) })
+            ed.setCanvasBackdrop({ type: 'color', color: judged ? JUDGED_PAPER : paperColor(theme.isDark) })
             return
         }
         const img = gridTile(theme.isDark)
@@ -75,7 +78,7 @@ export function useBackdrop(editor: ShallowRef<Editor | null>, { allowGrid = tru
 
     // After the editor host's own onMounted, so the editor exists.
     onMounted(() => {
-        if (allowGrid) {
+        if (!judged) {
             try {
                 grid.value = localStorage.getItem(PREF_KEY) === '1'
             } catch {

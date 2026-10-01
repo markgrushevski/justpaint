@@ -141,12 +141,11 @@ const {
 
 onMounted(() => {
     canvas()?.addEventListener('pointerdown', dismissWelcome, { once: true })
-    // The gallery opens a drawing as /draw?id=…; the id leaves the URL once taken.
+    // The gallery opens a drawing as /draw?id=…; the id leaves the URL once taken. Open
+    // only after the replace settles: every navigation releases the sign-in modal
+    // (main.ts), so a modal raised before it would close at once.
     const id = route.query.id
-    if (typeof id === 'string' && id) {
-        router.replace({ query: {} })
-        file.open(id)
-    }
+    if (typeof id === 'string' && id) router.replace({ query: {} }).then(() => file.open(id))
 })
 
 // The side menu is non-modal, so it does not suppress single keys; only modal overlays do.
@@ -161,7 +160,7 @@ function onPlainKey(e: KeyboardEvent): boolean {
     }
     // Desktop only: phones have no keyboard to need the cheat-sheet.
     if (e.key === '?') {
-        if (window.innerWidth <= 600 || file.confirmOpen || file.nameOpen) return true
+        if (window.innerWidth <= 600 || file.confirmOpen || file.nameOpen || leavePending.value !== null) return true
         e.preventDefault()
         shortcutsOpen.value = !shortcutsOpen.value
         return true
@@ -578,6 +577,12 @@ onBeforeUnmount(() => assist.clear())
     opacity: 0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .jp-fade-leave-active {
+        transition: none;
+    }
+}
+
 /* A plain fade and scale; the toast's slide reads wrong on a centered card. */
 .jp-pop-enter-active,
 .jp-pop-leave-active {
@@ -658,19 +663,6 @@ onBeforeUnmount(() => assist.clear())
     display: none;
 
     background-color: rgb(0 0 0 / 35%);
-}
-
-.toast-enter-active,
-.toast-leave-active {
-    transition:
-        opacity 180ms ease,
-        transform 180ms ease;
-}
-
-.toast-enter-from,
-.toast-leave-to {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-0.4rem);
 }
 
 /* Below ~1050px the centered 30rem assist panel reaches the actions island, which

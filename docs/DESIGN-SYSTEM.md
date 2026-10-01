@@ -43,7 +43,8 @@ not an override.)
 - **The neutrals are warm paper tones, and the orange is the one accent.** Light: surface `#f3f1eb`, page background
   `#faf8f3`, ink `#202326`. Dark: `#1d1b19` / `#151412` / `#eeebe4`. The hairline is `#8a857c` / `#75716a` and the
   desk behind the sheet `#ebe7de` / `#201e1b`. The sheet itself is `paperColor(dark)` in
-  `features/editor/useBackdrop.ts` (`#fdfcf8` / `#12110f`): view-only, never exported or judged. No second brand hue.
+  `features/editor/useBackdrop.ts` (`#fdfcf8` / `#12110f`): view-only, never exported or judged. The scored modes
+  paint the judge's white instead, in both themes. No second brand hue.
 - **The orange wordmark sits on the page background, not the surface.** It is large text, and the orange clears the
   3:1 bar only there (3.02:1 on `#faf8f3`, 2.83:1 on `#f3f1eb`). `scripts/check-contrast.mjs` checks
   `primary-light` against `background-light`; `ModeNav` gives its `OriSurface` the page background for this reason.

@@ -135,9 +135,18 @@ export function useEditorHost(options: EditorHostOptions) {
     function onKeydown(e: KeyboardEvent) {
         // The sign-in modal owns the keyboard: a command behind it would act on the old session.
         if (gate.open) return
-        if (isTextField(e.target)) return
+        const target = e.target instanceof Element ? e.target : null
+        // An open menu handles its own keys: a letter there must not pick a tool.
+        if (target?.closest('[role="menu"]')) return
         const key = e.key.toLowerCase()
-        if (e.ctrlKey || e.metaKey) {
+        const mod = e.ctrlKey || e.metaKey
+        // A command from a text field or behind a modal dialog would act on what the
+        // visitor can't see; Ctrl+S is still kept from the browser's "Save page".
+        if (isTextField(e.target) || (mod && target?.closest('dialog'))) {
+            if (mod && key === 's') e.preventDefault()
+            return
+        }
+        if (mod) {
             const command = key === 'z' && e.shiftKey ? redo : (options.commands?.[key] ?? editorKeys[key])
             if (command) {
                 e.preventDefault()

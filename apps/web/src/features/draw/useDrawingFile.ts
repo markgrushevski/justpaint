@@ -3,10 +3,10 @@
  * a name; later saves keep it. Save and open need a session; everything else works
  * signed out.
  */
-import { computed, ref, watch, type Ref, type ShallowRef } from 'vue'
+import { computed, ref, type Ref, type ShallowRef } from 'vue'
 import { blankDocument, DEFAULT_CANVAS, LIMITS } from '@justpaint/editor'
 import type { Document, Editor } from '@justpaint/editor'
-import { copyImage, copyText, drawings, useSaveDrawing, useSessionStore } from '@core'
+import { copyImage, copyText, useOpenDrawing, useSaveDrawing, useSessionStore } from '@core'
 import type { useToast } from '@oriui/vue'
 import { TOAST } from './useGatedActions'
 
@@ -38,14 +38,24 @@ export interface DrawingFileDeps {
 
 export function useDrawingFile(deps: DrawingFileDeps) {
     const { editor, toaster } = deps
-    const currentId = ref<string | null>(null)
+    const session = useSessionStore()
+
+    // The saved row the canvas is bound to, and the account it belongs to. Another
+    // account, even after a sign-out and back in, sees an unsaved drawing: saving to
+    // the old id would 404 on the ownership-scoped PUT.
+    const saved = ref<{ id: string; owner: string } | null>(null)
+    const savedId = computed(() => (saved.value && saved.value.owner === session.user?.id ? saved.value.id : null))
     const name = ref(DEFAULT_NAME)
     /** The name once the drawing is saved; null while it has never been. */
-    const savedName = computed(() => (currentId.value ? name.value : null))
+    const savedName = computed(() => (savedId.value ? name.value : null))
 
     const saveMutation = useSaveDrawing()
-    const opening = ref(false)
-    const busy = computed(() => saveMutation.isPending.value || opening.value)
+    const openMutation = useOpenDrawing()
+    const busy = computed(() => saveMutation.isPending.value || openMutation.isPending.value)
+
+    // Bumped whenever the canvas gets another document, so a save or an open that lands
+    // afterwards can't bind the new canvas to the old row.
+    let generation = 0
 
     // The document as last saved or opened, to tell whether leaving would lose work.
     // Compared only when asked, so drawing never pays for it.
@@ -53,24 +63,16 @@ export function useDrawingFile(deps: DrawingFileDeps) {
 
     function isDirty(): boolean {
         if (deps.isEmpty.value || !editor.value) return false
+        if (!savedId.value) return true
         return JSON.stringify(editor.value.getDocument()) !== snapshot
     }
 
-    // Another account signed in: the open drawing is the previous one's, and saving it
-    // would 404 on the ownership-scoped PUT.
-    const session = useSessionStore()
-    watch(
-        () => session.user?.id,
-        (now, before) => {
-            if (before && now && now !== before) currentId.value = null
-        }
-    )
-
     function clear(w?: number, h?: number) {
         if (!editor.value) return
+        generation++
         deps.onReplace()
         deps.load(fittedDocument(deps.canvas(), w, h))
-        currentId.value = null
+        saved.value = null
         name.value = DEFAULT_NAME
         snapshot = null
     }
@@ -112,7 +114,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
     async function save() {
         if (!editor.value || busy.value) return
         if (!(await deps.gated('Sign in to save your drawing.'))) return
-        if (currentId.value) write()
+        if (savedId.value) write()
         else nameOpen.value = true
     }
 
@@ -125,22 +127,24 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         nameOpen.value = false
     }
 
-    /** Creates with `newName` when there is no id yet; an update keeps the stored name. */
+    /** Creates with `newName` when the canvas isn't bound to a row; an update keeps the stored name. */
     function write(newName?: string) {
         // Browser Back can unmount the view while a modal is up.
         const ed = editor.value
         if (!ed) return
-        const existing = currentId.value
+        const existing = savedId.value
         const document = ed.getDocument()
         const sent = JSON.stringify(document)
+        const at = generation
         saveMutation.mutate(
             { id: existing ?? undefined, document, name: existing ? undefined : newName },
             {
                 onSuccess: (meta) => {
-                    currentId.value = meta.id
+                    toaster.success({ text: `Saved “${meta.name}”.`, duration: TOAST.success })
+                    if (at !== generation) return
+                    saved.value = { id: meta.id, owner: meta.ownerId }
                     name.value = meta.name
                     snapshot = sent
-                    toaster.success({ text: `Saved “${meta.name}”.`, duration: TOAST.success })
                 },
                 onError: (err) => deps.reportError(err, 'save')
             }
@@ -151,20 +155,27 @@ export function useDrawingFile(deps: DrawingFileDeps) {
     async function open(id: string) {
         if (busy.value) return
         if (!(await deps.gated('Sign in to open your drawing.'))) return
-        opening.value = true
-        try {
-            const full = await drawings.get(id)
-            if (!editor.value) return
-            deps.onReplace()
-            deps.load(full.document)
-            currentId.value = full.id
-            name.value = full.name
-            snapshot = JSON.stringify(editor.value.getDocument())
-        } catch (err) {
-            deps.reportError(err, 'open')
-        } finally {
-            opening.value = false
-        }
+        const at = generation
+        openMutation.mutate(id, {
+            onSuccess: (full) => {
+                if (!editor.value || at !== generation) return
+                // Strokes made while it loaded are the visitor's newest work: keep them.
+                if (!deps.isEmpty.value) {
+                    toaster.info({
+                        text: `Kept your new strokes. Open “${full.name}” again from My drawings.`,
+                        duration: TOAST.info
+                    })
+                    return
+                }
+                generation++
+                deps.onReplace()
+                deps.load(full.document)
+                saved.value = { id: full.id, owner: full.ownerId }
+                name.value = full.name
+                snapshot = JSON.stringify(editor.value.getDocument())
+            },
+            onError: (err) => deps.reportError(err, 'open')
+        })
     }
 
     /** The saved name, stripped of characters a file name can't hold, or a timestamped default. */

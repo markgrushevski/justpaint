@@ -153,8 +153,10 @@ async function logout() {
     await session.logout()
 }
 
+// The view's own Esc handler on window would close the whole panel too.
 function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape') return
+    e.stopPropagation()
     if (view.value !== 'main') show('main')
     else emit('close')
 }

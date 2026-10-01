@@ -66,7 +66,7 @@ const {
     // Tool keys only while drawing.
     beforeToolKeys: () => phase.value !== 'drawing' || leavePending.value !== null
 })
-useBackdrop(editor, { allowGrid: false })
+useBackdrop(editor, { judged: true })
 
 /**
  * `loading` (a prompt, or the sign-in modal before it), `drawing`, `judging` (the submit
@@ -99,20 +99,27 @@ const canSubmit = computed(() => phase.value === 'drawing' && !isEmpty.value && 
 // Says why Submit is disabled.
 const showEmptyHint = computed(() => phase.value === 'drawing' && isEmpty.value)
 
-// Nothing keeps an unsubmitted practice drawing.
+// Nothing keeps an unsubmitted practice drawing, and a run being judged has already
+// spent one of the day's scored drawings.
 const {
     pending: leavePending,
     leave,
     stay
-} = useLeaveGuard(() =>
-    phase.value === 'drawing' && !isEmpty.value
-        ? {
-              title: 'Leave practice?',
-              message: 'This drawing isn’t kept unless you submit it.',
-              confirmText: 'Leave'
-          }
-        : null
-)
+} = useLeaveGuard(() => {
+    if (phase.value === 'drawing' && !isEmpty.value)
+        return {
+            title: 'Leave practice?',
+            message: 'This drawing isn’t kept unless you submit it.',
+            confirmText: 'Leave'
+        }
+    if (phase.value === 'judging')
+        return {
+            title: 'Leave before the score?',
+            message: 'The judge is still scoring this drawing. It counts toward today’s limit either way.',
+            confirmText: 'Leave'
+        }
+    return null
+})
 
 function revokeDrawingImage(): void {
     if (drawingImage.value) {
@@ -263,7 +270,7 @@ onBeforeUnmount(() => {
     <!-- `mode="play"` is the layout without a drawer toggle, so Submit gets the corner. -->
     <EditorShell ref="shell" mode="play">
         <template #top-left>
-            <ModeNav :collapse-below="1100" />
+            <ModeNav :collapse-below="1200" />
         </template>
 
         <!-- The banner waits for a prompt: its unrevealed state is duel copy. The hint
