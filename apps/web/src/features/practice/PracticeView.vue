@@ -408,13 +408,17 @@ onBeforeUnmount(() => {
 }
 
 /* No surface chrome: a note on the desk, not another island. */
+/* On its own surface chip: the sheet under it is white in both themes, so bare
+   theme ink would vanish in the dark one. */
 .practice__hint {
+    padding: 0 var(--ori-size-gap_sm, 0.25rem);
+
+    border-radius: var(--ori-size-radius_sm, 4px);
+    background-color: var(--ori-color-surface);
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_xs, 0.75rem);
 
-    /* Shown only over paper or desk, where 0.7 still passes WCAG AA. */
-    opacity: 0.7;
     pointer-events: none;
     user-select: none;
 }
