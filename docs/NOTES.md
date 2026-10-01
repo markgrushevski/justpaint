@@ -305,6 +305,12 @@ clusters accordingly.
 In a browser without it (Firefox, as of mid-2026) the popover still opens but sits at the UA default
 position. Check current support before building anchor-critical UI on it.
 
+### A transformed ancestor misplaces an `OriMenu` panel
+
+The menu's panel is `position: fixed` and anchor-positioned, and an ancestor with a `transform` becomes its
+containing block, so the panel opens in the wrong place. Put a hover lift or any other transform on a
+wrapper beside the menu, never around it (`DrawingCard.vue` lifts the card and the trigger separately).
+
 ## Go backend
 
 ### Setup

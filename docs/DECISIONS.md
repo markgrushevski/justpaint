@@ -264,7 +264,7 @@ The `/play` result screen must show the opponent's drawing, but `GET /api/drawin
   3. **Browser axe over the rendered app** (`test:a11y`, Playwright + `@axe-core/playwright`): the only layer that catches rendered mis-pairings. It is a separate command, not part of `lint:all`. Known issues are allowlisted per element with `AxeBuilder.exclude()`, never by disabling a rule, so `color-contrast` stays active everywhere else.
 
   APCA (`apca-w3`) is a possible advisory signal, not a gate.
-- **We keep our own palette tokens in `main.css`** rather than adopting oriui's `neutral` skin. Adopting it is an open idea (`docs/IDEAS.md`).
+- **We keep our own palette tokens in `main.css`** rather than adopting oriui's `neutral` skin: the warm paper palette is ours (2026-09-30 entry).
 
 ## 2026-07-07 — AI Assist design: text drawing commands
 
