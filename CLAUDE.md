@@ -53,8 +53,8 @@ docs                contracts and decisions
 
 - **Root:** `npm run build` · `types` · `test` · `format` / `format:check` (prettier skips `docs/` and
   `server/`).
-- **Web:** `npm run dev -w @justpaint/web` (:7777) · `lint:all` / `lint:ci` · `test:a11y` ·
-  `test:layout` — the last two need the dev server running.
+- **Web:** `npm run dev -w @justpaint/web` (:7777) · `lint:all` / `lint:ci` · `test:a11y` · `test:flows` ·
+  `test:layout` — the last three need the dev server running.
 - **Server:** `npm run dev` (root) builds the render worker, then runs the server on :8080 with
   `server/.env` loaded (copy `server/.env.example`, which holds every default). In `server/`: `gofmt -l .` · `go vet ./...` · `go test ./...`; DB-backed
   tests skip without `DATABASE_URL` — `npx dotenv run -- go test ./...` runs them.

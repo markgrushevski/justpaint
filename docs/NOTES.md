@@ -191,6 +191,45 @@ An absolutely positioned box with a `left` offset shrinks to fit the remaining w
 phone the toolbar wrapped. Use a full-width strip (`left: 0; right: 0; display: flex;
 justify-content: center`) with `pointer-events: none`, and `pointer-events: auto` on the child.
 
+### Every navigation releases the sign-in modal
+
+`main.ts` settles the auth gate with `false` in `router.afterEach`, so the modal never follows the visitor
+to another page holding the old page's waiter. That fires after every navigation, including a
+`router.replace` a view issues while it mounts: a modal raised before the replace finishes is closed again,
+and the action waiting behind it is answered `false` and dropped without a message. Gate only after the
+replace settles. `afterEach` runs before the promise returned by `replace` resolves, so code chained on it
+starts after the release: `DrawView` takes `?id` out of the URL with
+`router.replace({ query: {} }).then(() => file.open(id))`.
+
+### The editor host's key handler sees keys from every panel
+
+`useEditorHost` listens for `keydown` on `window`, so it also receives keys from teleported panels, from
+dialogs and from `OriMenu` popovers. It ignores keys from inside `[role="menu"]`, so a letter typed in a
+menu does not pick a tool, and every key while the sign-in modal is open. It ignores keys from text fields,
+and Ctrl/Cmd commands from inside a `<dialog>`, which would act on a canvas the visitor can't see; Ctrl+S
+still gets `preventDefault` there, to keep the browser's "Save page" away. A plain key from a dialog is not
+filtered here: the view's `beforeToolKeys` must return true while any of its modal overlays is open
+(`onPlainKey` in `DrawView` lists them), or tool hotkeys fire underneath.
+
+A panel that handles Escape itself must call `stopPropagation`, or the view's Escape handler on `window`
+acts on the same press. `SideMenu` does: without it, Esc in the Export or Canvas sub-panel would close the
+whole menu instead of stepping back to the main list.
+
+### A canvas bound to a saved row must not outlive its document or its account
+
+`useDrawingFile` binds the canvas to a row when a save or an open succeeds. Everything that swaps in another
+document (New drawing, a canvas-size change, opening a drawing) clears or replaces the binding and bumps a
+generation counter. A save or open still in flight compares the counter when it returns and drops its
+result; without that, a slow save would bind the fresh canvas to the old row and the next Ctrl+S would
+update that row instead of creating one.
+
+The binding also carries the owner's id and is compared with the session each time it is used (`savedId`).
+A watch for the user changing from A to B would miss a sign-out followed by a sign-in as B, because the user
+goes A, none, B and never changes straight from one to the other. B would then send a `PUT` to A's id, which
+the ownership-scoped route answers 404. Signing back in as A keeps the binding.
+`tests/flows/draw-file.spec.ts` (`npm run test:flows -w @justpaint/web`) drives these races in a browser;
+like `test:layout` it needs a dev server.
+
 ### Small ones
 
 - In SFC templates `eslint-disable-next-line` covers only the literal next line; with one attribute per

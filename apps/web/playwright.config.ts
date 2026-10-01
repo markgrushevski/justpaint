@@ -2,14 +2,14 @@ import { defineConfig, devices } from '@playwright/test'
 
 /**
  * Real-browser layer for what static gates can't see: rendered a11y
- * (`tests/a11y`, docs/DECISIONS.md) and rendered geometry (`tests/layout`,
- * docs/NOTES.md). Both need a live dev server, so both stay their own local
- * commands (`test:a11y`, `test:layout`) rather than joining `lint:all`.
+ * (`tests/a11y`, docs/DECISIONS.md), rendered geometry (`tests/layout`,
+ * docs/NOTES.md) and the /draw file flows against a mocked API (`tests/flows`).
+ * All need a live dev server, so they stay their own local commands
+ * (`test:a11y`, `test:layout`, `test:flows`) rather than joining `lint:all`.
  */
 export default defineConfig({
     testDir: 'tests',
-    // A single audited route today (/draw); serial keeps the shared dev server
-    // and the output readable.
+    // Serial keeps the shared dev server and the output readable.
     fullyParallel: false,
     forbidOnly: !!process.env.CI,
     retries: 0,
