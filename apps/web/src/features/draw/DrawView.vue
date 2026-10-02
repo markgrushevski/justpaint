@@ -48,6 +48,7 @@ const {
     zoomPercent,
     docWidth,
     docHeight,
+    background,
     isEmpty,
     pickTool,
     setColor,
@@ -192,6 +193,9 @@ function setLayerOpacity(id: string, opacity: number) {
 function renameLayer(id: string, name: string) {
     editor.value?.renameLayer(id, name)
 }
+function setBackground(color: string | null) {
+    editor.value?.setBackground(color)
+}
 
 // Tear down a pending AI ghost; the editor host destroys the stage after this.
 onBeforeUnmount(() => assist.clear())
@@ -319,6 +323,7 @@ onBeforeUnmount(() => assist.clear())
                 :fill="ui.fill"
                 :can-undo="canUndo"
                 :can-redo="canRedo"
+                ink-view
                 @pick-tool="pickTool"
                 @set-color="setColor"
                 @set-width="setWidth"
@@ -399,6 +404,7 @@ onBeforeUnmount(() => assist.clear())
                 :backdrop-grid="backdrop.grid"
                 :canvas-width="docWidth"
                 :canvas-height="docHeight"
+                :background="background"
                 @close="menuOpen = false"
                 @new-drawing="file.requestNew"
                 @save="file.save"
@@ -408,6 +414,7 @@ onBeforeUnmount(() => assist.clear())
                 @shortcuts="shortcutsOpen = true"
                 @toggle-grid="backdrop.setGrid"
                 @apply-canvas-size="file.applyCanvasSize"
+                @set-background="setBackground"
             />
         </template>
 

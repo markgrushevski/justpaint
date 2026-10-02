@@ -52,6 +52,8 @@ const props = defineProps<{
     fill: string
     canUndo: boolean
     canRedo: boolean
+    /** The canvas goes through the dark theme's ink view (main.css), so its colour wells do too. */
+    inkView?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -133,7 +135,7 @@ function onWidth(e: Event) {
 
         <!-- Inline style controls — visible >600px only. -->
         <div class="bar__group bar__style-inline" role="group" aria-label="Stroke and fill">
-            <label class="bar__swatch" title="Stroke color">
+            <label class="bar__swatch" :class="{ 'jp-ink-view': props.inkView }" title="Stroke color">
                 <input type="color" :value="props.color" aria-label="Stroke color" @input="onColor" />
             </label>
 
@@ -164,7 +166,7 @@ function onWidth(e: Event) {
                     label="Fill"
                     @update:model-value="(v) => emit('toggleFill', v === true)"
                 />
-                <label class="bar__swatch" title="Fill color">
+                <label class="bar__swatch" :class="{ 'jp-ink-view': props.inkView }" title="Fill color">
                     <input
                         type="color"
                         :value="props.fill"
@@ -191,12 +193,17 @@ function onWidth(e: Event) {
                     type="button"
                     aria-label="Stroke & fill"
                 >
-                    <span class="bar__style-dot" :style="{ background: props.color }" aria-hidden="true"></span>
+                    <span
+                        class="bar__style-dot"
+                        :class="{ 'jp-ink-view': props.inkView }"
+                        :style="{ background: props.color }"
+                        aria-hidden="true"
+                    ></span>
                 </button>
             </template>
 
             <div class="bar__style-panel">
-                <label class="bar__swatch" title="Stroke color">
+                <label class="bar__swatch" :class="{ 'jp-ink-view': props.inkView }" title="Stroke color">
                     <input type="color" :value="props.color" aria-label="Stroke color" @input="onColor" />
                 </label>
 
@@ -227,7 +234,7 @@ function onWidth(e: Event) {
                         label="Fill"
                         @update:model-value="(v) => emit('toggleFill', v === true)"
                     />
-                    <label class="bar__swatch" title="Fill color">
+                    <label class="bar__swatch" :class="{ 'jp-ink-view': props.inkView }" title="Fill color">
                         <input
                             type="color"
                             :value="props.fill"

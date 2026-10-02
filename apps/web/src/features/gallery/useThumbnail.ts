@@ -1,13 +1,13 @@
 /**
  * A drawing's preview, rendered in the browser from its document: no thumbnail is stored. The PNG is
- * transparent and cropped to the drawn content; the card paints the paper (`paper`) behind it, so the
- * image does not depend on the theme.
+ * transparent and cropped to the drawn content; the card paints the paper (`paper`) behind it, and
+ * the theme only changes how the card shows it.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { renderToStage } from '@justpaint/editor'
 import type { Document } from '@justpaint/editor'
-import { useDrawing, useThemeStore } from '@core'
-import { paperColor } from '../editor/useBackdrop'
+import { useDrawing } from '@core'
+import { PAPER } from '../editor/useBackdrop'
 import { THUMB_WIDTH, thumbnailCrop } from './thumbnailCrop'
 import type { Rect } from './thumbnailCrop'
 
@@ -52,14 +52,13 @@ async function renderThumbnail(doc: Document): Promise<Blob> {
 }
 
 export function useThumbnail(id: () => string) {
-    const theme = useThemeStore()
     const { data, isError } = useDrawing(id)
 
     const src = ref<string | null>(null)
     const renderFailed = ref(false)
 
     /** The paper behind the transparent preview: the document's own, else the editor's. */
-    const paper = computed(() => data.value?.document.background ?? paperColor(theme.isDark))
+    const paper = computed(() => data.value?.document.background ?? PAPER)
 
     function setSrc(next: string | null): void {
         if (src.value) URL.revokeObjectURL(src.value)

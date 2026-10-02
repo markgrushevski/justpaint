@@ -54,6 +54,8 @@ export function useEditorHost(options: EditorHostOptions) {
     // DEFAULT_CANVAS is `as const`; a bare ref() would narrow to the literal.
     const docWidth = ref<number>(DEFAULT_CANVAS.width)
     const docHeight = ref<number>(DEFAULT_CANVAS.height)
+    /** The document's own background; null shows the editor's paper. */
+    const background = ref<string | null>(null)
     const isEmpty = computed(() => layers.value.every((l) => l.strokeCount === 0))
 
     function sync() {
@@ -68,6 +70,7 @@ export function useEditorHost(options: EditorHostOptions) {
         const doc = ed.getDocument()
         docWidth.value = doc.width
         docHeight.value = doc.height
+        background.value = doc.background
     }
 
     // Konva can't read CSS variables, so the cursor ring gets the primary token resolved
@@ -205,6 +208,7 @@ export function useEditorHost(options: EditorHostOptions) {
         zoomPercent,
         docWidth,
         docHeight,
+        background,
         isEmpty,
         pickTool,
         setColor,

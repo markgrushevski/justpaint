@@ -49,10 +49,13 @@ function onSelect(value: string): void {
         <div class="drawing__lift">
             <OriCard class="drawing__card">
                 <RouterLink class="drawing__link" :to="editorRoute">
-                    <div class="drawing__thumb" :style="{ backgroundColor: paper }">
+                    <div class="drawing__thumb">
+                        <!-- The paper rides on the image, so the dark theme's ink view (main.css)
+                             darkens the drawing as the editor does, and not the loading states. -->
                         <img
                             v-if="src"
-                            class="drawing__img"
+                            class="drawing__img jp-ink-view"
+                            :style="{ backgroundColor: paper }"
                             :src="src"
                             :alt="`Preview of ${drawing.name}`"
                             :width="THUMB_WIDTH"
@@ -157,7 +160,6 @@ function onSelect(value: string): void {
 
     /* Separates the paper from the card when the two are close in tone. */
     border-bottom: 1px solid color-mix(in srgb, var(--jp-color-outline) 30%, transparent);
-    /* The paper color is set inline from the document. */
     color: var(--ori-color-on-surface);
 }
 

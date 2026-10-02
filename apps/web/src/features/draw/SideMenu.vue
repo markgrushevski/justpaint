@@ -8,9 +8,11 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { OriAvatar, OriButton, OriIcon, OriInput, OriSelect, OriSurface, OriSwitch } from '@oriui/vue'
 import { icons, useAuthGate, useSessionStore, useThemeStore } from '@core'
-import type { ThemeMode } from '@core'
+import type { Accent, CanvasMode, ThemeMode } from '@core'
 import MenuRow from '../../components/ui/MenuRow.vue'
 import SegmentedControl from '../../components/ui/SegmentedControl.vue'
+import SwatchPicker from '../../components/ui/SwatchPicker.vue'
+import type { SwatchOption } from '../../components/ui/SwatchPicker.vue'
 import type { IconName } from '../../components/icons/ToolIcon.vue'
 
 const props = defineProps<{
@@ -21,6 +23,8 @@ const props = defineProps<{
     backdropGrid: boolean
     canvasWidth: number
     canvasHeight: number
+    /** The document's own background, or null for the editor's paper. */
+    background: string | null
 }>()
 const emit = defineEmits<{
     close: []
@@ -32,6 +36,7 @@ const emit = defineEmits<{
     shortcuts: []
     toggleGrid: [on: boolean]
     applyCanvasSize: [w: number, h: number]
+    setBackground: [color: string | null]
 }>()
 
 const session = useSessionStore()
@@ -53,6 +58,46 @@ const THEME_OPTIONS: { value: ThemeMode; label: string; icon: IconName }[] = [
 function selectTheme(mode: string): void {
     theme.mode = mode as ThemeMode
 }
+
+/** The canvas takes the same three choices; Auto follows the theme. */
+function selectCanvas(mode: string): void {
+    theme.setCanvas(mode as CanvasMode)
+}
+
+// The dots show each accent as the current theme paints it; the values are main.css's.
+const ACCENT_SWATCHES: Record<Accent, { label: string; light: string; dark: string }> = {
+    orange: { label: 'Orange', light: 'hsl(20 100% 50%)', dark: 'hsl(20 100% 60%)' },
+    green: { label: 'Green', light: 'hsl(125 100% 20%)', dark: 'hsl(125 60% 50%)' },
+    blue: { label: 'Blue', light: 'hsl(222 90% 50%)', dark: 'hsl(222 90% 68%)' },
+    violet: { label: 'Violet', light: 'hsl(268 80% 52%)', dark: 'hsl(268 85% 75%)' }
+}
+const accentOptions = computed<SwatchOption[]>(() =>
+    (Object.keys(ACCENT_SWATCHES) as Accent[]).map((value) => {
+        const swatch = ACCENT_SWATCHES[value]
+        return {
+            value,
+            label: swatch.label,
+            color: theme.isDark ? swatch.dark : swatch.light,
+            ink: 'var(--ori-color-on-primary)'
+        }
+    })
+)
+
+function selectAccent(value: string | null): void {
+    const next = (Object.keys(ACCENT_SWATCHES) as Accent[]).find((a) => a === value)
+    if (next) theme.setAccent(next)
+}
+
+// Light tints only: a drawing is kept for light paper, and a dark canvas inverts the tint
+// along with the ink. A dark tint would hide the default black ink in either look.
+const INK = '#1f2226'
+const BACKGROUNDS: SwatchOption[] = [
+    { value: null, label: 'Paper', color: '#ffffff', ink: INK },
+    { value: '#f1f3f5', label: 'Mist', color: '#f1f3f5', ink: INK },
+    { value: '#e4eefc', label: 'Sky', color: '#e4eefc', ink: INK },
+    { value: '#fcf2c8', label: 'Butter', color: '#fcf2c8', ink: INK },
+    { value: '#fbe2e8', label: 'Blush', color: '#fbe2e8', ink: INK }
+]
 
 // Screen dimensions for the "Screen" preset label, refreshed on open so a rotated
 // phone or a resized window shows current numbers.
@@ -206,6 +251,16 @@ function onKeydown(e: KeyboardEvent) {
                         @update:model-value="selectTheme"
                     />
                 </div>
+                <div class="menu__theme">
+                    <OriIcon :icon="icons.mdiPaletteOutline" class="menu__theme-icon" />
+                    <SwatchPicker
+                        class="menu__swatches"
+                        :model-value="theme.accent"
+                        :options="accentOptions"
+                        label="Accent colour"
+                        @update:model-value="selectAccent"
+                    />
+                </div>
                 <MenuRow
                     class="menu__desktop-only"
                     :icon="icons.mdiKeyboard"
@@ -232,7 +287,6 @@ function onKeydown(e: KeyboardEvent) {
                             :aria-label="`Rating ${session.user?.rating}, open the leaderboard`"
                         >
                             Rating {{ session.user?.rating }}
-                            <OriIcon :icon="icons.mdiChevronRight" />
                         </RouterLink>
                     </div>
                     <OriButton label="Log out" variant="outline" radius="md" size="sm" @click="logout" />
@@ -253,6 +307,21 @@ function onKeydown(e: KeyboardEvent) {
                 <MenuRow :icon="icons.mdiChevronLeft" label="Canvas" @click="show('main')" />
                 <hr class="menu__rule" />
                 <div class="menu__canvas">
+                    <span class="menu__label" aria-hidden="true">Look</span>
+                    <SegmentedControl
+                        :model-value="theme.canvas"
+                        :options="THEME_OPTIONS"
+                        label="Canvas look"
+                        @update:model-value="selectCanvas"
+                    />
+                    <span class="menu__label" aria-hidden="true">Background</span>
+                    <SwatchPicker
+                        :model-value="props.background"
+                        :options="BACKGROUNDS"
+                        label="Canvas background"
+                        ink-view
+                        @update:model-value="(color) => emit('setBackground', color)"
+                    />
                     <OriSelect v-model="sizeChoice" label="Canvas size" :options="sizeOptions" fluid />
                     <div v-if="sizeChoice === 'custom'" class="menu__size-custom">
                         <OriInput v-model="customW" label="W" type="number" min="1" max="8192" fluid />
@@ -353,6 +422,15 @@ function onKeydown(e: KeyboardEvent) {
     opacity: 0.8;
 }
 
+.menu__swatches {
+    flex: 1;
+}
+
+.menu__label {
+    font-size: var(--ori-font-size_sm, 0.875rem);
+    font-weight: 700;
+}
+
 .menu__canvas {
     display: flex;
     flex-direction: column;
@@ -396,18 +474,17 @@ function onKeydown(e: KeyboardEvent) {
     opacity: 0.7;
 }
 
+/* A link looks like one: underlined, no arrow. */
 .menu__rating {
-    display: inline-flex;
-    align-items: center;
     align-self: flex-start;
 
     color: inherit;
-    text-decoration: none;
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 .menu__rating:hover {
     opacity: 1;
-    text-decoration: underline;
 }
 
 /* The global focus ring covers buttons and inputs, not links. */

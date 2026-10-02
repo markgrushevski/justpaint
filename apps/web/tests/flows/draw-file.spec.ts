@@ -400,6 +400,30 @@ test.describe('/draw file actions', () => {
         expect(api.rows.size).toBe(1)
     })
 
+    test('a background tint is part of the drawing: it unsaves, saves and undoes', async ({ page, api }) => {
+        await openDraw(page)
+        const save = page.locator('.draw__save')
+        await drawStroke(page)
+        await saveAs(page, 'Tinted')
+        await expectSaved(page, 'Tinted')
+        await expect(save).toHaveClass(/ori-variant_soft/)
+
+        await openMenu(page)
+        await page.getByRole('button', { name: 'Canvas', exact: true }).click()
+        await page.getByRole('radio', { name: 'Sky' }).click()
+        await expect(page.getByRole('radio', { name: 'Sky' })).toHaveAttribute('aria-checked', 'true')
+        await expect(save).toHaveClass(/ori-variant_solid/)
+
+        await page.keyboard.press('Control+s')
+        await expect(save).toHaveClass(/ori-variant_soft/)
+        const [row] = [...api.rows.values()]
+        expect((row?.document as { background: string | null }).background).toBe('#e4eefc')
+
+        await page.getByRole('button', { name: 'Close menu' }).click()
+        await page.keyboard.press('Control+z')
+        await expect(save).toHaveClass(/ori-variant_solid/)
+    })
+
     test('after an account switch the drawing is unsaved again and saving creates a row', async ({ page, api }) => {
         await openDraw(page)
         await drawStroke(page)

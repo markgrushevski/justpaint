@@ -62,8 +62,7 @@ const MODES = [
 
         <div class="welcome__center">
             <p class="welcome__brand">just<span class="welcome__brand-accent">paint</span></p>
-            <p class="welcome__tagline">A simple canvas for your ideas.</p>
-            <p class="welcome__motto">Draw. Save. <span class="welcome__motto-accent">Keep it.</span></p>
+            <p class="welcome__tagline">A sketchbook with an AI judge.</p>
             <p class="welcome__keys">Press <kbd>?</kbd> for keyboard shortcuts</p>
         </div>
 
@@ -184,19 +183,6 @@ const MODES = [
     opacity: 0.75;
 }
 
-.welcome__motto {
-    margin: var(--ori-size-gap_md, 0.5rem) 0 0;
-
-    font-size: 1.35rem;
-    font-weight: 800;
-    letter-spacing: -0.01em;
-}
-
-/* Echoes the wordmark's ink-then-orange; large bold text, so the orange clears 3:1. */
-.welcome__motto-accent {
-    color: var(--ori-color-primary);
-}
-
 .welcome__keys {
     margin: var(--ori-size-gap_lg, 0.75rem) 0 0;
 
@@ -308,8 +294,7 @@ const MODES = [
 
 @media (height <= 560px) {
     .welcome__hint,
-    .welcome__keys,
-    .welcome__motto {
+    .welcome__keys {
         display: none;
     }
 }

@@ -78,6 +78,17 @@ for (const name of ['outline-light', 'outline-dark']) {
 for (const name of ['desk-light', 'desk-dark']) {
     tokens[name] = parseColor(prop(root, `--jp-${name}`, ':root'), `--jp-${name}`)
 }
+// Accent presets (`:root.jp-accent-*`): each replaces the four primary sources.
+const ACCENTS = ['green', 'blue', 'violet']
+for (const accent of ACCENTS) {
+    const body = block(new RegExp(`:root\.jp-accent-${accent}`), `:root.jp-accent-${accent}`)
+    for (const name of ['primary-light', 'on-primary-light', 'primary-dark', 'on-primary-dark']) {
+        tokens[`${accent}:${name}`] = parseColor(
+            prop(body, `--ori-color-${name}`, accent),
+            `--ori-color-${name} (${accent})`
+        )
+    }
+}
 // Dark-only danger override (oriui's light-tuned red is too dim on our dark surfaces).
 tokens['danger-dark'] = parseColor(prop(dark, '--ori-color-danger', 'dark'), '--ori-color-danger (dark)')
 // Role-as-text AA (outline/soft/text buttons, selected tab, tag, link) is
@@ -103,7 +114,14 @@ const MATRIX = [
     ['outline-dark', 'surface-dark', NON_TEXT],
     ['outline-dark', 'background-dark', NON_TEXT],
     ['primary-light', 'background-light', NON_TEXT], // focus ring on the page
-    ['primary-dark', 'background-dark', NON_TEXT] // focus ring on the page
+    ['primary-dark', 'background-dark', NON_TEXT], // focus ring on the page
+    // Every accent clears the same bars as the orange.
+    ...ACCENTS.flatMap((a) => [
+        [`${a}:on-primary-light`, `${a}:primary-light`, TEXT],
+        [`${a}:on-primary-dark`, `${a}:primary-dark`, TEXT],
+        [`${a}:primary-light`, 'background-light', NON_TEXT],
+        [`${a}:primary-dark`, 'background-dark', NON_TEXT]
+    ])
 ]
 
 const failures = []
