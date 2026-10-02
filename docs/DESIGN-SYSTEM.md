@@ -48,6 +48,9 @@ not an override.)
 - **The orange wordmark sits on the page background, not the surface.** It is large text, and the orange clears the
   3:1 bar only there (3.02:1 on `#faf8f3`, 2.83:1 on `#f3f1eb`). `scripts/check-contrast.mjs` checks
   `primary-light` against `background-light`; `ModeNav` gives its `OriSurface` the page background for this reason.
+  The welcome's motto borrows the same ink-then-orange split, at a size and weight that count as large text.
+- **One typeface: Nunito**, set in `main.css` and loaded in `index.html`. No hand-drawn or display second face
+  (`docs/DECISIONS.md`, 2026-10-02).
 - **Components MUST NOT re-derive brand colors.** `background: color-mix(in srgb, var(--ori-color-primary) 18%, transparent)`
   is **banned** — it hand-copies `.ori-variant_soft` / `[data-active]`. Pick a `variant` + `color` prop and the
   library computes every state (rest/hover/active/disabled) from `--ori-color`.
@@ -77,7 +80,10 @@ not an override.)
 - **Disabled = the `disabled` prop.** Never an `opacity: 0.35` override. (oriui dims to `.45` + blocks pointer events.)
 - **Loading = the `loading` prop** (spinner + `[aria-busy]`), not a manual spinner.
 - **Variant ladder (semantics we commit to):**
-  - `solid` — the **one** primary/confirming action of a surface (Save, Submit, Confirm, Play again).
+  - `solid` — the **one** primary/confirming action of a surface (Save, Submit, Confirm, Play again). `/draw`'s Save
+    is `solid` only while there are unsaved changes and `soft` otherwise.
+  - `color="danger"` — `solid` when the action destroys something saved (Delete), `outline` when it drops only unsaved
+    work (Leave, Clear the canvas): `ConfirmDialog`'s `danger` and `discard`.
   - `outline` — secondary neutral actions (Cancel, Apply size, Log out).
   - `soft` — grouped/segmented mid-emphasis (auth tabs, theme segmented).
   - `text` / `quiet` — low-chrome, icon-only toolbar actions; `quiet` is the ghost (85% until hover/active).

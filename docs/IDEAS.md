@@ -72,6 +72,5 @@ Researched from drawing editors (Excalidraw, tldraw, Figma/FigJam, Photopea) and
 **Cross-cutting — theme, responsive, feel**
 - **Mobile portrait layout** — canvas ~70%, toolbar bottom, panels collapse to icon-tabs; primary actions in the bottom third for one-handed reach.
 - **Game-feel polish** — smooth 200–400ms easings, toast notifications for match events, skeleton loaders while the judge scores, optional audio cues.
-- **Playful brand type** — a hand-drawn display font (Excalidraw's Virgil / Caveat) for lobby & result headings to set a fun tone; keep a clean system/`Nunito` body. Caveat is loaded already and sets the hints on the `/draw` welcome.
 
 *Priority for the game MVP:* bottom toolbar · compact color picker · animated result card · round timer · match summary · mobile layout. Editor polish (layer thumbnails, brush preview, zoom/pan) and juice (score pop, audio, replay) come after the core loop.
