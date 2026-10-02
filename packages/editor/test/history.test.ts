@@ -7,6 +7,7 @@ import {
     moveLayerCommand,
     removeLayerCommand,
     renameLayerCommand,
+    setBackgroundCommand,
     setLayerOpacityCommand,
     setLayerVisibleCommand
 } from '../src/history'
@@ -129,6 +130,21 @@ describe('layer commands', () => {
         expect(d.layers[0]!.opacity).toBe(0.25)
         fade.invert(d)
         expect(d.layers[0]!.opacity).toBe(1)
+    })
+})
+
+describe('document commands', () => {
+    it('setBackground sets, clears, and undo restores the previous value', () => {
+        const d = doc(layer('L1'))
+        const h = new History()
+        h.execute(d, setBackgroundCommand(d, '#1e2024'))
+        expect(d.background).toBe('#1e2024')
+        h.execute(d, setBackgroundCommand(d, null))
+        expect(d.background).toBeNull()
+        h.undo(d)
+        expect(d.background).toBe('#1e2024')
+        h.undo(d)
+        expect(d.background).toBe('#ffffff')
     })
 })
 

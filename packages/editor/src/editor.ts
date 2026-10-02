@@ -9,7 +9,7 @@
  */
 import Konva from 'konva'
 import { blankDocument, DEFAULT_BACKGROUND, LIMITS } from './document'
-import type { Document, Layer, Op, Stroke } from './document'
+import type { Color, Document, Layer, Op, Stroke } from './document'
 import { newId } from './ids'
 import {
     addLayerCommand,
@@ -19,6 +19,7 @@ import {
     moveLayerCommand,
     removeLayerCommand,
     renameLayerCommand,
+    setBackgroundCommand,
     setLayerOpacityCommand,
     setLayerVisibleCommand
 } from './history'
@@ -446,6 +447,13 @@ export class Editor {
         const layer = this.doc.layers.find((l) => l.id === id)
         if (!layer || layer.visible === visible) return
         this.commit(setLayerVisibleCommand(this.doc, id, visible))
+    }
+
+    /** Paint the document's own background, or clear it with null; undoable. Only `#rrggbb[aa]`, as the format allows. */
+    setBackground(color: Color | null): void {
+        if (color === this.doc.background) return
+        if (color !== null && !/^#([0-9a-f]{6}|[0-9a-f]{8})$/.test(color)) return
+        this.commit(setBackgroundCommand(this.doc, color))
     }
 
     setLayerOpacity(id: string, opacity: number): void {

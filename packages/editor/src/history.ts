@@ -13,7 +13,7 @@
  * Commands are keyed by stroke/layer `id`, never by array position, so they
  * stay correct as the document is edited around them (DOCUMENT-FORMAT.md §8).
  */
-import type { Document, Layer, Stroke } from './document'
+import type { Color, Document, Layer, Stroke } from './document'
 
 /** A reversible mutation of a {@link Document}. */
 export interface Command {
@@ -110,6 +110,20 @@ export function renameLayerCommand(doc: Document, layerId: string, name: string)
         invert(d) {
             const layer = layerById(d, layerId)
             if (layer) layer.name = previous
+        }
+    }
+}
+
+/** Set or clear the document's background (snapshotting the old one); undo restores it. */
+export function setBackgroundCommand(doc: Document, background: Color | null): Command {
+    const previous = doc.background
+    return {
+        label: background === null ? 'clear background' : 'set background',
+        apply(d) {
+            d.background = background
+        },
+        invert(d) {
+            d.background = previous
         }
     }
 }
