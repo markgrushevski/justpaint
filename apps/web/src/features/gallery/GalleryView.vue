@@ -145,8 +145,13 @@ function confirmDelete(): void {
                 <p class="gallery__sr-only" role="status">Loading your drawings…</p>
                 <div class="gallery__grid" aria-hidden="true">
                     <OriCard v-for="n in SKELETON_CARDS" :key="n" class="gallery__placeholder">
-                        <OriSkeleton class="gallery__placeholder-thumb" radius="md" />
-                        <OriSkeleton class="gallery__placeholder-line" />
+                        <OriSkeleton class="gallery__placeholder-thumb" radius="none" />
+                        <div class="gallery__placeholder-meta">
+                            <OriSkeleton class="gallery__placeholder-name" />
+                            <div class="gallery__placeholder-time">
+                                <OriSkeleton class="gallery__placeholder-time-line" />
+                            </div>
+                        </div>
                     </OriCard>
                 </div>
             </template>
@@ -284,7 +289,7 @@ function confirmDelete(): void {
 
 .gallery__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: var(--ori-size-gap_lg, 0.75rem);
 
     margin: 0;
@@ -302,10 +307,12 @@ function confirmDelete(): void {
     min-width: 0;
 }
 
+/* The same shape as a drawing card: a full-bleed 4:3 block over a name and a time row. */
 .gallery__placeholder {
+    --ori-card-padding: 0;
+
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_md, 0.5rem);
 
     min-width: 0;
 }
@@ -314,9 +321,28 @@ function confirmDelete(): void {
     aspect-ratio: 4 / 3;
 }
 
-.gallery__placeholder-line {
+.gallery__placeholder-meta {
+    display: flex;
+    flex-direction: column;
+
+    padding: var(--ori-size-gap_lg) var(--ori-size-gap_xl) var(--ori-size-gap_md);
+}
+
+.gallery__placeholder-name {
     width: 60%;
     height: 1rem;
+}
+
+.gallery__placeholder-time {
+    display: flex;
+    align-items: center;
+
+    min-height: var(--ori-size-action_md);
+}
+
+.gallery__placeholder-time-line {
+    width: 30%;
+    height: 0.75rem;
 }
 
 .gallery__state {

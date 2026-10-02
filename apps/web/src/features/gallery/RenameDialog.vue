@@ -60,7 +60,14 @@ function onEnter(event: KeyboardEvent): void {
         />
 
         <div class="rename__actions">
-            <OriButton label="Cancel" variant="outline" radius="md" :disabled="props.busy" @click="emit('cancel')" />
+            <OriButton
+                label="Cancel"
+                variant="outline"
+                color="surface"
+                radius="md"
+                :disabled="props.busy"
+                @click="emit('cancel')"
+            />
             <OriButton
                 label="Save"
                 variant="solid"

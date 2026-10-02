@@ -11,13 +11,14 @@ import type { MenuItem } from '@oriui/headless/vue'
 import { icons } from '@core'
 import type { DrawingMeta } from '@core'
 import { timeAgo } from './relativeTime'
-import { THUMB_HEIGHT, THUMB_WIDTH, useThumbnail } from './useThumbnail'
+import { THUMB_HEIGHT, THUMB_WIDTH } from './thumbnailCrop'
+import { useThumbnail } from './useThumbnail'
 
 const props = defineProps<{ drawing: DrawingMeta }>()
 const emit = defineEmits<{ rename: [drawing: DrawingMeta]; remove: [drawing: DrawingMeta] }>()
 
 const router = useRouter()
-const { src, failed } = useThumbnail(() => props.drawing.id)
+const { src, paper, failed } = useThumbnail(() => props.drawing.id)
 
 const editorRoute = computed(() => ({ path: '/draw', query: { id: props.drawing.id } }))
 const updated = computed(() => timeAgo(props.drawing.updatedAt))
@@ -48,7 +49,7 @@ function onSelect(value: string): void {
         <div class="drawing__lift">
             <OriCard class="drawing__card">
                 <RouterLink class="drawing__link" :to="editorRoute">
-                    <div class="drawing__thumb">
+                    <div class="drawing__thumb" :style="{ backgroundColor: paper }">
                         <img
                             v-if="src"
                             class="drawing__img"
@@ -63,7 +64,7 @@ function onSelect(value: string): void {
                             :icon="icons.mdiImageMultipleOutline"
                             size="xl"
                         />
-                        <OriSkeleton v-else class="drawing__skeleton" />
+                        <OriSkeleton v-else class="drawing__skeleton" radius="none" />
                     </div>
 
                     <div class="drawing__meta">
@@ -103,6 +104,10 @@ function onSelect(value: string): void {
 
 <style scoped>
 .drawing {
+    /* The meta block's insets; the menu button is placed from the same numbers. */
+    --drawing-inset-x: var(--ori-size-gap_xl);
+    --drawing-inset-bottom: var(--ori-size-gap_md);
+
     position: relative;
 }
 
@@ -120,15 +125,17 @@ function onSelect(value: string): void {
     box-shadow: var(--ori-shadow-md);
 }
 
-/* The grid track, not the name's length, sets the card's width. */
+/* The preview runs to the card's edges, so the card gives up its padding; the meta block pads itself.
+   The grid track, not the name's length, sets the card's width. */
 .drawing__card {
+    --ori-card-padding: 0;
+
     min-width: 0;
 }
 
 .drawing__link {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_md);
 
     color: inherit;
     text-decoration: none;
@@ -148,8 +155,9 @@ function onSelect(value: string): void {
     aspect-ratio: 4 / 3;
     overflow: hidden;
 
-    border-radius: var(--ori-size-radius_md);
-    background-color: var(--jp-desk);
+    /* Separates the paper from the card when the two are close in tone. */
+    border-bottom: 1px solid color-mix(in srgb, var(--jp-color-outline) 30%, transparent);
+    /* The paper color is set inline from the document. */
     color: var(--ori-color-on-surface);
 }
 
@@ -162,8 +170,9 @@ function onSelect(value: string): void {
     height: 100%;
 }
 
+/* The image is cut at the preview's own aspect, so cover never crops. */
 .drawing__img {
-    object-fit: contain;
+    object-fit: cover;
 }
 
 .drawing__missing {
@@ -173,6 +182,8 @@ function onSelect(value: string): void {
 .drawing__meta {
     display: flex;
     flex-direction: column;
+
+    padding: var(--ori-size-gap_lg) var(--drawing-inset-x) var(--drawing-inset-bottom);
 }
 
 .drawing__name {
@@ -197,12 +208,11 @@ function onSelect(value: string): void {
     opacity: 0.7;
 }
 
-/* Sits on the footer row, at the card's content-box corner (its padding is
-   --ori-size-gap_xl plus the 1px border). */
+/* Sits on the footer row, at the meta block's corner (its insets plus the card's 1px border). */
 .drawing__actions {
     position: absolute;
-    right: calc(var(--ori-size-gap_xl) + 1px);
-    bottom: calc(var(--ori-size-gap_xl) + 1px);
+    right: calc(var(--drawing-inset-x) + 1px);
+    bottom: calc(var(--drawing-inset-bottom) + 1px);
 }
 
 .drawing__trigger {
@@ -223,6 +233,13 @@ function onSelect(value: string): void {
 
 .drawing__item--danger {
     color: var(--ori-color-danger-text, var(--ori-color-danger));
+}
+
+/* Narrow cards need the room for the time. */
+@media (width <= 600px) {
+    .drawing {
+        --drawing-inset-x: var(--ori-size-gap_lg);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
