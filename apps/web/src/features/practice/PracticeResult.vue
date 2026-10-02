@@ -1,7 +1,7 @@
 <script lang="ts">
 /**
- * Score bands, highest first. A number alone isn't a verdict, so the card
- * leads with the band and lets the percentage back it up. Copy, not contract:
+ * Score bands, highest first. A number alone isn't a verdict, so the screen
+ * leads with the band and lets the score card back it up. Copy, not contract:
  * nothing downstream reads these thresholds.
  */
 const BANDS: { min: number; headline: string }[] = [
@@ -15,16 +15,17 @@ const BANDS: { min: number; headline: string }[] = [
 
 <script lang="ts" setup>
 /**
- * PracticeResult — the payoff screen for a single-player practice run,
- * wearing the duel reveal's visual language on purpose (same bar, frame,
- * chrome) so a practice score and a duel score read as the same thing
- * measured. It deliberately has no opponent, winner or Elo move; the judge's
- * feedback is the primary content here, so it gets the widest block and
- * typography that survives the full 500 characters the API allows.
- * Presentational: PracticeView owns the run and every navigation.
+ * PracticeResult — the payoff screen for a single-player practice run: the
+ * judge holds up a tilted score card beside the drawing, and its feedback
+ * follows. The card is the same one the duel reveal holds up, so a practice
+ * score and a duel score read as the same thing measured. There is no
+ * opponent, winner or Elo move. The feedback is the primary content, so it
+ * gets the widest block and typography that survives the full 500 characters
+ * the API allows. Presentational: PracticeView owns the run and every
+ * navigation.
  */
 import { computed } from 'vue'
-import { OriButton, OriSurface } from '@oriui/vue'
+import { OriButton, OriCard, OriSurface } from '@oriui/vue'
 import { icons } from '@core'
 
 const props = defineProps<{
@@ -45,43 +46,37 @@ const emit = defineEmits<{ drawAgain: []; newPrompt: []; playDuel: [] }>()
 /** Clamp to the 0..1 the contract promises — a display, not a validator. */
 const clamped = computed(() => Math.max(0, Math.min(1, props.score)))
 const percent = computed(() => Math.round(clamped.value * 100))
-const barWidth = computed(() => `${percent.value}%`)
 
 const band = computed(() => BANDS.find((b) => clamped.value >= b.min) ?? BANDS[BANDS.length - 1])
 const headline = computed(() => band.value.headline)
-/** Only the top band earns the accent, mirroring the duel reveal's win colour. */
+/** Only the top band earns the primary colour, mirroring the duel reveal's winner. */
 const topBand = computed(() => band.value === BANDS[0])
 </script>
 
 <template>
     <OriSurface class="pr" role="dialog" aria-modal="false" aria-labelledby="pr-headline">
-        <h2 id="pr-headline" class="pr__headline" :class="{ 'pr__headline--top': topBand }">{{ headline }}</h2>
+        <h2 id="pr-headline" class="pr__headline">{{ headline }}</h2>
 
-        <p class="pr__prompt">
-            <span class="pr__prompt-label">Prompt</span>
-            {{ prompt }}
-        </p>
+        <p class="pr__prompt">You drew {{ prompt }}</p>
 
         <div class="pr__scoreline">
             <div class="pr__canvas">
                 <img v-if="image" :src="image" alt="Your drawing" />
                 <span v-else class="pr__canvas-empty">No preview</span>
             </div>
-            <div class="pr__score">
-                <span class="pr__percent">{{ percent }}%</span>
-                <div class="pr__bar">
-                    <div class="pr__bar-fill" :style="{ width: barWidth }"></div>
-                </div>
-                <!-- The duel's two bars explain themselves by comparison; a lone
-                     bar has to say what it is measuring. -->
-                <span class="pr__caption">similarity to the prompt</span>
-            </div>
+            <OriCard
+                class="pr__card"
+                :variant="topBand ? 'soft' : 'outline'"
+                :color="topBand ? 'primary' : 'surface'"
+                radius="md"
+            >
+                <span class="pr__sr">{{ percent }} out of 100</span>
+                <span class="pr__number" aria-hidden="true">{{ percent }}</span>
+                <span class="pr__of" aria-hidden="true">out of 100</span>
+            </OriCard>
         </div>
 
-        <div class="pr__feedback">
-            <span class="pr__feedback-label">Judge</span>
-            <p class="pr__feedback-text">{{ feedback }}</p>
-        </div>
+        <p class="pr__feedback">{{ feedback }}</p>
 
         <div class="pr__actions">
             <OriButton
@@ -135,11 +130,11 @@ const topBand = computed(() => band.value === BANDS[0])
     width: min(94vw, 32rem);
     max-height: min(90dvh, 44rem);
     padding: var(--ori-size-gap_lg, 0.75rem);
-    overflow-y: auto;
+    /* The card swings wider than the surface while it turns into place; that
+       must not flash a horizontal scrollbar. */
+    overflow: hidden auto;
 
     pointer-events: auto;
-
-    animation: pr-pop 0.24s ease-out;
 }
 
 .pr__headline {
@@ -147,14 +142,9 @@ const topBand = computed(() => band.value === BANDS[0])
 
     color: var(--ori-color-on-surface);
 
-    font-size: var(--ori-font-size_xl, 1.4rem);
-    font-weight: 800;
-    letter-spacing: -0.01em;
+    font-size: 1.3125rem;
+    font-weight: 900;
     text-align: center;
-}
-
-.pr__headline--top {
-    color: var(--ori-color-primary);
 }
 
 .pr__prompt {
@@ -163,32 +153,21 @@ const topBand = computed(() => band.value === BANDS[0])
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_md, 1rem);
-    font-weight: 700;
+    font-weight: 400;
     text-align: center;
     overflow-wrap: anywhere;
 }
 
-.pr__prompt-label {
-    display: inline-block;
-    margin-right: 0.4rem;
-
-    color: var(--ori-color-primary);
-
-    font-size: var(--ori-font-size_xs, 0.7rem);
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-}
-
 .pr__scoreline {
     display: grid;
-    grid-template-columns: 8rem minmax(0, 1fr);
-    gap: var(--ori-size-gap_md, 0.5rem);
+    grid-template-columns: 8rem minmax(0, 11rem);
+    gap: var(--ori-size-gap_xl, 1rem);
     align-items: center;
+    justify-content: center;
 }
 
-/* The same white square frame as the duel reveal — the judged raster is rendered
-   on white (GAME.md §6), so the thumbnail must not sit on a themed surface. */
+/* A white square frame — the judged raster is rendered on white (GAME.md §6), so
+   the thumbnail must not sit on a themed surface. */
 .pr__canvas {
     display: grid;
     place-items: center;
@@ -209,66 +188,61 @@ const topBand = computed(() => band.value === BANDS[0])
 .pr__canvas-empty {
     color: #444444;
 
-    font-size: var(--ori-font-size_xs, 0.75rem);
+    font-size: var(--ori-font-size_sm, 0.875rem);
     opacity: 0.6;
 }
 
-.pr__score {
+/* The judge's card. The variant and colour props paint it; the turn and the
+   entrance are ours, on the card's root. */
+.pr__card {
+    --ori-card-padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem);
+
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_xs, 0.125rem);
+    align-items: center;
+
+    width: 100%;
+
+    color: var(--ori-color-on-surface);
+
+    transform: rotate(2deg);
+
+    animation: pr-held 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.pr__percent {
-    font-size: var(--ori-font-size_xl, 1.6rem);
-    font-weight: 800;
+.pr__number {
+    font-size: 3.75rem;
+    font-weight: 1000;
     font-variant-numeric: tabular-nums;
-    line-height: 1.1;
+    letter-spacing: -0.03em;
+    line-height: 1;
 }
 
-.pr__bar {
-    height: 0.5rem;
+.pr__of {
+    font-size: var(--ori-font-size_sm, 0.875rem);
+    font-weight: 700;
+}
+
+.pr__sr {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
     overflow: hidden;
 
-    border-radius: var(--ori-size-radius_full, 999px);
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 12%, transparent);
-}
-
-.pr__bar-fill {
-    height: 100%;
-
-    border-radius: inherit;
-    background-color: var(--ori-color-primary);
-    transition: width 0.5s ease-out;
-}
-
-.pr__caption {
-    font-size: var(--ori-font-size_xs, 0.75rem);
-    opacity: 0.7;
+    border: 0;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 .pr__feedback {
-    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
+    margin: 0;
+    padding: var(--ori-size-gap_md, 0.5rem) var(--ori-size-gap_lg, 0.75rem);
 
-    border-left: 3px solid var(--ori-color-primary);
     border-radius: var(--ori-size-radius_sm, 4px);
     background-color: var(--ori-color-background);
-}
-
-.pr__feedback-label {
-    display: block;
-
-    color: var(--ori-color-primary);
-
-    font-size: var(--ori-font-size_xs, 0.7rem);
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-}
-
-.pr__feedback-text {
-    margin: 0.2rem 0 0;
-
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_md, 1rem);
@@ -290,10 +264,10 @@ const topBand = computed(() => band.value === BANDS[0])
     flex: 1 1 10rem;
 }
 
-@keyframes pr-pop {
+/* The implicit end frame is the card's own tilt, so the overshoot settles on it. */
+@keyframes pr-held {
     from {
-        opacity: 0;
-        transform: scale(0.96);
+        transform: translateY(1.25rem) rotate(8deg);
     }
 }
 
@@ -302,22 +276,18 @@ const topBand = computed(() => band.value === BANDS[0])
        to a dozen-plus lines — step the type down and shrink the thumbnail so the
        card still opens on the feedback rather than scrolled past it. */
     .pr__scoreline {
-        grid-template-columns: 6rem minmax(0, 1fr);
+        grid-template-columns: 6rem minmax(0, 11rem);
     }
 
-    .pr__feedback-text {
+    .pr__feedback {
         font-size: var(--ori-font-size_sm, 0.9rem);
         line-height: 1.55;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .pr {
+    .pr__card {
         animation: none;
-    }
-
-    .pr__bar-fill {
-        transition: none;
     }
 }
 </style>

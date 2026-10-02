@@ -392,12 +392,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* Passive like its region; with no timer above it, no /play-style offset. */
+/* Passive like its region; with no timer above it, no /play-style offset. The gap clears
+   the dealt card's tilted corner. */
 .practice__prompt {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
     pointer-events: none;
 }
@@ -407,7 +408,6 @@ onBeforeUnmount(() => {
     pointer-events: auto;
 }
 
-/* No surface chrome: a note on the desk, not another island. */
 /* On its own surface chip: the sheet under it is white in both themes, so bare
    theme ink would vanish in the dark one. */
 .practice__hint {
