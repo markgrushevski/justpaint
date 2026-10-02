@@ -1,4 +1,5 @@
 import type { FreehandPoint, FreehandStroke } from '../document'
+import { freehandBrush } from '../style'
 import type { LogicalPoint, StrokeTool, ToolContext } from '../types'
 
 /**
@@ -26,7 +27,7 @@ export const eraserTool: StrokeTool = {
             composite: 'destination-out',
             color: ctx.style.color,
             points,
-            brush: ctx.style.brush
+            brush: freehandBrush(ctx.style)
         }
     }
 }

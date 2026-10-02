@@ -36,7 +36,8 @@ describe('eraserTool', () => {
         // Id + style wiring.
         expect(s.id).toBe('s1')
         expect(s.type === 'freehand' && s.color).toBe('#1b1b1b') // color set for uniformity
-        expect(s.type === 'freehand' && s.brush).toBe(BRUSH_DEFAULTS)
+        // The default width (4) gives a brush of 12; every other option is the default.
+        expect(s.type === 'freehand' && s.brush).toEqual({ ...BRUSH_DEFAULTS, size: 12 })
 
         // Key geometry: points are 3-tuples [x, y, pressure], unrounded, in order.
         expect(s.type === 'freehand' && s.points).toEqual([
@@ -54,5 +55,20 @@ describe('eraserTool', () => {
         expect(s.type).toBe('freehand')
         expect(s.composite).toBe('destination-out')
         expect(s.type === 'freehand' && s.points).toEqual([[5, 5, 0.5]])
+    })
+
+    // The freehand brush size follows the toolbar width (strokeWidth * 3); the rest of the brush is untouched.
+    it.each([
+        [1, 3],
+        [4, 12],
+        [10, 30],
+        [64, 192]
+    ])('C: strokeWidth %d builds a brush of size %d', (strokeWidth, size) => {
+        const wide: ToolContext = { ...ctx, style: { ...ctx.style, strokeWidth } }
+
+        const stroke = eraserTool.buildStroke(wide, [{ x: 5, y: 5, pressure: 0.5 }])
+        if (stroke === null || stroke.type !== 'freehand') throw new Error('unreachable')
+
+        expect(stroke.brush).toEqual({ ...BRUSH_DEFAULTS, size })
     })
 })

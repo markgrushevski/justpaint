@@ -37,7 +37,8 @@ describe('penTool', () => {
         expect(stroke.id).toBe('s1')
         expect(stroke.composite).toBe('source-over')
         expect(stroke.color).toBe('#1b1b1b')
-        expect(stroke.brush).toBe(BRUSH_DEFAULTS)
+        // The default width (4) gives a brush of 12; every other option is the default.
+        expect(stroke.brush).toEqual({ ...BRUSH_DEFAULTS, size: 12 })
 
         // points = gesture.map(p => [p.x, p.y, p.pressure]) — raw, unrounded.
         expect(stroke.points).toEqual([
@@ -59,5 +60,29 @@ describe('penTool', () => {
 
         expect(stroke.points).toEqual([[50, 50, 0.5]])
         expect(stroke.points).toHaveLength(1)
+    })
+
+    // The freehand brush size follows the toolbar width (strokeWidth * 3); the rest of the brush is untouched.
+    it.each([
+        [1, 3],
+        [4, 12],
+        [10, 30],
+        [64, 192]
+    ])('strokeWidth %d builds a brush of size %d', (strokeWidth, size) => {
+        const wide: ToolContext = { ...ctx, style: { ...ctx.style, strokeWidth } }
+
+        const stroke = penTool.buildStroke(wide, [{ x: 1, y: 2, pressure: 0.5 }])
+        if (stroke === null || stroke.type !== 'freehand') throw new Error('unreachable')
+
+        expect(stroke.brush).toEqual({ ...BRUSH_DEFAULTS, size })
+    })
+
+    it('does not mutate the style it reads the brush from', () => {
+        const wide: ToolContext = { ...ctx, style: { ...ctx.style, strokeWidth: 10 } }
+
+        penTool.buildStroke(wide, [{ x: 1, y: 2, pressure: 0.5 }])
+
+        expect(wide.style.brush).toBe(BRUSH_DEFAULTS)
+        expect(BRUSH_DEFAULTS.size).toBe(16)
     })
 })
