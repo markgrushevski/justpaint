@@ -1,19 +1,31 @@
 <script lang="ts" setup>
 /**
  * The /draw menu: a non-modal panel under the corner toggler (a right-edge drawer on
- * phones) listing the file actions, then canvas, theme and account. Export and Canvas
- * open as sub-panels in place. No focus trap: the canvas stays live, Esc closes.
+ * phones) listing the file actions, the canvas colour, the look of the app and the account.
+ * Export and canvas size open as sub-panels in place. No focus trap: the canvas stays live,
+ * Esc closes.
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { OriAvatar, OriButton, OriIcon, OriInput, OriSelect, OriSurface, OriSwitch } from '@oriui/vue'
+import {
+    OriAvatar,
+    OriButton,
+    OriDivider,
+    OriInput,
+    OriList,
+    OriListItem,
+    OriSegmentedControl,
+    OriSelect,
+    OriSurface,
+    OriSwitch
+} from '@oriui/vue'
 import { icons, useAuthGate, useSessionStore, useThemeStore } from '@core'
-import type { Accent, CanvasMode, ThemeMode } from '@core'
-import MenuRow from '../../components/ui/MenuRow.vue'
-import SegmentedControl from '../../components/ui/SegmentedControl.vue'
+import type { Accent, ThemeMode } from '@core'
 import SwatchPicker from '../../components/ui/SwatchPicker.vue'
 import type { SwatchOption } from '../../components/ui/SwatchPicker.vue'
+import ToolIcon from '../../components/icons/ToolIcon.vue'
 import type { IconName } from '../../components/icons/ToolIcon.vue'
+import { CANVAS_COLORS } from './canvasColors'
 
 const props = defineProps<{
     open: boolean
@@ -23,7 +35,7 @@ const props = defineProps<{
     backdropGrid: boolean
     canvasWidth: number
     canvasHeight: number
-    /** The document's own background, or null for the editor's paper. */
+    /** The drawing's canvas colour, or null for plain paper. */
     background: string | null
 }>()
 const emit = defineEmits<{
@@ -43,36 +55,37 @@ const session = useSessionStore()
 const theme = useThemeStore()
 const gate = useAuthGate()
 
-type View = 'main' | 'export' | 'canvas'
+type View = 'main' | 'export' | 'size'
 const view = ref<View>('main')
 
-// SegmentedControl binds to the theme store's writable `mode`: assigning applies and
-// persists through useThemeStore, the single source of truth.
-const THEME_OPTIONS: { value: ThemeMode; label: string; icon: IconName }[] = [
-    { value: 'light', label: 'Light', icon: 'sun' },
-    { value: 'dark', label: 'Dark', icon: 'moon' },
-    { value: 'auto', label: 'Auto', icon: 'monitor' }
+// Icons only on screen; the names stay for assistive technology.
+const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+    { value: 'light', label: 'Light' },
+    { value: 'dark', label: 'Dark' },
+    { value: 'auto', label: 'Auto' }
 ]
+const THEME_ICONS: Record<ThemeMode, IconName> = { light: 'sun', dark: 'moon', auto: 'auto' }
 
-/** SegmentedControl emits a plain string; narrow it back to the theme union. */
-function selectTheme(mode: string): void {
-    theme.mode = mode as ThemeMode
+function themeIcon(value: string | number): IconName {
+    return THEME_ICONS[THEME_OPTIONS.find((o) => o.value === value)?.value ?? 'auto']
 }
 
-/** The canvas takes the same three choices; Auto follows the theme. */
-function selectCanvas(mode: string): void {
-    theme.setCanvas(mode as CanvasMode)
+function selectTheme(mode: string | number | undefined): void {
+    const next = THEME_OPTIONS.find((o) => o.value === mode)
+    if (next) theme.mode = next.value
 }
 
 // The dots show each accent as the current theme paints it; the values are main.css's.
-const ACCENT_SWATCHES: Record<Accent, { label: string; light: string; dark: string }> = {
+type PresetAccent = Exclude<Accent, 'custom'>
+const ACCENT_SWATCHES: Record<PresetAccent, { label: string; light: string; dark: string }> = {
     orange: { label: 'Orange', light: 'hsl(20 100% 50%)', dark: 'hsl(20 100% 60%)' },
     green: { label: 'Green', light: 'hsl(125 100% 20%)', dark: 'hsl(125 60% 50%)' },
     blue: { label: 'Blue', light: 'hsl(222 90% 50%)', dark: 'hsl(222 90% 68%)' },
     violet: { label: 'Violet', light: 'hsl(268 80% 52%)', dark: 'hsl(268 85% 75%)' }
 }
+const PRESET_ACCENTS = Object.keys(ACCENT_SWATCHES) as PresetAccent[]
 const accentOptions = computed<SwatchOption[]>(() =>
-    (Object.keys(ACCENT_SWATCHES) as Accent[]).map((value) => {
+    PRESET_ACCENTS.map((value) => {
         const swatch = ACCENT_SWATCHES[value]
         return {
             value,
@@ -82,22 +95,23 @@ const accentOptions = computed<SwatchOption[]>(() =>
         }
     })
 )
+const accentCustom = computed(() => ({
+    label: 'Custom accent',
+    color: theme.customAccent,
+    active: theme.accent === 'custom'
+}))
 
 function selectAccent(value: string | null): void {
-    const next = (Object.keys(ACCENT_SWATCHES) as Accent[]).find((a) => a === value)
+    const next = PRESET_ACCENTS.find((a) => a === value)
     if (next) theme.setAccent(next)
 }
 
-// Light tints only: a drawing is kept for light paper, and a dark canvas inverts the tint
-// along with the ink. A dark tint would hide the default black ink in either look.
-const INK = '#1f2226'
-const BACKGROUNDS: SwatchOption[] = [
-    { value: null, label: 'Paper', color: '#ffffff', ink: INK },
-    { value: '#f1f3f5', label: 'Mist', color: '#f1f3f5', ink: INK },
-    { value: '#e4eefc', label: 'Sky', color: '#e4eefc', ink: INK },
-    { value: '#fcf2c8', label: 'Butter', color: '#fcf2c8', ink: INK },
-    { value: '#fbe2e8', label: 'Blush', color: '#fbe2e8', ink: INK }
-]
+// A colour that isn't one of the presets is the custom one.
+const canvasCustom = computed(() => {
+    const color = props.background
+    const active = color !== null && !CANVAS_COLORS.some((c) => c.value === color)
+    return { label: 'Custom canvas colour', color: active && color ? color : '#ffffff', active }
+})
 
 // Screen dimensions for the "Screen" preset label, refreshed on open so a rotated
 // phone or a resized window shows current numbers.
@@ -199,10 +213,12 @@ async function logout() {
     await session.logout()
 }
 
-// The view's own Esc handler on window would close the whole panel too.
+// The view's own Esc handler on window would close the whole panel too. While a colour
+// picker's popover is open, Esc closes only that, which the popover does itself.
 function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape') return
     e.stopPropagation()
+    if (panelEl()?.querySelector('[popover]:popover-open')) return
     if (view.value !== 'main') show('main')
     else emit('close')
 }
@@ -217,6 +233,7 @@ function onKeydown(e: KeyboardEvent) {
             as="aside"
             class="menu"
             :class="{ 'menu--open': props.open }"
+            :bordered="false"
             role="complementary"
             aria-label="Menu"
             tabindex="-1"
@@ -228,48 +245,98 @@ function onKeydown(e: KeyboardEvent) {
             </p>
 
             <div v-if="view === 'main'" class="menu__view">
-                <MenuRow :icon="icons.mdiPlus" label="New drawing" @click="run(() => emit('newDrawing'))" />
-                <MenuRow :icon="icons.mdiImageMultipleOutline" label="My drawings" to="/gallery" />
-                <MenuRow
-                    :icon="icons.mdiContentSaveOutline"
-                    label="Save"
-                    hint="Ctrl+S"
-                    :disabled="props.busy"
-                    @click="run(() => emit('save'))"
-                />
-                <MenuRow :icon="icons.mdiDownload" label="Export" chevron @click="show('export')" />
+                <OriList>
+                    <OriListItem :icon="icons.mdiPlus" label="New drawing" @click="run(() => emit('newDrawing'))" />
+                    <OriListItem
+                        :as="RouterLink"
+                        to="/gallery"
+                        :icon="icons.mdiImageMultipleOutline"
+                        label="My drawings"
+                    />
+                    <OriListItem
+                        :icon="icons.mdiContentSaveOutline"
+                        label="Save"
+                        hint="Ctrl+S"
+                        :disabled="props.busy"
+                        @click="run(() => emit('save'))"
+                    />
+                    <OriListItem :icon="icons.mdiDownload" label="Export" chevron @click="show('export')" />
+                </OriList>
 
-                <hr class="menu__rule" />
+                <OriDivider />
 
-                <MenuRow :icon="icons.mdiAspectRatio" label="Canvas" chevron @click="show('canvas')" />
-                <div class="menu__theme">
-                    <OriIcon :icon="icons.mdiThemeLightDark" class="menu__theme-icon" />
-                    <SegmentedControl
-                        :model-value="theme.mode"
-                        :options="THEME_OPTIONS"
-                        label="Theme"
-                        @update:model-value="selectTheme"
+                <div class="menu__settings">
+                    <div class="menu__setting">
+                        <span class="menu__setting-label" aria-hidden="true">Canvas</span>
+                        <SwatchPicker
+                            :model-value="props.background"
+                            :options="CANVAS_COLORS"
+                            label="Canvas colour"
+                            ink-view
+                            :custom="canvasCustom"
+                            @update:model-value="(color) => emit('setBackground', color)"
+                            @custom="(color) => emit('setBackground', color)"
+                        />
+                    </div>
+                    <OriSwitch
+                        label="Invert in the dark theme"
+                        :model-value="theme.invertCanvas"
+                        @update:model-value="(on) => theme.setInvertCanvas(on === true)"
                     />
                 </div>
-                <div class="menu__theme">
-                    <OriIcon :icon="icons.mdiPaletteOutline" class="menu__theme-icon" />
-                    <SwatchPicker
-                        class="menu__swatches"
-                        :model-value="theme.accent"
-                        :options="accentOptions"
-                        label="Accent colour"
-                        @update:model-value="selectAccent"
+                <OriList>
+                    <OriListItem
+                        :icon="icons.mdiAspectRatio"
+                        label="Canvas size"
+                        :hint="`${props.canvasWidth} × ${props.canvasHeight}`"
+                        chevron
+                        @click="show('size')"
                     />
-                </div>
-                <MenuRow
-                    class="menu__desktop-only"
-                    :icon="icons.mdiKeyboard"
-                    label="Keyboard shortcuts"
-                    hint="?"
-                    @click="run(() => emit('shortcuts'))"
-                />
+                </OriList>
 
-                <hr class="menu__rule" />
+                <OriDivider />
+
+                <div class="menu__settings">
+                    <div class="menu__setting">
+                        <span class="menu__setting-label" aria-hidden="true">Theme</span>
+                        <OriSegmentedControl
+                            :model-value="theme.mode"
+                            :options="THEME_OPTIONS"
+                            aria-label="Theme"
+                            size="sm"
+                            @update:model-value="selectTheme"
+                        >
+                            <template #option="{ option }">
+                                <ToolIcon :name="themeIcon(option.value)" />
+                                <span class="jp-sr-only">{{ option.label }}</span>
+                            </template>
+                        </OriSegmentedControl>
+                    </div>
+                    <div class="menu__setting">
+                        <span class="menu__setting-label" aria-hidden="true">Accent</span>
+                        <SwatchPicker
+                            :model-value="theme.accent === 'custom' ? null : theme.accent"
+                            :options="accentOptions"
+                            label="Accent colour"
+                            :custom="accentCustom"
+                            @update:model-value="selectAccent"
+                            @custom="(color) => theme.setAccent('custom', color)"
+                        />
+                    </div>
+                </div>
+
+                <OriDivider class="menu__desktop-only" />
+
+                <OriList class="menu__desktop-only">
+                    <OriListItem
+                        :icon="icons.mdiKeyboard"
+                        label="Keyboard shortcuts"
+                        hint="?"
+                        @click="run(() => emit('shortcuts'))"
+                    />
+                </OriList>
+
+                <OriDivider />
 
                 <div v-if="session.isLoggedIn" class="menu__profile">
                     <OriAvatar
@@ -291,45 +358,39 @@ function onKeydown(e: KeyboardEvent) {
                     </div>
                     <OriButton label="Log out" variant="outline" radius="md" size="sm" @click="logout" />
                 </div>
-                <MenuRow v-else :icon="icons.mdiLogin" label="Sign in" @click="signIn" />
+                <OriList v-else>
+                    <OriListItem :icon="icons.mdiLogin" label="Sign in" @click="signIn" />
+                </OriList>
             </div>
 
             <div v-else-if="view === 'export'" class="menu__view">
-                <MenuRow :icon="icons.mdiChevronLeft" label="Export" @click="show('main')" />
-                <hr class="menu__rule" />
-                <MenuRow :icon="icons.mdiDownload" label="Download PNG" @click="run(() => emit('exportPng'))" />
-                <!-- Copying leaves the panel open: the next paste is somewhere else. -->
-                <MenuRow :icon="icons.mdiContentCopy" label="Copy as image" @click="emit('copyImage')" />
-                <MenuRow :icon="icons.mdiContentCopy" label="Copy as JSON" @click="emit('copyText')" />
+                <OriList>
+                    <OriListItem :icon="icons.mdiChevronLeft" label="Export" @click="show('main')" />
+                </OriList>
+                <OriDivider />
+                <OriList>
+                    <OriListItem :icon="icons.mdiDownload" label="Download PNG" @click="run(() => emit('exportPng'))" />
+                    <!-- Copying leaves the panel open: the next paste is somewhere else. -->
+                    <OriListItem :icon="icons.mdiContentCopy" label="Copy as image" @click="emit('copyImage')" />
+                    <OriListItem :icon="icons.mdiContentCopy" label="Copy as JSON" @click="emit('copyText')" />
+                </OriList>
             </div>
 
             <div v-else class="menu__view">
-                <MenuRow :icon="icons.mdiChevronLeft" label="Canvas" @click="show('main')" />
-                <hr class="menu__rule" />
-                <div class="menu__canvas">
-                    <span class="menu__label" aria-hidden="true">Look</span>
-                    <SegmentedControl
-                        :model-value="theme.canvas"
-                        :options="THEME_OPTIONS"
-                        label="Canvas look"
-                        @update:model-value="selectCanvas"
-                    />
-                    <span class="menu__label" aria-hidden="true">Background</span>
-                    <SwatchPicker
-                        :model-value="props.background"
-                        :options="BACKGROUNDS"
-                        label="Canvas background"
-                        ink-view
-                        @update:model-value="(color) => emit('setBackground', color)"
-                    />
-                    <OriSelect v-model="sizeChoice" label="Canvas size" :options="sizeOptions" fluid />
+                <OriList>
+                    <OriListItem :icon="icons.mdiChevronLeft" label="Canvas size" @click="show('main')" />
+                </OriList>
+                <OriDivider />
+                <div class="menu__size">
+                    <OriSelect v-model="sizeChoice" label="Size" :options="sizeOptions" fluid />
                     <div v-if="sizeChoice === 'custom'" class="menu__size-custom">
                         <OriInput v-model="customW" label="W" type="number" min="1" max="8192" fluid />
                         <OriInput v-model="customH" label="H" type="number" min="1" max="8192" fluid />
                     </div>
                     <OriButton label="Apply size" variant="outline" radius="md" size="sm" @click="applySize" />
+                    <!-- Plain paper exports transparent; the checkerboard shows where. -->
                     <OriSwitch
-                        label="Checkerboard"
+                        label="Checkerboard on plain paper"
                         :model-value="props.backdropGrid"
                         @update:model-value="onToggleGrid"
                     />
@@ -340,10 +401,12 @@ function onKeydown(e: KeyboardEvent) {
 </template>
 
 <style scoped>
-/* A card hanging under the corner toggler; closed, it fades up and out. */
+/* A card hanging one gap under the corner toggler; closed, it fades up and out. */
 .menu {
     position: fixed;
-    top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + var(--ori-size-action_md, 2.75rem));
+    top: calc(
+        var(--ori-size-gap_md, 0.5rem) * 2 + var(--ori-size-action_md, 2.75rem) + var(--ori-size-gap_xs, 0.125rem) * 2
+    );
     right: var(--ori-size-gap_md, 0.5rem);
     z-index: 100;
 
@@ -353,7 +416,7 @@ function onKeydown(e: KeyboardEvent) {
 
     width: 20rem;
     max-height: calc(100dvh - 5rem);
-    padding: var(--ori-size-gap_sm, 0.25rem);
+    padding: var(--ori-size-gap_md, 0.5rem);
     overflow-y: auto;
 
     color: var(--ori-color-on-surface);
@@ -379,7 +442,7 @@ function onKeydown(e: KeyboardEvent) {
 
 .menu__name {
     margin: 0;
-    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem) var(--ori-size-gap_xs, 0.125rem);
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_sm, 0.25rem);
 
     overflow: hidden;
 
@@ -396,48 +459,42 @@ function onKeydown(e: KeyboardEvent) {
 .menu__view {
     display: flex;
     flex-direction: column;
-    gap: 1px;
 }
 
-.menu__rule {
-    width: 100%;
-    margin: var(--ori-size-gap_xs, 0.125rem) 0;
+/* Settings sit on the list rows' inset, so their labels line up with the row icons. */
+.menu__settings {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
-    border: none;
-    border-top: 1px solid var(--jp-color-outline);
-    opacity: 0.35;
+    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_lg, 0.75rem);
 }
 
-.menu__theme {
+.menu__setting {
+    display: grid;
+    grid-template-columns: 4.25rem 1fr;
+    align-items: start;
+    gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+/* Centred on the first line of dots or segments. */
+.menu__setting-label {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--ori-size-gap_md, 0.5rem);
 
-    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_md, 0.5rem);
-}
+    min-height: var(--ori-size-action_sm, 1.5rem);
 
-.menu__theme-icon {
-    flex: none;
-    opacity: 0.8;
-}
-
-.menu__swatches {
-    flex: 1;
-}
-
-.menu__label {
     font-size: var(--ori-font-size_sm, 0.875rem);
     font-weight: 700;
 }
 
-.menu__canvas {
+.menu__size {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: var(--ori-size-gap_md, 0.5rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
-    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
+    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_md, 0.5rem);
 }
 
 .menu__size-custom {
@@ -452,7 +509,7 @@ function onKeydown(e: KeyboardEvent) {
     align-items: center;
     gap: var(--ori-size-gap_md, 0.5rem);
 
-    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
+    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_lg, 0.75rem);
 }
 
 .menu__who {

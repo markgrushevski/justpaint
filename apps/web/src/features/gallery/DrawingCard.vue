@@ -1,8 +1,7 @@
 <script lang="ts" setup>
 /**
  * One saved drawing: its preview and name open it in the editor, and a menu carries the
- * other actions. The menu sits beside the lifting card, never inside it: a transformed
- * ancestor becomes the containing block of the menu's fixed, anchored panel and misplaces it.
+ * other actions. The menu sits beside the lifting card rather than inside the link.
  */
 import { computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'

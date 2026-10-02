@@ -1,10 +1,10 @@
 /**
- * The view-only paper behind the drawing: white, or, where the view allows it, a
- * checkerboard. The editor keeps it out of exports and the judged raster. The dark theme
- * darkens a free drawing's paper through its ink view (main.css), not here.
+ * The view-only paper behind a drawing with no background of its own: white, or, where the
+ * view allows it, a checkerboard. The editor keeps it out of exports and the judged raster.
  */
-import { onMounted, ref, watch, type ShallowRef } from 'vue'
+import { computed, onMounted, ref, watch, type ShallowRef } from 'vue'
 import type { Editor } from '@justpaint/editor'
+import { useThemeStore } from '@core'
 
 const PREF_KEY = 'jp.backdropGrid'
 
@@ -14,23 +14,32 @@ const PREF_KEY = 'jp.backdropGrid'
  */
 export const PAPER = '#ffffff'
 
-/** An 8px checkerboard tile, built lazily and shared across mounts. */
-const GRID_TILE =
-    "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='8' height='8'%3e%3crect x='12' y='0' width='12' height='12' fill='%230002'/%3e%3crect x='0' y='12' width='12' height='12' fill='%230002'/%3e%3c/svg%3e"
+/**
+ * 8px checkerboard tiles over the desk, dark squares for a light desk and light ones for a
+ * dark desk; built lazily and shared across mounts.
+ */
+const GRID_TILES = {
+    light: "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='8' height='8'%3e%3crect x='12' y='0' width='12' height='12' fill='%230002'/%3e%3crect x='0' y='12' width='12' height='12' fill='%230002'/%3e%3c/svg%3e",
+    dark: "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='8' height='8'%3e%3crect x='0' y='0' width='12' height='12' fill='%23fff2'/%3e%3crect x='12' y='12' width='12' height='12' fill='%23fff2'/%3e%3c/svg%3e"
+}
+const gridTiles: { light: HTMLImageElement | null; dark: HTMLImageElement | null } = { light: null, dark: null }
 
-let gridTileImage: HTMLImageElement | null = null
-
-function gridTile(): HTMLImageElement {
-    if (!gridTileImage) {
-        gridTileImage = new Image()
-        gridTileImage.src = GRID_TILE
+function gridTile(key: 'light' | 'dark'): HTMLImageElement {
+    let img = gridTiles[key]
+    if (!img) {
+        img = new Image()
+        img.src = GRID_TILES[key]
+        gridTiles[key] = img
     }
-    return gridTileImage
+    return img
 }
 
 /** `judged` is for the scored modes: the sheet is what the judge sees, so no checkerboard. */
 export function useBackdrop(editor: ShallowRef<Editor | null>, { judged = false } = {}) {
+    const theme = useThemeStore()
     const grid = ref(false)
+    // An inverted canvas turns the light tile's squares light itself (main.css).
+    const tileKey = computed(() => (theme.isDark && !theme.canvasInverted ? 'dark' : 'light'))
 
     async function apply() {
         const ed = editor.value
@@ -39,7 +48,7 @@ export function useBackdrop(editor: ShallowRef<Editor | null>, { judged = false 
             ed.setCanvasBackdrop({ type: 'color', color: PAPER })
             return
         }
-        const img = gridTile()
+        const img = gridTile(tileKey.value)
         if (img.complete) {
             ed.setCanvasBackdrop({ type: 'pattern', image: img })
             return
@@ -49,12 +58,12 @@ export function useBackdrop(editor: ShallowRef<Editor | null>, { judged = false 
         } catch {
             return // a data-URI that fails to decode won't succeed on retry
         }
-        // The editor or the pref may have changed during the decode.
-        if (editor.value !== ed || !grid.value) return
+        // The editor, the pref or the theme may have changed during the decode.
+        if (editor.value !== ed || !grid.value || img !== gridTile(tileKey.value)) return
         ed.setCanvasBackdrop({ type: 'pattern', image: img })
     }
 
-    watch(grid, () => apply())
+    watch([grid, tileKey], () => apply())
 
     function setGrid(on: boolean) {
         grid.value = on

@@ -7,6 +7,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { OriButton, OriInput, OriMenu, OriSurface, OriToaster } from '@oriui/vue'
 import { LIMITS } from '@justpaint/editor'
+import { isDarkColor, useThemeStore } from '@core'
 import ConfirmDialog from '../../components/ConfirmDialog.vue'
 import ModeNav from '../../components/ModeNav.vue'
 import ToolIcon from '../../components/icons/ToolIcon.vue'
@@ -25,6 +26,7 @@ import SideMenu from './SideMenu.vue'
 import WelcomeOverlay from './WelcomeOverlay.vue'
 import { useAssistPanel } from './useAssistPanel'
 import { useCanvasCoords } from './useCanvasCoords'
+import { DEFAULT_INK, defaultCanvas } from './canvasColors'
 import { fittedDocument, useDrawingFile } from './useDrawingFile'
 import { useGatedActions } from './useGatedActions'
 import { useGuessPanel } from './useGuessPanel'
@@ -63,12 +65,18 @@ const {
     load,
     toPNG
 } = useEditorHost({
-    initialDocument: (canvas) => fittedDocument(canvas),
+    initialDocument: (canvas) => fittedDocument(canvas, newBackground()),
     // Ctrl+S would otherwise open the browser's own save dialog.
     commands: { s: () => file.save() },
     beforeToolKeys: onPlainKey
 })
 const canvas = () => shell.value?.canvasEl ?? null
+
+const theme = useThemeStore()
+/** A new drawing starts on the theme's paper (canvasColors.ts). */
+function newBackground(): string | null {
+    return defaultCanvas(theme.isDark, theme.canvasInverted)
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -101,9 +109,29 @@ const file = reactive(
         onReplace: () => {
             assist.clear()
             guess.invalidate()
-        }
+        },
+        newBackground
     })
 )
+
+// The pen's default colour stays readable when the canvas turns dark or light; a colour the
+// player picked is theirs to keep.
+watch(
+    () => isDarkColor(background.value),
+    (dark, wasDark) => {
+        const was = wasDark ? DEFAULT_INK.dark : DEFAULT_INK.light
+        if (ui.color === was) setColor(dark ? DEFAULT_INK.dark : DEFAULT_INK.light)
+    },
+    { immediate: true }
+)
+
+// An untouched canvas follows the theme, as it would have started on it. A drawn or saved one
+// keeps its colour: the colour is part of the drawing.
+watch(newBackground, (next, previous) => {
+    const ed = editor.value
+    if (!ed || !isEmpty.value || file.savedName !== null || background.value !== previous) return
+    load({ ...ed.getDocument(), background: next })
+})
 const backdrop = reactive(useBackdrop(editor))
 const { coords } = useCanvasCoords(editor, canvas)
 
@@ -209,7 +237,7 @@ onBeforeUnmount(() => assist.clear())
 
         <!-- Flips from input to accept/reject while a proposal is pending. -->
         <template #top-center>
-            <OriSurface v-if="assist.open" class="draw__assist" role="group" aria-label="AI assist">
+            <OriSurface v-if="assist.open" class="draw__assist" :bordered="false" role="group" aria-label="AI assist">
                 <!-- The AI menu can be off-screen on narrow widths. -->
                 <div class="draw__assist-head">
                     <span class="draw__assist-title">Draw with AI</span>
@@ -260,7 +288,7 @@ onBeforeUnmount(() => assist.clear())
         </template>
 
         <template #top-right>
-            <OriSurface class="draw__actions">
+            <OriSurface class="draw__actions" :bordered="false" elevation="md">
                 <IconButton
                     icon="layers"
                     label="Layers"
@@ -300,17 +328,18 @@ onBeforeUnmount(() => assist.clear())
                         </span>
                     </template>
                 </OriMenu>
+                <!-- In the island, so the top row is one height. Loud only while there is
+                     something to lose. -->
+                <OriButton
+                    class="draw__save"
+                    label="Save"
+                    :variant="file.dirty ? 'solid' : 'soft'"
+                    color="primary"
+                    radius="md"
+                    :loading="file.busy"
+                    @click="file.save"
+                />
             </OriSurface>
-            <!-- Loud only while there is something to lose. -->
-            <OriButton
-                class="draw__save"
-                label="Save"
-                :variant="file.dirty ? 'solid' : 'soft'"
-                color="primary"
-                radius="md"
-                :loading="file.busy"
-                @click="file.save"
-            />
         </template>
 
         <template #bottom-center>
@@ -339,7 +368,7 @@ onBeforeUnmount(() => assist.clear())
         </template>
 
         <template #bottom-left>
-            <OriSurface v-if="coords" class="draw__coords">
+            <OriSurface v-if="coords" class="draw__coords" :bordered="false" elevation="md">
                 <span class="draw__coords-mark" aria-hidden="true">⌖</span>
                 <span class="draw__coords-value">{{ Math.round(coords.x) }}, {{ Math.round(coords.y) }}</span>
             </OriSurface>
@@ -420,7 +449,7 @@ onBeforeUnmount(() => assist.clear())
 
         <!-- Self-positioned chrome in the shell's default slot. The toggle sits above the
              menu panel, so the same chip closes it. -->
-        <OriSurface class="draw__menu-toggle">
+        <OriSurface class="draw__menu-toggle" :bordered="false" elevation="md">
             <IconButton
                 :icon="menuOpen ? 'close' : 'menu'"
                 :label="menuOpen ? 'Close menu' : 'Open menu'"
@@ -431,7 +460,7 @@ onBeforeUnmount(() => assist.clear())
         </OriSurface>
 
         <!-- Phones only: the toolbar hides its history group <=600px. -->
-        <OriSurface class="draw__history" role="group" aria-label="History">
+        <OriSurface class="draw__history" :bordered="false" elevation="md" role="group" aria-label="History">
             <IconButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
             <IconButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
         </OriSurface>
@@ -486,10 +515,6 @@ onBeforeUnmount(() => assist.clear())
     display: inline-flex;
     align-items: center;
     gap: var(--ori-size-gap_md, 0.5rem);
-}
-
-.draw__save {
-    align-self: stretch;
 }
 
 /* Neutral structural hover only, never a brand-role mix (docs/DESIGN-SYSTEM.md §1). */
@@ -635,8 +660,8 @@ onBeforeUnmount(() => assist.clear())
     position: absolute;
 
     /* The second row: the top row's islands can span a narrow phone. 3.125rem is the
-       50px top-row island height. */
-    top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3.125rem);
+       48px top-row island height. */
+    top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + 3rem);
     left: var(--ori-size-gap_md, 0.5rem);
     /* Under the top row, so the mode menu drops over it. */
     z-index: 9;
@@ -649,10 +674,11 @@ onBeforeUnmount(() => assist.clear())
 }
 
 /* The wrapper stretches the panel to its clamped height so its own list scrolls. */
+/* One gap under the top-right island (a button plus the island's padding), like the menu. */
 .draw__layers {
     position: absolute;
     top: calc(
-        var(--ori-size-gap_md, 0.5rem) + var(--ori-size-action_md, 2.75rem) + var(--ori-size-gap_sm, 0.25rem) + 0.35rem
+        var(--ori-size-gap_md, 0.5rem) * 2 + var(--ori-size-action_md, 2.75rem) + var(--ori-size-gap_xs, 0.125rem) * 2
     );
     right: var(--ori-size-gap_md, 0.5rem);
     z-index: 9;

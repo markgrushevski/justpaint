@@ -16,11 +16,16 @@ function clampDim(n: number): number {
     return Math.min(LIMITS.maxCanvasDimension, Math.max(1, Math.round(n)))
 }
 
-/** A blank document; unsized, it fits the canvas element. */
-export function fittedDocument(canvas: HTMLElement | null, w?: number, h?: number): Document {
+/** A blank document on `background`; unsized, it fits the canvas element. */
+export function fittedDocument(
+    canvas: HTMLElement | null,
+    background: string | null,
+    w?: number,
+    h?: number
+): Document {
     const width = clampDim(w ?? (canvas && canvas.clientWidth > 0 ? canvas.clientWidth : DEFAULT_CANVAS.width))
     const height = clampDim(h ?? (canvas && canvas.clientHeight > 0 ? canvas.clientHeight : DEFAULT_CANVAS.height))
-    return blankDocument(width, height)
+    return { ...blankDocument(width, height), background }
 }
 
 export interface DrawingFileDeps {
@@ -36,6 +41,8 @@ export interface DrawingFileDeps {
     toaster: ReturnType<typeof useToast>
     /** The document is about to be replaced: drop whatever describes the old one. */
     onReplace: () => void
+    /** The canvas colour a new drawing starts on. */
+    newBackground: () => string | null
 }
 
 export function useDrawingFile(deps: DrawingFileDeps) {
@@ -69,7 +76,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         if (!editor.value) return
         generation++
         deps.onReplace()
-        deps.load(fittedDocument(deps.canvas(), w, h))
+        deps.load(fittedDocument(deps.canvas(), deps.newBackground(), w, h))
         saved.value = null
         name.value = DEFAULT_NAME
         savedMark.value = null

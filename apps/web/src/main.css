@@ -1,6 +1,6 @@
 /*
- * justpaint brand tokens: a marker orange over white paper on a cool grey desk, layered
- * on the oriui design system. This file only sets the `*-light`/`*-dark` SOURCES;
+ * justpaint brand tokens: a marker orange over white paper on a concrete-grey desk,
+ * layered on the oriui design system. This file only sets the `*-light`/`*-dark` SOURCES;
  * oriui resolves them into `--ori-color-*` per theme (a global brand override
  * sets the source at `:root`, per oriui's own convention). Components read the
  * resolved aliases, never these sources. Contrast is enforced by
@@ -20,24 +20,24 @@
     --ori-color-secondary-dark: hsl(30 32% 26%);
     --ori-color-on-secondary-dark: hsl(38 90% 92%);
 
-    /* Surface (cards, panels, toolbar) + page background — cool neutrals under one
+    /* Surface (cards, panels, toolbar) + page background — concrete neutrals under one
        graphite ink, well past the AA text bar in both themes. The page background also
        carries the orange wordmark, which is why it is the white one: the orange clears
        the large-text 3:1 bar there, not on the surface. */
-    --ori-color-surface-light: #f4f5f7;
-    --ori-color-on-surface-light: #1f2226;
-    --ori-color-surface-dark: #1d2024;
-    --ori-color-on-surface-dark: #e9ebee;
+    --ori-color-surface-light: #f6f5f3;
+    --ori-color-on-surface-light: #242322;
+    --ori-color-surface-dark: #302e2b;
+    --ori-color-on-surface-dark: #ecebe8;
 
     --ori-color-background-light: #ffffff;
-    --ori-color-on-background-light: #1f2226;
-    --ori-color-background-dark: #16181b;
-    --ori-color-on-background-dark: #e9ebee;
+    --ori-color-on-background-light: #242322;
+    --ori-color-background-dark: #161514;
+    --ori-color-on-background-dark: #ecebe8;
 
-    /* Outline (borders, dividers) — cool greys, cleared for the >=3:1 non-text
+    /* Outline (borders, dividers) — concrete greys, cleared for the >=3:1 non-text
        bar (WCAG 1.4.11) against both surfaces they draw against. */
-    --jp-color-outline-light: #868b92;
-    --jp-color-outline-dark: #737980;
+    --jp-color-outline-light: #85827c;
+    --jp-color-outline-dark: #85827c;
 
     /* Outline is ours: oriui ships no outline token, so it carries the --jp-*
        prefix rather than squatting in the vendor --ori-* namespace, where a
@@ -48,8 +48,8 @@
     /* The letterbox "desk" behind the paper — one step darker (light) / lighter
        (dark) than the paper so the document edge reads at any zoom; the editor
        adds a paper shadow on top. Resolved for light here; dark repoints it. */
-    --jp-desk-light: #e6e8eb;
-    --jp-desk-dark: #23262a;
+    --jp-desk-light: #e4e2de;
+    --jp-desk-dark: #242321;
     --jp-desk: var(--jp-desk-light);
 
     /* Shared square-control sizes — two deliberate tiers across every floating island. */
@@ -115,14 +115,30 @@
 }
 
 /*
- * A free drawing is kept for light paper; a dark canvas (`useThemeStore().canvasDark`, the
- * theme's unless the player picks one) shows it through an inverting filter, as Excalidraw
- * does, so black ink reads on the dark sheet and an export stays as drawn. Colour pickers
- * for that ink wear it too, so a swatch looks like its stroke. The scored modes never mark
- * their canvas: they show the judge's white sheet.
+ * The dark theme can show a free drawing inverted, as Excalidraw does
+ * (`useThemeStore().canvasInverted`, the player's choice): a drawing made for light paper
+ * still reads, and an export stays as drawn. Colour pickers for that canvas wear it too, so a
+ * swatch looks like what it paints. The scored modes never mark their canvas: they show the
+ * judge's white sheet.
  */
 :root.jp-canvas-dark .jp-ink-view {
     filter: invert(93%) hue-rotate(180deg);
+}
+
+/* Text for assistive technology only, such as the name of an icon-only choice. */
+.jp-sr-only {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+
+    border: 0;
+
+    white-space: nowrap;
+    clip-path: inset(50%);
 }
 
 /* One visible focus ring for the hand-rolled shell controls (oriui components

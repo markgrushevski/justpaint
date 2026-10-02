@@ -400,6 +400,18 @@ test.describe('/draw file actions', () => {
         expect(api.rows.size).toBe(1)
     })
 
+    test('the dark theme starts a drawing on dark paper, and the pen follows the paper', async ({ page }) => {
+        await page.emulateMedia({ colorScheme: 'dark' })
+        await openDraw(page)
+        const ink = page.getByLabel('Stroke color').first()
+        await expect(ink).toHaveValue('#f1f0ee')
+
+        await openMenu(page)
+        await expect(page.getByRole('radio', { name: 'Charcoal' })).toHaveAttribute('aria-checked', 'true')
+        await page.getByRole('radio', { name: 'Butter' }).click()
+        await expect(ink).toHaveValue('#1b1b1b')
+    })
+
     test('a background tint is part of the drawing: it unsaves, saves and undoes', async ({ page, api }) => {
         await openDraw(page)
         const save = page.locator('.draw__save')
@@ -409,7 +421,6 @@ test.describe('/draw file actions', () => {
         await expect(save).toHaveClass(/ori-variant_soft/)
 
         await openMenu(page)
-        await page.getByRole('button', { name: 'Canvas', exact: true }).click()
         await page.getByRole('radio', { name: 'Sky' }).click()
         await expect(page.getByRole('radio', { name: 'Sky' })).toHaveAttribute('aria-checked', 'true')
         await expect(save).toHaveClass(/ori-variant_solid/)

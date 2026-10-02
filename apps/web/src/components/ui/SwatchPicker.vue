@@ -14,37 +14,43 @@ export interface SwatchOption {
 
 <script lang="ts" setup>
 /**
- * SwatchPicker — a single-select row of colour dots (the accent, the canvas background).
- * Each dot is an icon-mode `OriButton` painted through the per-instance `--ori-color`
- * escape hatch (docs/DESIGN-SYSTEM.md §0), with SegmentedControl's radiogroup semantics.
- * `inkView` shows the dots the way the dark theme shows a drawing, so a swatch looks like
- * what it paints.
+ * SwatchPicker — a single-select grid of colour dots (the accent, the canvas colour), and an
+ * optional "custom" dot that opens oriui's colour picker. Each preset is an icon-mode
+ * `OriButton` painted through the per-instance `--ori-color` escape hatch
+ * (docs/DESIGN-SYSTEM.md §0), with radiogroup semantics and a tooltip naming it. `inkView`
+ * shows the dots the way an inverted canvas shows a drawing, so a swatch looks like what it
+ * paints.
  */
 import { computed, ref } from 'vue'
-import { OriButton, OriIcon } from '@oriui/vue'
-import { icons } from '@core'
+import { OriButton, OriColorPicker, OriIcon, OriPopover, OriTooltip } from '@oriui/vue'
+import { icons, inkOn } from '@core'
 
-const props = defineProps<{
-    modelValue: string | null
-    options: SwatchOption[]
-    /** Accessible name for the group. */
-    label: string
-    inkView?: boolean
-}>()
-const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>()
+const props = withDefaults(
+    defineProps<{
+        modelValue: string | null
+        options: SwatchOption[]
+        /** Accessible name for the group. */
+        label: string
+        /** Dots per row. */
+        perRow?: number
+        inkView?: boolean
+        /** Offer a picked colour after the presets: its name, and the colour it holds. */
+        custom?: { label: string; color: string; active: boolean } | null
+    }>(),
+    { perRow: 5, inkView: false, custom: null }
+)
+const emit = defineEmits<{ 'update:modelValue': [value: string | null]; custom: [color: string] }>()
 
 const group = ref<HTMLElement | null>(null)
 
-// The tab stop: the chosen dot, or the first while none of them is chosen.
-const tabStop = computed(() =>
-    Math.max(
-        0,
-        props.options.findIndex((o) => o.value === props.modelValue)
-    )
+const selectedIndex = computed(() =>
+    props.custom?.active ? -1 : props.options.findIndex((o) => o.value === props.modelValue)
 )
+// The tab stop: the chosen dot, or the first while none of them is chosen.
+const tabStop = computed(() => Math.max(0, selectedIndex.value))
 
 function select(value: string | null): void {
-    if (value !== props.modelValue) emit('update:modelValue', value)
+    if (value !== props.modelValue || props.custom?.active) emit('update:modelValue', value)
 }
 
 /** Arrow keys move the selection (roving focus) — standard radiogroup semantics. */
@@ -60,43 +66,87 @@ function onKeydown(e: KeyboardEvent, index: number): void {
     select(next.value)
     group.value?.querySelectorAll<HTMLElement>('[role="radio"]')[nextIndex]?.focus()
 }
+
+// The picker edits a draft; only a settled colour (release, Enter, a preset) is emitted.
+const draft = ref(props.custom?.color ?? '#ffffff')
+function onOpen(): void {
+    draft.value = props.custom?.color ?? draft.value
+}
 </script>
 
 <template>
-    <div ref="group" class="swatches" role="radiogroup" :aria-label="label">
-        <!-- The ring is ours, around the button: oriui keeps the dot itself. -->
-        <span
-            v-for="(opt, i) in options"
-            :key="opt.label"
-            class="swatches__ring"
-            :class="{ 'swatches__ring--on': opt.value === modelValue }"
-        >
-            <OriButton
-                class="ori-button_icon"
-                :class="{ 'jp-ink-view': inkView }"
-                role="radio"
-                :aria-checked="opt.value === modelValue"
-                :aria-label="opt.label"
-                :title="opt.label"
-                :tabindex="i === tabStop ? 0 : -1"
-                variant="solid"
-                radius="full"
-                size="sm"
-                :style="{ '--ori-color': opt.color, '--ori-color-on': opt.ink }"
-                @click="select(opt.value)"
-                @keydown="onKeydown($event, i)"
+    <div class="swatches" :style="{ '--swatches-per-row': perRow }">
+        <div ref="group" class="swatches__grid" role="radiogroup" :aria-label="label">
+            <!-- The ring is ours, around the button: oriui keeps the dot itself. -->
+            <span
+                v-for="(opt, i) in options"
+                :key="opt.label"
+                class="swatches__ring"
+                :class="{ 'swatches__ring--on': i === selectedIndex }"
             >
-                <OriIcon v-if="opt.value === modelValue" :icon="icons.mdiCheck" />
-            </OriButton>
+                <OriTooltip :content="opt.label" placement="bottom">
+                    <OriButton
+                        class="ori-button_icon"
+                        :class="{ 'jp-ink-view': inkView }"
+                        role="radio"
+                        :aria-checked="i === selectedIndex"
+                        :aria-label="opt.label"
+                        :tabindex="i === tabStop ? 0 : -1"
+                        variant="solid"
+                        radius="full"
+                        size="sm"
+                        :style="{ '--ori-color': opt.color, '--ori-color-on': opt.ink }"
+                        @click="select(opt.value)"
+                        @keydown="onKeydown($event, i)"
+                    >
+                        <OriIcon v-if="i === selectedIndex" :icon="icons.mdiCheck" />
+                    </OriButton>
+                </OriTooltip>
+            </span>
+        </div>
+
+        <span v-if="custom" class="swatches__ring" :class="{ 'swatches__ring--on': custom.active }">
+            <OriPopover placement="bottom-end" :aria-label="custom.label">
+                <template #trigger="{ props: trigger }">
+                    <OriTooltip :content="custom.label" placement="bottom">
+                        <OriButton
+                            v-bind="trigger"
+                            class="ori-button_icon"
+                            :class="{ 'jp-ink-view': inkView && custom.active }"
+                            :aria-label="custom.active ? `${custom.label}, ${custom.color}` : custom.label"
+                            :aria-pressed="custom.active"
+                            :variant="custom.active ? 'solid' : 'outline'"
+                            color="surface"
+                            radius="full"
+                            size="sm"
+                            :style="
+                                custom.active
+                                    ? { '--ori-color': custom.color, '--ori-color-on': inkOn(custom.color) }
+                                    : {}
+                            "
+                            @click="onOpen"
+                        >
+                            <OriIcon :icon="custom.active ? icons.mdiCheck : icons.mdiPlus" />
+                        </OriButton>
+                    </OriTooltip>
+                </template>
+                <OriColorPicker v-model="draft" :label="custom.label" @change="(c: string) => emit('custom', c)" />
+            </OriPopover>
         </span>
     </div>
 </template>
 
 <style scoped>
+/* One grid for the presets and the custom dot: the radiogroup lays its dots out in it, so the
+   custom dot takes the next cell, though it is no radio. */
 .swatches {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(var(--swatches-per-row), max-content);
     gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+.swatches__grid {
+    display: contents;
 }
 
 /* A hairline keeps a pale dot visible on the surface; the chosen one gets the accent. */
