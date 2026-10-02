@@ -33,7 +33,7 @@ const MAX_LAYERS = LIMITS.maxLayers
 
 const AI_ITEMS = [
     { value: 'assist', label: 'Draw with AI' },
-    { value: 'guess', label: 'What did I draw?' }
+    { value: 'guess', label: 'Guess my drawing' }
 ]
 
 const {
@@ -44,6 +44,7 @@ const {
     activeLayerId,
     canUndo,
     canRedo,
+    historyMark,
     zoomPercent,
     docWidth,
     docHeight,
@@ -89,6 +90,7 @@ const file = reactive(
         editor,
         canvas,
         isEmpty,
+        historyMark,
         load,
         toPNG,
         gated,
@@ -130,7 +132,7 @@ const {
     leave,
     stay
 } = useLeaveGuard(() =>
-    file.isDirty()
+    file.dirty
         ? {
               title: 'Leave without saving?',
               message: 'This drawing has changes that aren’t saved.',
@@ -295,10 +297,11 @@ onBeforeUnmount(() => assist.clear())
                     </template>
                 </OriMenu>
             </OriSurface>
+            <!-- Loud only while there is something to lose. -->
             <OriButton
                 class="draw__save"
                 label="Save"
-                variant="solid"
+                :variant="file.dirty ? 'solid' : 'soft'"
                 color="primary"
                 radius="md"
                 :loading="file.busy"
@@ -368,7 +371,7 @@ onBeforeUnmount(() => assist.clear())
                 message="This starts a new drawing and can't be undone."
                 confirm-text="Clear"
                 cancel-text="Cancel"
-                danger
+                discard
                 @confirm="file.confirmNew"
                 @cancel="file.cancelNew"
             />
@@ -381,7 +384,7 @@ onBeforeUnmount(() => assist.clear())
                 :message="leavePending?.message"
                 :confirm-text="leavePending?.confirmText"
                 cancel-text="Stay"
-                danger
+                discard
                 @confirm="leave"
                 @cancel="stay"
             />

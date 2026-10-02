@@ -277,7 +277,7 @@ onBeforeUnmount(() => {
              sits here because the toolbar covers the bottom-left corner on a phone. -->
         <template #top-center>
             <div class="practice__prompt">
-                <GamePromptBanner v-if="prompt" :prompt="prompt.text" revealed solo />
+                <GamePromptBanner v-if="prompt" :prompt="prompt.text" revealed solo :large="showEmptyHint" />
                 <span v-if="showEmptyHint" class="practice__hint" role="status">Draw something to submit it</span>
             </div>
         </template>
@@ -383,7 +383,7 @@ onBeforeUnmount(() => {
                 :message="leavePending?.message"
                 :confirm-text="leavePending?.confirmText"
                 cancel-text="Stay"
-                danger
+                discard
                 @confirm="leave"
                 @cancel="stay"
             />

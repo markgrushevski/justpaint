@@ -5,6 +5,7 @@
  * open as sub-panels in place. No focus trap: the canvas stays live, Esc closes.
  */
 import { computed, nextTick, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { OriAvatar, OriButton, OriIcon, OriInput, OriSelect, OriSurface, OriSwitch } from '@oriui/vue'
 import { icons, useAuthGate, useSessionStore, useThemeStore } from '@core'
 import type { ThemeMode } from '@core'
@@ -212,8 +213,6 @@ function onKeydown(e: KeyboardEvent) {
                     hint="?"
                     @click="run(() => emit('shortcuts'))"
                 />
-                <!-- The ladder needs a session: GET /api/leaderboard answers 401 without one. -->
-                <MenuRow v-if="session.isLoggedIn" :icon="icons.podium" label="Leaderboard" to="/leaderboard" />
 
                 <hr class="menu__rule" />
 
@@ -225,7 +224,16 @@ function onKeydown(e: KeyboardEvent) {
                     />
                     <div class="menu__who">
                         <b class="menu__who-name">{{ session.user?.displayName ?? session.user?.login }}</b>
-                        <span class="menu__who-meta">Rating {{ session.user?.rating }}</span>
+                        <!-- The ladder is the duel's, so /draw reaches it only through the rating.
+                             It needs a session: GET /api/leaderboard answers 401 without one. -->
+                        <RouterLink
+                            class="menu__who-meta menu__rating"
+                            to="/leaderboard"
+                            :aria-label="`Rating ${session.user?.rating}, open the leaderboard`"
+                        >
+                            Rating {{ session.user?.rating }}
+                            <OriIcon :icon="icons.mdiChevronRight" />
+                        </RouterLink>
                     </div>
                     <OriButton label="Log out" variant="outline" radius="md" size="sm" @click="logout" />
                 </div>
@@ -386,6 +394,26 @@ function onKeydown(e: KeyboardEvent) {
 .menu__who-meta {
     font-size: var(--ori-font-size_sm, 0.875rem);
     opacity: 0.7;
+}
+
+.menu__rating {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+
+    color: inherit;
+    text-decoration: none;
+}
+
+.menu__rating:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
+
+/* The global focus ring covers buttons and inputs, not links. */
+.menu__rating:focus-visible {
+    outline: 2px solid var(--ori-color-primary);
+    outline-offset: 2px;
 }
 
 /* A phone has no keyboard, and the panel becomes a right-edge drawer. */

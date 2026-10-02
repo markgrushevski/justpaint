@@ -47,6 +47,8 @@ export function useEditorHost(options: EditorHostOptions) {
     const activeLayerId = ref('')
     const canUndo = ref(false)
     const canRedo = ref(false)
+    /** `Editor.getHistoryMark`: moves with every document change and with nothing else. */
+    const historyMark = shallowRef<object | null>(null)
     const zoom = ref(1)
     const zoomPercent = computed(() => Math.round(zoom.value * 100))
     // DEFAULT_CANVAS is `as const`; a bare ref() would narrow to the literal.
@@ -61,6 +63,7 @@ export function useEditorHost(options: EditorHostOptions) {
         activeLayerId.value = ed.getActiveLayerId()
         canUndo.value = ed.canUndo()
         canRedo.value = ed.canRedo()
+        historyMark.value = ed.getHistoryMark()
         zoom.value = ed.getZoom()
         const doc = ed.getDocument()
         docWidth.value = doc.width
@@ -198,6 +201,7 @@ export function useEditorHost(options: EditorHostOptions) {
         activeLayerId,
         canUndo,
         canRedo,
+        historyMark,
         zoomPercent,
         docWidth,
         docHeight,

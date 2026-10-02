@@ -23,11 +23,13 @@ defineProps<{
      * or a screen reader even while visually hidden.
      */
     solo?: boolean
+    /** The opening look on an empty canvas: the prompt set large under its label. */
+    large?: boolean
 }>()
 </script>
 
 <template>
-    <OriSurface class="banner" role="status" aria-live="polite">
+    <OriSurface class="banner" :class="{ 'banner--large': large }" role="status" aria-live="polite">
         <!-- Stacked in one grid cell; each layer's opacity binds straight to
              `revealed`, faded by the CSS transition on `.banner__layer`. -->
         <div
@@ -62,6 +64,12 @@ defineProps<{
     /* pointer-events:none so drawing passes through this centred readout. */
     pointer-events: none;
     user-select: none;
+
+    transition: padding 200ms ease;
+}
+
+.banner--large {
+    padding: 0.7rem 1.5rem 0.85rem;
 }
 
 .banner__layer {
@@ -96,6 +104,27 @@ defineProps<{
     letter-spacing: -0.01em;
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    transition: font-size 200ms ease;
+}
+
+.banner--large .banner__layer--prompt {
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.banner--large .banner__label {
+    font-size: var(--ori-font-size_sm, 0.875rem);
+}
+
+/* Wraps instead of truncating: the whole prompt is the point of this look. */
+.banner--large .banner__prompt {
+    font-size: clamp(1.35rem, 3vw, 1.85rem);
+    font-weight: 800;
+    line-height: 1.15;
+    text-align: center;
+    white-space: normal;
+    text-wrap: balance;
 }
 
 .banner__waiting {
@@ -143,6 +172,11 @@ defineProps<{
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .banner,
+    .banner__prompt {
+        transition: none;
+    }
+
     .banner__dots i {
         animation: none;
         opacity: 0.7;

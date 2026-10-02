@@ -49,7 +49,7 @@ function onOpenChange(open: boolean) {
         </div>
 
         <div class="save__actions">
-            <OriButton label="Cancel" variant="outline" radius="md" @click="emit('cancel')" />
+            <OriButton label="Cancel" variant="outline" color="surface" radius="md" @click="emit('cancel')" />
             <OriButton label="Save" variant="solid" radius="md" :disabled="!name.trim()" @click="submit" />
         </div>
     </OriDialog>

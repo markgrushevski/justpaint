@@ -65,6 +65,7 @@ const {
     canUndo,
     canRedo,
     zoomPercent,
+    isEmpty,
     pickTool,
     setColor,
     setWidth,
@@ -125,6 +126,8 @@ let myUserId = ''
 const prompt = ref('')
 const REVEAL_PHASES = new Set<Phase>(['drawing', 'submitting', 'judging', 'done'])
 const promptRevealed = computed(() => prompt.value !== '' && REVEAL_PHASES.has(phase.value))
+// The prompt reads large until the first stroke.
+const promptLarge = computed(() => promptRevealed.value && phase.value === 'drawing' && isEmpty.value)
 
 // A display label, never a login (docs/GAME.md §4.2).
 const opponent = reactive<{ name: string; status: OpponentStatus }>({
@@ -511,7 +514,7 @@ onBeforeUnmount(() => {
             <!-- Hidden until the deadline exists, rather than a misleading 0:00. -->
             <RoundTimerBar v-if="deadlineMs !== null" :remaining="remaining" :total="roundTotalSeconds" />
             <div class="play__prompt">
-                <GamePromptBanner :prompt="prompt" :revealed="promptRevealed" />
+                <GamePromptBanner :prompt="prompt" :revealed="promptRevealed" :large="promptLarge" />
             </div>
         </template>
 
@@ -576,7 +579,7 @@ onBeforeUnmount(() => {
                 :message="leavePending?.message"
                 :confirm-text="leavePending?.confirmText"
                 cancel-text="Stay"
-                danger
+                discard
                 @confirm="leave"
                 @cancel="stay"
             />

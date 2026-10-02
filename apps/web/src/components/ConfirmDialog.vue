@@ -15,7 +15,10 @@ const props = defineProps<{
     message?: string
     confirmText?: string
     cancelText?: string
+    /** The confirm destroys something saved: solid red. */
     danger?: boolean
+    /** The confirm drops only unsaved work: red, but outlined, a step under a delete. */
+    discard?: boolean
 }>()
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
@@ -30,11 +33,17 @@ function onOpenChange(open: boolean) {
         <p v-if="props.message" class="confirm__message">{{ props.message }}</p>
 
         <div class="confirm__actions">
-            <OriButton :label="props.cancelText ?? 'Cancel'" variant="outline" radius="md" @click="emit('cancel')" />
+            <OriButton
+                :label="props.cancelText ?? 'Cancel'"
+                variant="outline"
+                color="surface"
+                radius="md"
+                @click="emit('cancel')"
+            />
             <OriButton
                 :label="props.confirmText ?? 'Confirm'"
-                variant="solid"
-                :color="props.danger ? 'danger' : undefined"
+                :variant="props.discard ? 'outline' : 'solid'"
+                :color="props.danger || props.discard ? 'danger' : undefined"
                 radius="md"
                 @click="emit('confirm')"
             />

@@ -3,7 +3,7 @@
  * a name; later saves keep it. Save and open need a session; everything else works
  * signed out.
  */
-import { computed, ref, type Ref, type ShallowRef } from 'vue'
+import { computed, ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import { blankDocument, DEFAULT_CANVAS, LIMITS } from '@justpaint/editor'
 import type { Document, Editor } from '@justpaint/editor'
 import { copyImage, copyText, useOpenDrawing, useSaveDrawing, useSessionStore } from '@core'
@@ -27,6 +27,8 @@ export interface DrawingFileDeps {
     editor: ShallowRef<Editor | null>
     canvas: () => HTMLDivElement | null
     isEmpty: Ref<boolean>
+    /** The editor's history mark, mirrored by the host. */
+    historyMark: Readonly<ShallowRef<object | null>>
     load: (doc: Document) => void
     toPNG: () => Promise<Blob | null>
     gated: (reason: string) => Promise<boolean>
@@ -57,15 +59,11 @@ export function useDrawingFile(deps: DrawingFileDeps) {
     // afterwards can't bind the new canvas to the old row.
     let generation = 0
 
-    // The document as last saved or opened, to tell whether leaving would lose work.
-    // Compared only when asked, so drawing never pays for it.
-    let snapshot: string | null = null
+    // The history mark when the canvas last matched its row: undoing back to it is clean again.
+    const savedMark = shallowRef<object | null>(null)
 
-    function isDirty(): boolean {
-        if (deps.isEmpty.value || !editor.value) return false
-        if (!savedId.value) return true
-        return JSON.stringify(editor.value.getDocument()) !== snapshot
-    }
+    /** Leaving would lose work. */
+    const dirty = computed(() => !deps.isEmpty.value && (!savedId.value || deps.historyMark.value !== savedMark.value))
 
     function clear(w?: number, h?: number) {
         if (!editor.value) return
@@ -74,7 +72,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         deps.load(fittedDocument(deps.canvas(), w, h))
         saved.value = null
         name.value = DEFAULT_NAME
-        snapshot = null
+        savedMark.value = null
     }
 
     // Clearing drops history, so confirm only when there is work to lose.
@@ -134,7 +132,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         if (!ed) return
         const existing = savedId.value
         const document = ed.getDocument()
-        const sent = JSON.stringify(document)
+        const mark = ed.getHistoryMark()
         const at = generation
         saveMutation.mutate(
             { id: existing ?? undefined, document, name: existing ? undefined : newName },
@@ -144,7 +142,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
                     if (at !== generation) return
                     saved.value = { id: meta.id, owner: meta.ownerId }
                     name.value = meta.name
-                    snapshot = sent
+                    savedMark.value = mark
                 },
                 onError: (err) => deps.reportError(err, 'save')
             }
@@ -172,7 +170,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
                 deps.load(full.document)
                 saved.value = { id: full.id, owner: full.ownerId }
                 name.value = full.name
-                snapshot = JSON.stringify(editor.value.getDocument())
+                savedMark.value = editor.value.getHistoryMark()
             },
             onError: (err) => deps.reportError(err, 'open')
         })
@@ -227,7 +225,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         name,
         savedName,
         busy,
-        isDirty,
+        dirty,
         confirmOpen,
         requestNew,
         applyCanvasSize,

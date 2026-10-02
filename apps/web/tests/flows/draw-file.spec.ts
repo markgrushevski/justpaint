@@ -379,6 +379,27 @@ test.describe('/draw file actions', () => {
         await expect(question).toHaveCount(0)
     })
 
+    test('Save stands out only while there are unsaved changes, undo included', async ({ page, api }) => {
+        await openDraw(page)
+        const save = page.locator('.draw__save')
+        await expect(save).toHaveClass(/ori-variant_soft/)
+
+        await drawStroke(page)
+        await expect(save).toHaveClass(/ori-variant_solid/)
+        await saveAs(page, 'Base')
+        await expectSaved(page, 'Base')
+        await expect(save).toHaveClass(/ori-variant_soft/)
+
+        await drawStroke(page, 1)
+        await expect(save).toHaveClass(/ori-variant_solid/)
+        // Undoing back to the saved point is clean again, so leaving asks nothing.
+        await page.keyboard.press('Control+z')
+        await expect(save).toHaveClass(/ori-variant_soft/)
+        await page.getByRole('navigation', { name: 'Modes' }).getByRole('link', { name: 'Practice' }).click()
+        await expect(page).toHaveURL(/\/practice$/)
+        expect(api.rows.size).toBe(1)
+    })
+
     test('after an account switch the drawing is unsaved again and saving creates a row', async ({ page, api }) => {
         await openDraw(page)
         await drawStroke(page)

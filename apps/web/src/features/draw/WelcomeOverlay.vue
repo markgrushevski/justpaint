@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 /**
  * The welcome over an empty /draw: the modes down the left, the wordmark in the middle
- * and hand-written hints at the chrome. Only the mode cards take the pointer, so a
+ * and pointers at the chrome. Only the mode cards take the pointer, so a
  * stroke anywhere else lands on the canvas, and the view drops this on that stroke.
  */
 import { RouterLink } from 'vue-router'
@@ -12,26 +12,12 @@ const emit = defineEmits<{ start: [] }>()
 
 const MODES = [
     { to: '/practice', title: 'Practice', subtitle: 'Draw a prompt, get an AI score', icon: icons.target },
-    { to: '/play', title: 'Duel', subtitle: 'Draw against another player', icon: icons.mdiSwordCross },
-    {
-        to: '/gallery',
-        title: 'My drawings',
-        subtitle: 'Your saved sketches',
-        icon: icons.mdiImageMultipleOutline
-    }
+    { to: '/play', title: 'Duel', subtitle: 'Draw against another player', icon: icons.mdiSwordCross }
 ]
 </script>
 
 <template>
     <section class="welcome" aria-label="Welcome">
-        <!-- A few loose brush strokes as the welcome's ground; they go with it. -->
-        <svg class="welcome__brush welcome__brush--left" viewBox="0 0 300 420" aria-hidden="true">
-            <path d="M70 30 C 150 110, 30 220, 120 300 S 210 380, 170 400" />
-        </svg>
-        <svg class="welcome__brush welcome__brush--right" viewBox="0 0 360 120" aria-hidden="true">
-            <path d="M14 96 C 90 30, 210 18, 344 56" />
-        </svg>
-
         <nav class="welcome__modes" aria-label="Start">
             <!-- Draw is where the visitor already is: the card only clears the welcome. -->
             <button type="button" class="welcome__mode" @click="emit('start')">
@@ -58,17 +44,26 @@ const MODES = [
                     data-ori-interactive
                 />
             </RouterLink>
+            <!-- The modes above, a place below. -->
+            <hr class="welcome__rule" />
+            <RouterLink to="/gallery" class="welcome__mode">
+                <OriCard
+                    class="welcome__card"
+                    variant="soft"
+                    color="surface"
+                    radius="lg"
+                    :prepend-icon="icons.mdiImageMultipleOutline"
+                    title="My drawings"
+                    subtitle="Your saved sketches"
+                    data-ori-interactive
+                />
+            </RouterLink>
         </nav>
 
         <div class="welcome__center">
             <p class="welcome__brand">just<span class="welcome__brand-accent">paint</span></p>
             <p class="welcome__tagline">A simple canvas for your ideas.</p>
-            <p class="welcome__motto" aria-hidden="true">
-                Draw. Save. Keep it.
-                <svg class="welcome__swoosh" viewBox="0 0 120 14" preserveAspectRatio="none">
-                    <path d="M3 10 C 30 3, 70 2, 117 6" />
-                </svg>
-            </p>
+            <p class="welcome__motto">Draw. Save. <span class="welcome__motto-accent">Keep it.</span></p>
             <p class="welcome__keys">Press <kbd>?</kbd> for keyboard shortcuts</p>
         </div>
 
@@ -98,40 +93,6 @@ const MODES = [
 
     color: var(--ori-color-on-background);
     pointer-events: none;
-}
-
-.welcome__brush {
-    position: absolute;
-
-    fill: none;
-    stroke-linecap: round;
-}
-
-/* The desk tone behind the mode column. */
-.welcome__brush--left {
-    top: 50%;
-    left: -3rem;
-
-    width: 20rem;
-    height: 28rem;
-
-    stroke: var(--jp-desk);
-    stroke-width: 54;
-
-    transform: translateY(-50%);
-}
-
-/* A faint orange sweep under the right half, clear of the zoom island. */
-.welcome__brush--right {
-    right: 8%;
-    bottom: 8.5rem;
-
-    width: 24rem;
-    height: 8rem;
-
-    stroke: var(--ori-color-primary);
-    stroke-width: 18;
-    opacity: 0.12;
 }
 
 .welcome__modes {
@@ -169,6 +130,15 @@ const MODES = [
 
 .welcome__card {
     --ori-card-padding: var(--ori-size-gap_md, 0.5rem) var(--ori-size-gap_lg, 0.75rem);
+}
+
+.welcome__rule {
+    width: 100%;
+    margin: var(--ori-size-gap_sm, 0.25rem) 0;
+
+    border: none;
+    border-top: 1px solid var(--jp-color-outline);
+    opacity: 0.35;
 }
 
 @media (hover: hover) {
@@ -215,27 +185,16 @@ const MODES = [
 }
 
 .welcome__motto {
-    position: relative;
-
     margin: var(--ori-size-gap_md, 0.5rem) 0 0;
 
-    font-family: Caveat, cursive;
-    font-size: 1.9rem;
-    font-weight: 600;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
 }
 
-.welcome__swoosh {
-    position: absolute;
-    right: -0.25rem;
-    bottom: -0.35rem;
-
-    width: 4.5rem;
-    height: 0.6rem;
-
-    fill: none;
-    stroke: var(--ori-color-primary);
-    stroke-width: 3;
-    stroke-linecap: round;
+/* Echoes the wordmark's ink-then-orange; large bold text, so the orange clears 3:1. */
+.welcome__motto-accent {
+    color: var(--ori-color-primary);
 }
 
 .welcome__keys {
@@ -254,7 +213,7 @@ const MODES = [
     font-family: inherit;
 }
 
-/* Hand-written pointers: large enough to count as large text at their opacity. */
+/* Pointers at the chrome; 0.75 keeps the text well past AA on the paper. */
 .welcome__hint {
     position: absolute;
 
@@ -262,11 +221,10 @@ const MODES = [
     align-items: flex-end;
     gap: var(--ori-size-gap_xs, 0.125rem);
 
-    font-family: Caveat, cursive;
-    font-size: 1.6rem;
-    font-weight: 600;
-    line-height: 1;
-    opacity: 0.8;
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1.2;
+    opacity: 0.75;
 }
 
 /* Hangs under the top-right island; the arrow's tip stops short of it. */
@@ -305,7 +263,6 @@ const MODES = [
 }
 
 @media (width <= 600px) {
-    .welcome__brush,
     .welcome__keys,
     .welcome__hint--top {
         display: none;
@@ -342,7 +299,7 @@ const MODES = [
         bottom: 8.25rem;
         left: 50%;
 
-        font-size: 1.35rem;
+        font-size: 1rem;
 
         transform: translateX(-50%);
         white-space: nowrap;
