@@ -115,6 +115,14 @@ The document (`DEFAULT_CANVAS`, 1920×1080) is fitted to its container by a `Res
 `autoFit` is on. A manual zoom or pan turns it off; `loadDocument` and "fit" turn it back on. The canvas
 backing store is `stage.width × devicePixelRatio` — correct retina sizing, not a bug.
 
+### A dark canvas is a CSS filter, not a render
+
+`/draw`'s dark look is `.jp-ink-view` inverted by `main.css` under `:root.jp-canvas-dark`; the document,
+the export and the judged raster never see it. Anything that shows a free drawing's colours (a swatch,
+a preview) needs the same class or it disagrees with the canvas. Keep the class on `.shell__canvas`,
+never on `.shell`: a filter makes a stacking context, and the shell's corner controls must stay in the
+root one. The history mark (`getHistoryMark`) covers `setBackground` like any other command.
+
 ### `renderToStage` is the one projection
 
 The browser export (`renderToPNG`, `stage.toBlob`) and the Node worker (`stage.toDataURL()` under

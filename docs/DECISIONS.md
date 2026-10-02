@@ -2,12 +2,20 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-10-02 — White paper, a chosen accent, a canvas that can be dark in any theme
+
+- **White paper on a cool grey desk replaces the warm cream.** The cream neutrals came from an outside suggestion rather than from the subject, and cream with a warm accent is the most common look of generated pages. The paper is the judge's white everywhere, so a free drawing and a scored one sit on the same sheet. The values are in `docs/DESIGN-SYSTEM.md` §1.
+- **The accent is a choice: orange, green, blue or violet.** Presets, not a free picker, because each needs its own fill and ink in both themes to clear the contrast bars; `check-contrast.mjs` checks every one. The green is the light theme's `hsl(125 100% 20%)`. A lighter `hsl(125 100% 30%)` fails 4.5:1 as a button fill with either white or dark label text.
+- **A dark canvas inverts the view, not the drawing.** Strokes are kept for light paper, and a dark canvas shows them through `invert(93%) hue-rotate(180deg)`, as Excalidraw does. Storing colours per theme would hide black ink on dark paper (the default pen was near-invisible there) and make a drawing's look depend on who opened it. The canvas look is Auto (the theme's), Light or Dark, so either look is available in either theme. Exports stay as drawn.
+- **A drawing's background is one of a few light tints, saved with it.** `Editor.setBackground` is undoable and goes through the history like any other change. A dark tint was tried and dropped: it hides the default black ink in both looks and buries a drawing made before it; a dark canvas is the Look setting.
+- **The welcome says what the product is.** "A sketchbook with an AI judge." replaces a generic tagline, and the motto went.
+
 ## 2026-10-02 — One typeface, emphasis that follows what is at stake
 
 - **Nunito is the only typeface.** A hand-drawn face (Caveat) set the welcome's motto and hints and was dropped: Nunito's rounded forms already carry the playful tone, and one face keeps the welcome reading as part of the app. The welcome has no decoration either: the brush strokes behind it went, since the empty canvas is the picture.
 - **Save is loud only while there is work to lose.** The `/draw` Save button is `solid` while the drawing has unsaved changes and `soft` otherwise. A button that appears only once there are changes was rejected: it would shift Layers and AI sideways on the first stroke. "Unsaved" is exact under undo: the editor exposes its position in the undo history (`Editor.getHistoryMark`), and undoing back to the saved point is clean again. The leave question reads the same flag.
 - **Red has two weights.** A confirm that destroys something saved (the gallery's Delete) is solid red; one that drops only unsaved work (Leave, Clear the canvas) is outlined red (`ConfirmDialog`'s `danger` and `discard`).
-- **The prompt opens large.** In `/practice` and `/play` the prompt is set large under its label while the canvas is empty, and settles into the one-line banner with the first stroke, so the round starts with the task in front of the player.
+- **The round is bracketed by two cards.** In `/practice` and `/play` the prompt is dealt as a card, one sentence ("Draw a fox riding a bicycle") in Nunito Black, tilted like a card on the table, while the canvas is empty; the first stroke puts it away into the one-line banner. The judge's score comes back the same way: a card held up with the number on it, the winner's in the accent. These two cards are the only motion that starts by itself, and the one place the UI is loud; the bars and the uppercase labels they replace went.
 - **The leaderboard is reached from the rating.** The `/draw` menu lost its Leaderboard row, since the ladder belongs to the game; the rating under the player's name in that menu links to it.
 - **Gallery previews crop to the drawing.** A preview frames the strokes' bounds, padded, at 4:3, rather than the whole sheet, where a small sketch was a speck. A minimum frame keeps a single dot from being blown up.
 
@@ -18,8 +26,8 @@ Key decisions and the reasons behind them, newest first. Each entry states a dec
 - **The name is asked on the first save, and renaming lives in the gallery.** `SaveDialog` asks once (default "Untitled drawing"); later saves send no `name`, and the server keeps the stored one (`docs/API.md` §7). The gallery is where the names are read, so it is where they are edited. The API has no rename-only route, so a rename re-sends the document, fetched fresh first so it can't overwrite a newer save from another tab. A gallery replaces "load the latest drawing": the menu's "My drawings" goes to `/gallery`, and `/draw?id=<id>` opens one.
 - **Gallery previews are rendered in the browser.** Each card renders its drawing from the document with the editor's `renderToStage`, the same approach as the duel reveal (2026-07-11). There is no object storage, migration or endpoint, and `thumbnail_url` stays null. The cost is one document fetch per visible card, which is why a page is 24 drawings and a fetched document is trusted for a minute. Object storage is the way out if a page of previews gets slow.
 - **Leaving asks when work would be lost.** `useLeaveGuard` puts a `ConfirmDialog` on a route change: `/draw` asks when there are unsaved changes, `/practice` when a drawing is in progress (nothing keeps it), `/play` while drawing or waiting. Leaving a duel never cancels it on the server, so the dialog says the round runs on and an opponent who submits alone wins by forfeit (`docs/GAME.md` §4.1). With the switcher one click away on every screen, a stray click would otherwise leave a live round.
-- **The sheet is visible in every editor view.** `/practice` and `/play` paint the sheet the judge sees: white in both themes (`useBackdrop(editor, { judged: true })`, the same color as `JUDGE_BG` in `packages/render`), so ink that would vanish for the judge vanishes on screen too. Without a backdrop the 1080×1080 sheet's edge is invisible on the desk. `/draw` paints a warm paper per theme and offers the checkerboard.
-- **The neutrals are warm paper tones, and the orange stays the one accent.** The values are in `docs/DESIGN-SYSTEM.md` §1. A red accent was rejected because it collides with the danger color: a destructive button and a brand button would read alike. The wordmark sits on the page background rather than the surface, since the orange clears the large-text 3:1 bar only there.
+- **The sheet is visible in every editor view.** `/practice` and `/play` paint the sheet the judge sees: white in both themes (`useBackdrop(editor, { judged: true })`, the same color as `JUDGE_BG` in `packages/render`), so ink that would vanish for the judge vanishes on screen too. Without a backdrop the 1080×1080 sheet's edge is invisible on the desk. `/draw` paints the same white and offers the checkerboard.
+- **One accent at a time.** A red accent was rejected because it collides with the danger color: a destructive button and a brand button would read alike. The wordmark sits on the page background rather than the surface, since the orange clears the large-text 3:1 bar only there.
 
 ## 2026-09-30 — The web app is grouped by feature, with one editor host
 
@@ -273,7 +281,7 @@ The `/play` result screen must show the opponent's drawing, but `GET /api/drawin
   3. **Browser axe over the rendered app** (`test:a11y`, Playwright + `@axe-core/playwright`): the only layer that catches rendered mis-pairings. It is a separate command, not part of `lint:all`. Known issues are allowlisted per element with `AxeBuilder.exclude()`, never by disabling a rule, so `color-contrast` stays active everywhere else.
 
   APCA (`apca-w3`) is a possible advisory signal, not a gate.
-- **We keep our own palette tokens in `main.css`** rather than adopting oriui's `neutral` skin: the warm paper palette is ours (2026-09-30 entry).
+- **We keep our own palette tokens in `main.css`** rather than adopting oriui's `neutral` skin: the paper-and-desk palette is ours (2026-10-02 entry).
 
 ## 2026-07-07 — AI Assist design: text drawing commands
 

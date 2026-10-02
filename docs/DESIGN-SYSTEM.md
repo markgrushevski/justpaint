@@ -40,15 +40,22 @@ not an override.)
 - The **entire palette is defined once** in `apps/web/src/main.css` (`:root` + `:root.ori-theme_dark`):
   `--ori-color-primary/secondary/surface/background/outline/danger/warning/success/info` (+ `-on-*`), light & dark.
   That is the **only** place brand color is chosen.
-- **The neutrals are warm paper tones, and the orange is the one accent.** Light: surface `#f3f1eb`, page background
-  `#faf8f3`, ink `#202326`. Dark: `#1d1b19` / `#151412` / `#eeebe4`. The hairline is `#8a857c` / `#75716a` and the
-  desk behind the sheet `#ebe7de` / `#201e1b`. The sheet itself is `paperColor(dark)` in
-  `features/editor/useBackdrop.ts` (`#fdfcf8` / `#12110f`): view-only, never exported or judged. The scored modes
-  paint the judge's white instead, in both themes. No second brand hue.
-- **The orange wordmark sits on the page background, not the surface.** It is large text, and the orange clears the
-  3:1 bar only there (3.02:1 on `#faf8f3`, 2.83:1 on `#f3f1eb`). `scripts/check-contrast.mjs` checks
-  `primary-light` against `background-light`; `ModeNav` gives its `OriSurface` the page background for this reason.
-  The welcome's motto borrows the same ink-then-orange split, at a size and weight that count as large text.
+- **White paper on a cool grey desk, under one accent.** Light: surface `#f4f5f7`, page background `#ffffff`, ink
+  `#1f2226`. Dark: `#1d2024` / `#16181b` / `#e9ebee`. The hairline is `#868b92` / `#737980` and the desk behind the
+  sheet `#e6e8eb` / `#23262a`. The sheet itself is `PAPER` (`#ffffff`) in `features/editor/useBackdrop.ts`, the
+  judge's white: view-only, never exported or judged.
+- **A dark canvas is a view, not a colour.** A free drawing is kept for light paper. When the canvas is dark (the
+  theme's look, or the one picked under Canvas → Look), the canvas, the toolbar's colour wells, the background
+  swatches and the gallery previews carry `.jp-ink-view`, which `main.css` inverts under `:root.jp-canvas-dark`, as
+  Excalidraw does. Exports and the judge get the drawing as kept. The scored modes never invert: their sheet is the
+  judge's white in both themes. A document's own background (`setBackground`) is one of a few light tints.
+- **The accent is the player's pick; orange is the default.** `useThemeStore().setAccent` puts `jp-accent-<name>` on
+  the root, and `main.css` gives each class its four primary sources (fill and ink, light and dark). Every oriui role
+  derive follows, and `check-contrast.mjs` holds each accent to the orange's bars. A class, not a data attribute,
+  because oriui's token observer (the cursor ring's `useThemeColor`) watches the root's `class` only.
+- **The wordmark sits on the page background, not the surface.** It is large text, and the orange clears the 3:1 bar
+  only there (3.20:1 on `#ffffff`, 2.93:1 on `#f4f5f7`). `scripts/check-contrast.mjs` checks `primary-light` against
+  `background-light`; `ModeNav` gives its `OriSurface` the page background for this reason.
 - **One typeface: Nunito**, set in `main.css` and loaded in `index.html`. No hand-drawn or display second face
   (`docs/DECISIONS.md`, 2026-10-02).
 - **Components MUST NOT re-derive brand colors.** `background: color-mix(in srgb, var(--ori-color-primary) 18%, transparent)`
@@ -114,6 +121,9 @@ Build a justpaint component **only** where oriui has a genuine gap or we want a 
   `outline` — no hand-rolled `--active`/`color-mix`) and ADDS the single-select model + radiogroup a11y
   (`role="radiogroup"`/`radio`, `aria-checked`, roving-tabindex arrow keys). `OriRadioGroup` exists but is the wrong
   visual here (radio circles, not a segmented look).
+- **`SwatchPicker`** — a single-select row of colour dots (the accent, the canvas background). Each dot is an
+  icon-mode `OriButton` painted through the per-instance `--ori-color` / `--ori-color-on` escape hatch (§0), with
+  SegmentedControl's radiogroup semantics; the selection ring is a wrapper of ours, so the button stays oriui's.
 - **`MenuRow`** — one row of a menu panel (the `/draw` menu): an `OriButton` (`variant="text"`, `color="surface"`,
   `fluid`) holding an icon, a label, and a shortcut hint or a chevron into a sub-panel; `to` renders it as a link.
   It exists because oriui has no list row outside `OriMenu`, whose `role="menu"` can't hold the panel's inline
@@ -198,6 +208,9 @@ component's own hover is never restyled: not through `.ori-*` rules, and not by 
 
 What we may animate:
 
+- **The round's two cards, and nothing else on its own.** The prompt card is dealt when a round starts and put away
+  on the first stroke (`GamePromptBanner`); the score card is held up when the judge answers (`PracticeResult`,
+  `ResultReveal`). Every other motion answers something the player did.
 - **Our own elements** — the `ModeNav` underline drawing in under the current mode, the `/draw` menu card fading
   and scaling in.
 - **Our glyphs inside an oriui component** — the `ToolIcon` in each `OriToolbar` item lifts on hover, squashes on
