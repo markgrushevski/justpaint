@@ -280,6 +280,15 @@ export class Editor {
         return this.history.canRedo
     }
 
+    /**
+     * Where the document stands in its undo history, as an opaque token. Every document
+     * change goes through the history, so a matching token means an unchanged document;
+     * `loadDocument` starts a new history, and the token compares only within one.
+     */
+    getHistoryMark(): object | null {
+        return this.history.mark
+    }
+
     undo(): void {
         if (!this.history.undo(this.doc)) return
         this.reconcileActiveLayer()

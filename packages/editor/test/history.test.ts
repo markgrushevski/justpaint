@@ -173,6 +173,29 @@ describe('History', () => {
         expect(order(d)).toEqual(['L1'])
     })
 
+    it('mark returns to an earlier value exactly when the document does', () => {
+        const d = doc(layer('L1'))
+        const h = new History()
+        expect(h.mark).toBeNull()
+
+        h.execute(d, addStrokeCommand('L1', stroke('s1')))
+        const saved = h.mark
+        expect(saved).not.toBeNull()
+
+        h.execute(d, addStrokeCommand('L1', stroke('s2')))
+        expect(h.mark).not.toBe(saved)
+        h.undo(d)
+        expect(h.mark).toBe(saved)
+        h.redo(d)
+        expect(h.mark).not.toBe(saved)
+
+        // Undo past the mark, then branch: same stroke count as at the mark, other document.
+        h.undo(d)
+        h.undo(d)
+        h.execute(d, addStrokeCommand('L1', stroke('s3')))
+        expect(h.mark).not.toBe(saved)
+    })
+
     it('clear() drops both stacks', () => {
         const d = doc(layer('L1'))
         const h = new History()

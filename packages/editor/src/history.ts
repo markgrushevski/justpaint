@@ -183,6 +183,14 @@ export class History {
         return this.redoStack.length > 0
     }
 
+    /**
+     * The last applied command as an identity token; null at the start. Commands are exact
+     * inverses, so two equal marks mean two equal documents.
+     */
+    get mark(): object | null {
+        return this.undoStack[this.undoStack.length - 1] ?? null
+    }
+
     /** Apply a command and record it; clears the redo stack (a new branch). */
     execute(doc: Document, cmd: Command): void {
         cmd.apply(doc)
