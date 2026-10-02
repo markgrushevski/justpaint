@@ -109,7 +109,14 @@ const sides = computed<SideView[]>(() => [
 </script>
 
 <template>
-    <OriSurface class="result" role="dialog" aria-modal="false" aria-labelledby="result-headline">
+    <OriSurface
+        class="result"
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="result-headline"
+        :bordered="false"
+        elevation="lg"
+    >
         <h2 id="result-headline" class="result__headline">{{ headline }}</h2>
 
         <div class="result__frames">
@@ -185,7 +192,7 @@ const sides = computed<SideView[]>(() => [
 .result {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_md, 0.5rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
     width: min(94vw, 34rem);
     max-height: min(90dvh, 44rem);
@@ -341,9 +348,7 @@ const sides = computed<SideView[]>(() => [
 .result__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--ori-size-gap_sm, 0.25rem);
-
-    margin-top: var(--ori-size-gap_xs, 0.125rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 }
 
 .result__again,

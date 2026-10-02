@@ -48,6 +48,8 @@ const pocketing = computed(() => dealt.value && !props.large)
         :class="{ 'banner--large': large, 'banner--pocket': pocketing, 'banner--duel': !solo }"
         role="status"
         aria-live="polite"
+        :bordered="false"
+        elevation="md"
     >
         <!-- Stacked in one grid cell; each layer's opacity binds straight to `revealed`. -->
         <div

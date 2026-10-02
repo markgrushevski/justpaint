@@ -249,7 +249,7 @@ function confirmDelete(): void {
 .gallery__content {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_xl, 1rem);
+    gap: var(--ori-size-gap_xxl, 1.5rem);
 
     max-width: 1100px;
     margin: 0 auto;
@@ -290,7 +290,7 @@ function confirmDelete(): void {
 .gallery__grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: var(--ori-size-gap_lg, 0.75rem);
+    gap: var(--ori-size-gap_xl, 1rem);
 
     margin: 0;
     padding: 0;

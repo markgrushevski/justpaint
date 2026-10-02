@@ -549,7 +549,7 @@ onBeforeUnmount(() => {
         </template>
 
         <template #overlay>
-            <OriSurface v-if="phase === 'error'" class="play__notice" role="alert">
+            <OriSurface v-if="phase === 'error'" class="play__notice" role="alert" :bordered="false" elevation="lg">
                 <h2 class="play__notice-title">
                     {{ exhausted ? 'That’s your duels for today' : 'Can’t start the duel' }}
                 </h2>
@@ -592,13 +592,13 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 }
 
 .play__opponent {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 }
 
 /* Clears the timer chip and the corner islands on a narrow phone. */
@@ -620,7 +620,7 @@ onBeforeUnmount(() => {
     gap: var(--ori-size-gap_sm, 0.25rem);
 
     width: min(92vw, 24rem);
-    padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem) var(--ori-size-gap_xl, 1rem);
+    padding: var(--ori-size-gap_xl, 1rem);
 
     pointer-events: auto;
     text-align: center;
@@ -635,7 +635,7 @@ onBeforeUnmount(() => {
 }
 
 .play__notice-msg {
-    margin: 0 0 var(--ori-size-gap_sm, 0.25rem);
+    margin: 0 0 var(--ori-size-gap_lg, 0.75rem);
 
     font-size: var(--ori-font-size_sm, 0.9rem);
     opacity: 0.8;

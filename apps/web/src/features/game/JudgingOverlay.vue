@@ -17,7 +17,7 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
 
 <template>
     <div class="judging">
-        <OriSurface class="judging__card">
+        <OriSurface class="judging__card" :bordered="false" elevation="lg">
             <OriSpinner size="lg" color="primary" />
             <h2 class="judging__title">{{ solo ? 'The judge is looking…' : 'Judging the duel…' }}</h2>
             <p class="judging__sub">
@@ -62,7 +62,7 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
     gap: var(--ori-size-gap_sm, 0.25rem);
 
     width: min(92vw, 30rem);
-    padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem);
+    padding: var(--ori-size-gap_xl, 1rem);
 
     text-align: center;
 }
@@ -76,7 +76,7 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
 }
 
 .judging__sub {
-    margin: 0 0 var(--ori-size-gap_md, 0.5rem);
+    margin: 0 0 var(--ori-size-gap_lg, 0.75rem);
 
     font-size: var(--ori-font-size_sm, 0.85rem);
     opacity: 0.7;
@@ -85,7 +85,7 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
 .judging__frames {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--ori-size-gap_md, 0.5rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
     width: 100%;
 }
@@ -102,7 +102,7 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
 .judging__frame {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_xs, 0.125rem);
+    gap: var(--ori-size-gap_sm, 0.25rem);
     align-items: center;
 }
 

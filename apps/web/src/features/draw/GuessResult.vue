@@ -97,7 +97,7 @@ const pending = computed(() => props.status === 'pending')
 </script>
 
 <template>
-    <OriSurface class="guess" role="group" aria-labelledby="guess-title">
+    <OriSurface class="guess" role="group" aria-labelledby="guess-title" :bordered="false" elevation="lg">
         <!-- Explicit close: the trigger that opened this card can be off-screen
              on a narrow phone, so it must stay dismissible from within. -->
         <div class="guess__head">
@@ -166,7 +166,7 @@ const pending = computed(() => props.status === 'pending')
 .guess {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
     width: min(22rem, calc(100vw - 2rem));
     max-height: min(70dvh, 24rem);
@@ -250,6 +250,5 @@ const pending = computed(() => props.status === 'pending')
    `fluid` was dropped to avoid, so the action sizes to its own text. */
 .guess__action {
     align-self: flex-start;
-    margin-top: var(--ori-size-gap_xs, 0.125rem);
 }
 </style>

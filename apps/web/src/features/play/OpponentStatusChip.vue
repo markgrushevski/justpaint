@@ -43,7 +43,7 @@ const inProgress = computed(() => props.status !== 'submitted')
 </script>
 
 <template>
-    <OriSurface class="opp" :class="{ 'opp--offline': online === false }">
+    <OriSurface class="opp" :class="{ 'opp--offline': online === false }" :bordered="false" elevation="md">
         <OriAvatar class="opp__avatar" :name="name" color="secondary" size="sm" />
         <div class="opp__who">
             <span class="opp__name">{{ name }}</span>
@@ -59,9 +59,9 @@ const inProgress = computed(() => props.status !== 'submitted')
 .opp {
     display: flex;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
-    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_sm, 0.25rem);
+    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
     max-width: 60vw;
 }
 

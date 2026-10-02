@@ -45,7 +45,7 @@ function goBack(): void {
 <template>
     <main class="lb" aria-labelledby="lb-title">
         <ModeNav class="lb__nav" />
-        <OriSurface class="lb__panel">
+        <OriSurface class="lb__panel" :bordered="false" elevation="lg">
             <header class="lb__header">
                 <div class="lb__heading">
                     <h1 id="lb-title" class="lb__title">Leaderboard</h1>

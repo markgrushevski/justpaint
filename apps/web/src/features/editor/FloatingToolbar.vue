@@ -98,7 +98,7 @@ function onWidth(e: Event) {
 </script>
 
 <template>
-    <OriSurface as="div" class="bar" elevation="lg">
+    <OriSurface as="div" class="bar" :bordered="false" elevation="md">
         <OriToolbar class="bar__toolbar" label="Drawing tools">
             <OriToolbarToggleGroup
                 type="single"

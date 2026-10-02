@@ -54,10 +54,18 @@ const topBand = computed(() => band.value === BANDS[0])
 </script>
 
 <template>
-    <OriSurface class="pr" role="dialog" aria-modal="false" aria-labelledby="pr-headline">
-        <h2 id="pr-headline" class="pr__headline">{{ headline }}</h2>
-
-        <p class="pr__prompt">You drew {{ prompt }}</p>
+    <OriSurface
+        class="pr"
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="pr-headline"
+        :bordered="false"
+        elevation="lg"
+    >
+        <header class="pr__head">
+            <h2 id="pr-headline" class="pr__headline">{{ headline }}</h2>
+            <p class="pr__prompt">You drew {{ prompt }}</p>
+        </header>
 
         <div class="pr__scoreline">
             <div class="pr__canvas">
@@ -125,16 +133,22 @@ const topBand = computed(() => band.value === BANDS[0])
 .pr {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_md, 0.5rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
     width: min(94vw, 32rem);
     max-height: min(90dvh, 44rem);
-    padding: var(--ori-size-gap_lg, 0.75rem);
+    padding: var(--ori-size-gap_xl, 1rem);
     /* The card swings wider than the surface while it turns into place; that
        must not flash a horizontal scrollbar. */
     overflow: hidden auto;
 
     pointer-events: auto;
+}
+
+.pr__head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ori-size-gap_xs, 0.125rem);
 }
 
 .pr__headline {
@@ -255,9 +269,7 @@ const topBand = computed(() => band.value === BANDS[0])
 .pr__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--ori-size-gap_sm, 0.25rem);
-
-    margin-top: var(--ori-size-gap_xs, 0.125rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 }
 
 .pr__action {

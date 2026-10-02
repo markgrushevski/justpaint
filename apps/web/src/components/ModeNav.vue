@@ -39,7 +39,7 @@ function go(mode: string) {
 </script>
 
 <template>
-    <OriSurface as="nav" class="mode-nav" aria-label="Modes">
+    <OriSurface as="nav" class="mode-nav" aria-label="Modes" :bordered="false" elevation="md">
         <OriMenu v-if="collapsed" :items="menuItems" placement="bottom-start" @select="go">
             <template #trigger="{ props: trigger }">
                 <OriButton

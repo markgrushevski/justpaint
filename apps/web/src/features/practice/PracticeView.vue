@@ -312,13 +312,19 @@ onBeforeUnmount(() => {
 
         <!-- The submit notice is last: it rides over a live `drawing` phase. -->
         <template #overlay>
-            <OriSurface v-if="phase === 'error'" class="practice__notice" role="alert">
+            <OriSurface v-if="phase === 'error'" class="practice__notice" role="alert" :bordered="false" elevation="lg">
                 <h2 class="practice__notice-title">Nothing to draw yet</h2>
                 <p class="practice__notice-msg">{{ loadError }}</p>
                 <OriButton label="Try again" variant="solid" color="primary" radius="md" @click="loadPrompt" />
             </OriSurface>
 
-            <OriSurface v-else-if="phase === 'loading'" class="practice__loading" role="status">
+            <OriSurface
+                v-else-if="phase === 'loading'"
+                class="practice__loading"
+                role="status"
+                :bordered="false"
+                elevation="md"
+            >
                 <OriSpinner size="lg" color="primary" />
                 <span class="practice__loading-text">Finding you something to draw…</span>
             </OriSurface>
@@ -336,7 +342,7 @@ onBeforeUnmount(() => {
                 @play-duel="playDuel"
             />
 
-            <OriSurface v-else-if="submitError" class="practice__notice" role="alert">
+            <OriSurface v-else-if="submitError" class="practice__notice" role="alert" :bordered="false" elevation="lg">
                 <h2 class="practice__notice-title">
                     {{ submitExhausted ? 'That’s your judging for today' : 'The judge didn’t answer' }}
                 </h2>
@@ -411,7 +417,7 @@ onBeforeUnmount(() => {
 /* On its own surface chip: the sheet under it is white in both themes, so bare
    theme ink would vanish in the dark one. */
 .practice__hint {
-    padding: 0 var(--ori-size-gap_sm, 0.25rem);
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_md, 0.5rem);
 
     border-radius: var(--ori-size-radius_sm, 4px);
     background-color: var(--ori-color-surface);
@@ -428,7 +434,7 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
     padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem);
 
@@ -447,7 +453,7 @@ onBeforeUnmount(() => {
     gap: var(--ori-size-gap_sm, 0.25rem);
 
     width: min(92vw, 24rem);
-    padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem) var(--ori-size-gap_xl, 1rem);
+    padding: var(--ori-size-gap_xl, 1rem);
 
     pointer-events: auto;
     text-align: center;
@@ -462,7 +468,7 @@ onBeforeUnmount(() => {
 }
 
 .practice__notice-msg {
-    margin: 0 0 var(--ori-size-gap_sm, 0.25rem);
+    margin: 0 0 var(--ori-size-gap_lg, 0.75rem);
 
     font-size: var(--ori-font-size_sm, 0.9rem);
     overflow-wrap: anywhere;
@@ -472,7 +478,7 @@ onBeforeUnmount(() => {
 .practice__notice-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
     width: 100%;
 }

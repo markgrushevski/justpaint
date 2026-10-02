@@ -59,8 +59,8 @@ function onOpenChange(open: boolean) {
 .save__actions {
     display: flex;
     justify-content: flex-end;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
-    margin-top: var(--ori-size-gap_md, 0.5rem);
+    margin-top: var(--ori-size-gap_xl, 1rem);
 }
 </style>

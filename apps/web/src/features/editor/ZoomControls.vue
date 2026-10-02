@@ -8,7 +8,7 @@ const emit = defineEmits<{ zoomIn: []; zoomOut: []; fit: [] }>()
 </script>
 
 <template>
-    <OriSurface class="zoom" role="group" aria-label="Zoom">
+    <OriSurface class="zoom" role="group" aria-label="Zoom" :bordered="false" elevation="md">
         <IconButton icon="minus" label="Zoom out — Ctrl+-" @click="emit('zoomOut')" />
         <span class="zoom__value">{{ percent }}%</span>
         <IconButton icon="plus" label="Zoom in — Ctrl+=" @click="emit('zoomIn')" />

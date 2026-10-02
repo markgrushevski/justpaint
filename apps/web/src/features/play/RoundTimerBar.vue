@@ -47,7 +47,7 @@ const clock = computed(() => {
         <div class="timer__rail">
             <div class="timer__fill" :style="{ transform: `scaleX(${fraction})` }"></div>
         </div>
-        <OriSurface as="span" class="timer__clock">{{ clock }}</OriSurface>
+        <OriSurface as="span" class="timer__clock" :bordered="false" elevation="md">{{ clock }}</OriSurface>
     </div>
 </template>
 
@@ -92,7 +92,7 @@ const clock = computed(() => {
     left: 50%;
     transform: translateX(-50%);
 
-    padding: 0.05rem 0.55rem;
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_lg, 0.75rem);
 
     color: var(--timer-color);
 

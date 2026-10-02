@@ -101,7 +101,7 @@ const MODES = [
 
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
     width: 17rem;
 
