@@ -117,8 +117,8 @@ backing store is `stage.width × devicePixelRatio` — correct retina sizing, no
 
 ### A dark canvas is a CSS filter, not a render
 
-`/draw`'s dark look is `.jp-ink-view` inverted by `main.css` under `:root.jp-canvas-dark`; the document,
-the export and the judged raster never see it. Anything that shows a free drawing's colours (a swatch,
+With "Invert in the dark theme" on, `/draw`'s dark look is `.jp-ink-view` inverted by `main.css` under
+`:root.jp-canvas-dark`; the document, the export and the judged raster never see it. Anything that shows a free drawing's colours (a swatch,
 a preview) needs the same class or it disagrees with the canvas. Keep the class on `.shell__canvas`,
 never on `.shell`: a filter makes a stacking context, and the shell's corner controls must stay in the
 root one. The history mark (`getHistoryMark`) covers `setBackground` like any other command.
@@ -299,7 +299,7 @@ inlined elsewhere (`.ori-spinner` ships in `button.css`).
 
 ### oriui packages move in lockstep
 
-`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.19`), and
+`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.21`), and
 `@oriui/vue` pins the other two to its own, so bump all three together. `@oriui/css` must be imported
 for its side effects or components render unstyled.
 
@@ -351,12 +351,6 @@ clusters accordingly.
 
 In a browser without it (Firefox, as of mid-2026) the popover still opens but sits at the UA default
 position. Check current support before building anchor-critical UI on it.
-
-### A transformed ancestor misplaces an `OriMenu` panel
-
-The menu's panel is `position: fixed` and anchor-positioned, and an ancestor with a `transform` becomes its
-containing block, so the panel opens in the wrong place. Put a hover lift or any other transform on a
-wrapper beside the menu, never around it (`DrawingCard.vue` lifts the card and the trigger separately).
 
 ## Go backend
 

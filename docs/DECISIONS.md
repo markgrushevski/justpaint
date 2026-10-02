@@ -2,12 +2,21 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-10-03 — The canvas colour is the drawing's; inverting is a choice; oriui rc.21
+
+- **A drawing keeps its canvas colour, and the menu offers light and dark papers and a custom one.** The colour is `doc.background`, shown as it is in both themes, so a colour never changes on screen behind the player's back and an export matches the screen. A new drawing starts on the theme's paper and an untouched one follows the theme; the pen's default ink flips with the paper unless the player picked a colour. Picking a dark paper under black strokes hides them, which undo answers. This replaces the light-tints-only rule and the Auto/Light/Dark "Look" below.
+- **Excalidraw's inverted dark canvas is a switch, off by default.** Excalidraw inverts the whole canvas in its dark theme, so any drawing reads, but colours shift and a light canvas in the dark theme needs a dark stored colour. Both behaviours have a case, so the menu offers "Invert in the dark theme".
+- **A custom accent, made safe rather than refused.** Any colour is accepted; `core/utils/color.ts` moves the fill just far enough to clear 3:1 against each page and labels it black or white, one of which always clears 4.5:1. The presets stay in `main.css` and the contrast check.
+- **The canvas colour sits in the main menu, as in Excalidraw**, not in a sub-panel or a new top-row button; canvas size, which changes rarely, keeps its sub-panel.
+- **oriui rc.21 replaces two local components.** `OriList` (rows that can hold controls) replaces `MenuRow`, and `OriSegmentedControl` replaces our `SegmentedControl`; ISSUES-OUTER JP-O-12 and JP-O-13 closed with it.
+- **Islands lost their borders and most of their shadow.** A hairline around every island read as clutter; without a border, a soft `md` shadow keeps an island's edge on the white sheet.
+- **The pen follows the width control.** Freehand strokes used a fixed brush size of 16 whatever the width; the size is now three times the width, and the cursor ring shows it.
+
 ## 2026-10-02 — White paper, a chosen accent, a canvas that can be dark in any theme
 
-- **White paper on a cool grey desk replaces the warm cream.** The cream neutrals came from an outside suggestion rather than from the subject, and cream with a warm accent is the most common look of generated pages. The paper is the judge's white everywhere, so a free drawing and a scored one sit on the same sheet. The values are in `docs/DESIGN-SYSTEM.md` §1.
-- **The accent is a choice: orange, green, blue or violet.** Presets, not a free picker, because each needs its own fill and ink in both themes to clear the contrast bars; `check-contrast.mjs` checks every one. The green is the light theme's `hsl(125 100% 20%)`. A lighter `hsl(125 100% 30%)` fails 4.5:1 as a button fill with either white or dark label text.
-- **A dark canvas inverts the view, not the drawing.** Strokes are kept for light paper, and a dark canvas shows them through `invert(93%) hue-rotate(180deg)`, as Excalidraw does. Storing colours per theme would hide black ink on dark paper (the default pen was near-invisible there) and make a drawing's look depend on who opened it. The canvas look is Auto (the theme's), Light or Dark, so either look is available in either theme. Exports stay as drawn.
-- **A drawing's background is one of a few light tints, saved with it.** `Editor.setBackground` is undoable and goes through the history like any other change. A dark tint was tried and dropped: it hides the default black ink in both looks and buries a drawing made before it; a dark canvas is the Look setting.
+- **White paper on a grey desk replaces the warm cream.** The desk is concrete grey (`#e4e2de`), picked over cool grey, slate and sage from screenshots. The cream neutrals came from an outside suggestion rather than from the subject, and cream with a warm accent is the most common look of generated pages. The paper is the judge's white everywhere, so a free drawing and a scored one sit on the same sheet. The values are in `docs/DESIGN-SYSTEM.md` §1.
+- **The accent is a choice: orange, green, blue or violet, or a custom colour (2026-10-03).** Each preset has its own fill and ink in both themes, and `check-contrast.mjs` checks every one. The green is the light theme's `hsl(125 100% 20%)`. A lighter `hsl(125 100% 30%)` fails 4.5:1 as a button fill with either white or dark label text.
+- **`Editor.setBackground` is undoable** and goes through the history like any other change, so the Save emphasis and the leave question cover a colour change too. (How the canvas colour is chosen and shown: 2026-10-03.)
 - **The welcome says what the product is.** "A sketchbook with an AI judge." replaces a generic tagline, and the motto went.
 
 ## 2026-10-02 — One typeface, emphasis that follows what is at stake
