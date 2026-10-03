@@ -7,7 +7,8 @@
  * copy) since it's the same moment in both modes — the judge looking at a
  * drawing — so a second copy of the scrim would drift.
  */
-import { OriSkeleton, OriSpinner, OriSurface } from '@oriui/vue'
+import { OriSkeleton, OriSpinner } from '@oriui/vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
     opponentName: 'Player 2',
@@ -17,7 +18,7 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
 
 <template>
     <div class="judging">
-        <OriSurface class="judging__card" :bordered="false" elevation="lg">
+        <IslandSurface class="judging__card" elevation="lg">
             <OriSpinner size="lg" color="primary" />
             <h2 class="judging__title">{{ solo ? 'The judge is looking…' : 'Judging the duel…' }}</h2>
             <p class="judging__sub">
@@ -36,7 +37,7 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
                     <span class="judging__cap">{{ opponentName }}</span>
                 </div>
             </div>
-        </OriSurface>
+        </IslandSurface>
     </div>
 </template>
 
@@ -79,7 +80,7 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
     margin: 0 0 var(--ori-size-gap_lg, 0.75rem);
 
     font-size: var(--ori-font-size_sm, 0.85rem);
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .judging__frames {
@@ -115,6 +116,6 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
 .judging__cap {
     font-size: var(--ori-font-size_xs, 0.75rem);
     font-weight: 700;
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 </style>

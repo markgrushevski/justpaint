@@ -5,13 +5,14 @@
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { OriButton, OriInput, OriMenu, OriSurface, OriToaster } from '@oriui/vue'
+import { OriButton, OriInput, OriMenu, OriToaster } from '@oriui/vue'
 import { LIMITS } from '@justpaint/editor'
 import { isDarkColor, useThemeStore } from '@core'
 import ConfirmDialog from '../../components/ConfirmDialog.vue'
 import ModeNav from '../../components/ModeNav.vue'
 import ToolIcon from '../../components/icons/ToolIcon.vue'
 import IconButton from '../../components/ui/IconButton.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 import EditorShell from '../editor/EditorShell.vue'
 import FloatingToolbar from '../editor/FloatingToolbar.vue'
 import ShortcutsDialog from '../editor/ShortcutsDialog.vue'
@@ -237,7 +238,7 @@ onBeforeUnmount(() => assist.clear())
 
         <!-- Flips from input to accept/reject while a proposal is pending. -->
         <template #top-center>
-            <OriSurface v-if="assist.open" class="draw__assist" :bordered="false" role="group" aria-label="AI assist">
+            <IslandSurface v-if="assist.open" class="draw__assist" elevation="lg" role="group" aria-label="AI assist">
                 <!-- The AI menu can be off-screen on narrow widths. -->
                 <div class="draw__assist-head">
                     <span class="draw__assist-title">Draw with AI</span>
@@ -284,11 +285,11 @@ onBeforeUnmount(() => assist.clear())
                         />
                     </div>
                 </template>
-            </OriSurface>
+            </IslandSurface>
         </template>
 
         <template #top-right>
-            <OriSurface class="draw__actions" :bordered="false" elevation="md">
+            <IslandSurface class="draw__actions" elevation="md">
                 <IconButton
                     icon="layers"
                     label="Layers"
@@ -339,7 +340,7 @@ onBeforeUnmount(() => assist.clear())
                     :loading="file.busy"
                     @click="file.save"
                 />
-            </OriSurface>
+            </IslandSurface>
         </template>
 
         <template #bottom-center>
@@ -368,10 +369,10 @@ onBeforeUnmount(() => assist.clear())
         </template>
 
         <template #bottom-left>
-            <OriSurface v-if="coords" class="draw__coords" :bordered="false" elevation="md">
+            <IslandSurface v-if="coords" class="draw__coords" elevation="md">
                 <span class="draw__coords-mark" aria-hidden="true">⌖</span>
                 <span class="draw__coords-value">{{ Math.round(coords.x) }}, {{ Math.round(coords.y) }}</span>
-            </OriSurface>
+            </IslandSurface>
         </template>
 
         <template #overlay>
@@ -449,7 +450,7 @@ onBeforeUnmount(() => assist.clear())
 
         <!-- Self-positioned chrome in the shell's default slot. The toggle sits above the
              menu panel, so the same chip closes it. -->
-        <OriSurface class="draw__menu-toggle" :bordered="false" elevation="md">
+        <IslandSurface class="draw__menu-toggle" elevation="md">
             <IconButton
                 :icon="menuOpen ? 'close' : 'menu'"
                 :label="menuOpen ? 'Close menu' : 'Open menu'"
@@ -457,13 +458,13 @@ onBeforeUnmount(() => assist.clear())
                 :pressed="menuOpen"
                 @click="menuOpen = !menuOpen"
             />
-        </OriSurface>
+        </IslandSurface>
 
         <!-- Phones only: the toolbar hides its history group <=600px. -->
-        <OriSurface class="draw__history" :bordered="false" elevation="md" role="group" aria-label="History">
+        <IslandSurface class="draw__history" elevation="md" role="group" aria-label="History">
             <IconButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
             <IconButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
-        </OriSurface>
+        </IslandSurface>
 
         <!-- Scrim behind the mobile layers bottom sheet (display:none >600px) -->
         <div v-if="layersOpen" class="draw__layers-scrim" @click="layersOpen = false"></div>
@@ -645,7 +646,7 @@ onBeforeUnmount(() => assist.clear())
     font-size: var(--ori-font-size_xs, 0.75rem);
     font-variant-numeric: tabular-nums;
 
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
     pointer-events: none;
     user-select: none;
 }

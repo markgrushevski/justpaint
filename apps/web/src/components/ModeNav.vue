@@ -7,8 +7,9 @@
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { OriButton, OriIcon, OriMenu, OriSurface } from '@oriui/vue'
+import { OriButton, OriIcon, OriMenu } from '@oriui/vue'
 import { icons } from '@core'
+import IslandSurface from './ui/IslandSurface.vue'
 import type { AppMode } from '../router'
 
 const props = withDefaults(defineProps<{ collapseBelow?: number }>(), { collapseBelow: 600 })
@@ -39,7 +40,7 @@ function go(mode: string) {
 </script>
 
 <template>
-    <OriSurface as="nav" class="mode-nav" aria-label="Modes" :bordered="false" elevation="md">
+    <IslandSurface as="nav" class="mode-nav" aria-label="Modes" elevation="md">
         <OriMenu v-if="collapsed" :items="menuItems" placement="bottom-start" @select="go">
             <template #trigger="{ props: trigger }">
                 <OriButton
@@ -80,7 +81,7 @@ function go(mode: string) {
                 </li>
             </ul>
         </template>
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>

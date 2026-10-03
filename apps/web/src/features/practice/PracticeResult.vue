@@ -25,8 +25,9 @@ const BANDS: { min: number; headline: string }[] = [
  * navigation.
  */
 import { computed } from 'vue'
-import { OriButton, OriCard, OriSurface } from '@oriui/vue'
+import { OriButton, OriCard } from '@oriui/vue'
 import { icons } from '@core'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const props = defineProps<{
     /** Judge similarity, 0..1 exactly as the API delivers it. */
@@ -54,14 +55,7 @@ const topBand = computed(() => band.value === BANDS[0])
 </script>
 
 <template>
-    <OriSurface
-        class="pr"
-        role="dialog"
-        aria-modal="false"
-        aria-labelledby="pr-headline"
-        :bordered="false"
-        elevation="lg"
-    >
+    <IslandSurface class="pr" role="dialog" aria-modal="false" aria-labelledby="pr-headline" elevation="lg">
         <header class="pr__head">
             <h2 id="pr-headline" class="pr__headline">{{ headline }}</h2>
             <p class="pr__prompt">You drew {{ prompt }}</p>
@@ -122,7 +116,7 @@ const topBand = computed(() => band.value === BANDS[0])
             icon-position="left"
             @click="emit('playDuel')"
         />
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
@@ -203,7 +197,7 @@ const topBand = computed(() => band.value === BANDS[0])
     color: #444444;
 
     font-size: var(--ori-font-size_sm, 0.875rem);
-    opacity: 0.6;
+    opacity: var(--jp-dim, 0.6);
 }
 
 /* The judge's card. The variant and colour props paint it; the turn and the

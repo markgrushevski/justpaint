@@ -115,3 +115,15 @@ test.describe('/draw — open overlays (desktop)', () => {
         await expectNoSeriousViolations(page, 'sign-in-open')
     })
 })
+
+test.describe('/draw — more contrast', () => {
+    test('side menu open has no serious/critical a11y violations', async ({ page }) => {
+        await page.emulateMedia({ contrast: 'more' })
+        await gotoDraw(page)
+        await page.locator('.draw__menu-toggle').click()
+        await expect(page.locator('aside.menu')).toHaveCSS('opacity', '1')
+        // The islands take a hairline once more contrast is asked for.
+        await expect(page.locator('.bar')).toHaveCSS('border-top-width', '1px')
+        await expectNoSeriousViolations(page, 'more-contrast-menu-open')
+    })
+})

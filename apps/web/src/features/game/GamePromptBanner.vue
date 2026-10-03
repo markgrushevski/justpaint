@@ -9,7 +9,7 @@
  * stall on a leave and strand the wrong text.
  */
 import { computed, ref, watch } from 'vue'
-import { OriSurface } from '@oriui/vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const props = defineProps<{
     /** The prompt both players draw — shown only once revealed. */
@@ -43,12 +43,11 @@ const pocketing = computed(() => dealt.value && !props.large)
 </script>
 
 <template>
-    <OriSurface
+    <IslandSurface
         class="banner"
         :class="{ 'banner--large': large, 'banner--pocket': pocketing, 'banner--duel': !solo }"
         role="status"
         aria-live="polite"
-        :bordered="false"
         elevation="md"
     >
         <!-- Stacked in one grid cell; each layer's opacity binds straight to `revealed`. -->
@@ -68,7 +67,7 @@ const pocketing = computed(() => dealt.value && !props.large)
         >
             <span class="banner__prompt">Draw {{ prompt }}</span>
         </div>
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
@@ -155,7 +154,7 @@ const pocketing = computed(() => dealt.value && !props.large)
     font-size: var(--ori-font-size_sm, 0.875rem);
     font-weight: 600;
     /* 0.7 keeps the muted line past WCAG AA on the surface. */
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 /* Three shimmering dots standing in for the redacted prompt. */

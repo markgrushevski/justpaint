@@ -33,7 +33,6 @@ import {
     OriCheckbox,
     OriPopover,
     OriSlider,
-    OriSurface,
     OriToolbar,
     OriToolbarButton,
     OriToolbarToggleGroup,
@@ -41,6 +40,7 @@ import {
 } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'
 import ToolIcon from '../../components/icons/ToolIcon.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const toolIds = Object.keys(TOOLS) as ToolId[]
 
@@ -98,7 +98,7 @@ function onWidth(e: Event) {
 </script>
 
 <template>
-    <OriSurface as="div" class="bar" :bordered="false" elevation="md">
+    <IslandSurface as="div" class="bar" elevation="md">
         <OriToolbar class="bar__toolbar" label="Drawing tools">
             <OriToolbarToggleGroup
                 type="single"
@@ -277,7 +277,7 @@ function onWidth(e: Event) {
                 </OriToolbarButton>
             </span>
         </OriToolbar>
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
@@ -483,6 +483,17 @@ function onWidth(e: Event) {
     border: 2px solid var(--ori-color-surface, #ffffff);
     border-radius: 50%;
     box-shadow: 0 0 0 1px var(--jp-color-outline, rgb(0 0 0 / 20%));
+}
+
+/* The dot shows the pen's colour, which a forced-colours mode would paint over; it keeps the
+   colour, and a system-colour ring stands in for the shadow that mode drops. */
+@media (forced-colors: active) {
+    .bar__style-dot {
+        border-color: Canvas;
+        outline: 1px solid CanvasText;
+
+        forced-color-adjust: none;
+    }
 }
 
 .bar__style-panel {

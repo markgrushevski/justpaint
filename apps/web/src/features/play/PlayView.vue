@@ -6,7 +6,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { OriBadge, OriButton, OriSurface } from '@oriui/vue'
+import { OriBadge, OriButton } from '@oriui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { blankDocument, renderToPNG } from '@justpaint/editor'
 import {
@@ -24,6 +24,7 @@ import {
 import type { Match, MatchResultDone, WsFrame } from '@core'
 import ConfirmDialog from '../../components/ConfirmDialog.vue'
 import ModeNav from '../../components/ModeNav.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 import EditorShell from '../editor/EditorShell.vue'
 import FloatingToolbar from '../editor/FloatingToolbar.vue'
 import ZoomControls from '../editor/ZoomControls.vue'
@@ -549,7 +550,7 @@ onBeforeUnmount(() => {
         </template>
 
         <template #overlay>
-            <OriSurface v-if="phase === 'error'" class="play__notice" role="alert" :bordered="false" elevation="lg">
+            <IslandSurface v-if="phase === 'error'" class="play__notice" role="alert" elevation="lg">
                 <h2 class="play__notice-title">
                     {{ exhausted ? 'That’s your duels for today' : 'Can’t start the duel' }}
                 </h2>
@@ -564,7 +565,7 @@ onBeforeUnmount(() => {
                     @click="viewLeaderboard"
                 />
                 <OriButton v-else label="Try again" variant="solid" color="primary" radius="md" @click="startMatch" />
-            </OriSurface>
+            </IslandSurface>
             <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
             <ResultReveal
                 v-else-if="phase === 'done' && result"
@@ -638,6 +639,6 @@ onBeforeUnmount(() => {
     margin: 0 0 var(--ori-size-gap_lg, 0.75rem);
 
     font-size: var(--ori-font-size_sm, 0.9rem);
-    opacity: 0.8;
+    opacity: var(--jp-dim, 0.8);
 }
 </style>

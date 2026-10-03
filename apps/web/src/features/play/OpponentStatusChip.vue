@@ -17,7 +17,8 @@ export type OpponentStatus = 'drawing' | 'submitted' | 'judging'
  * resolved to a safe label; this component never sees a login.
  */
 import { computed } from 'vue'
-import { OriAvatar, OriSurface } from '@oriui/vue'
+import { OriAvatar } from '@oriui/vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const props = defineProps<{
     /** A safe display label — a nickname or "Player 2", never a login. */
@@ -43,7 +44,7 @@ const inProgress = computed(() => props.status !== 'submitted')
 </script>
 
 <template>
-    <OriSurface class="opp" :class="{ 'opp--offline': online === false }" :bordered="false" elevation="md">
+    <IslandSurface class="opp" :class="{ 'opp--offline': online === false }" elevation="md">
         <OriAvatar class="opp__avatar" :name="name" color="secondary" size="sm" />
         <div class="opp__who">
             <span class="opp__name">{{ name }}</span>
@@ -52,7 +53,7 @@ const inProgress = computed(() => props.status !== 'submitted')
                 <span class="opp__status-text">{{ label }}<template v-if="inProgress">…</template></span>
             </span>
         </div>
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
@@ -99,7 +100,7 @@ const inProgress = computed(() => props.status !== 'submitted')
 
     font-size: var(--ori-font-size_xs, 0.75rem);
     /* 0.85 keeps the tiny status line legible past WCAG AA on the surface. */
-    opacity: 0.85;
+    opacity: var(--jp-dim, 0.85);
 }
 
 .opp__status-text {

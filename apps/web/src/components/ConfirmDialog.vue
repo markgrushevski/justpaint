@@ -56,7 +56,7 @@ function onOpenChange(open: boolean) {
     margin: 0;
     font-size: var(--ori-font-size_sm, 0.875rem);
     line-height: 1.5;
-    opacity: 0.85;
+    opacity: var(--jp-dim, 0.85);
 }
 
 .confirm__actions {

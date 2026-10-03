@@ -1,7 +1,8 @@
 <script lang="ts" setup>
-import { OriButton, OriCheckbox, OriSlider, OriSurface } from '@oriui/vue'
+import { OriButton, OriCheckbox, OriSlider } from '@oriui/vue'
 import type { LayerView } from '@justpaint/editor'
 import IconButton from '../../components/ui/IconButton.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const props = defineProps<{
     layers: LayerView[]
@@ -74,7 +75,7 @@ const top = () => props.layers.length - 1
 </script>
 
 <template>
-    <OriSurface as="aside" class="layers" aria-label="Layers" :bordered="false" elevation="lg">
+    <IslandSurface as="aside" class="layers" aria-label="Layers" elevation="lg">
         <header class="layers__head">
             <span class="layers__title">Layers</span>
             <div class="layers__head-actions">
@@ -156,11 +157,11 @@ const top = () => props.layers.length - 1
                 </div>
             </li>
         </ul>
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
-/* A floating island (the host positions it); OriSurface supplies the chrome. */
+/* A floating island (the host positions it); IslandSurface supplies the chrome. */
 .layers {
     width: 100%;
     max-height: 100%;
@@ -252,7 +253,7 @@ const top = () => props.layers.length - 1
 
     font-size: var(--ori-font-size_xs, 0.75rem);
     font-variant-numeric: tabular-nums;
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .layers__opacity {

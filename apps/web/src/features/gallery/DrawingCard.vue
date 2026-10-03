@@ -206,7 +206,7 @@ function onSelect(value: string): void {
 
     font-size: var(--ori-font-size_sm);
     /* 0.7 keeps the muted line past WCAG AA on the surface. */
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 /* Sits on the footer row, at the meta block's corner (its insets plus the card's 1px border). */

@@ -115,6 +115,22 @@
 }
 
 /*
+ * More contrast, when the system asks for it: hairlines move toward the ink and oriui's own
+ * hairlines follow ours, so every edge clears 4.5:1 (`scripts/check-contrast.mjs`). Dimmed
+ * text reads `opacity: var(--jp-dim, <its own value>)`; this sets the variable, so it comes
+ * back to full strength. Islands take a hairline as well (`components/ui/IslandSurface.vue`).
+ */
+@media (prefers-contrast: more) {
+    :root {
+        --jp-color-outline-light: #5c5955;
+        --jp-color-outline-dark: #b3b0aa;
+        --ori-color-outline: var(--jp-color-outline);
+        --ori-color-outline-strong: var(--jp-color-outline);
+        --jp-dim: 1;
+    }
+}
+
+/*
  * The dark theme can show a free drawing inverted, as Excalidraw does
  * (`useThemeStore().canvasInverted`, the player's choice): a drawing made for light paper
  * still reads, and an export stays as drawn. Colour pickers for that canvas wear it too, so a

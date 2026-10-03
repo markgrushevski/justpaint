@@ -16,11 +16,11 @@ import {
     OriListItem,
     OriSegmentedControl,
     OriSelect,
-    OriSurface,
     OriSwitch
 } from '@oriui/vue'
 import { icons, useAuthGate, useSessionStore, useThemeStore } from '@core'
 import type { Accent, ThemeMode } from '@core'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 import SwatchPicker from '../../components/ui/SwatchPicker.vue'
 import type { SwatchOption } from '../../components/ui/SwatchPicker.vue'
 import ToolIcon from '../../components/icons/ToolIcon.vue'
@@ -228,12 +228,12 @@ function onKeydown(e: KeyboardEvent) {
     <Teleport to="body">
         <!-- Always mounted; open/closed is pure transform. `inert` while closed keeps the
              hidden panel out of the Tab order. -->
-        <OriSurface
+        <IslandSurface
             ref="panelRef"
             as="aside"
             class="menu"
             :class="{ 'menu--open': props.open }"
-            :bordered="false"
+            elevation="lg"
             role="complementary"
             aria-label="Menu"
             tabindex="-1"
@@ -396,7 +396,7 @@ function onKeydown(e: KeyboardEvent) {
                     />
                 </div>
             </div>
-        </OriSurface>
+        </IslandSurface>
     </Teleport>
 </template>
 
@@ -453,7 +453,7 @@ function onKeydown(e: KeyboardEvent) {
 
 .menu__name--unsaved {
     font-weight: 600;
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .menu__view {
@@ -528,7 +528,7 @@ function onKeydown(e: KeyboardEvent) {
 
 .menu__who-meta {
     font-size: var(--ori-font-size_sm, 0.875rem);
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 /* A link looks like one: underlined, no arrow. */

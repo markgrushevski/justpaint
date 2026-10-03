@@ -90,7 +90,7 @@ function onOpen(): void {
             >
                 <OriTooltip :content="opt.label" placement="bottom" :style="anchor(i)">
                     <OriButton
-                        class="ori-button_icon"
+                        class="ori-button_icon swatches__dot"
                         :class="{ 'jp-ink-view': inkView }"
                         role="radio"
                         :aria-checked="i === selectedIndex"
@@ -116,7 +116,7 @@ function onOpen(): void {
                         <OriButton
                             v-bind="trigger"
                             class="ori-button_icon"
-                            :class="{ 'jp-ink-view': inkView && custom.active }"
+                            :class="{ 'jp-ink-view': inkView && custom.active, swatches__dot: custom.active }"
                             :aria-label="custom.active ? `${custom.label}, ${custom.color}` : custom.label"
                             :aria-pressed="custom.active"
                             :variant="custom.active ? 'solid' : 'outline'"
@@ -165,5 +165,28 @@ function onOpen(): void {
     box-shadow:
         0 0 0 2px var(--ori-color-surface),
         0 0 0 4px var(--ori-color-primary);
+}
+
+/* A forced-colours mode would paint every dot the button colour, and a swatch is its colour,
+   so the dots keep theirs. The mode drops the shadow rings; outlines in system colours stand
+   in for them, the focused one outermost. */
+@media (forced-colors: active) {
+    .swatches__dot {
+        forced-color-adjust: none;
+    }
+
+    .swatches__ring {
+        outline: 1px solid CanvasText;
+    }
+
+    .swatches__ring--on {
+        outline: 2px solid Highlight;
+        outline-offset: 2px;
+    }
+
+    .swatches__ring:has(:focus-visible) {
+        outline: 3px solid CanvasText;
+        outline-offset: 4px;
+    }
 }
 </style>

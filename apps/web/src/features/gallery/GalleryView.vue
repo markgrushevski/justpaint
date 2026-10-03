@@ -284,7 +284,7 @@ function confirmDelete(): void {
 
     font-size: var(--ori-font-size_sm, 0.875rem);
     /* 0.7 keeps the muted line past WCAG AA. */
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .gallery__grid {

@@ -6,7 +6,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { OriButton, OriSpinner, OriSurface } from '@oriui/vue'
+import { OriButton, OriSpinner } from '@oriui/vue'
 import { blankDocument } from '@justpaint/editor'
 import {
     icons,
@@ -21,6 +21,7 @@ import {
 import type { PracticePrompt, PracticeRun } from '@core'
 import ConfirmDialog from '../../components/ConfirmDialog.vue'
 import ModeNav from '../../components/ModeNav.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 import EditorShell from '../editor/EditorShell.vue'
 import FloatingToolbar from '../editor/FloatingToolbar.vue'
 import ZoomControls from '../editor/ZoomControls.vue'
@@ -312,22 +313,16 @@ onBeforeUnmount(() => {
 
         <!-- The submit notice is last: it rides over a live `drawing` phase. -->
         <template #overlay>
-            <OriSurface v-if="phase === 'error'" class="practice__notice" role="alert" :bordered="false" elevation="lg">
+            <IslandSurface v-if="phase === 'error'" class="practice__notice" role="alert" elevation="lg">
                 <h2 class="practice__notice-title">Nothing to draw yet</h2>
                 <p class="practice__notice-msg">{{ loadError }}</p>
                 <OriButton label="Try again" variant="solid" color="primary" radius="md" @click="loadPrompt" />
-            </OriSurface>
+            </IslandSurface>
 
-            <OriSurface
-                v-else-if="phase === 'loading'"
-                class="practice__loading"
-                role="status"
-                :bordered="false"
-                elevation="md"
-            >
+            <IslandSurface v-else-if="phase === 'loading'" class="practice__loading" role="status" elevation="md">
                 <OriSpinner size="lg" color="primary" />
                 <span class="practice__loading-text">Finding you something to draw…</span>
-            </OriSurface>
+            </IslandSurface>
 
             <JudgingOverlay v-else-if="phase === 'judging'" solo />
 
@@ -342,7 +337,7 @@ onBeforeUnmount(() => {
                 @play-duel="playDuel"
             />
 
-            <OriSurface v-else-if="submitError" class="practice__notice" role="alert" :bordered="false" elevation="lg">
+            <IslandSurface v-else-if="submitError" class="practice__notice" role="alert" elevation="lg">
                 <h2 class="practice__notice-title">
                     {{ submitExhausted ? 'That’s your judging for today' : 'The judge didn’t answer' }}
                 </h2>
@@ -381,7 +376,7 @@ onBeforeUnmount(() => {
                         @click="dismissSubmitError"
                     />
                 </div>
-            </OriSurface>
+            </IslandSurface>
 
             <ConfirmDialog
                 :open="leavePending !== null"
@@ -443,7 +438,7 @@ onBeforeUnmount(() => {
 
 .practice__loading-text {
     font-size: var(--ori-font-size_sm, 0.9rem);
-    opacity: 0.8;
+    opacity: var(--jp-dim, 0.8);
 }
 
 .practice__notice {
@@ -472,7 +467,7 @@ onBeforeUnmount(() => {
 
     font-size: var(--ori-font-size_sm, 0.9rem);
     overflow-wrap: anywhere;
-    opacity: 0.8;
+    opacity: var(--jp-dim, 0.8);
 }
 
 .practice__notice-actions {

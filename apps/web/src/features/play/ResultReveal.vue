@@ -41,7 +41,8 @@ export interface DuelResult {
  * passes the result and owns "Play again".
  */
 import { computed } from 'vue'
-import { OriBadge, OriButton, OriCard, OriSurface } from '@oriui/vue'
+import { OriBadge, OriButton, OriCard } from '@oriui/vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const props = defineProps<{ result: DuelResult }>()
 const emit = defineEmits<{ playAgain: []; viewLeaderboard: [] }>()
@@ -109,14 +110,7 @@ const sides = computed<SideView[]>(() => [
 </script>
 
 <template>
-    <OriSurface
-        class="result"
-        role="dialog"
-        aria-modal="false"
-        aria-labelledby="result-headline"
-        :bordered="false"
-        elevation="lg"
-    >
+    <IslandSurface class="result" role="dialog" aria-modal="false" aria-labelledby="result-headline" elevation="lg">
         <h2 id="result-headline" class="result__headline">{{ headline }}</h2>
 
         <div class="result__frames">
@@ -183,7 +177,7 @@ const sides = computed<SideView[]>(() => [
                 @click="emit('viewLeaderboard')"
             />
         </div>
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
@@ -271,7 +265,7 @@ const sides = computed<SideView[]>(() => [
     color: #444444;
 
     font-size: var(--ori-font-size_sm, 0.875rem);
-    opacity: 0.6;
+    opacity: var(--jp-dim, 0.6);
 }
 
 .result__player {

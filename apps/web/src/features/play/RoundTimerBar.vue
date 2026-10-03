@@ -8,7 +8,7 @@
  * `pointer-events: none` keeps it from intercepting drawing.
  */
 import { computed } from 'vue'
-import { OriSurface } from '@oriui/vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const props = defineProps<{
     /** Seconds left in the round (clamped to >= 0 for display). */
@@ -47,7 +47,7 @@ const clock = computed(() => {
         <div class="timer__rail">
             <div class="timer__fill" :style="{ transform: `scaleX(${fraction})` }"></div>
         </div>
-        <OriSurface as="span" class="timer__clock" :bordered="false" elevation="md">{{ clock }}</OriSurface>
+        <IslandSurface as="span" class="timer__clock" elevation="md">{{ clock }}</IslandSurface>
     </div>
 </template>
 
@@ -84,7 +84,7 @@ const clock = computed(() => {
         background-color 0.4s ease;
 }
 
-/* OriSurface gives the readout the shared island chrome; ink tracks the
+/* IslandSurface gives the readout the shared island chrome; ink tracks the
    current severity colour. */
 .timer__clock {
     position: absolute;

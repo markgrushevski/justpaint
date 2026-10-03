@@ -180,14 +180,14 @@ const MODES = [
     margin: 0;
 
     font-size: var(--ori-font-size_lg, 1.125rem);
-    opacity: 0.75;
+    opacity: var(--jp-dim, 0.75);
 }
 
 .welcome__keys {
     margin: var(--ori-size-gap_lg, 0.75rem) 0 0;
 
     font-size: var(--ori-font-size_sm, 0.875rem);
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .welcome__keys kbd {
@@ -210,7 +210,7 @@ const MODES = [
     font-size: 1.125rem;
     font-weight: 700;
     line-height: 1.2;
-    opacity: 0.75;
+    opacity: var(--jp-dim, 0.75);
 }
 
 /* Hangs under the top-right island; the arrow's tip stops short of it. */

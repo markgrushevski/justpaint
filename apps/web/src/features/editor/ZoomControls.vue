@@ -1,19 +1,19 @@
 <script lang="ts" setup>
 /** The zoom island every canvas route puts in its bottom-right corner. */
-import { OriSurface } from '@oriui/vue'
 import IconButton from '../../components/ui/IconButton.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 defineProps<{ percent: number }>()
 const emit = defineEmits<{ zoomIn: []; zoomOut: []; fit: [] }>()
 </script>
 
 <template>
-    <OriSurface class="zoom" role="group" aria-label="Zoom" :bordered="false" elevation="md">
+    <IslandSurface class="zoom" role="group" aria-label="Zoom" elevation="md">
         <IconButton icon="minus" label="Zoom out — Ctrl+-" @click="emit('zoomOut')" />
         <span class="zoom__value">{{ percent }}%</span>
         <IconButton icon="plus" label="Zoom in — Ctrl+=" @click="emit('zoomIn')" />
         <IconButton icon="fit" label="Fit — Ctrl+0" @click="emit('fit')" />
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
