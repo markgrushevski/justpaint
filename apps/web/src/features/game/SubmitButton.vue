@@ -44,8 +44,8 @@ const emit = defineEmits<{ submit: [] }>()
 
 <style scoped>
 /* The button carries oriui's own fill-primary chrome; the shell's top-right
-   region positions it. A soft shadow lifts it to match the OriSurface islands. */
+   region positions it. A soft shadow lifts it to match the islands. */
 .submit {
-    box-shadow: var(--ori-shadow-lg);
+    box-shadow: var(--ori-shadow-md);
 }
 </style>

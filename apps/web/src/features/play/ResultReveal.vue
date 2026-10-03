@@ -34,14 +34,15 @@ export interface DuelResult {
 
 <script lang="ts" setup>
 /**
- * ResultReveal — the duel payoff screen: both canvases revealed side by side
- * (docs/GAME.md §4.2 — only once the match is done), each with a 0–100% score
- * bar, a winner marker over the victor, the judge's reason, and an Elo pop
- * showing the rating move. Presentational: PlayView passes the result and
- * owns "Play again".
+ * ResultReveal — the duel payoff screen: both drawings revealed side by side
+ * (docs/GAME.md §4.2 — only once the match is done), each on its own tilted
+ * score card that the judge holds up, then the judge's reason and the rating
+ * move. The winner's card takes the primary colour. Presentational: PlayView
+ * passes the result and owns "Play again".
  */
 import { computed } from 'vue'
-import { OriButton, OriCard, OriSurface } from '@oriui/vue'
+import { OriBadge, OriButton, OriCard } from '@oriui/vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const props = defineProps<{ result: DuelResult }>()
 const emit = defineEmits<{ playAgain: []; viewLeaderboard: [] }>()
@@ -52,8 +53,8 @@ const winnerIsOpp = computed(() => props.result.winner === 'opponent')
 const isForfeit = computed(() => props.result.resolution === 'forfeit')
 const isAborted = computed(() => props.result.resolution === 'aborted')
 /** Only a judged round has scores to show; the other two never ran the judge,
- *  so every score bar, percentage and rating move is suppressed rather than
- *  rendered as a truthful-looking 0%. */
+ *  so every score and rating move is suppressed rather than rendered as a
+ *  truthful-looking 0. */
 const scored = computed(() => props.result.resolution === 'judged')
 const headline = computed(() => {
     // Neither of these ran the judge, so lead with what actually happened
@@ -67,95 +68,90 @@ const ratingAfter = computed(() => props.result.ratingBefore + props.result.eloD
 const deltaLabel = computed(() =>
     props.result.eloDelta >= 0 ? `+${props.result.eloDelta}` : `${props.result.eloDelta}`
 )
+const ratingLine = computed(() =>
+    props.result.eloDelta === 0
+        ? `Your rating stays at ${props.result.ratingBefore}`
+        : `Your rating went from ${props.result.ratingBefore} to ${ratingAfter.value}`
+)
 
-/** Clamp a raw score to a 0..100% bar width. */
-function pct(score: number): string {
-    return `${Math.max(0, Math.min(100, score))}%`
-}
-/** Whole-number score for the label. */
+/** Whole-number score for the card, clamped to 0..100. */
 function scoreText(score: number): string {
     return String(Math.round(Math.max(0, Math.min(100, score))))
 }
+
+/** What one score card shows; `key` also picks which way it tilts. */
+interface SideView {
+    key: 'you' | 'opponent'
+    name: string
+    image: string | null
+    alt: string
+    score: string
+    won: boolean
+}
+
+const sides = computed<SideView[]>(() => [
+    {
+        key: 'you',
+        name: 'You',
+        image: props.result.you.image,
+        alt: 'Your drawing',
+        score: scoreText(props.result.you.score),
+        won: youWon.value
+    },
+    {
+        key: 'opponent',
+        name: props.result.opponent.name,
+        image: props.result.opponent.image,
+        alt: `${props.result.opponent.name}'s drawing`,
+        score: scoreText(props.result.opponent.score),
+        won: winnerIsOpp.value
+    }
+])
 </script>
 
 <template>
-    <OriSurface class="result" role="dialog" aria-modal="false" aria-labelledby="result-headline">
-        <h2
-            id="result-headline"
-            class="result__headline"
-            :class="{ 'result__headline--win': youWon, 'result__headline--tie': tie }"
-        >
-            {{ headline }}
-        </h2>
+    <IslandSurface class="result" role="dialog" aria-modal="false" aria-labelledby="result-headline" elevation="lg">
+        <h2 id="result-headline" class="result__headline">{{ headline }}</h2>
 
         <div class="result__frames">
-            <!-- You -->
             <OriCard
+                v-for="side in sides"
+                :key="side.key"
                 class="result__side"
-                :variant="youWon ? 'soft' : 'outline'"
-                :color="youWon ? 'primary' : 'surface'"
+                :class="`result__side--${side.key}`"
+                :variant="side.won ? 'soft' : 'outline'"
+                :color="side.won ? 'primary' : 'surface'"
                 radius="md"
             >
-                <span v-if="youWon" class="result__crown" aria-label="Winner">▲ Winner</span>
                 <div class="result__canvas">
-                    <img v-if="result.you.image" :src="result.you.image" alt="Your drawing" />
+                    <img v-if="side.image" :src="side.image" :alt="side.alt" />
                     <span v-else class="result__canvas-empty">No preview</span>
                 </div>
-                <div class="result__meta">
-                    <span class="result__player">You</span>
-                    <!-- No judge ran on a forfeit or an abort, so the score is null
-                         server-side — a 0% bar would misread as a bad judged score. -->
-                    <span v-if="scored" class="result__score">{{ scoreText(result.you.score) }}%</span>
-                </div>
-                <div v-if="scored" class="result__bar">
-                    <div class="result__bar-fill result__bar-fill--you" :style="{ width: pct(result.you.score) }"></div>
-                </div>
-            </OriCard>
-
-            <!-- Opponent -->
-            <OriCard
-                class="result__side"
-                :variant="winnerIsOpp ? 'soft' : 'outline'"
-                :color="winnerIsOpp ? 'primary' : 'surface'"
-                radius="md"
-            >
-                <span v-if="winnerIsOpp" class="result__crown" aria-label="Winner">▲ Winner</span>
-                <div class="result__canvas">
-                    <img
-                        v-if="result.opponent.image"
-                        :src="result.opponent.image"
-                        :alt="`${result.opponent.name}'s drawing`"
-                    />
-                    <span v-else class="result__canvas-empty">No preview</span>
-                </div>
-                <div class="result__meta">
-                    <span class="result__player">{{ result.opponent.name }}</span>
-                    <span v-if="scored" class="result__score">{{ scoreText(result.opponent.score) }}%</span>
-                </div>
-                <div v-if="scored" class="result__bar">
-                    <div
-                        class="result__bar-fill result__bar-fill--opp"
-                        :style="{ width: pct(result.opponent.score) }"
-                    ></div>
-                </div>
+                <p class="result__player">{{ side.name }}<span v-if="side.won" class="result__sr">, winner</span></p>
+                <!-- No judge ran on a forfeit or an abort, so the score is null
+                     server-side — a 0 would misread as a bad judged score. -->
+                <template v-if="scored">
+                    <span class="result__sr">{{ side.score }} out of 100</span>
+                    <span class="result__number" aria-hidden="true">{{ side.score }}</span>
+                    <span class="result__of" aria-hidden="true">out of 100</span>
+                </template>
             </OriCard>
         </div>
 
-        <p class="result__reason">
-            <span class="result__reason-label">{{ scored ? 'Judge' : 'Result' }}</span>
-            {{ result.reason }}
-        </p>
+        <p class="result__reason">{{ result.reason }}</p>
 
-        <!-- A forfeit still moves the rating (full-K to the submitter), so the pop
-             stays for it; an aborted round moves nothing, and "1200 → 1200 +0"
-             reads as a result when it is really the absence of one. -->
+        <!-- A forfeit still moves the rating (full-K to the submitter), so the line
+             stays for it; an aborted round moves nothing, and "1200 to 1200" reads
+             as a result when it is really the absence of one. -->
         <div v-if="!isAborted" class="result__elo" role="group" aria-label="Rating change">
-            <span class="result__rating">{{ result.ratingBefore }}</span>
-            <span class="result__arrow" aria-hidden="true">→</span>
-            <span class="result__rating result__rating--after">{{ ratingAfter }}</span>
-            <span class="result__delta" :class="result.eloDelta >= 0 ? 'result__delta--up' : 'result__delta--down'">
-                {{ deltaLabel }}
-            </span>
+            <span class="result__rating">{{ ratingLine }}</span>
+            <OriBadge
+                v-if="result.eloDelta !== 0"
+                class="result__delta"
+                :content="deltaLabel"
+                :color="result.eloDelta > 0 ? 'success' : 'danger'"
+                variant="soft"
+            />
         </div>
 
         <!-- Post-duel is peak intent to check standings — the only path a /play
@@ -181,7 +177,7 @@ function scoreText(score: number): string {
                 @click="emit('viewLeaderboard')"
             />
         </div>
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
@@ -190,16 +186,16 @@ function scoreText(score: number): string {
 .result {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_md, 0.5rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
     width: min(94vw, 34rem);
     max-height: min(90dvh, 44rem);
-    padding: var(--ori-size-gap_lg, 0.75rem);
-    overflow-y: auto;
+    padding: var(--ori-size-gap_xl, 1rem);
+    /* The cards swing wider than the surface while they turn into place; that
+       must not flash a horizontal scrollbar. */
+    overflow: hidden auto;
 
     pointer-events: auto;
-
-    animation: result-pop 0.24s ease-out;
 }
 
 .result__headline {
@@ -207,64 +203,50 @@ function scoreText(score: number): string {
 
     color: var(--ori-color-on-surface);
 
-    font-size: var(--ori-font-size_xl, 1.4rem);
-    font-weight: 800;
-    letter-spacing: -0.01em;
+    font-size: 1.3125rem;
+    font-weight: 900;
     text-align: center;
 }
 
-.result__headline--win {
-    color: var(--ori-color-primary);
-}
-
-.result__headline--tie {
-    opacity: 0.85;
-}
-
+/* The gap leaves room for the tilt: each corner swings a few pixels out. */
 .result__frames {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--ori-size-gap_md, 0.5rem);
+    gap: var(--ori-size-gap_xl, 1rem);
+
+    padding-block: var(--ori-size-gap_sm, 0.25rem);
 }
 
+/* The winner's tint is owned by OriCard's variant/color props; the turn and the
+   entrance are ours, on the card's root. */
 .result__side {
-    /* Winner tint is owned by OriCard's variant/color props (soft+primary vs
-       outline+surface) — no local border/background here. A hardcoded border
-       would double up with OriCard's own variant border and always win, since
-       unlayered styles beat oriui's @layer rules. */
-    position: relative;
+    --ori-card-padding: var(--ori-size-gap_md, 0.5rem);
+    --result-tilt: -2deg;
 
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: var(--ori-size-gap_xs, 0.125rem);
 
-    padding: var(--ori-size-gap_sm, 0.25rem);
+    color: var(--ori-color-on-surface);
 
-    border-radius: var(--ori-size-radius_md, 8px);
+    transform: rotate(var(--result-tilt));
+
+    animation: result-held 360ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
 }
 
-.result__crown {
-    position: absolute;
-    top: -0.6rem;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 1;
+/* The judge holds the second card up a beat after the first. */
+.result__side--opponent {
+    --result-tilt: 2deg;
 
-    padding: 0.05rem 0.5rem;
-
-    border-radius: var(--ori-size-radius_full, 999px);
-    background-color: var(--ori-color-primary);
-    color: var(--ori-color-on-primary);
-
-    font-size: var(--ori-font-size_xs, 0.7rem);
-    font-weight: 800;
-    white-space: nowrap;
+    animation-delay: 90ms;
 }
 
 .result__canvas {
     display: grid;
     place-items: center;
 
+    width: 100%;
     aspect-ratio: 1 / 1;
     overflow: hidden;
 
@@ -282,86 +264,67 @@ function scoreText(score: number): string {
 .result__canvas-empty {
     color: #444444;
 
-    font-size: var(--ori-font-size_xs, 0.75rem);
-    opacity: 0.6;
-}
-
-.result__meta {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    font-size: var(--ori-font-size_sm, 0.875rem);
+    opacity: var(--jp-dim, 0.6);
 }
 
 .result__player {
+    max-width: 100%;
+    margin: var(--ori-size-gap_xs, 0.125rem) 0 0;
     overflow: hidden;
 
-    font-size: var(--ori-font-size_sm, 0.85rem);
+    font-size: var(--ori-font-size_md, 1rem);
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.result__score {
-    flex: none;
-
-    font-size: var(--ori-font-size_sm, 0.9rem);
-    font-weight: 800;
+.result__number {
+    font-size: 3.75rem;
+    font-weight: 1000;
     font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+    line-height: 1;
 }
 
-.result__bar {
-    height: 0.5rem;
+.result__of {
+    font-size: var(--ori-font-size_sm, 0.875rem);
+    font-weight: 700;
+}
+
+.result__sr {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
     overflow: hidden;
 
-    border-radius: var(--ori-size-radius_full, 999px);
-    background-color: color-mix(in srgb, var(--ori-color-on-surface) 12%, transparent);
-}
-
-.result__bar-fill {
-    height: 100%;
-
-    border-radius: inherit;
-    transition: width 0.5s ease-out;
-}
-
-.result__bar-fill--you {
-    background-color: var(--ori-color-primary);
-}
-
-.result__bar-fill--opp {
-    background-color: var(--ori-color-secondary);
+    border: 0;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 .result__reason {
     margin: 0;
-    padding: var(--ori-size-gap_sm, 0.25rem) var(--ori-size-gap_md, 0.5rem);
+    padding: var(--ori-size-gap_md, 0.5rem) var(--ori-size-gap_lg, 0.75rem);
 
-    border-left: 3px solid var(--ori-color-primary);
     border-radius: var(--ori-size-radius_sm, 4px);
     background-color: var(--ori-color-background);
+    color: var(--ori-color-on-surface);
 
-    font-size: var(--ori-font-size_sm, 0.875rem);
-    line-height: 1.4;
-}
-
-.result__reason-label {
-    display: inline-block;
-    margin-right: 0.4rem;
-
-    color: var(--ori-color-primary);
-
-    font-size: var(--ori-font-size_xs, 0.7rem);
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: var(--ori-font-size_md, 1rem);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 
 .result__elo {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
     font-variant-numeric: tabular-nums;
 }
@@ -369,45 +332,17 @@ function scoreText(score: number): string {
 .result__rating {
     font-size: var(--ori-font-size_md, 1rem);
     font-weight: 700;
-    opacity: 0.7;
-}
-
-.result__rating--after {
-    font-size: var(--ori-font-size_lg, 1.15rem);
-    opacity: 1;
-}
-
-.result__arrow {
-    opacity: 0.6;
 }
 
 .result__delta {
-    padding: 0.05rem 0.45rem;
-
-    border-radius: var(--ori-size-radius_full, 999px);
-
-    font-size: var(--ori-font-size_sm, 0.85rem);
-    font-weight: 800;
-
-    animation: result-pop 0.4s ease-out 0.15s both;
-}
-
-.result__delta--up {
-    background-color: color-mix(in srgb, var(--ori-color-success) 22%, transparent);
-    color: var(--ori-color-success-text, var(--ori-color-success));
-}
-
-.result__delta--down {
-    background-color: color-mix(in srgb, var(--ori-color-danger) 22%, transparent);
-    color: var(--ori-color-danger-text, var(--ori-color-danger));
+    font-size: var(--ori-font-size_sm, 0.875rem);
+    font-weight: 700;
 }
 
 .result__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--ori-size-gap_sm, 0.25rem);
-
-    margin-top: var(--ori-size-gap_xs, 0.125rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 }
 
 .result__again,
@@ -415,21 +350,23 @@ function scoreText(score: number): string {
     flex: 1 1 10rem;
 }
 
-@keyframes result-pop {
+/* The implicit end frame is the card's own tilt, so the overshoot settles on it. */
+@keyframes result-held {
     from {
-        opacity: 0;
-        transform: scale(0.96);
+        transform: translateY(1.25rem) rotate(calc(var(--result-tilt) * 3));
+    }
+}
+
+@media (width <= 600px) {
+    .result__reason {
+        font-size: var(--ori-font-size_sm, 0.875rem);
+        line-height: 1.55;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .result,
-    .result__delta {
+    .result__side {
         animation: none;
-    }
-
-    .result__bar-fill {
-        transition: none;
     }
 }
 </style>

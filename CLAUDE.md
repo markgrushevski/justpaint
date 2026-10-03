@@ -7,9 +7,9 @@ code wins — fix this file.
 
 A web drawing app built around an **AI-judged drawing duel** (`/play`): two players draw one prompt, a
 judge scores both, and Elo feeds a leaderboard. `/practice` is the single-player mode. `/draw` is the
-free editor and hosts the AI features that need a canvas without a clock (assist, "what did I draw?").
-The ML judge is an external service: this repo owns the `Judge` contract and its impls (`fake`, `http`,
-`gemini`), never the model.
+free editor and hosts the AI features that need a canvas without a clock (assist, "what did I draw?");
+`/gallery` lists its saved drawings. The ML judge is an external service: this repo owns the `Judge`
+contract and its impls (`fake`, `http`, `gemini`), never the model.
 
 ## Stack
 
@@ -53,8 +53,8 @@ docs                contracts and decisions
 
 - **Root:** `npm run build` · `types` · `test` · `format` / `format:check` (prettier skips `docs/` and
   `server/`).
-- **Web:** `npm run dev -w @justpaint/web` (:7777) · `lint:all` / `lint:ci` · `test:a11y` ·
-  `test:layout` — the last two need the dev server running.
+- **Web:** `npm run dev -w @justpaint/web` (:7777) · `lint:all` / `lint:ci` · `test:a11y` · `test:flows` ·
+  `test:layout` — the last three need the dev server running.
 - **Server:** `npm run dev` (root) builds the render worker, then runs the server on :8080 with
   `server/.env` loaded (copy `server/.env.example`, which holds every default). In `server/`: `gofmt -l .` · `go vet ./...` · `go test ./...`; DB-backed
   tests skip without `DATABASE_URL` — `npx dotenv run -- go test ./...` runs them.

@@ -6,7 +6,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { OriBadge, OriButton, OriSpinner, OriSurface } from '@oriui/vue'
+import { OriButton, OriSpinner } from '@oriui/vue'
 import { blankDocument } from '@justpaint/editor'
 import {
     icons,
@@ -19,10 +19,15 @@ import {
     useSubmitPractice
 } from '@core'
 import type { PracticePrompt, PracticeRun } from '@core'
+import ConfirmDialog from '../../components/ConfirmDialog.vue'
+import ModeNav from '../../components/ModeNav.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 import EditorShell from '../editor/EditorShell.vue'
 import FloatingToolbar from '../editor/FloatingToolbar.vue'
 import ZoomControls from '../editor/ZoomControls.vue'
+import { useBackdrop } from '../editor/useBackdrop'
 import { useEditorHost } from '../editor/useEditorHost'
+import { useLeaveGuard } from '../editor/useLeaveGuard'
 import { GAME_CANVAS } from '../game/canvas'
 import GamePromptBanner from '../game/GamePromptBanner.vue'
 import JudgingOverlay from '../game/JudgingOverlay.vue'
@@ -60,8 +65,9 @@ const {
     initialDocument: blankGameDocument,
     commands: { enter: () => submit() },
     // Tool keys only while drawing.
-    beforeToolKeys: () => phase.value !== 'drawing'
+    beforeToolKeys: () => phase.value !== 'drawing' || leavePending.value !== null
 })
+useBackdrop(editor, { judged: true })
 
 /**
  * `loading` (a prompt, or the sign-in modal before it), `drawing`, `judging` (the submit
@@ -93,6 +99,28 @@ const submitting = computed(() => phase.value === 'judging')
 const canSubmit = computed(() => phase.value === 'drawing' && !isEmpty.value && prompt.value !== null)
 // Says why Submit is disabled.
 const showEmptyHint = computed(() => phase.value === 'drawing' && isEmpty.value)
+
+// Nothing keeps an unsubmitted practice drawing, and a run being judged has already
+// spent one of the day's scored drawings.
+const {
+    pending: leavePending,
+    leave,
+    stay
+} = useLeaveGuard(() => {
+    if (phase.value === 'drawing' && !isEmpty.value)
+        return {
+            title: 'Leave practice?',
+            message: 'This drawing isn’t kept unless you submit it.',
+            confirmText: 'Leave'
+        }
+    if (phase.value === 'judging')
+        return {
+            title: 'Leave before the score?',
+            message: 'The judge is still scoring this drawing. It counts toward today’s limit either way.',
+            confirmText: 'Leave'
+        }
+    return null
+})
 
 function revokeDrawingImage(): void {
     if (drawingImage.value) {
@@ -243,15 +271,14 @@ onBeforeUnmount(() => {
     <!-- `mode="play"` is the layout without a drawer toggle, so Submit gets the corner. -->
     <EditorShell ref="shell" mode="play">
         <template #top-left>
-            <!-- The shell is identical to /play; this tells a practice run apart. -->
-            <OriBadge content="Practice" color="primary" variant="soft" label="Practice mode" />
+            <ModeNav :collapse-below="1200" />
         </template>
 
         <!-- The banner waits for a prompt: its unrevealed state is duel copy. The hint
              sits here because the toolbar covers the bottom-left corner on a phone. -->
         <template #top-center>
             <div class="practice__prompt">
-                <GamePromptBanner v-if="prompt" :prompt="prompt.text" revealed solo />
+                <GamePromptBanner v-if="prompt" :prompt="prompt.text" revealed solo :large="showEmptyHint" />
                 <span v-if="showEmptyHint" class="practice__hint" role="status">Draw something to submit it</span>
             </div>
         </template>
@@ -286,16 +313,16 @@ onBeforeUnmount(() => {
 
         <!-- The submit notice is last: it rides over a live `drawing` phase. -->
         <template #overlay>
-            <OriSurface v-if="phase === 'error'" class="practice__notice" role="alert">
+            <IslandSurface v-if="phase === 'error'" class="practice__notice" role="alert" elevation="lg">
                 <h2 class="practice__notice-title">Nothing to draw yet</h2>
                 <p class="practice__notice-msg">{{ loadError }}</p>
                 <OriButton label="Try again" variant="solid" color="primary" radius="md" @click="loadPrompt" />
-            </OriSurface>
+            </IslandSurface>
 
-            <OriSurface v-else-if="phase === 'loading'" class="practice__loading" role="status">
+            <IslandSurface v-else-if="phase === 'loading'" class="practice__loading" role="status" elevation="md">
                 <OriSpinner size="lg" color="primary" />
                 <span class="practice__loading-text">Finding you something to draw…</span>
-            </OriSurface>
+            </IslandSurface>
 
             <JudgingOverlay v-else-if="phase === 'judging'" solo />
 
@@ -310,7 +337,7 @@ onBeforeUnmount(() => {
                 @play-duel="playDuel"
             />
 
-            <OriSurface v-else-if="submitError" class="practice__notice" role="alert">
+            <IslandSurface v-else-if="submitError" class="practice__notice" role="alert" elevation="lg">
                 <h2 class="practice__notice-title">
                     {{ submitExhausted ? 'That’s your judging for today' : 'The judge didn’t answer' }}
                 </h2>
@@ -349,18 +376,30 @@ onBeforeUnmount(() => {
                         @click="dismissSubmitError"
                     />
                 </div>
-            </OriSurface>
+            </IslandSurface>
+
+            <ConfirmDialog
+                :open="leavePending !== null"
+                :title="leavePending?.title ?? ''"
+                :message="leavePending?.message"
+                :confirm-text="leavePending?.confirmText"
+                cancel-text="Stay"
+                discard
+                @confirm="leave"
+                @cancel="stay"
+            />
         </template>
     </EditorShell>
 </template>
 
 <style scoped>
-/* Passive like its region; with no timer above it, no /play-style offset. */
+/* Passive like its region; with no timer above it, no /play-style offset. The gap clears
+   the dealt card's tilted corner. */
 .practice__prompt {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
     pointer-events: none;
 }
@@ -370,14 +409,17 @@ onBeforeUnmount(() => {
     pointer-events: auto;
 }
 
-/* No surface chrome: a note on the desk, not another island. */
+/* On its own surface chip: the sheet under it is white in both themes, so bare
+   theme ink would vanish in the dark one. */
 .practice__hint {
+    padding: var(--ori-size-gap_xs, 0.125rem) var(--ori-size-gap_md, 0.5rem);
+
+    border-radius: var(--ori-size-radius_sm, 4px);
+    background-color: var(--ori-color-surface);
     color: var(--ori-color-on-surface);
 
     font-size: var(--ori-font-size_xs, 0.75rem);
 
-    /* Shown only over paper or desk, where 0.7 still passes WCAG AA. */
-    opacity: 0.7;
     pointer-events: none;
     user-select: none;
 }
@@ -387,7 +429,7 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
     padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem);
 
@@ -396,7 +438,7 @@ onBeforeUnmount(() => {
 
 .practice__loading-text {
     font-size: var(--ori-font-size_sm, 0.9rem);
-    opacity: 0.8;
+    opacity: var(--jp-dim, 0.8);
 }
 
 .practice__notice {
@@ -406,7 +448,7 @@ onBeforeUnmount(() => {
     gap: var(--ori-size-gap_sm, 0.25rem);
 
     width: min(92vw, 24rem);
-    padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem) var(--ori-size-gap_xl, 1rem);
+    padding: var(--ori-size-gap_xl, 1rem);
 
     pointer-events: auto;
     text-align: center;
@@ -421,17 +463,17 @@ onBeforeUnmount(() => {
 }
 
 .practice__notice-msg {
-    margin: 0 0 var(--ori-size-gap_sm, 0.25rem);
+    margin: 0 0 var(--ori-size-gap_lg, 0.75rem);
 
     font-size: var(--ori-font-size_sm, 0.9rem);
     overflow-wrap: anywhere;
-    opacity: 0.8;
+    opacity: var(--jp-dim, 0.8);
 }
 
 .practice__notice-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
     width: 100%;
 }

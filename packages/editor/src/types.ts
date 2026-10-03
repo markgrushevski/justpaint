@@ -32,8 +32,8 @@ export interface LayerView {
 export interface ToolStyle {
     color: string // stroke/brush color, "#rrggbb" or "#rrggbbaa"
     fill: string | null // shape fill, or null for no fill
-    strokeWidth: number // shape/line stroke width, > 0
-    brush: BrushOptions // freehand brush options
+    strokeWidth: number // shape/line stroke width, > 0; also sets the freehand brush size
+    brush: BrushOptions // freehand brush options; `size` is taken from strokeWidth (freehandBrush)
 }
 
 /** Services a tool needs from the editor. */

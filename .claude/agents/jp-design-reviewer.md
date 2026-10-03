@@ -33,9 +33,9 @@ Hunt, adversarially, grounded in `file:line`:
   for the rest).
 - **Responsive** — works at oriui's breakpoints (verify the exact values from the tokens/docs) across
   **mobile (~375px) / tablet (~768px) / desktop**. The page body must never scroll horizontally; wide
-  content (the canvas, tables) scrolls inside its own container. Fixed-width side panels (e.g. the
-  15rem layers panel) must reflow — a drawer/stack on narrow screens. Touch targets are adequately
-  sized. Verify with `preview_resize` reasoning, not assumptions.
+  content (the canvas, tables) scrolls inside its own container. Fixed-width panels must reflow on
+  narrow screens: on `/draw` the 16rem layers dropdown becomes a bottom sheet and the 20rem menu a
+  right-edge drawer. Touch targets are adequately sized. Verify with `preview_resize` reasoning, not assumptions.
 - **Theme** — light AND dark both hold (oriui ships both); no color that only works on one; brand
   overrides set both `*-light` and `*-dark`.
 - **Design a11y** — text and on-color pairs meet WCAG AA contrast; focus is always visible

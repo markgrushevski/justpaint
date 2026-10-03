@@ -45,8 +45,9 @@ const ACTION_TEXT: Record<GuessStatus, string> = {
  * request, the budget and the canvas.
  */
 import { computed } from 'vue'
-import { OriButton, OriSurface } from '@oriui/vue'
+import { OriButton } from '@oriui/vue'
 import IconButton from '../../components/ui/IconButton.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const props = withDefaults(
     defineProps<{
@@ -97,7 +98,7 @@ const pending = computed(() => props.status === 'pending')
 </script>
 
 <template>
-    <OriSurface class="guess" role="group" aria-labelledby="guess-title">
+    <IslandSurface class="guess" role="group" aria-labelledby="guess-title" elevation="lg">
         <!-- Explicit close: the trigger that opened this card can be off-screen
              on a narrow phone, so it must stay dismissible from within. -->
         <div class="guess__head">
@@ -156,7 +157,7 @@ const pending = computed(() => props.status === 'pending')
             :disabled="pending || !canRetry"
             @click="emit('again')"
         />
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
@@ -166,7 +167,7 @@ const pending = computed(() => props.status === 'pending')
 .guess {
     display: flex;
     flex-direction: column;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_lg, 0.75rem);
 
     width: min(22rem, calc(100vw - 2rem));
     max-height: min(70dvh, 24rem);
@@ -221,7 +222,7 @@ const pending = computed(() => props.status === 'pending')
     font-size: var(--ori-font-size_sm, 0.85rem);
     line-height: 1.4;
     /* 0.7 keeps the muted line past WCAG AA on the surface. */
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .guess__alts {
@@ -233,7 +234,7 @@ const pending = computed(() => props.status === 'pending')
     line-height: 1.4;
     overflow-wrap: anywhere;
 
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .guess__msg {
@@ -250,6 +251,5 @@ const pending = computed(() => props.status === 'pending')
    `fluid` was dropped to avoid, so the action sizes to its own text. */
 .guess__action {
     align-self: flex-start;
-    margin-top: var(--ori-size-gap_xs, 0.125rem);
 }
 </style>

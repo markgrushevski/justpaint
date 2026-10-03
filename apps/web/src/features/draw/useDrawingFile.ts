@@ -1,31 +1,39 @@
 /**
- * The open drawing as a file: new, save, load, rename, export and copy. Save and load
- * need a session; everything else works signed out.
+ * The open drawing as a file: new, save, open, export and copy. The first save asks for
+ * a name; later saves keep it. Save and open need a session; everything else works
+ * signed out.
  */
-import { computed, ref, watch, type Ref, type ShallowRef } from 'vue'
+import { computed, ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import { blankDocument, DEFAULT_CANVAS, LIMITS } from '@justpaint/editor'
 import type { Document, Editor } from '@justpaint/editor'
-import { copyImage, copyText, useLoadLatestDrawing, useSaveDrawing, useSessionStore } from '@core'
+import { copyImage, copyText, useOpenDrawing, useSaveDrawing, useSessionStore } from '@core'
 import type { useToast } from '@oriui/vue'
 import { TOAST } from './useGatedActions'
 
-const DEFAULT_NAME = 'new art'
+const DEFAULT_NAME = 'Untitled drawing'
 
 function clampDim(n: number): number {
     return Math.min(LIMITS.maxCanvasDimension, Math.max(1, Math.round(n)))
 }
 
-/** A blank document; unsized, it fits the canvas element. */
-export function fittedDocument(canvas: HTMLElement | null, w?: number, h?: number): Document {
+/** A blank document on `background`; unsized, it fits the canvas element. */
+export function fittedDocument(
+    canvas: HTMLElement | null,
+    background: string | null,
+    w?: number,
+    h?: number
+): Document {
     const width = clampDim(w ?? (canvas && canvas.clientWidth > 0 ? canvas.clientWidth : DEFAULT_CANVAS.width))
     const height = clampDim(h ?? (canvas && canvas.clientHeight > 0 ? canvas.clientHeight : DEFAULT_CANVAS.height))
-    return blankDocument(width, height)
+    return { ...blankDocument(width, height), background }
 }
 
 export interface DrawingFileDeps {
     editor: ShallowRef<Editor | null>
     canvas: () => HTMLDivElement | null
     isEmpty: Ref<boolean>
+    /** The editor's history mark, mirrored by the host. */
+    historyMark: Readonly<ShallowRef<object | null>>
     load: (doc: Document) => void
     toPNG: () => Promise<Blob | null>
     gated: (reason: string) => Promise<boolean>
@@ -33,33 +41,45 @@ export interface DrawingFileDeps {
     toaster: ReturnType<typeof useToast>
     /** The document is about to be replaced: drop whatever describes the old one. */
     onReplace: () => void
+    /** The canvas colour a new drawing starts on. */
+    newBackground: () => string | null
 }
 
 export function useDrawingFile(deps: DrawingFileDeps) {
     const { editor, toaster } = deps
-    const currentId = ref<string | null>(null)
+    const session = useSessionStore()
+
+    // The saved row the canvas is bound to, and the account it belongs to. Another
+    // account, even after a sign-out and back in, sees an unsaved drawing: saving to
+    // the old id would 404 on the ownership-scoped PUT.
+    const saved = ref<{ id: string; owner: string } | null>(null)
+    const savedId = computed(() => (saved.value && saved.value.owner === session.user?.id ? saved.value.id : null))
     const name = ref(DEFAULT_NAME)
+    /** The name once the drawing is saved; null while it has never been. */
+    const savedName = computed(() => (savedId.value ? name.value : null))
 
     const saveMutation = useSaveDrawing()
-    const loadMutation = useLoadLatestDrawing()
-    const busy = computed(() => saveMutation.isPending.value || loadMutation.isPending.value)
+    const openMutation = useOpenDrawing()
+    const busy = computed(() => saveMutation.isPending.value || openMutation.isPending.value)
 
-    // Another account signed in: the open drawing is the previous one's, and saving it
-    // would 404 on the ownership-scoped PUT.
-    const session = useSessionStore()
-    watch(
-        () => session.user?.id,
-        (now, before) => {
-            if (before && now && now !== before) currentId.value = null
-        }
-    )
+    // Bumped whenever the canvas gets another document, so a save or an open that lands
+    // afterwards can't bind the new canvas to the old row.
+    let generation = 0
+
+    // The history mark when the canvas last matched its row: undoing back to it is clean again.
+    const savedMark = shallowRef<object | null>(null)
+
+    /** Leaving would lose work. */
+    const dirty = computed(() => !deps.isEmpty.value && (!savedId.value || deps.historyMark.value !== savedMark.value))
 
     function clear(w?: number, h?: number) {
         if (!editor.value) return
+        generation++
         deps.onReplace()
-        deps.load(fittedDocument(deps.canvas(), w, h))
-        currentId.value = null
+        deps.load(fittedDocument(deps.canvas(), deps.newBackground(), w, h))
+        saved.value = null
         name.value = DEFAULT_NAME
+        savedMark.value = null
     }
 
     // Clearing drops history, so confirm only when there is work to lose.
@@ -93,48 +113,80 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         confirmOpen.value = false
     }
 
-    // Ungated: only save needs a session.
-    function rename(next: string) {
-        name.value = next.trim() || DEFAULT_NAME
-    }
+    // Only a first save asks for a name.
+    const nameOpen = ref(false)
 
     async function save() {
         if (!editor.value || busy.value) return
         if (!(await deps.gated('Sign in to save your drawing.'))) return
-        // Browser Back can unmount the view while the modal is up.
+        if (savedId.value) write()
+        else nameOpen.value = true
+    }
+
+    function confirmName(next: string) {
+        nameOpen.value = false
+        write(next)
+    }
+
+    function cancelName() {
+        nameOpen.value = false
+    }
+
+    /** Creates with `newName` when the canvas isn't bound to a row; an update keeps the stored name. */
+    function write(newName?: string) {
+        // Browser Back can unmount the view while a modal is up.
         const ed = editor.value
         if (!ed) return
-        const existing = currentId.value
+        const existing = savedId.value
+        const document = ed.getDocument()
+        const mark = ed.getHistoryMark()
+        const at = generation
         saveMutation.mutate(
-            { id: existing ?? undefined, document: ed.getDocument(), name: name.value },
+            { id: existing ?? undefined, document, name: existing ? undefined : newName },
             {
                 onSuccess: (meta) => {
-                    currentId.value = meta.id
-                    toaster.success({ text: existing ? 'Saved.' : `Saved as ${meta.id}.`, duration: TOAST.success })
+                    toaster.success({ text: `Saved “${meta.name}”.`, duration: TOAST.success })
+                    if (at !== generation) return
+                    saved.value = { id: meta.id, owner: meta.ownerId }
+                    name.value = meta.name
+                    savedMark.value = mark
                 },
                 onError: (err) => deps.reportError(err, 'save')
             }
         )
     }
 
-    async function loadLatest() {
-        if (!editor.value || busy.value) return
-        if (!(await deps.gated('Sign in to load your drawing.'))) return
-        if (!editor.value) return
-        loadMutation.mutate(undefined, {
+    /** Opens a saved drawing; the gallery links to /draw with its id. */
+    async function open(id: string) {
+        if (busy.value) return
+        if (!(await deps.gated('Sign in to open your drawing.'))) return
+        const at = generation
+        openMutation.mutate(id, {
             onSuccess: (full) => {
-                if (!full) {
-                    toaster.info({ text: 'No saved drawings yet.', duration: TOAST.info })
+                if (!editor.value || at !== generation) return
+                // Strokes made while it loaded are the visitor's newest work: keep them.
+                if (!deps.isEmpty.value) {
+                    toaster.info({
+                        text: `Kept your new strokes. Open “${full.name}” again from My drawings.`,
+                        duration: TOAST.info
+                    })
                     return
                 }
+                generation++
                 deps.onReplace()
                 deps.load(full.document)
-                currentId.value = full.id
+                saved.value = { id: full.id, owner: full.ownerId }
                 name.value = full.name
-                toaster.success({ text: `Loaded ${full.id}.`, duration: TOAST.success })
+                savedMark.value = editor.value.getHistoryMark()
             },
-            onError: (err) => deps.reportError(err, 'load')
+            onError: (err) => deps.reportError(err, 'open')
         })
+    }
+
+    /** The saved name, stripped of characters a file name can't hold, or a timestamped default. */
+    function fileName(): string {
+        const safe = savedName.value?.replace(/[\\/:*?"<>|]+/g, '').trim()
+        return safe || `justpaint-${Date.now()}`
     }
 
     async function exportPng() {
@@ -143,7 +195,7 @@ export function useDrawingFile(deps: DrawingFileDeps) {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `justpaint-${Date.now()}.png`
+        a.download = `${fileName()}.png`
         a.click()
         // Revoking in the same tick as click() can abort the download in some browsers.
         setTimeout(() => URL.revokeObjectURL(url), 0)
@@ -178,15 +230,19 @@ export function useDrawingFile(deps: DrawingFileDeps) {
 
     return {
         name,
+        savedName,
         busy,
+        dirty,
         confirmOpen,
         requestNew,
         applyCanvasSize,
         confirmNew,
         cancelNew,
-        rename,
+        nameOpen,
         save,
-        loadLatest,
+        confirmName,
+        cancelName,
+        open,
         exportPng,
         copyJson,
         copyPng

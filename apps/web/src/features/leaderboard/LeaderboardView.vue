@@ -2,16 +2,18 @@
 /**
  * LeaderboardView — the ranked-players ladder (`/leaderboard`). The app's first
  * plain (non-editor) page: no EditorShell, just a centered scrollable container
- * with one OriSurface island. Purely a cached read — `useLeaderboard`
+ * with one IslandSurface. Purely a cached read — `useLeaderboard`
  * (docs/API.md §11) owns the fetch/cache; this view renders the pending/error/
  * empty/data states and highlights the signed-in player's own row.
  */
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { OriAvatar, OriBadge, OriButton, OriSkeleton, OriSurface } from '@oriui/vue'
+import { OriAvatar, OriBadge, OriButton, OriSkeleton } from '@oriui/vue'
 import { icons, isAuthError, toApiError, useLeaderboard, useSessionStore } from '@core'
 import type { LeaderboardEntry } from '@core'
+import ModeNav from '../../components/ModeNav.vue'
 import AuthForm from '../../components/auth/AuthForm.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 /** Top-N shown. Fixed for the page's lifetime (a plain query key is enough). */
 const LIMIT = 20
@@ -43,7 +45,8 @@ function goBack(): void {
 
 <template>
     <main class="lb" aria-labelledby="lb-title">
-        <OriSurface class="lb__panel">
+        <ModeNav class="lb__nav" />
+        <IslandSurface class="lb__panel" elevation="lg">
             <header class="lb__header">
                 <div class="lb__heading">
                     <h1 id="lb-title" class="lb__title">Leaderboard</h1>
@@ -127,7 +130,7 @@ function goBack(): void {
             </div>
             <p v-else-if="isError" class="lb__state lb__state--error" role="alert">{{ errorMessage }}</p>
             <p v-else class="lb__state">No ranked players yet — play a duel.</p>
-        </OriSurface>
+        </IslandSurface>
     </main>
 </template>
 
@@ -144,9 +147,17 @@ function goBack(): void {
     justify-content: center;
     align-items: flex-start;
 
-    padding: clamp(1rem, 4vw, 3rem) 1rem;
+    /* The top clears the mode switcher, pinned where every other screen has it. */
+    padding: max(4.5rem, clamp(1rem, 4vw, 3rem)) 1rem clamp(1rem, 4vw, 3rem);
 
     background-color: var(--jp-desk);
+}
+
+.lb__nav {
+    position: fixed;
+    top: var(--ori-size-gap_md, 0.5rem);
+    left: var(--ori-size-gap_md, 0.5rem);
+    z-index: 10;
 }
 
 .lb__panel {
@@ -190,7 +201,7 @@ function goBack(): void {
 
     font-size: var(--ori-font-size_sm, 0.875rem);
     /* 0.7 keeps the muted line past WCAG AA on the surface (matches SideMenu). */
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .lb__back {
@@ -231,7 +242,7 @@ function goBack(): void {
     text-align: left;
     text-transform: uppercase;
     /* 0.7 keeps the muted header past WCAG AA (same reasoning as SideMenu). */
-    opacity: 0.7;
+    opacity: var(--jp-dim, 0.7);
 }
 
 .lb__th--rank,
@@ -278,7 +289,7 @@ function goBack(): void {
 .lb__td--rank {
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    opacity: 0.85;
+    opacity: var(--jp-dim, 0.85);
 }
 
 .lb__td--rating {
@@ -288,7 +299,7 @@ function goBack(): void {
 
 .lb__td--record {
     font-variant-numeric: tabular-nums;
-    opacity: 0.85;
+    opacity: var(--jp-dim, 0.85);
 }
 
 .lb__player {
@@ -326,7 +337,7 @@ function goBack(): void {
 
     font-size: var(--ori-font-size_sm, 0.875rem);
     text-align: center;
-    opacity: 0.75;
+    opacity: var(--jp-dim, 0.75);
 }
 
 .lb__state--error {

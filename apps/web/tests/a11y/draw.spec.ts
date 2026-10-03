@@ -21,14 +21,7 @@ const CANVAS_SELECTOR = '.konvajs-content'
  * oriui-owned token. color-contrast stays enabled everywhere else. Add an
  * entry only for a triaged, deliberate choice, never to silence a real bug.
  */
-const AUDIT_EXCLUSIONS: { selector: string; rule: string; reason: string }[] = [
-    {
-        selector: '.draw__brand',
-        rule: 'color-contrast',
-        // #ff5500 on #f0f2f6 = 2.85:1 — deliberate brand choice, not a bug.
-        reason: 'brand wordmark in oriui --ori-color-primary — deliberate brand color, design decision'
-    }
-]
+const AUDIT_EXCLUSIONS: { selector: string; rule: string; reason: string }[] = []
 
 /** Navigate to /draw and wait for the editor shell (toolbar + Konva canvas) to mount. */
 async function gotoDraw(page: Page): Promise<void> {
@@ -112,12 +105,39 @@ test.describe('/draw — open overlays (desktop)', () => {
 
     test('sign-in dialog open has no serious/critical a11y violations', async ({ page }) => {
         await gotoDraw(page)
-        // Click through the empty-state card's real "Sign in" row (not the
-        // store) so this exercises what a visitor actually reaches.
-        await page.getByRole('button', { name: 'Sign in' }).first().click()
+        // Click through the menu's real "Sign in" row (not the store) so this
+        // exercises what a visitor actually reaches.
+        await page.locator('.draw__menu-toggle').click()
+        await page.getByRole('button', { name: 'Sign in' }).click()
         const signInDialog = page.getByRole('dialog', { name: 'Sign in' })
         await signInDialog.waitFor({ state: 'visible' })
         await expect(signInDialog).toHaveCSS('opacity', '1')
         await expectNoSeriousViolations(page, 'sign-in-open')
+    })
+})
+
+test.describe('/draw — open overlays (phone)', () => {
+    test.use({ viewport: { width: 390, height: 844 } })
+
+    test('menu drawer open has no serious/critical a11y violations', async ({ page }) => {
+        await gotoDraw(page)
+        await page.locator('.draw__menu-toggle').click()
+        const drawer = page.getByRole('dialog', { name: 'Unsaved drawing' })
+        await drawer.waitFor({ state: 'visible' })
+        // Wait for the slide-in to settle before axe reads composited colors.
+        await expect(drawer).toHaveCSS('translate', 'none')
+        await expectNoSeriousViolations(page, 'menu-drawer-open')
+    })
+})
+
+test.describe('/draw — more contrast', () => {
+    test('side menu open has no serious/critical a11y violations', async ({ page }) => {
+        await page.emulateMedia({ contrast: 'more' })
+        await gotoDraw(page)
+        await page.locator('.draw__menu-toggle').click()
+        await expect(page.locator('aside.menu')).toHaveCSS('opacity', '1')
+        // The islands take a hairline once more contrast is asked for.
+        await expect(page.locator('.bar')).toHaveCSS('border-top-width', '1px')
+        await expectNoSeriousViolations(page, 'more-contrast-menu-open')
     })
 })

@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
  * islands can overlap with every other gate green (docs/NOTES.md, "Only a
  * rendered browser catches overlapping chrome"), so this suite asserts one
  * invariant, in a real browser, at the widths where the layout changes shape:
- * no two bottom islands intersect.
+ * no two islands on the top row, or on the bottom row, intersect.
  *
  * Deliberately generic (compares rendered CONTENT, not `/draw`'s class names)
  * so it also catches pairs nobody expected; `/draw` is the probe because
@@ -60,7 +60,48 @@ function intersectionArea(a: Box, b: Box): number {
     return Math.round(w * h)
 }
 
+/** Every island on the top row: the mode switcher, the actions, Save and the menu toggle. */
+async function topBoxes(page: Page): Promise<Map<string, Box>> {
+    const found = await page.evaluate(() => {
+        const out: [string, { left: number; top: number; right: number; bottom: number }][] = []
+        const els = [
+            ...document.querySelectorAll('.shell__region--top-left > *, .shell__region--top-right > *'),
+            ...document.querySelectorAll('.draw__menu-toggle')
+        ]
+        els.forEach((el, i) => {
+            const r = el.getBoundingClientRect()
+            if (r.width && r.height) out.push([`${el.className.split(' ')[0] || el.tagName}#${i}`, r.toJSON()])
+        })
+        return out
+    })
+    return new Map(found)
+}
+
 for (const viewport of VIEWPORTS) {
+    test(`top chrome does not overlap itself at ${viewport.width}x${viewport.height} (${viewport.name})`, async ({
+        page
+    }) => {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height })
+        await page.goto('/draw')
+        await page.locator('.shell__region--top-right').first().waitFor({ state: 'visible' })
+
+        const boxes = [...(await topBoxes(page)).entries()]
+        expect(boxes.length, 'expected the mode switcher, the actions and the menu toggle').toBeGreaterThanOrEqual(3)
+
+        for (let i = 0; i < boxes.length; i++) {
+            for (let j = i + 1; j < boxes.length; j++) {
+                const [nameA, boxA] = boxes[i]
+                const [nameB, boxB] = boxes[j]
+                const area = intersectionArea(boxA, boxB)
+                expect(
+                    area,
+                    `${nameA} and ${nameB} overlap by ${area}px² at ${viewport.width}x${viewport.height} — ` +
+                        `${nameA}=${JSON.stringify(boxA)} ${nameB}=${JSON.stringify(boxB)}`
+                ).toBe(0)
+            }
+        }
+    })
+
     test(`bottom chrome does not overlap itself at ${viewport.width}x${viewport.height} (${viewport.name})`, async ({
         page
     }) => {

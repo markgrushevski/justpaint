@@ -8,8 +8,9 @@ without a clock.
 - **Duel** (`/play`) — async matches with a server-authoritative deadline, forfeit and abandon rules,
   and live WebSocket updates.
 - **Practice** (`/practice`) — one prompt, one drawing, one score, no opponent.
-- **Editor** (`/draw`) — layers, undo/redo, zoom, save/load, PNG export; **assist** turns a text prompt
+- **Editor** (`/draw`) — layers, undo/redo, zoom, save, PNG export; **assist** turns a text prompt
   into shapes previewed before you accept them, and **"what did I draw?"** asks the model to guess.
+  Saved drawings are listed, renamed and reopened in the gallery (`/gallery`).
 
 Drawings are stored as a versioned **vector document** (Postgres `jsonb`), never as pixels. Anything
 judged is rendered server-side from that document by the same code the browser editor uses.

@@ -47,11 +47,15 @@ export function useEditorHost(options: EditorHostOptions) {
     const activeLayerId = ref('')
     const canUndo = ref(false)
     const canRedo = ref(false)
+    /** `Editor.getHistoryMark`: moves with every document change and with nothing else. */
+    const historyMark = shallowRef<object | null>(null)
     const zoom = ref(1)
     const zoomPercent = computed(() => Math.round(zoom.value * 100))
     // DEFAULT_CANVAS is `as const`; a bare ref() would narrow to the literal.
     const docWidth = ref<number>(DEFAULT_CANVAS.width)
     const docHeight = ref<number>(DEFAULT_CANVAS.height)
+    /** The document's own background; null shows the editor's paper. */
+    const background = ref<string | null>(null)
     const isEmpty = computed(() => layers.value.every((l) => l.strokeCount === 0))
 
     function sync() {
@@ -61,10 +65,12 @@ export function useEditorHost(options: EditorHostOptions) {
         activeLayerId.value = ed.getActiveLayerId()
         canUndo.value = ed.canUndo()
         canRedo.value = ed.canRedo()
+        historyMark.value = ed.getHistoryMark()
         zoom.value = ed.getZoom()
         const doc = ed.getDocument()
         docWidth.value = doc.width
         docHeight.value = doc.height
+        background.value = doc.background
     }
 
     // Konva can't read CSS variables, so the cursor ring gets the primary token resolved
@@ -135,9 +141,18 @@ export function useEditorHost(options: EditorHostOptions) {
     function onKeydown(e: KeyboardEvent) {
         // The sign-in modal owns the keyboard: a command behind it would act on the old session.
         if (gate.open) return
-        if (isTextField(e.target)) return
+        const target = e.target instanceof Element ? e.target : null
+        // An open menu handles its own keys: a letter there must not pick a tool.
+        if (target?.closest('[role="menu"]')) return
         const key = e.key.toLowerCase()
-        if (e.ctrlKey || e.metaKey) {
+        const mod = e.ctrlKey || e.metaKey
+        // A command from a text field or behind a modal dialog would act on what the
+        // visitor can't see; Ctrl+S is still kept from the browser's "Save page".
+        if (isTextField(e.target) || (mod && target?.closest('dialog'))) {
+            if (mod && key === 's') e.preventDefault()
+            return
+        }
+        if (mod) {
             const command = key === 'z' && e.shiftKey ? redo : (options.commands?.[key] ?? editorKeys[key])
             if (command) {
                 e.preventDefault()
@@ -189,9 +204,11 @@ export function useEditorHost(options: EditorHostOptions) {
         activeLayerId,
         canUndo,
         canRedo,
+        historyMark,
         zoomPercent,
         docWidth,
         docHeight,
+        background,
         isEmpty,
         pickTool,
         setColor,

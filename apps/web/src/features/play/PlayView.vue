@@ -6,7 +6,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { OriBadge, OriButton, OriSurface } from '@oriui/vue'
+import { OriBadge, OriButton } from '@oriui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { blankDocument, renderToPNG } from '@justpaint/editor'
 import {
@@ -22,10 +22,15 @@ import {
     leaderboardKeys
 } from '@core'
 import type { Match, MatchResultDone, WsFrame } from '@core'
+import ConfirmDialog from '../../components/ConfirmDialog.vue'
+import ModeNav from '../../components/ModeNav.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 import EditorShell from '../editor/EditorShell.vue'
 import FloatingToolbar from '../editor/FloatingToolbar.vue'
 import ZoomControls from '../editor/ZoomControls.vue'
+import { useBackdrop } from '../editor/useBackdrop'
 import { useEditorHost } from '../editor/useEditorHost'
+import { useLeaveGuard } from '../editor/useLeaveGuard'
 import { GAME_CANVAS } from '../game/canvas'
 import GamePromptBanner from '../game/GamePromptBanner.vue'
 import JudgingOverlay from '../game/JudgingOverlay.vue'
@@ -61,6 +66,7 @@ const {
     canUndo,
     canRedo,
     zoomPercent,
+    isEmpty,
     pickTool,
     setColor,
     setWidth,
@@ -77,8 +83,9 @@ const {
     initialDocument: blankGameDocument,
     commands: { enter: () => submit() },
     // Tool keys only while drawing.
-    beforeToolKeys: () => phase.value !== 'drawing'
+    beforeToolKeys: () => phase.value !== 'drawing' || leavePending.value !== null
 })
+useBackdrop(editor, { judged: true })
 
 /**
  * A client view over GAME.md's match states: `connecting` (POST /matches), `waiting`
@@ -87,6 +94,28 @@ const {
  */
 type Phase = 'connecting' | 'waiting' | 'drawing' | 'submitting' | 'judging' | 'done' | 'error'
 const phase = ref<Phase>('connecting')
+
+// Leaving never cancels the match on the server: the round runs on, and an opponent
+// who submits alone wins by forfeit (docs/GAME.md §4.1).
+const {
+    pending: leavePending,
+    leave,
+    stay
+} = useLeaveGuard(() => {
+    if (phase.value === 'drawing')
+        return {
+            title: 'Leave the duel?',
+            message: 'The round keeps running without you. If your opponent submits and you don’t, they win.',
+            confirmText: 'Leave'
+        }
+    if (phase.value === 'waiting')
+        return {
+            title: 'Leave the queue?',
+            message: 'If someone joins, the round starts without you, and they win if they submit.',
+            confirmText: 'Leave'
+        }
+    return null
+})
 
 // Set true on unmount; every async continuation checks it before touching state.
 let disposed = false
@@ -98,6 +127,8 @@ let myUserId = ''
 const prompt = ref('')
 const REVEAL_PHASES = new Set<Phase>(['drawing', 'submitting', 'judging', 'done'])
 const promptRevealed = computed(() => prompt.value !== '' && REVEAL_PHASES.has(phase.value))
+// The prompt reads large until the first stroke.
+const promptLarge = computed(() => promptRevealed.value && phase.value === 'drawing' && isEmpty.value)
 
 // A display label, never a login (docs/GAME.md §4.2).
 const opponent = reactive<{ name: string; status: OpponentStatus }>({
@@ -463,27 +494,33 @@ onBeforeUnmount(() => {
 <template>
     <EditorShell ref="shell" mode="play">
         <template #top-left>
-            <!-- Display name or "Player 2", never a login. -->
-            <OpponentStatusChip :name="opponent.name" :status="opponent.status" :online="opponentOnline" />
-            <OriBadge
-                v-if="wsReconnecting"
-                content="reconnecting…"
-                color="warning"
-                variant="soft"
-                label="Reconnecting to the match"
-            />
+            <!-- Two rows, so the opponent never reaches the prompt centered on the first. -->
+            <div class="play__top-left">
+                <ModeNav :collapse-below="1200" />
+                <div class="play__opponent">
+                    <!-- Display name or "Player 2", never a login. -->
+                    <OpponentStatusChip :name="opponent.name" :status="opponent.status" :online="opponentOnline" />
+                    <OriBadge
+                        v-if="wsReconnecting"
+                        content="reconnecting…"
+                        color="warning"
+                        variant="soft"
+                        label="Reconnecting to the match"
+                    />
+                </div>
+            </div>
         </template>
 
         <template #top-center>
             <!-- Hidden until the deadline exists, rather than a misleading 0:00. -->
             <RoundTimerBar v-if="deadlineMs !== null" :remaining="remaining" :total="roundTotalSeconds" />
             <div class="play__prompt">
-                <GamePromptBanner :prompt="prompt" :revealed="promptRevealed" />
+                <GamePromptBanner :prompt="prompt" :revealed="promptRevealed" :large="promptLarge" />
             </div>
         </template>
 
-        <!-- No drawer: SideMenu is /draw-specific.
-             TODO(play-api): a play drawer (leave/rematch/profile). -->
+        <!-- No drawer: SideMenu is /draw-specific; leaving goes through ModeNav.
+             TODO(play-api): a play drawer (rematch/profile). -->
         <template #top-right>
             <SubmitButton :disabled="!canSubmit" :loading="submitting" @submit="submit" />
         </template>
@@ -513,7 +550,7 @@ onBeforeUnmount(() => {
         </template>
 
         <template #overlay>
-            <OriSurface v-if="phase === 'error'" class="play__notice" role="alert">
+            <IslandSurface v-if="phase === 'error'" class="play__notice" role="alert" elevation="lg">
                 <h2 class="play__notice-title">
                     {{ exhausted ? 'That’s your duels for today' : 'Can’t start the duel' }}
                 </h2>
@@ -528,7 +565,7 @@ onBeforeUnmount(() => {
                     @click="viewLeaderboard"
                 />
                 <OriButton v-else label="Try again" variant="solid" color="primary" radius="md" @click="startMatch" />
-            </OriSurface>
+            </IslandSurface>
             <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
             <ResultReveal
                 v-else-if="phase === 'done' && result"
@@ -536,11 +573,35 @@ onBeforeUnmount(() => {
                 @play-again="playAgain"
                 @view-leaderboard="viewLeaderboard"
             />
+
+            <ConfirmDialog
+                :open="leavePending !== null"
+                :title="leavePending?.title ?? ''"
+                :message="leavePending?.message"
+                :confirm-text="leavePending?.confirmText"
+                cancel-text="Stay"
+                discard
+                @confirm="leave"
+                @cancel="stay"
+            />
         </template>
     </EditorShell>
 </template>
 
 <style scoped>
+.play__top-left {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--ori-size-gap_md, 0.5rem);
+}
+
+.play__opponent {
+    display: flex;
+    align-items: center;
+    gap: var(--ori-size-gap_md, 0.5rem);
+}
+
 /* Clears the timer chip and the corner islands on a narrow phone. */
 .play__prompt {
     padding-top: 2.5rem;
@@ -560,7 +621,7 @@ onBeforeUnmount(() => {
     gap: var(--ori-size-gap_sm, 0.25rem);
 
     width: min(92vw, 24rem);
-    padding: var(--ori-size-gap_lg, 0.75rem) var(--ori-size-gap_xl, 1rem) var(--ori-size-gap_xl, 1rem);
+    padding: var(--ori-size-gap_xl, 1rem);
 
     pointer-events: auto;
     text-align: center;
@@ -575,9 +636,9 @@ onBeforeUnmount(() => {
 }
 
 .play__notice-msg {
-    margin: 0 0 var(--ori-size-gap_sm, 0.25rem);
+    margin: 0 0 var(--ori-size-gap_lg, 0.75rem);
 
     font-size: var(--ori-font-size_sm, 0.9rem);
-    opacity: 0.8;
+    opacity: var(--jp-dim, 0.8);
 }
 </style>

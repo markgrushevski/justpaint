@@ -4,8 +4,8 @@
  * gives focus trap, scroll lock, Esc and ::backdrop dismissal for free. The
  * parent owns `open` and never mutates it — controlled mode is optimistic, so
  * a user dismiss has already closed the dialog by the time `update:open(false)`
- * fires, and `onOpenChange` just maps that to `cancel`. /draw only: /play and
- * /practice use their own overlay cards.
+ * fires, and `onOpenChange` just maps that to `cancel`. /draw's confirms and every
+ * editor view's leave question use it.
  */
 import { OriButton, OriDialog } from '@oriui/vue'
 
@@ -15,7 +15,10 @@ const props = defineProps<{
     message?: string
     confirmText?: string
     cancelText?: string
+    /** The confirm destroys something saved: solid red. */
     danger?: boolean
+    /** The confirm drops only unsaved work: red, but outlined, a step under a delete. */
+    discard?: boolean
 }>()
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
@@ -30,11 +33,17 @@ function onOpenChange(open: boolean) {
         <p v-if="props.message" class="confirm__message">{{ props.message }}</p>
 
         <div class="confirm__actions">
-            <OriButton :label="props.cancelText ?? 'Cancel'" variant="outline" radius="md" @click="emit('cancel')" />
+            <OriButton
+                :label="props.cancelText ?? 'Cancel'"
+                variant="outline"
+                color="surface"
+                radius="md"
+                @click="emit('cancel')"
+            />
             <OriButton
                 :label="props.confirmText ?? 'Confirm'"
-                variant="solid"
-                :color="props.danger ? 'danger' : undefined"
+                :variant="props.discard ? 'outline' : 'solid'"
+                :color="props.danger || props.discard ? 'danger' : undefined"
                 radius="md"
                 @click="emit('confirm')"
             />
@@ -47,14 +56,14 @@ function onOpenChange(open: boolean) {
     margin: 0;
     font-size: var(--ori-font-size_sm, 0.875rem);
     line-height: 1.5;
-    opacity: 0.85;
+    opacity: var(--jp-dim, 0.85);
 }
 
 .confirm__actions {
     display: flex;
     justify-content: flex-end;
-    gap: var(--ori-size-gap_sm, 0.25rem);
+    gap: var(--ori-size-gap_md, 0.5rem);
 
-    margin-top: var(--ori-size-gap_sm, 0.25rem);
+    margin-top: var(--ori-size-gap_xl, 1rem);
 }
 </style>

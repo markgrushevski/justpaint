@@ -73,10 +73,26 @@ for (const name of [
 for (const name of ['outline-light', 'outline-dark']) {
     tokens[name] = parseColor(prop(root, `--jp-color-${name}`, ':root'), `--jp-color-${name}`)
 }
+// The stronger hairlines main.css sets when the system asks for more contrast.
+const more = block(/@media \(prefers-contrast: more\)\s*\{\s*:root/, 'prefers-contrast: more')
+for (const name of ['outline-light', 'outline-dark']) {
+    tokens[`more:${name}`] = parseColor(prop(more, `--jp-color-${name}`, 'more'), `--jp-color-${name} (more)`)
+}
 // Desk tokens: parsed and validated (a rename/typo fails the run), but no
 // contrast assertion — nothing is required to read against the desk.
 for (const name of ['desk-light', 'desk-dark']) {
     tokens[name] = parseColor(prop(root, `--jp-${name}`, ':root'), `--jp-${name}`)
+}
+// Accent presets (`:root.jp-accent-*`): each replaces the four primary sources.
+const ACCENTS = ['green', 'blue', 'violet']
+for (const accent of ACCENTS) {
+    const body = block(new RegExp(`:root\.jp-accent-${accent}`), `:root.jp-accent-${accent}`)
+    for (const name of ['primary-light', 'on-primary-light', 'primary-dark', 'on-primary-dark']) {
+        tokens[`${accent}:${name}`] = parseColor(
+            prop(body, `--ori-color-${name}`, accent),
+            `--ori-color-${name} (${accent})`
+        )
+    }
 }
 // Dark-only danger override (oriui's light-tuned red is too dim on our dark surfaces).
 tokens['danger-dark'] = parseColor(prop(dark, '--ori-color-danger', 'dark'), '--ori-color-danger (dark)')
@@ -102,8 +118,20 @@ const MATRIX = [
     ['outline-light', 'background-light', NON_TEXT],
     ['outline-dark', 'surface-dark', NON_TEXT],
     ['outline-dark', 'background-dark', NON_TEXT],
+    // With more contrast asked for, a hairline clears the text bar.
+    ['more:outline-light', 'surface-light', TEXT],
+    ['more:outline-light', 'background-light', TEXT],
+    ['more:outline-dark', 'surface-dark', TEXT],
+    ['more:outline-dark', 'background-dark', TEXT],
     ['primary-light', 'background-light', NON_TEXT], // focus ring on the page
-    ['primary-dark', 'background-dark', NON_TEXT] // focus ring on the page
+    ['primary-dark', 'background-dark', NON_TEXT], // focus ring on the page
+    // Every accent clears the same bars as the orange.
+    ...ACCENTS.flatMap((a) => [
+        [`${a}:on-primary-light`, `${a}:primary-light`, TEXT],
+        [`${a}:on-primary-dark`, `${a}:primary-dark`, TEXT],
+        [`${a}:primary-light`, 'background-light', NON_TEXT],
+        [`${a}:primary-dark`, 'background-dark', NON_TEXT]
+    ])
 ]
 
 const failures = []

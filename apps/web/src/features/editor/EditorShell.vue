@@ -31,7 +31,9 @@ defineExpose({ canvasEl })
 
 <template>
     <div class="shell" :class="`shell--${mode}`" :data-mode="mode">
-        <div ref="canvasEl" class="shell__canvas"></div>
+        <!-- A free drawing goes through the dark theme's ink view (main.css); a scored one
+             stays the judge's white sheet in both themes. -->
+        <div ref="canvasEl" class="shell__canvas" :class="{ 'jp-ink-view': mode === 'draw' }"></div>
 
         <div v-if="$slots['top-left']" class="shell__region shell__region--top-left">
             <slot name="top-left" />
@@ -157,7 +159,7 @@ defineExpose({ canvasEl })
     pointer-events: none;
 }
 
-/* Centered layer over the canvas (empty-state card, and a home for the
+/* Centered layer over the canvas (the /draw welcome, result cards, and a home for the
    body-teleported dialogs/toaster). pointer-events:none so it never blocks
    drawing; only opted-in slotted content is interactive. z-11 > toolbar z-10. */
 .shell__overlay {

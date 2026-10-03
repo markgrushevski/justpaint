@@ -160,7 +160,7 @@ The picture is letterboxed when the canvas is not square, so the instruction tel
 ## 5. Client (`apps/web`)
 
 - **Transport:** `useAssist()` (`core/api/queries.ts`) — a TanStack Query mutation wrapping the typed `assist.ops` client (`core/api/assist.ts`), same pattern as save/load.
-- **UI:** a prompt input panel in `DrawView.vue`, mounted in the shared `EditorShell`'s `#top-center` region (a free region slot the shell already reserves) and toggled open/closed from an `assist` icon in the top-left actions island, alongside the layers/help toggles.
+- **UI:** a prompt input panel in `DrawView.vue`, mounted in the shared `EditorShell`'s `#top-center` region (a free region slot the shell already reserves) and opened from the "Draw with AI" row of the AI menu in the top-right island (beside Layers), and closed from the panel's own close button.
 - **Ghost preview:** returned ops are handed to `Editor.previewOps(ops)`, which renders them on a ghost overlay — its own top, non-listening Konva layer at reduced opacity with a dashed accent frame, clipped to the doc rect — drawn on the stage but **not in the document and not in history**. The user then:
   - **Accept** — `Editor.acceptOps()` maps the whole batch into a **single composite `Command {apply, invert}`** and commits it through the editor's normal commit path. The entire AI action is one history entry: **one Ctrl+Z undoes all of it**.
   - **Reject** — `Editor.rejectOps()` discards the preview; nothing enters the document or history.

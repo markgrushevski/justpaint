@@ -9,7 +9,7 @@
  */
 import Konva from 'konva'
 import { blankDocument, DEFAULT_BACKGROUND, LIMITS } from './document'
-import type { Document, Layer, Op, Stroke } from './document'
+import type { Color, Document, Layer, Op, Stroke } from './document'
 import { newId } from './ids'
 import {
     addLayerCommand,
@@ -19,6 +19,7 @@ import {
     moveLayerCommand,
     removeLayerCommand,
     renameLayerCommand,
+    setBackgroundCommand,
     setLayerOpacityCommand,
     setLayerVisibleCommand
 } from './history'
@@ -26,7 +27,7 @@ import type { Command } from './history'
 import { toKonva } from './konva'
 import { renderToPNG } from './render'
 import type { RenderOptions } from './render'
-import { DEFAULT_STYLE } from './style'
+import { DEFAULT_STYLE, toolDiameter } from './style'
 import { penTool } from './tools/pen'
 import type { LayerView, LogicalPoint, StrokeTool, Tool, ToolContext, ToolStyle } from './types'
 import { fitView, panBy, zoomAround, ZOOM_STEP, type ViewState } from './view'
@@ -129,18 +130,18 @@ export class Editor {
             this.gesture = null
             this.clearPreview()
         }
-        this.syncCursorRing() // the brush ring hides while the hand is active
+        this.syncCursorRing() // the ring hides for the hand and resizes for the new tool
         this.syncContainerCursor()
     }
 
     setStyle(patch: Partial<ToolStyle>): void {
         this.style = { ...this.style, ...patch }
-        this.syncCursorRing() // the ring's diameter tracks strokeWidth
+        this.syncCursorRing() // the ring's diameter follows the width
     }
 
     /**
-     * Enable or re-color the brush-size cursor ring: `strokeWidth` across in logical
-     * units, hidden on touch and off-canvas.
+     * Enable or re-color the cursor ring: the active tool's paint diameter ({@link toolDiameter})
+     * across in logical units, hidden on touch and off-canvas.
      */
     setCursorColor(color: string | null): void {
         this.cursorColor = color
@@ -278,6 +279,15 @@ export class Editor {
 
     canRedo(): boolean {
         return this.history.canRedo
+    }
+
+    /**
+     * Where the document stands in its undo history, as an opaque token. Every document
+     * change goes through the history, so a matching token means an unchanged document;
+     * `loadDocument` starts a new history, and the token compares only within one.
+     */
+    getHistoryMark(): object | null {
+        return this.history.mark
     }
 
     undo(): void {
@@ -437,6 +447,13 @@ export class Editor {
         const layer = this.doc.layers.find((l) => l.id === id)
         if (!layer || layer.visible === visible) return
         this.commit(setLayerVisibleCommand(this.doc, id, visible))
+    }
+
+    /** Paint the document's own background, or clear it with null; undoable. Only `#rrggbb[aa]`, as the format allows. */
+    setBackground(color: Color | null): void {
+        if (color === this.doc.background) return
+        if (color !== null && !/^#([0-9a-f]{6}|[0-9a-f]{8})$/.test(color)) return
+        this.commit(setBackgroundCommand(this.doc, color))
     }
 
     setLayerOpacity(id: string, opacity: number): void {
@@ -735,7 +752,7 @@ export class Editor {
             listening: false,
             visible: false,
             strokeWidth: 1,
-            // The radius is logical (brush size); the outline stays 1 screen px.
+            // The radius is logical (half the tool's paint diameter); the outline stays 1 screen px.
             strokeScaleEnabled: false
         })
         this.cursorLayer.add(this.cursorRing)
@@ -749,7 +766,7 @@ export class Editor {
         this.cursorRing.visible(visible)
         if (visible && this.cursor) {
             this.cursorRing.position(this.cursor)
-            this.cursorRing.radius(Math.max(this.style.strokeWidth / 2, 0.5))
+            this.cursorRing.radius(Math.max(toolDiameter(this.activeTool, this.style) / 2, 0.5))
             this.cursorRing.stroke(this.cursorColor)
         }
         this.cursorLayer.batchDraw()
@@ -801,7 +818,7 @@ export class Editor {
         const p = this.stage.getPointerPosition()
         if (!p) return
         this.pan = { pointerId, startX: p.x, startY: p.y, view: { ...this.view } }
-        this.syncCursorRing() // the brush ring hides for the duration of the pan
+        this.syncCursorRing() // the ring hides for the duration of the pan
         this.syncContainerCursor() // grab → grabbing
     }
 

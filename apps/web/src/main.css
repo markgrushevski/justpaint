@@ -1,6 +1,6 @@
 /*
- * justpaint brand tokens: a pure orange over neutral grays, layered on the
- * oriui design system. This file only sets the `*-light`/`*-dark` SOURCES;
+ * justpaint brand tokens: a marker orange over white paper on a concrete-grey desk,
+ * layered on the oriui design system. This file only sets the `*-light`/`*-dark` SOURCES;
  * oriui resolves them into `--ori-color-*` per theme (a global brand override
  * sets the source at `:root`, per oriui's own convention). Components read the
  * resolved aliases, never these sources. Contrast is enforced by
@@ -20,22 +20,24 @@
     --ori-color-secondary-dark: hsl(30 32% 26%);
     --ori-color-on-secondary-dark: hsl(38 90% 92%);
 
-    /* Surface (cards, panels, toolbar) + page background — neutral grays. Ink
-       retinted to match, well past the AA text bar in both themes. */
-    --ori-color-surface-light: #f0f2f6;
-    --ori-color-on-surface-light: hsl(220 10% 15%);
-    --ori-color-surface-dark: #191919;
-    --ori-color-on-surface-dark: hsl(0 0% 92%);
+    /* Surface (cards, panels, toolbar) + page background — concrete neutrals under one
+       graphite ink, well past the AA text bar in both themes. The page background also
+       carries the orange wordmark, which is why it is the white one: the orange clears
+       the large-text 3:1 bar there, not on the surface. */
+    --ori-color-surface-light: #f6f5f3;
+    --ori-color-on-surface-light: #242322;
+    --ori-color-surface-dark: #302e2b;
+    --ori-color-on-surface-dark: #ecebe8;
 
     --ori-color-background-light: #ffffff;
-    --ori-color-on-background-light: hsl(220 10% 15%);
-    --ori-color-background-dark: #121212;
-    --ori-color-on-background-dark: hsl(0 0% 92%);
+    --ori-color-on-background-light: #242322;
+    --ori-color-background-dark: #161514;
+    --ori-color-on-background-dark: #ecebe8;
 
-    /* Outline (borders, dividers) — neutral hues, cleared for the >=3:1 non-text
+    /* Outline (borders, dividers) — concrete greys, cleared for the >=3:1 non-text
        bar (WCAG 1.4.11) against both surfaces they draw against. */
-    --jp-color-outline-light: hsl(220 5% 55%);
-    --jp-color-outline-dark: hsl(0 0% 46%);
+    --jp-color-outline-light: #85827c;
+    --jp-color-outline-dark: #85827c;
 
     /* Outline is ours: oriui ships no outline token, so it carries the --jp-*
        prefix rather than squatting in the vendor --ori-* namespace, where a
@@ -46,8 +48,8 @@
     /* The letterbox "desk" behind the paper — one step darker (light) / lighter
        (dark) than the paper so the document edge reads at any zoom; the editor
        adds a paper shadow on top. Resolved for light here; dark repoints it. */
-    --jp-desk-light: #e9ebef;
-    --jp-desk-dark: #1e1e1e;
+    --jp-desk-light: #e4e2de;
+    --jp-desk-dark: #242321;
     --jp-desk: var(--jp-desk-light);
 
     /* Shared square-control sizes — two deliberate tiers across every floating island. */
@@ -58,6 +60,32 @@
        the mobile swatch trigger). oriui components own their own hover via props;
        this is the only shared interaction token left. */
     --jp-neutral-hover-bg: color-mix(in srgb, var(--ori-color-on-surface) 8%, transparent);
+}
+
+/*
+ * Accents the player can pick in the menu (`useThemeStore`), as a class on the root; the
+ * orange above is the default and has none. Each sets the four primary sources, so every
+ * oriui role derive follows, and `scripts/check-contrast.mjs` checks each like the orange.
+ */
+:root.jp-accent-green {
+    --ori-color-primary-light: hsl(125 100% 20%);
+    --ori-color-on-primary-light: #ffffff;
+    --ori-color-primary-dark: hsl(125 60% 50%);
+    --ori-color-on-primary-dark: hsl(125 45% 8%);
+}
+
+:root.jp-accent-blue {
+    --ori-color-primary-light: hsl(222 90% 50%);
+    --ori-color-on-primary-light: #ffffff;
+    --ori-color-primary-dark: hsl(222 90% 68%);
+    --ori-color-on-primary-dark: hsl(222 45% 10%);
+}
+
+:root.jp-accent-violet {
+    --ori-color-primary-light: hsl(268 80% 52%);
+    --ori-color-on-primary-light: #ffffff;
+    --ori-color-primary-dark: hsl(268 85% 75%);
+    --ori-color-on-primary-dark: hsl(268 40% 12%);
 }
 
 /*
@@ -84,6 +112,49 @@
        Lifted for dark only; success/warn/info aren't used as foreground colour
        yet, so they stay oriui's defaults. */
     --ori-color-danger: hsl(0 80% 70%);
+}
+
+/*
+ * More contrast, when the system asks for it: hairlines move toward the ink and oriui's own
+ * hairlines follow ours, so every edge clears 4.5:1 (`scripts/check-contrast.mjs`). Dimmed
+ * text reads `opacity: var(--jp-dim, <its own value>)`; this sets the variable, so it comes
+ * back to full strength. Islands take a hairline as well (`components/ui/IslandSurface.vue`).
+ */
+@media (prefers-contrast: more) {
+    :root {
+        --jp-color-outline-light: #5c5955;
+        --jp-color-outline-dark: #b3b0aa;
+        --ori-color-outline: var(--jp-color-outline);
+        --ori-color-outline-strong: var(--jp-color-outline);
+        --jp-dim: 1;
+    }
+}
+
+/*
+ * The dark theme can show a free drawing inverted, as Excalidraw does
+ * (`useThemeStore().canvasInverted`, the player's choice): a drawing made for light paper
+ * still reads, and an export stays as drawn. Colour pickers for that canvas wear it too, so a
+ * swatch looks like what it paints. The scored modes never mark their canvas: they show the
+ * judge's white sheet.
+ */
+:root.jp-canvas-dark .jp-ink-view {
+    filter: invert(93%) hue-rotate(180deg);
+}
+
+/* Text for assistive technology only, such as the name of an icon-only choice. */
+.jp-sr-only {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+
+    border: 0;
+
+    white-space: nowrap;
+    clip-path: inset(50%);
 }
 
 /* One visible focus ring for the hand-rolled shell controls (oriui components

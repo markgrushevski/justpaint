@@ -33,7 +33,6 @@ import {
     OriCheckbox,
     OriPopover,
     OriSlider,
-    OriSurface,
     OriToolbar,
     OriToolbarButton,
     OriToolbarToggleGroup,
@@ -41,6 +40,7 @@ import {
 } from '@oriui/vue'
 import { TOOLS } from '@justpaint/editor'
 import ToolIcon from '../../components/icons/ToolIcon.vue'
+import IslandSurface from '../../components/ui/IslandSurface.vue'
 
 const toolIds = Object.keys(TOOLS) as ToolId[]
 
@@ -52,6 +52,8 @@ const props = defineProps<{
     fill: string
     canUndo: boolean
     canRedo: boolean
+    /** The canvas goes through the dark theme's ink view (main.css), so its colour wells do too. */
+    inkView?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -96,7 +98,7 @@ function onWidth(e: Event) {
 </script>
 
 <template>
-    <OriSurface as="div" class="bar" elevation="lg">
+    <IslandSurface as="div" class="bar" elevation="md">
         <OriToolbar class="bar__toolbar" label="Drawing tools">
             <OriToolbarToggleGroup
                 type="single"
@@ -133,7 +135,7 @@ function onWidth(e: Event) {
 
         <!-- Inline style controls — visible >600px only. -->
         <div class="bar__group bar__style-inline" role="group" aria-label="Stroke and fill">
-            <label class="bar__swatch" title="Stroke color">
+            <label class="bar__swatch" :class="{ 'jp-ink-view': props.inkView }" title="Stroke color">
                 <input type="color" :value="props.color" aria-label="Stroke color" @input="onColor" />
             </label>
 
@@ -164,7 +166,7 @@ function onWidth(e: Event) {
                     label="Fill"
                     @update:model-value="(v) => emit('toggleFill', v === true)"
                 />
-                <label class="bar__swatch" title="Fill color">
+                <label class="bar__swatch" :class="{ 'jp-ink-view': props.inkView }" title="Fill color">
                     <input
                         type="color"
                         :value="props.fill"
@@ -191,12 +193,17 @@ function onWidth(e: Event) {
                     type="button"
                     aria-label="Stroke & fill"
                 >
-                    <span class="bar__style-dot" :style="{ background: props.color }" aria-hidden="true"></span>
+                    <span
+                        class="bar__style-dot"
+                        :class="{ 'jp-ink-view': props.inkView }"
+                        :style="{ background: props.color }"
+                        aria-hidden="true"
+                    ></span>
                 </button>
             </template>
 
             <div class="bar__style-panel">
-                <label class="bar__swatch" title="Stroke color">
+                <label class="bar__swatch" :class="{ 'jp-ink-view': props.inkView }" title="Stroke color">
                     <input type="color" :value="props.color" aria-label="Stroke color" @input="onColor" />
                 </label>
 
@@ -227,7 +234,7 @@ function onWidth(e: Event) {
                         label="Fill"
                         @update:model-value="(v) => emit('toggleFill', v === true)"
                     />
-                    <label class="bar__swatch" title="Fill color">
+                    <label class="bar__swatch" :class="{ 'jp-ink-view': props.inkView }" title="Fill color">
                         <input
                             type="color"
                             :value="props.fill"
@@ -266,10 +273,46 @@ function onWidth(e: Event) {
                 <ToolIcon name="redo" />
             </OriToolbarButton>
         </OriToolbar>
-    </OriSurface>
+    </IslandSurface>
 </template>
 
 <style scoped>
+/* Motion lives on our own glyph, never on the oriui button: the icon lifts on hover,
+   squashes on press and bounces when its tool is picked. */
+.tool-icon {
+    transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (hover: hover) {
+    .bar__tool-wrap:hover .tool-icon {
+        transform: translateY(-2px) rotate(-6deg);
+    }
+}
+
+[aria-pressed='true'] > .tool-icon {
+    animation: bar-pick 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.bar__tool-wrap:active .tool-icon {
+    transform: scale(0.86);
+}
+
+@keyframes bar-pick {
+    40% {
+        transform: scale(1.22) rotate(-8deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tool-icon {
+        transition: none;
+    }
+
+    [aria-pressed='true'] > .tool-icon {
+        animation: none;
+    }
+}
+
 .bar {
     display: flex;
     align-items: center;
@@ -427,6 +470,17 @@ function onWidth(e: Event) {
     border: 2px solid var(--ori-color-surface, #ffffff);
     border-radius: 50%;
     box-shadow: 0 0 0 1px var(--jp-color-outline, rgb(0 0 0 / 20%));
+}
+
+/* The dot shows the pen's colour, which a forced-colours mode would paint over; it keeps the
+   colour, and a system-colour ring stands in for the shadow that mode drops. */
+@media (forced-colors: active) {
+    .bar__style-dot {
+        border-color: Canvas;
+        outline: 1px solid CanvasText;
+
+        forced-color-adjust: none;
+    }
 }
 
 .bar__style-panel {

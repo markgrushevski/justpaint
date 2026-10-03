@@ -13,7 +13,7 @@
  * Commands are keyed by stroke/layer `id`, never by array position, so they
  * stay correct as the document is edited around them (DOCUMENT-FORMAT.md §8).
  */
-import type { Document, Layer, Stroke } from './document'
+import type { Color, Document, Layer, Stroke } from './document'
 
 /** A reversible mutation of a {@link Document}. */
 export interface Command {
@@ -114,6 +114,20 @@ export function renameLayerCommand(doc: Document, layerId: string, name: string)
     }
 }
 
+/** Set or clear the document's background (snapshotting the old one); undo restores it. */
+export function setBackgroundCommand(doc: Document, background: Color | null): Command {
+    const previous = doc.background
+    return {
+        label: background === null ? 'clear background' : 'set background',
+        apply(d) {
+            d.background = background
+        },
+        invert(d) {
+            d.background = previous
+        }
+    }
+}
+
 /** Set a layer's `visible` flag (snapshotting the old value); undo restores it. */
 export function setLayerVisibleCommand(doc: Document, layerId: string, visible: boolean): Command {
     const previous = layerById(doc, layerId)?.visible ?? visible
@@ -181,6 +195,14 @@ export class History {
 
     get canRedo(): boolean {
         return this.redoStack.length > 0
+    }
+
+    /**
+     * The last applied command as an identity token; null at the start. Commands are exact
+     * inverses, so two equal marks mean two equal documents.
+     */
+    get mark(): object | null {
+        return this.undoStack[this.undoStack.length - 1] ?? null
     }
 
     /** Apply a command and record it; clears the redo stack (a new branch). */

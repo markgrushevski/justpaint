@@ -115,6 +115,14 @@ The document (`DEFAULT_CANVAS`, 1920×1080) is fitted to its container by a `Res
 `autoFit` is on. A manual zoom or pan turns it off; `loadDocument` and "fit" turn it back on. The canvas
 backing store is `stage.width × devicePixelRatio` — correct retina sizing, not a bug.
 
+### A dark canvas is a CSS filter, not a render
+
+With "Invert in the dark theme" on, `/draw`'s dark look is `.jp-ink-view` inverted by `main.css` under
+`:root.jp-canvas-dark`; the document, the export and the judged raster never see it. Anything that shows a free drawing's colours (a swatch,
+a preview) needs the same class or it disagrees with the canvas. Keep the class on `.shell__canvas`,
+never on `.shell`: a filter makes a stacking context, and the shell's corner controls must stay in the
+root one. The history mark (`getHistoryMark`) covers `setBackground` like any other command.
+
 ### `renderToStage` is the one projection
 
 The browser export (`renderToPNG`, `stage.toBlob`) and the Node worker (`stage.toDataURL()` under
@@ -191,9 +199,49 @@ An absolutely positioned box with a `left` offset shrinks to fit the remaining w
 phone the toolbar wrapped. Use a full-width strip (`left: 0; right: 0; display: flex;
 justify-content: center`) with `pointer-events: none`, and `pointer-events: auto` on the child.
 
+### Every navigation releases the sign-in modal
+
+`main.ts` settles the auth gate with `false` in `router.afterEach`, so the modal never follows the visitor
+to another page holding the old page's waiter. That fires after every navigation, including a
+`router.replace` a view issues while it mounts: a modal raised before the replace finishes is closed again,
+and the action waiting behind it is answered `false` and dropped without a message. Gate only after the
+replace settles. `afterEach` runs before the promise returned by `replace` resolves, so code chained on it
+starts after the release: `DrawView` takes `?id` out of the URL with
+`router.replace({ query: {} }).then(() => file.open(id))`.
+
+### The editor host's key handler sees keys from every panel
+
+`useEditorHost` listens for `keydown` on `window`, so it also receives keys from teleported panels, from
+dialogs and from `OriMenu` popovers. It ignores keys from inside `[role="menu"]`, so a letter typed in a
+menu does not pick a tool, and every key while the sign-in modal is open. It ignores keys from text fields,
+and Ctrl/Cmd commands from inside a `<dialog>`, which would act on a canvas the visitor can't see; Ctrl+S
+still gets `preventDefault` there, to keep the browser's "Save page" away. A plain key from a dialog is not
+filtered here: the view's `beforeToolKeys` must return true while any of its modal overlays is open
+(`onPlainKey` in `DrawView` lists them), or tool hotkeys fire underneath.
+
+A panel that handles Escape itself must call `stopPropagation`, or the view's Escape handler on `window`
+acts on the same press. `SideMenu` does: without it, Esc in the Export or Canvas sub-panel would close the
+whole menu instead of stepping back to the main list. On a phone the menu is a modal `OriDrawer`, and Escape
+also closes a modal `<dialog>` as the key's default action, so the sub-panel's handler calls `preventDefault`
+too.
+
+### A canvas bound to a saved row must not outlive its document or its account
+
+`useDrawingFile` binds the canvas to a row when a save or an open succeeds. Everything that swaps in another
+document (New drawing, a canvas-size change, opening a drawing) clears or replaces the binding and bumps a
+generation counter. A save or open still in flight compares the counter when it returns and drops its
+result; without that, a slow save would bind the fresh canvas to the old row and the next Ctrl+S would
+update that row instead of creating one.
+
+The binding also carries the owner's id and is compared with the session each time it is used (`savedId`).
+A watch for the user changing from A to B would miss a sign-out followed by a sign-in as B, because the user
+goes A, none, B and never changes straight from one to the other. B would then send a `PUT` to A's id, which
+the ownership-scoped route answers 404. Signing back in as A keeps the binding.
+`tests/flows/draw-file.spec.ts` (`npm run test:flows -w @justpaint/web`) drives these races in a browser;
+like `test:layout` it needs a dev server.
+
 ### Small ones
 
-- `layersOpen` (DrawView) is computed once at mount from `innerWidth`, not re-evaluated on resize.
 - In SFC templates `eslint-disable-next-line` covers only the literal next line; with one attribute per
   line it must sit directly above the offending attribute, or use a block disable.
 
@@ -234,6 +282,22 @@ every other rating display is stale after a duel.
 
 ## oriui and CSS
 
+### A shared CSS anchor name resolves to the last eligible element
+
+The browser does not pair an anchored element with the nearest element of its `anchor-name`: it takes the last one
+in tree order that it may anchor to, and for a `position: fixed` element that can be anywhere on the page. oriui's
+tooltips share one name and, before rc.22, opened by another control; rc.22 scopes the name with `anchor-scope`.
+An anchor name of ours needs a scope or a name per pair. `tests/layout/tooltips.spec.ts` measures every bubble
+against its trigger; a hidden bubble keeps its box, so it needs no hover.
+
+### `forced-color-adjust` is inherited
+
+A colour swatch has to keep its colour in a forced-colours mode, so it sets `forced-color-adjust: none`. The
+property is inherited: set on a wrapper, it also keeps the author colours of everything inside, such as an outline
+button whose dark border then disappears on a black contrast theme. Set it on the element that shows the colour.
+A forced-colours mode also drops `box-shadow`, so a ring drawn with a shadow needs an `outline` in system colours
+there.
+
 ### Unlayered CSS beats every `@layer`
 
 oriui's styles live in cascade layers, and any unlayered app rule wins regardless of specificity. An
@@ -246,13 +310,14 @@ one, which resolves to an invisible color there.
 ### The oriui CSS import list is hand-maintained
 
 `main.ts` imports `@oriui/css/components/*.css`, one file per component. A missing line renders that
-component unstyled with no error. `npm run lint:styles` (`apps/web/scripts/check-styles.mjs`, part of
+component unstyled with no error, so the first use of a new `Ori*` component (`OriMenu` needed
+`menu.css`) comes with its import. `npm run lint:styles` (`apps/web/scripts/check-styles.mjs`, part of
 `lint:all` and `lint:ci`) guards it by checking selectors, not filenames, because some component CSS is
 inlined elsewhere (`.ori-spinner` ships in `button.css`).
 
 ### oriui packages move in lockstep
 
-`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.19`), and
+`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.22`), and
 `@oriui/vue` pins the other two to its own, so bump all three together. `@oriui/css` must be imported
 for its side effects or components render unstyled.
 
@@ -600,6 +665,12 @@ It is model prose steered by user input. Render it as text, never as HTML.
 
 ## Testing and local tooling
 
+### A Playwright route glob for the API also catches the app's modules
+
+Under the Vite dev server the app's own source loads from `/src/...`, so `page.route('**/api/**', …)` also
+answers for `src/core/api/*.ts` and the app never starts. Match the API by path:
+`page.route((url) => url.pathname.startsWith('/api/'), …)`.
+
 ### DB-backed Go tests skip silently without `DATABASE_URL`
 
 The `*_db_test.go` files, `internal/game/reveal_test.go`, `internal/drawings/roundtrip_test.go` and the
@@ -647,10 +718,11 @@ backdrop.
 
 Type checks, Vitest (happy-dom has no layout), stylelint and axe never see pixel geometry, so absolutely
 positioned chrome can overlap with every gate green. `npm run test:layout -w @justpaint/web`
-(`tests/layout/chrome-overlap.spec.ts`, Playwright at eleven viewports) checks the shell's bottom
-regions; like `test:a11y` it needs a dev server, so it is a local gate, not a CI one. Key a breakpoint to
-the condition, not the device class: the zoom-island lift uses `width <= 1200px` because the
-shrink-to-fit toolbar reaches the island below about 1169px, not only on phones.
+(`tests/layout/chrome-overlap.spec.ts`, Playwright at eleven viewports) checks the top row (mode
+switcher, actions island, Save, menu toggle) and the shell's bottom regions; like `test:a11y` it needs a
+dev server, so it is a local gate, not a CI one. Key a breakpoint to the condition, not the device class:
+the zoom-island lift uses `width <= 1200px` because the shrink-to-fit toolbar reaches the island below
+about 1169px, not only on phones.
 
 ### Tool scripts must resolve packages, not assume the root `node_modules`
 
