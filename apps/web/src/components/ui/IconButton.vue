@@ -9,6 +9,7 @@
  * `color="primary"` + `pressed`, and a primary action is a fill `OriButton`,
  * not this. `label` doubles as the accessible name and the tooltip text.
  */
+import { useId } from 'vue'
 import { OriButton, OriTooltip } from '@oriui/vue'
 import type { Variant, ThemeColor, RadiusSize, AnchoredPlacement } from '@oriui/vue'
 import ToolIcon from '../icons/ToolIcon.vue'
@@ -39,10 +40,14 @@ withDefaults(
 )
 
 const emit = defineEmits<{ click: [MouseEvent] }>()
+
+// Every oriui tooltip shares one anchor name, and a bubble can end up on another trigger
+// (docs/ISSUES-OUTER.md); a name of its own pairs it with this one.
+const anchor = { '--ori-anchor': `--jp-tip-${useId()}` }
 </script>
 
 <template>
-    <OriTooltip :placement="placement" :content="label">
+    <OriTooltip :placement="placement" :content="label" :style="anchor">
         <OriButton
             class="ori-button_icon"
             :variant="variant"
