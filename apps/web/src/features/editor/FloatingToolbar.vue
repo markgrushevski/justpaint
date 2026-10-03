@@ -107,7 +107,7 @@ function onWidth(e: Event) {
                 :model-value="props.activeTool"
                 @update:model-value="onToolChange"
             >
-                <span v-for="id in toolIds" :key="id" class="bar__tool-wrap bar__tip-scope">
+                <span v-for="id in toolIds" :key="id" class="bar__tool-wrap">
                     <!-- Active tool = OriToolbar's own pressed affordance (neutral fill +
                          inset ring from `[aria-pressed=true]`) plus a brand-tinted glyph
                          (`color="primary"`); resting tools use the neutral `surface` glyph.
@@ -250,32 +250,28 @@ function onWidth(e: Event) {
         <span class="bar__divider bar__divider--history" aria-hidden="true"></span>
 
         <OriToolbar class="bar__toolbar bar__toolbar--history" label="History">
-            <span class="bar__tip-scope">
-                <OriToolbarButton
-                    class="ori-button_icon"
-                    radius="md"
-                    color="surface"
-                    aria-label="Undo"
-                    tooltip="Undo — Ctrl/⌘+Z"
-                    :disabled="!props.canUndo"
-                    @click="emit('undo')"
-                >
-                    <ToolIcon name="undo" />
-                </OriToolbarButton>
-            </span>
-            <span class="bar__tip-scope">
-                <OriToolbarButton
-                    class="ori-button_icon"
-                    radius="md"
-                    color="surface"
-                    aria-label="Redo"
-                    tooltip="Redo — Ctrl/⌘+Y"
-                    :disabled="!props.canRedo"
-                    @click="emit('redo')"
-                >
-                    <ToolIcon name="redo" />
-                </OriToolbarButton>
-            </span>
+            <OriToolbarButton
+                class="ori-button_icon"
+                radius="md"
+                color="surface"
+                aria-label="Undo"
+                tooltip="Undo — Ctrl/⌘+Z"
+                :disabled="!props.canUndo"
+                @click="emit('undo')"
+            >
+                <ToolIcon name="undo" />
+            </OriToolbarButton>
+            <OriToolbarButton
+                class="ori-button_icon"
+                radius="md"
+                color="surface"
+                aria-label="Redo"
+                tooltip="Redo — Ctrl/⌘+Y"
+                :disabled="!props.canRedo"
+                @click="emit('redo')"
+            >
+                <ToolIcon name="redo" />
+            </OriToolbarButton>
         </OriToolbar>
     </IslandSurface>
 </template>
@@ -379,15 +375,6 @@ function onWidth(e: Event) {
 .bar__tool-wrap {
     position: relative;
     display: inline-flex;
-}
-
-/* These tooltips come from oriui's buttons, so they can't take an anchor name of their own
-   (see IconButton); the scope keeps each bubble on the trigger beside it
-   (docs/ISSUES-OUTER.md JP-O-14). */
-.bar__tip-scope {
-    display: inline-flex;
-
-    anchor-scope: --ori-tooltip-anchor;
 }
 
 /* Hotkey badge — corner glyph on the 7 tool buttons only. Absolute so it

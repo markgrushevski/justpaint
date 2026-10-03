@@ -124,12 +124,10 @@ export const useThemeStore = defineStore('theme', () => {
     }
 
     /**
-     * The system asks for more contrast: an increased-contrast setting, or a forced-colours
-     * mode (Windows contrast themes), which also drops shadows. main.css answers the first
-     * with stronger tokens; islands take a hairline for both, the second only while an
-     * unbordered OriSurface has no edge there (docs/ISSUES-OUTER.md JP-O-15).
+     * The system asks for more contrast. main.css answers with stronger tokens, and islands
+     * take a hairline. A forced-colours mode is oriui's: it gives every surface an edge there.
      */
-    const moreContrast = useMediaQuery('(prefers-contrast: more), (forced-colors: active)')
+    const moreContrast = useMediaQuery('(prefers-contrast: more)')
 
     return {
         mode,

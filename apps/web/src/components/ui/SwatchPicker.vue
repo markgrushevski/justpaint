@@ -21,7 +21,7 @@ export interface SwatchOption {
  * shows the dots the way an inverted canvas shows a drawing, so a swatch looks like what it
  * paints.
  */
-import { computed, ref, useId } from 'vue'
+import { computed, ref } from 'vue'
 import { OriButton, OriColorPicker, OriIcon, OriPopover, OriTooltip } from '@oriui/vue'
 import { icons, inkOn } from '@core'
 
@@ -42,10 +42,6 @@ const props = withDefaults(
 const emit = defineEmits<{ 'update:modelValue': [value: string | null]; custom: [color: string] }>()
 
 const group = ref<HTMLElement | null>(null)
-
-// Each tooltip gets its own anchor name, as in IconButton (docs/ISSUES-OUTER.md JP-O-14).
-const uid = useId()
-const anchor = (key: string | number) => ({ '--ori-anchor': `--jp-tip-${uid}-${key}` })
 
 const selectedIndex = computed(() =>
     props.custom?.active ? -1 : props.options.findIndex((o) => o.value === props.modelValue)
@@ -88,7 +84,7 @@ function onOpen(): void {
                 class="swatches__ring"
                 :class="{ 'swatches__ring--on': i === selectedIndex }"
             >
-                <OriTooltip :content="opt.label" placement="bottom" :style="anchor(i)">
+                <OriTooltip :content="opt.label" placement="bottom">
                     <OriButton
                         class="ori-button_icon swatches__dot"
                         :class="{ 'jp-ink-view': inkView }"
@@ -112,7 +108,7 @@ function onOpen(): void {
         <span v-if="custom" class="swatches__ring" :class="{ 'swatches__ring--on': custom.active }">
             <OriPopover placement="bottom-end" :aria-label="custom.label">
                 <template #trigger="{ props: trigger }">
-                    <OriTooltip :content="custom.label" placement="bottom" :style="anchor('custom')">
+                    <OriTooltip :content="custom.label" placement="bottom">
                         <OriButton
                             v-bind="trigger"
                             class="ori-button_icon"

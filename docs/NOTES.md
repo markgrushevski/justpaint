@@ -284,13 +284,11 @@ every other rating display is stale after a duel.
 
 ### A shared CSS anchor name resolves to the last eligible element
 
-oriui's tooltips pair a bubble with its trigger through one shared `anchor-name`. The browser does not pick the
-nearest trigger: it takes the last element with that name, in tree order, that the bubble may anchor to, and for a
-`position: fixed` bubble that can be a trigger anywhere on the page. A bubble then opens by another control. Give
-each pair its own name (`--ori-anchor` on an `OriTooltip` we render), or put `anchor-scope` on a wrapper of ours
-when the tooltip comes from a component's prop ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-14).
-`tests/layout/tooltips.spec.ts` measures every bubble against its trigger; a hidden bubble keeps its box, so it
-needs no hover.
+The browser does not pair an anchored element with the nearest element of its `anchor-name`: it takes the last one
+in tree order that it may anchor to, and for a `position: fixed` element that can be anywhere on the page. oriui's
+tooltips share one name and, before rc.22, opened by another control; rc.22 scopes the name with `anchor-scope`.
+An anchor name of ours needs a scope or a name per pair. `tests/layout/tooltips.spec.ts` measures every bubble
+against its trigger; a hidden bubble keeps its box, so it needs no hover.
 
 ### `forced-color-adjust` is inherited
 
@@ -319,7 +317,7 @@ inlined elsewhere (`.ori-spinner` ships in `button.css`).
 
 ### oriui packages move in lockstep
 
-`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.21`), and
+`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.22`), and
 `@oriui/vue` pins the other two to its own, so bump all three together. `@oriui/css` must be imported
 for its side effects or components render unstyled.
 

@@ -8,7 +8,7 @@
 > `ARCHITECTURE.md` (boundaries), `REVIEW.md` (the per-change bar), `NOTES.md` (gotchas).
 >
 > **oriui is a separate library**, maintained alongside this project and consumed as a pinned dependency
-> (`@oriui/{vue,css,headless}`, currently `1.0.0-rc.21`, all three in lockstep).
+> (`@oriui/{vue,css,headless}`, currently `1.0.0-rc.22`, all three in lockstep).
 >
 > **Read the oriui source, not `dist`.** The authority is the oriui repo checked out alongside this one —
 > **`../vueinjar`** (`@oriui/{css,headless,vue}` under `packages/`, guides under `docs/content/guides/`) — and the
@@ -83,11 +83,9 @@ not an override.)
   `--ori-color-outline-strong` at it, and sets `--jp-dim: 1`. Dimmed secondary text is written
   `opacity: var(--jp-dim, 0.7)` with its own number as the fallback, so it comes back to full strength; a decorative
   mark or a disabled state keeps a plain opacity. Islands take a hairline (§4, `IslandSurface`).
-- **Forced colours** (Windows contrast themes) replace colours with system ones and drop shadows. A colour swatch is
-  its colour, so `SwatchPicker`'s dots and the toolbar's mobile colour dot set `forced-color-adjust: none` and draw
-  their rings as outlines in system colours. Islands take the hairline, which the mode draws. States oriui shows by
-  fill alone (the pressed tool, the selected segment, the switch, the slider) are lost there for now
-  ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-15).
+- **Forced colours** (Windows contrast themes) replace colours with system ones and drop shadows. oriui (rc.22) keeps
+  its states and gives every surface an edge there. A colour swatch is its colour, so `SwatchPicker`'s dots and the
+  toolbar's mobile colour dot set `forced-color-adjust: none` and draw their rings as outlines in system colours.
 
 ## 2. Buttons — always `OriButton`, drive state with props
 
@@ -129,12 +127,10 @@ Build a justpaint component **only** where oriui has a genuine gap or we want a 
 - **`IconButton`** — `OriButton` preset for icon-only toolbar actions: `icon`, `variant` (default `text`), `active`,
   `disabled`, `label` (a11y + `OriTooltip`). Centralizes the toolbar-chip look so every island matches and no view
   re-styles a `<button>`. A SELECTED/on toggle passes `color="primary"` + `active`; a PRIMARY action is a `solid`
-  `OriButton`, not this. Its tooltip gets an anchor name of its own (`--ori-anchor`), and so does every
-  `OriTooltip` we render: the shared default lets a bubble open at another trigger
-  ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-14).
+  `OriButton`, not this.
 - **`IslandSurface`** — floating chrome over the canvas: `OriSurface` with no hairline, lifted by its shadow
-  (`elevation`, default `md`; `as`). The hairline comes on when the system asks for more contrast or forces colours
-  (`useThemeStore().moreContrast`), since a forced-colours mode drops the shadow.
+  (`elevation`, default `md`; `as`). The hairline comes on when the system asks for more contrast
+  (`useThemeStore().moreContrast`).
 - **`SwatchPicker`** — a single-select grid of colour dots (the accent, the canvas colour) with an optional custom
   dot that opens `OriColorPicker` in an `OriPopover`. Each preset is an icon-mode `OriButton` painted through the
   per-instance `--ori-color` / `--ori-color-on` escape hatch (§0), named by an `OriTooltip`, in a radiogroup with

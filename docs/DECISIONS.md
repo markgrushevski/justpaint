@@ -2,11 +2,14 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-10-03 — oriui rc.22: tooltips at their triggers, forced colours
+
+- **oriui rc.22 fixes the two gaps the contrast work found, and the local workarounds went with it.** Tooltips scope their shared anchor name, so each bubble opens at its own trigger (it had opened by another control on the page, on production too); a forced-colours mode keeps pressed, selected and on states and an edge on every surface. ISSUES-OUTER JP-O-14 and JP-O-15 closed. A workaround for a library bug is removed in the change that installs the fix.
+
 ## 2026-10-03 — More contrast on request; the phone menu is a drawer
 
-- **The app answers the system's contrast setting; it has no contrast control of its own.** With `prefers-contrast: more`, hairlines darken to 4.5:1, islands take a border and dimmed text comes back to full strength. People set this once for the whole system, and a menu entry would add a row for few players. Forced colours (Windows contrast themes) are left to the browser except where colour is the content: the colour swatches keep their colours. Where oriui shows state by fill alone, the state is lost in that mode until oriui handles it (ISSUES-OUTER JP-O-15).
+- **The app answers the system's contrast setting; it has no contrast control of its own.** With `prefers-contrast: more`, hairlines darken to 4.5:1, islands take a border and dimmed text comes back to full strength. People set this once for the whole system, and a menu entry would add a row for few players. Forced colours (Windows contrast themes) are left to the browser and oriui except where colour is the content: the colour swatches keep their colours.
 - **On a phone the `/draw` menu is a modal drawer (`OriDrawer`).** There it covers most of the canvas anyway, so keeping the canvas live gains nothing, and the modal drawer brings a backdrop to tap away, a focus trap, Escape and focus return. On a wide screen the menu stays a non-modal panel so the canvas stays live (2026-07-08).
-- **Tooltips are fixed locally before oriui fixes them.** A bubble that opens across the screen is a visible bug, and the workaround uses oriui's public per-instance token and `anchor-scope` on our own wrappers (ISSUES-OUTER JP-O-14).
 
 ## 2026-10-03 — The canvas colour is the drawing's; inverting is a choice; oriui rc.21
 

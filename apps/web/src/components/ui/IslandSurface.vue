@@ -1,8 +1,7 @@
 <script lang="ts" setup>
 /**
- * IslandSurface — floating chrome over the canvas: an `OriSurface` lifted by its shadow alone. When
- * the system asks for more contrast it takes a hairline too, and a forced-colours mode, which
- * drops shadows, outlines it with that hairline (docs/DESIGN-SYSTEM.md).
+ * IslandSurface — floating chrome over the canvas: an `OriSurface` lifted by its shadow alone.
+ * When the system asks for more contrast it takes a hairline too (docs/DESIGN-SYSTEM.md).
  */
 import { OriSurface } from '@oriui/vue'
 import { useThemeStore } from '@core'
