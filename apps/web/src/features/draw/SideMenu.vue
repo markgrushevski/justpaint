@@ -1,9 +1,9 @@
 <script lang="ts" setup>
 /**
- * The /draw menu: a non-modal panel under the corner toggler (a right-edge drawer on
- * phones) listing the file actions, the canvas colour, the look of the app and the account.
- * Export and canvas size open as sub-panels in place. No focus trap: the canvas stays live,
- * Esc closes.
+ * The /draw menu: the file actions, the canvas colour, the look of the app and the account.
+ * On a wide screen it is a non-modal panel under the corner toggler, so the canvas stays
+ * live; on a phone it is a modal drawer from the right edge. Export and canvas size open as
+ * sub-panels in place. Esc steps back from a sub-panel, then closes.
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -11,6 +11,7 @@ import {
     OriAvatar,
     OriButton,
     OriDivider,
+    OriDrawer,
     OriInput,
     OriList,
     OriListItem,
@@ -18,7 +19,7 @@ import {
     OriSelect,
     OriSwitch
 } from '@oriui/vue'
-import { icons, useAuthGate, useSessionStore, useThemeStore } from '@core'
+import { icons, useAuthGate, useMediaQuery, useSessionStore, useThemeStore } from '@core'
 import type { Accent, ThemeMode } from '@core'
 import IslandSurface from '../../components/ui/IslandSurface.vue'
 import SwatchPicker from '../../components/ui/SwatchPicker.vue'
@@ -54,6 +55,9 @@ const emit = defineEmits<{
 const session = useSessionStore()
 const theme = useThemeStore()
 const gate = useAuthGate()
+
+// A phone has no room beside the canvas and no keyboard for the shortcuts.
+const phone = useMediaQuery('(width <= 600px)')
 
 type View = 'main' | 'export' | 'size'
 const view = ref<View>('main')
@@ -163,13 +167,12 @@ function onToggleGrid(on: boolean | undefined) {
     emit('toggleGrid', on === true)
 }
 
-const panelRef = ref<{ $el: HTMLElement } | null>(null)
-const panelEl = () => panelRef.value?.$el ?? null
+const body = ref<HTMLElement | null>(null)
 
 /** Focus the first control of the panel now showing, so arrow-free keyboard use continues there. */
 async function focusFirst() {
     await nextTick()
-    panelEl()?.querySelector<HTMLElement>('.menu__view button, .menu__view a, .menu__view input')?.focus()
+    body.value?.querySelector<HTMLElement>('.menu__view button, .menu__view a, .menu__view input')?.focus()
 }
 
 function show(next: View) {
@@ -178,7 +181,7 @@ function show(next: View) {
 }
 
 // Opening resets the panel and moves focus inside, or Esc (keydown on the panel tree)
-// never fires; closing returns focus to whatever opened it.
+// never fires; closing returns focus to whatever opened it (the drawer does that itself too).
 const opener = ref<HTMLElement | null>(null)
 watch(
     () => props.open,
@@ -214,189 +217,207 @@ async function logout() {
 }
 
 // The view's own Esc handler on window would close the whole panel too. While a colour
-// picker's popover is open, Esc closes only that, which the popover does itself.
+// picker's popover is open, Esc closes only that, which the popover does itself. In a
+// sub-panel Esc steps back, and preventing it keeps the drawer from closing as well.
 function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape') return
     e.stopPropagation()
-    if (panelEl()?.querySelector('[popover]:popover-open')) return
-    if (view.value !== 'main') show('main')
-    else emit('close')
+    if (body.value?.querySelector('[popover]:popover-open')) return
+    if (view.value !== 'main') {
+        e.preventDefault()
+        show('main')
+    } else if (!phone.value) emit('close')
 }
+
+function onDrawer(open: boolean) {
+    if (!open) emit('close')
+}
+
+const name = computed(() => props.title ?? 'Unsaved drawing')
+
+// The two shells take different props, so the one in use gets its own set.
+const shell = computed(() =>
+    phone.value
+        ? { open: props.open, side: 'end', 'onUpdate:open': onDrawer }
+        : {
+              as: 'aside',
+              class: ['menu', { 'menu--open': props.open }],
+              elevation: 'lg',
+              role: 'complementary',
+              'aria-label': 'Menu',
+              tabindex: -1,
+              inert: !props.open
+          }
+)
 </script>
 
 <template>
     <Teleport to="body">
-        <!-- Always mounted; open/closed is pure transform. `inert` while closed keeps the
-             hidden panel out of the Tab order. -->
-        <IslandSurface
-            ref="panelRef"
-            as="aside"
-            class="menu"
-            :class="{ 'menu--open': props.open }"
-            elevation="lg"
-            role="complementary"
-            aria-label="Menu"
-            tabindex="-1"
-            :inert="!props.open"
-            @keydown="onKeydown"
-        >
-            <p class="menu__name" :class="{ 'menu__name--unsaved': !props.title }">
-                {{ props.title ?? 'Unsaved drawing' }}
-            </p>
+        <component :is="phone ? OriDrawer : IslandSurface" v-bind="shell">
+            <template v-if="phone" #title>
+                <span :class="{ 'menu__name--unsaved': !props.title }">{{ name }}</span>
+            </template>
+            <p v-if="!phone" class="menu__name" :class="{ 'menu__name--unsaved': !props.title }">{{ name }}</p>
 
-            <div v-if="view === 'main'" class="menu__view">
-                <OriList>
-                    <OriListItem :icon="icons.mdiPlus" label="New drawing" @click="run(() => emit('newDrawing'))" />
-                    <OriListItem
-                        :as="RouterLink"
-                        to="/gallery"
-                        :icon="icons.mdiImageMultipleOutline"
-                        label="My drawings"
-                    />
-                    <OriListItem
-                        :icon="icons.mdiContentSaveOutline"
-                        label="Save"
-                        hint="Ctrl+S"
-                        :disabled="props.busy"
-                        @click="run(() => emit('save'))"
-                    />
-                    <OriListItem :icon="icons.mdiDownload" label="Export" chevron @click="show('export')" />
-                </OriList>
+            <div ref="body" class="menu__body" :class="{ 'menu__body--drawer': phone }" @keydown="onKeydown">
+                <div v-if="view === 'main'" class="menu__view">
+                    <OriList>
+                        <OriListItem :icon="icons.mdiPlus" label="New drawing" @click="run(() => emit('newDrawing'))" />
+                        <OriListItem
+                            :as="RouterLink"
+                            to="/gallery"
+                            :icon="icons.mdiImageMultipleOutline"
+                            label="My drawings"
+                        />
+                        <OriListItem
+                            :icon="icons.mdiContentSaveOutline"
+                            label="Save"
+                            hint="Ctrl+S"
+                            :disabled="props.busy"
+                            @click="run(() => emit('save'))"
+                        />
+                        <OriListItem :icon="icons.mdiDownload" label="Export" chevron @click="show('export')" />
+                    </OriList>
 
-                <OriDivider />
+                    <OriDivider />
 
-                <div class="menu__settings">
-                    <div class="menu__setting">
-                        <span class="menu__setting-label" aria-hidden="true">Canvas</span>
-                        <SwatchPicker
-                            :model-value="props.background"
-                            :options="CANVAS_COLORS"
-                            label="Canvas colour"
-                            ink-view
-                            :custom="canvasCustom"
-                            @update:model-value="(color) => emit('setBackground', color)"
-                            @custom="(color) => emit('setBackground', color)"
+                    <div class="menu__settings">
+                        <div class="menu__setting">
+                            <span class="menu__setting-label" aria-hidden="true">Canvas</span>
+                            <SwatchPicker
+                                :model-value="props.background"
+                                :options="CANVAS_COLORS"
+                                label="Canvas colour"
+                                ink-view
+                                :custom="canvasCustom"
+                                @update:model-value="(color) => emit('setBackground', color)"
+                                @custom="(color) => emit('setBackground', color)"
+                            />
+                        </div>
+                        <OriSwitch
+                            label="Invert in the dark theme"
+                            :model-value="theme.invertCanvas"
+                            @update:model-value="(on) => theme.setInvertCanvas(on === true)"
                         />
                     </div>
-                    <OriSwitch
-                        label="Invert in the dark theme"
-                        :model-value="theme.invertCanvas"
-                        @update:model-value="(on) => theme.setInvertCanvas(on === true)"
-                    />
-                </div>
-                <OriList>
-                    <OriListItem
-                        :icon="icons.mdiAspectRatio"
-                        label="Canvas size"
-                        :hint="`${props.canvasWidth} × ${props.canvasHeight}`"
-                        chevron
-                        @click="show('size')"
-                    />
-                </OriList>
+                    <OriList>
+                        <OriListItem
+                            :icon="icons.mdiAspectRatio"
+                            label="Canvas size"
+                            :hint="`${props.canvasWidth} × ${props.canvasHeight}`"
+                            chevron
+                            @click="show('size')"
+                        />
+                    </OriList>
 
-                <OriDivider />
+                    <OriDivider />
 
-                <div class="menu__settings">
-                    <div class="menu__setting">
-                        <span class="menu__setting-label" aria-hidden="true">Theme</span>
-                        <OriSegmentedControl
-                            :model-value="theme.mode"
-                            :options="THEME_OPTIONS"
-                            aria-label="Theme"
+                    <div class="menu__settings">
+                        <div class="menu__setting">
+                            <span class="menu__setting-label" aria-hidden="true">Theme</span>
+                            <OriSegmentedControl
+                                :model-value="theme.mode"
+                                :options="THEME_OPTIONS"
+                                aria-label="Theme"
+                                size="sm"
+                                @update:model-value="selectTheme"
+                            >
+                                <template #option="{ option }">
+                                    <ToolIcon :name="themeIcon(option.value)" />
+                                    <span class="jp-sr-only">{{ option.label }}</span>
+                                </template>
+                            </OriSegmentedControl>
+                        </div>
+                        <div class="menu__setting">
+                            <span class="menu__setting-label" aria-hidden="true">Accent</span>
+                            <SwatchPicker
+                                :model-value="theme.accent === 'custom' ? null : theme.accent"
+                                :options="accentOptions"
+                                label="Accent colour"
+                                :custom="accentCustom"
+                                @update:model-value="selectAccent"
+                                @custom="(color) => theme.setAccent('custom', color)"
+                            />
+                        </div>
+                    </div>
+
+                    <OriDivider v-if="!phone" />
+
+                    <OriList v-if="!phone">
+                        <OriListItem
+                            :icon="icons.mdiKeyboard"
+                            label="Keyboard shortcuts"
+                            hint="?"
+                            @click="run(() => emit('shortcuts'))"
+                        />
+                    </OriList>
+
+                    <OriDivider />
+
+                    <div v-if="session.isLoggedIn" class="menu__profile">
+                        <OriAvatar
+                            :name="session.user?.displayName ?? session.user?.login ?? '?'"
+                            color="primary"
                             size="sm"
-                            @update:model-value="selectTheme"
-                        >
-                            <template #option="{ option }">
-                                <ToolIcon :name="themeIcon(option.value)" />
-                                <span class="jp-sr-only">{{ option.label }}</span>
-                            </template>
-                        </OriSegmentedControl>
+                        />
+                        <div class="menu__who">
+                            <b class="menu__who-name">{{ session.user?.displayName ?? session.user?.login }}</b>
+                            <!-- The ladder is the duel's, so /draw reaches it only through the rating.
+                                 It needs a session: GET /api/leaderboard answers 401 without one. -->
+                            <RouterLink
+                                class="menu__who-meta menu__rating"
+                                to="/leaderboard"
+                                :aria-label="`Rating ${session.user?.rating}, open the leaderboard`"
+                            >
+                                Rating {{ session.user?.rating }}
+                            </RouterLink>
+                        </div>
+                        <OriButton label="Log out" variant="outline" radius="md" size="sm" @click="logout" />
                     </div>
-                    <div class="menu__setting">
-                        <span class="menu__setting-label" aria-hidden="true">Accent</span>
-                        <SwatchPicker
-                            :model-value="theme.accent === 'custom' ? null : theme.accent"
-                            :options="accentOptions"
-                            label="Accent colour"
-                            :custom="accentCustom"
-                            @update:model-value="selectAccent"
-                            @custom="(color) => theme.setAccent('custom', color)"
+                    <OriList v-else>
+                        <OriListItem :icon="icons.mdiLogin" label="Sign in" @click="signIn" />
+                    </OriList>
+                </div>
+
+                <div v-else-if="view === 'export'" class="menu__view">
+                    <OriList>
+                        <OriListItem :icon="icons.mdiChevronLeft" label="Export" @click="show('main')" />
+                    </OriList>
+                    <OriDivider />
+                    <OriList>
+                        <OriListItem
+                            :icon="icons.mdiDownload"
+                            label="Download PNG"
+                            @click="run(() => emit('exportPng'))"
+                        />
+                        <!-- Copying leaves the panel open: the next paste is somewhere else. -->
+                        <OriListItem :icon="icons.mdiContentCopy" label="Copy as image" @click="emit('copyImage')" />
+                        <OriListItem :icon="icons.mdiContentCopy" label="Copy as JSON" @click="emit('copyText')" />
+                    </OriList>
+                </div>
+
+                <div v-else class="menu__view">
+                    <OriList>
+                        <OriListItem :icon="icons.mdiChevronLeft" label="Canvas size" @click="show('main')" />
+                    </OriList>
+                    <OriDivider />
+                    <div class="menu__size">
+                        <OriSelect v-model="sizeChoice" label="Size" :options="sizeOptions" fluid />
+                        <div v-if="sizeChoice === 'custom'" class="menu__size-custom">
+                            <OriInput v-model="customW" label="W" type="number" min="1" max="8192" fluid />
+                            <OriInput v-model="customH" label="H" type="number" min="1" max="8192" fluid />
+                        </div>
+                        <OriButton label="Apply size" variant="outline" radius="md" size="sm" @click="applySize" />
+                        <!-- Plain paper exports transparent; the checkerboard shows where. -->
+                        <OriSwitch
+                            label="Checkerboard on plain paper"
+                            :model-value="props.backdropGrid"
+                            @update:model-value="onToggleGrid"
                         />
                     </div>
                 </div>
-
-                <OriDivider class="menu__desktop-only" />
-
-                <OriList class="menu__desktop-only">
-                    <OriListItem
-                        :icon="icons.mdiKeyboard"
-                        label="Keyboard shortcuts"
-                        hint="?"
-                        @click="run(() => emit('shortcuts'))"
-                    />
-                </OriList>
-
-                <OriDivider />
-
-                <div v-if="session.isLoggedIn" class="menu__profile">
-                    <OriAvatar
-                        :name="session.user?.displayName ?? session.user?.login ?? '?'"
-                        color="primary"
-                        size="sm"
-                    />
-                    <div class="menu__who">
-                        <b class="menu__who-name">{{ session.user?.displayName ?? session.user?.login }}</b>
-                        <!-- The ladder is the duel's, so /draw reaches it only through the rating.
-                             It needs a session: GET /api/leaderboard answers 401 without one. -->
-                        <RouterLink
-                            class="menu__who-meta menu__rating"
-                            to="/leaderboard"
-                            :aria-label="`Rating ${session.user?.rating}, open the leaderboard`"
-                        >
-                            Rating {{ session.user?.rating }}
-                        </RouterLink>
-                    </div>
-                    <OriButton label="Log out" variant="outline" radius="md" size="sm" @click="logout" />
-                </div>
-                <OriList v-else>
-                    <OriListItem :icon="icons.mdiLogin" label="Sign in" @click="signIn" />
-                </OriList>
             </div>
-
-            <div v-else-if="view === 'export'" class="menu__view">
-                <OriList>
-                    <OriListItem :icon="icons.mdiChevronLeft" label="Export" @click="show('main')" />
-                </OriList>
-                <OriDivider />
-                <OriList>
-                    <OriListItem :icon="icons.mdiDownload" label="Download PNG" @click="run(() => emit('exportPng'))" />
-                    <!-- Copying leaves the panel open: the next paste is somewhere else. -->
-                    <OriListItem :icon="icons.mdiContentCopy" label="Copy as image" @click="emit('copyImage')" />
-                    <OriListItem :icon="icons.mdiContentCopy" label="Copy as JSON" @click="emit('copyText')" />
-                </OriList>
-            </div>
-
-            <div v-else class="menu__view">
-                <OriList>
-                    <OriListItem :icon="icons.mdiChevronLeft" label="Canvas size" @click="show('main')" />
-                </OriList>
-                <OriDivider />
-                <div class="menu__size">
-                    <OriSelect v-model="sizeChoice" label="Size" :options="sizeOptions" fluid />
-                    <div v-if="sizeChoice === 'custom'" class="menu__size-custom">
-                        <OriInput v-model="customW" label="W" type="number" min="1" max="8192" fluid />
-                        <OriInput v-model="customH" label="H" type="number" min="1" max="8192" fluid />
-                    </div>
-                    <OriButton label="Apply size" variant="outline" radius="md" size="sm" @click="applySize" />
-                    <!-- Plain paper exports transparent; the checkerboard shows where. -->
-                    <OriSwitch
-                        label="Checkerboard on plain paper"
-                        :model-value="props.backdropGrid"
-                        @update:model-value="onToggleGrid"
-                    />
-                </div>
-            </div>
-        </IslandSurface>
+        </component>
     </Teleport>
 </template>
 
@@ -454,6 +475,19 @@ function onKeydown(e: KeyboardEvent) {
 .menu__name--unsaved {
     font-weight: 600;
     opacity: var(--jp-dim, 0.7);
+}
+
+.menu__body {
+    display: flex;
+    flex-direction: column;
+}
+
+/* The drawer pads its body and sets a smaller type size; the rows bring their own inset, so
+   they reach out to line their icons up with the drawer's title, at the panel's type size. */
+.menu__body--drawer {
+    margin-inline: calc(var(--ori-size-gap_lg, 0.75rem) * -1);
+
+    font-size: var(--ori-font-size_md, 1rem);
 }
 
 .menu__view {
@@ -548,29 +582,6 @@ function onKeydown(e: KeyboardEvent) {
 .menu__rating:focus-visible {
     outline: 2px solid var(--ori-color-primary);
     outline-offset: 2px;
-}
-
-/* A phone has no keyboard, and the panel becomes a right-edge drawer. */
-@media (width <= 600px) {
-    .menu__desktop-only {
-        display: none;
-    }
-
-    .menu {
-        top: 0;
-        right: 0;
-
-        width: min(20rem, calc(100vw - 3rem));
-        height: 100dvh;
-        max-height: none;
-        padding-top: calc(var(--ori-size-gap_md, 0.5rem) * 2 + var(--ori-size-action_md, 2.75rem));
-
-        transform: translateX(101%);
-    }
-
-    .menu--open {
-        transform: none;
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {

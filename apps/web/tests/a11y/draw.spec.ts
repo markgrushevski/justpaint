@@ -116,6 +116,20 @@ test.describe('/draw — open overlays (desktop)', () => {
     })
 })
 
+test.describe('/draw — open overlays (phone)', () => {
+    test.use({ viewport: { width: 390, height: 844 } })
+
+    test('menu drawer open has no serious/critical a11y violations', async ({ page }) => {
+        await gotoDraw(page)
+        await page.locator('.draw__menu-toggle').click()
+        const drawer = page.getByRole('dialog', { name: 'Unsaved drawing' })
+        await drawer.waitFor({ state: 'visible' })
+        // Wait for the slide-in to settle before axe reads composited colors.
+        await expect(drawer).toHaveCSS('translate', 'none')
+        await expectNoSeriousViolations(page, 'menu-drawer-open')
+    })
+})
+
 test.describe('/draw — more contrast', () => {
     test('side menu open has no serious/critical a11y violations', async ({ page }) => {
         await page.emulateMedia({ contrast: 'more' })

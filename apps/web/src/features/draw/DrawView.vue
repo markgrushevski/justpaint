@@ -425,7 +425,7 @@ onBeforeUnmount(() => assist.clear())
             />
         </template>
 
-        <!-- Self-teleports to body; non-modal, canvas stays live. -->
+        <!-- Self-teleports to body: a non-modal panel that leaves the canvas live, or a modal drawer on phones. -->
         <template #drawer>
             <SideMenu
                 :open="menuOpen"
