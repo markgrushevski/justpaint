@@ -221,7 +221,9 @@ filtered here: the view's `beforeToolKeys` must return true while any of its mod
 
 A panel that handles Escape itself must call `stopPropagation`, or the view's Escape handler on `window`
 acts on the same press. `SideMenu` does: without it, Esc in the Export or Canvas sub-panel would close the
-whole menu instead of stepping back to the main list.
+whole menu instead of stepping back to the main list. On a phone the menu is a modal `OriDrawer`, and Escape
+also closes a modal `<dialog>` as the key's default action, so the sub-panel's handler calls `preventDefault`
+too.
 
 ### A canvas bound to a saved row must not outlive its document or its account
 
@@ -279,6 +281,24 @@ restore/login/register. A store refactor must keep this sync (or replace it with
 every other rating display is stale after a duel.
 
 ## oriui and CSS
+
+### A shared CSS anchor name resolves to the last eligible element
+
+oriui's tooltips pair a bubble with its trigger through one shared `anchor-name`. The browser does not pick the
+nearest trigger: it takes the last element with that name, in tree order, that the bubble may anchor to, and for a
+`position: fixed` bubble that can be a trigger anywhere on the page. A bubble then opens by another control. Give
+each pair its own name (`--ori-anchor` on an `OriTooltip` we render), or put `anchor-scope` on a wrapper of ours
+when the tooltip comes from a component's prop ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-14).
+`tests/layout/tooltips.spec.ts` measures every bubble against its trigger; a hidden bubble keeps its box, so it
+needs no hover.
+
+### `forced-color-adjust` is inherited
+
+A colour swatch has to keep its colour in a forced-colours mode, so it sets `forced-color-adjust: none`. The
+property is inherited: set on a wrapper, it also keeps the author colours of everything inside, such as an outline
+button whose dark border then disappears on a black contrast theme. Set it on the element that shows the colour.
+A forced-colours mode also drops `box-shadow`, so a ring drawn with a shadow needs an `outline` in system colours
+there.
 
 ### Unlayered CSS beats every `@layer`
 
@@ -646,6 +666,12 @@ structured-output seam, ask of every field whether a degenerate continuation is 
 It is model prose steered by user input. Render it as text, never as HTML.
 
 ## Testing and local tooling
+
+### A Playwright route glob for the API also catches the app's modules
+
+Under the Vite dev server the app's own source loads from `/src/...`, so `page.route('**/api/**', …)` also
+answers for `src/core/api/*.ts` and the app never starts. Match the API by path:
+`page.route((url) => url.pathname.startsWith('/api/'), …)`.
 
 ### DB-backed Go tests skip silently without `DATABASE_URL`
 

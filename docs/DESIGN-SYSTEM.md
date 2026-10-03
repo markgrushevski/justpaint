@@ -59,7 +59,7 @@ not an override.)
   attribute: oriui's token observer (the cursor ring's `useThemeColor`) watches only those.
 - **The wordmark sits on the page background, not the surface.** It is large text, and the orange clears the 3:1 bar
   only there (3.20:1 on `#ffffff`). `scripts/check-contrast.mjs` checks `primary-light` against
-  `background-light`; `ModeNav` gives its `OriSurface` the page background for this reason.
+  `background-light`; `ModeNav` gives its island the page background for this reason.
 - **One typeface: Nunito**, set in `main.css` and loaded in `index.html`. No hand-drawn or display second face
   (`docs/DECISIONS.md`, 2026-10-02).
 - **Components MUST NOT re-derive brand colors.** `background: color-mix(in srgb, var(--ori-color-primary) 18%, transparent)`
@@ -78,6 +78,16 @@ not an override.)
   The hairline is deliberately **ours**, not oriui's `--ori-color-outline`: theirs is a `currentcolor` tint that
   cannot meet the 3:1 non-text bar `scripts/check-contrast.mjs` enforces — same name, different job
   ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-06).
+- **More contrast when the system asks for it** (`prefers-contrast: more`). `main.css` darkens the hairline in both
+  themes to clear 4.5:1 (checked by `check-contrast.mjs`), points oriui's `--ori-color-outline` and
+  `--ori-color-outline-strong` at it, and sets `--jp-dim: 1`. Dimmed secondary text is written
+  `opacity: var(--jp-dim, 0.7)` with its own number as the fallback, so it comes back to full strength; a decorative
+  mark or a disabled state keeps a plain opacity. Islands take a hairline (§4, `IslandSurface`).
+- **Forced colours** (Windows contrast themes) replace colours with system ones and drop shadows. A colour swatch is
+  its colour, so `SwatchPicker`'s dots and the toolbar's mobile colour dot set `forced-color-adjust: none` and draw
+  their rings as outlines in system colours. Islands take the hairline, which the mode draws. States oriui shows by
+  fill alone (the pressed tool, the selected segment, the switch, the slider) are lost there for now
+  ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-15).
 
 ## 2. Buttons — always `OriButton`, drive state with props
 
@@ -119,28 +129,31 @@ Build a justpaint component **only** where oriui has a genuine gap or we want a 
 - **`IconButton`** — `OriButton` preset for icon-only toolbar actions: `icon`, `variant` (default `text`), `active`,
   `disabled`, `label` (a11y + `OriTooltip`). Centralizes the toolbar-chip look so every island matches and no view
   re-styles a `<button>`. A SELECTED/on toggle passes `color="primary"` + `active`; a PRIMARY action is a `solid`
-  `OriButton`, not this.
+  `OriButton`, not this. Its tooltip gets an anchor name of its own (`--ori-anchor`), and so does every
+  `OriTooltip` we render: the shared default lets a bubble open at another trigger
+  ([ISSUES-OUTER.md](ISSUES-OUTER.md) JP-O-14).
+- **`IslandSurface`** — floating chrome over the canvas: `OriSurface` with no hairline, lifted by its shadow
+  (`elevation`, default `md`; `as`). The hairline comes on when the system asks for more contrast or forces colours
+  (`useThemeStore().moreContrast`), since a forced-colours mode drops the shadow.
 - **`SwatchPicker`** — a single-select grid of colour dots (the accent, the canvas colour) with an optional custom
   dot that opens `OriColorPicker` in an `OriPopover`. Each preset is an icon-mode `OriButton` painted through the
   per-instance `--ori-color` / `--ori-color-on` escape hatch (§0), named by an `OriTooltip`, in a radiogroup with
   roving focus; the selection ring is a wrapper of ours, so the button stays oriui's.
 
 The `/draw` menu's rows are `OriList` / `OriListItem` and its theme picker is `OriSegmentedControl`, icon-only with
-the names kept for assistive technology (`.jp-sr-only`).
+the names kept for assistive technology (`.jp-sr-only`). On a wide screen the menu is a non-modal `IslandSurface`
+under its toggle; at 600px and below it is a modal `OriDrawer` from the right edge, titled with the drawing's name.
 
 Everything else is **oriui direct**: **content** → `OriCard` (the ResultReveal sides — winner = `soft`/`primary`;
 the welcome's mode cards, which also carry `data-ori-interactive`, §7).
-**Floating chrome** (toolbar / zoom / panel over the canvas) → **`OriSurface`** — oriui's elevation primitive
-(alpha-11; `as`, `bordered` default `true`, `elevation` default `'lg'` → **`--ori-shadow-lg`**, `radius` default
-`'lg'`, its DEFAULTS are exactly the old `.jp-float` island look). **`JpFloat` is deleted** — use `OriSurface`
-directly, no wrapper needed. Islands carry no border (`:bordered="false"`): chrome on the canvas edge takes
-`elevation="md"`, panels over content keep `lg`, and `/draw`'s Layers, AI and Save share one island so the top
-row is one height. **Every island now uses `OriSurface`; the `.jp-float` CSS class is gone from `main.css`**
-(the last holdout, `FloatingToolbar`, migrated to `OriSurface` + `OriToolbar` — §6). **Modal dialogs** → `OriDialog`
+**Floating chrome** (toolbar / zoom / panel over the canvas) → **`IslandSurface`** (above), over oriui's
+elevation primitive `OriSurface`. Islands carry no border unless more contrast is asked for: chrome on the canvas
+edge takes `elevation="md"`, panels over content keep `lg`, and `/draw`'s Layers, AI and Save share one island so
+the top row is one height. **Modal dialogs** → `OriDialog`
 (native `<dialog>`: focus-trap, scroll-lock, Esc,
 backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`close` emits, `v-model:open`);
 **ConfirmDialog / ShortcutsDialog are migrated to it.** A bespoke overlay whose layout isn't a textbook card
-(JudgingOverlay) stays an `OriSurface` with custom content — don't force it into `OriCard`.
+(JudgingOverlay) stays an `IslandSurface` with custom content — don't force it into `OriCard`.
 
 ## 5. Migration checklist (a change touching chrome)
 
@@ -148,7 +161,9 @@ backdrop) — alpha-11 made it **controlled** (`open` prop + `update:open`/`clos
 - [ ] No `color-mix()` of a **brand** role in a component `<style>`; no `--active`/`--accent` class → `active` prop.
 - [ ] No `opacity` disabled override → `disabled` prop.
 - [ ] One icon component per cluster — `ToolIcon` is the app's set (§3); `OriIcon` only where a path prop is passed.
-- [ ] Floating chrome → `OriSurface`; content card → `OriCard`.
+- [ ] Floating chrome → `IslandSurface`; content card → `OriCard`.
+- [ ] Dimmed text is `opacity: var(--jp-dim, <n>)`; anything that shows a colour still shows it in a forced-colours
+      mode (§1).
 - [ ] Motion sits on our own elements or glyphs, never on `.ori-*` or `--ori-variant-*`, and each animation has a
       `prefers-reduced-motion: reduce` rule (§7).
 - [ ] `npm run lint:all` (incl. contrast) + `npm run test:a11y` + `npm run test:layout` still green — the last one whenever the change touches floating/absolute chrome.
@@ -160,7 +175,7 @@ Every "gap" first assumed (from `dist`) turned out to already exist in the sourc
 
 - **Elevation** — `--ori-shadow-{sm,md,lg,ring}` tokens (theme-aware; `OriDialog`/`OriPopover` use `-lg`). Alpha-11
   shipped **`OriSurface`**, oriui's elevation primitive, whose defaults reproduce the old `.jp-float` island look —
-  `JpFloat` is retired (§4) in favor of `OriSurface` used directly. Not a gap.
+  `JpFloat` is retired in favor of `OriSurface`, which `IslandSurface` wraps (§4). Not a gap.
 - **Segmented / single-select** — `OriJoin` collapses adjacent controls into one segmented unit; `OriRadioGroup` is a
   native single-select radiogroup, and rc.21 shipped `OriSegmentedControl`. Not a gap.
 - **Neutral glyph** — `surface`/`background` ARE neutral roles; `color="surface"` (its `-text` alias resolves to
@@ -170,7 +185,7 @@ Every "gap" first assumed (from `dist`) turned out to already exist in the sourc
   (§4). No longer a gap or an upstream-blocked item.
 - **Toolbar chrome** — alpha-11 shipped **`OriToolbar`**; **alpha-12** added a **content slot** on
   `OriToolbarButton` / `OriToolbarToggleItem`, so our multi-path `ToolIcon` slots straight in (keep the icon set,
-  no headless `useToolbar`). **`FloatingToolbar.vue` is migrated** (2026-07-10): an `OriSurface` island wrapping two
+  no headless `useToolbar`). **`FloatingToolbar.vue` is migrated** (2026-07-10): an island (`IslandSurface`) wrapping two
   `OriToolbar`s — the 7 tools as a single-select `OriToolbarToggleGroup` (parent owns `activeTool`, bound one-way with
   a guard that ignores the deselect-to-`undefined` a single group allows), undo/redo as `OriToolbarButton`s — with the
   stroke/fill form controls a plain group between them. This retired the **last** `.jp-float` user, so the CSS class is

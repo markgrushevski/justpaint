@@ -2,6 +2,12 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-10-03 — More contrast on request; the phone menu is a drawer
+
+- **The app answers the system's contrast setting; it has no contrast control of its own.** With `prefers-contrast: more`, hairlines darken to 4.5:1, islands take a border and dimmed text comes back to full strength. People set this once for the whole system, and a menu entry would add a row for few players. Forced colours (Windows contrast themes) are left to the browser except where colour is the content: the colour swatches keep their colours. Where oriui shows state by fill alone, the state is lost in that mode until oriui handles it (ISSUES-OUTER JP-O-15).
+- **On a phone the `/draw` menu is a modal drawer (`OriDrawer`).** There it covers most of the canvas anyway, so keeping the canvas live gains nothing, and the modal drawer brings a backdrop to tap away, a focus trap, Escape and focus return. On a wide screen the menu stays a non-modal panel so the canvas stays live (2026-07-08).
+- **Tooltips are fixed locally before oriui fixes them.** A bubble that opens across the screen is a visible bug, and the workaround uses oriui's public per-instance token and `anchor-scope` on our own wrappers (ISSUES-OUTER JP-O-14).
+
 ## 2026-10-03 — The canvas colour is the drawing's; inverting is a choice; oriui rc.21
 
 - **A drawing keeps its canvas colour, and the menu offers light and dark papers and a custom one.** The colour is `doc.background`, shown as it is in both themes, so a colour never changes on screen behind the player's back and an export matches the screen. A new drawing starts on the theme's paper and an untouched one follows the theme; the pen's default ink flips with the paper unless the player picked a colour. Picking a dark paper under black strokes hides them, which undo answers. This replaces the light-tints-only rule and the Auto/Light/Dark "Look" below.
@@ -274,7 +280,7 @@ The `/play` result screen must show the opponent's drawing, but `GET /api/drawin
 
 ## 2026-07-08 — Shell details: right-side menu, drawing names, canvas backdrop, palette
 
-- **The menu opens from the right and is non-modal:** no backdrop, the canvas stays interactive, and it is a right-edge drawer on phones. Because it is non-modal there is no focus trap and no `aria-modal`, but Esc and focus-return are kept.
+- **The menu opens from the right and is non-modal:** no backdrop, the canvas stays interactive. On phones it is a modal drawer (2026-10-03). Because it is non-modal there is no focus trap and no `aria-modal`, but Esc and focus-return are kept.
 - **On `/draw`, signed-out visitors come first:** menu actions first, auth at the bottom. "Copy as JSON" copies the document; "Copy as image" copies a PNG.
 - **A drawing's `name` is metadata, not document format.** It is a `drawings.name` column (64-rune cap, default `'new art'`) that the validators never see.
 - **The canvas backdrop is a view preference, not document state.** New documents have `background: null`. The editor paints theme paper or a checkerboard behind them on a view-only layer that is never exported (`Editor.setCanvasBackdrop`, persisted in `localStorage['jp.backdropGrid']`). A transparent document exports as a transparent PNG, and the judge renders on white regardless.
