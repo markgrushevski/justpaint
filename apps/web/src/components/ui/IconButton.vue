@@ -42,7 +42,7 @@ withDefaults(
 const emit = defineEmits<{ click: [MouseEvent] }>()
 
 // Every oriui tooltip shares one anchor name, and a bubble can end up on another trigger
-// (docs/ISSUES-OUTER.md); a name of its own pairs it with this one.
+// (docs/ISSUES-OUTER.md JP-O-14); a name of its own pairs it with this one.
 const anchor = { '--ori-anchor': `--jp-tip-${useId()}` }
 </script>
 

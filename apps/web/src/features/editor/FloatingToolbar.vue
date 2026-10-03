@@ -383,7 +383,7 @@ function onWidth(e: Event) {
 
 /* These tooltips come from oriui's buttons, so they can't take an anchor name of their own
    (see IconButton); the scope keeps each bubble on the trigger beside it
-   (docs/ISSUES-OUTER.md). */
+   (docs/ISSUES-OUTER.md JP-O-14). */
 .bar__tip-scope {
     display: inline-flex;
 

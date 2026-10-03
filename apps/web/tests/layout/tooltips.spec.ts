@@ -4,7 +4,7 @@ import { test, expect, type Page } from '@playwright/test'
  * Every tooltip bubble sits at its own trigger. oriui pairs a bubble with its trigger through
  * a CSS anchor name all tooltips share, and the browser resolves a shared name to the last
  * eligible trigger, so with no other guard a bubble can open across the screen
- * (docs/ISSUES-OUTER.md). Measured with the layers panel and the menu open, which add the most
+ * (docs/ISSUES-OUTER.md JP-O-14). Measured with the layers panel and the menu open, which add the most
  * triggers; a hidden bubble keeps its box, so nothing has to be hovered.
  *
  * Run: `npm run test:layout -w @justpaint/web` (needs the Vite dev server).

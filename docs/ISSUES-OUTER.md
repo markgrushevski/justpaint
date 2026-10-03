@@ -8,7 +8,9 @@ its inbound queue. Problems we fix ourselves live in [ISSUES-INNER.md](ISSUES-IN
 **How to use this file.** Newest entry first. Never work around an oriui gap by styling `.ori-*`
 internals: wrap it in `apps/web/src/components/ui/`, record it here, and report it upstream
 ([DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) §0). "Fixed upstream" is not "fixed here" — an entry stays until
-the release carrying the fix is installed, then it is deleted.
+the release carrying the fix is installed, then it is deleted, and its workaround goes in the same change: the
+entry's **Remove when fixed** list says what to take out. Workaround code names its entry in a comment
+(`JP-O-14`), so a search for the id finds every piece.
 
 Status: `confirmed` · `mitigated` (a local workaround exists) · `fixed upstream` (released or merged —
 note which, then bump and delete).
@@ -28,6 +30,10 @@ note which, then bump and delete).
 - **Workaround:** surfaces only. `apps/web/src/components/ui/IslandSurface.vue` turns the hairline on when the system
   asks for more contrast or forces colours (`useThemeStore().moreContrast`), and the forced border shows. The toggles,
   segments, switch and slider have no workaround: it would mean styling `.ori-*`.
+- **Remove when fixed:** once an unbordered `OriSurface` has an edge of its own in forced colours, drop
+  `(forced-colors: active)` from the `moreContrast` query in `apps/web/src/core/stores/useThemeStore.ts`. The
+  islands keep their hairline under `prefers-contrast: more`, and the swatches keep `forced-color-adjust: none`:
+  a swatch's colour is its content, not a gap.
 - **Upstream ask:** `@media (forced-colors: active)` rules in the components that show state by fill: a pressed or
   selected item in `Highlight` / `HighlightText` (or a border), the switch track and thumb and the slider track drawn
   with borders in `CanvasText` / `ButtonText`; and a transparent border on an unbordered `OriSurface`, so the forced
@@ -47,5 +53,7 @@ note which, then bump and delete).
   through the documented per-instance `--ori-anchor`. The toolbar's prop tooltips can't take one, so
   `FloatingToolbar.vue` wraps each item in a `.bar__tip-scope` span with `anchor-scope: --ori-tooltip-anchor`.
   `apps/web/tests/layout/tooltips.spec.ts` checks every bubble against its trigger.
+- **Remove when fixed:** the `anchor` style and its `useId` in `IconButton.vue` and `SwatchPicker.vue`, and the
+  `.bar__tip-scope` spans and rule in `FloatingToolbar.vue`. Keep `tooltips.spec.ts`: it guards the fix.
 - **Upstream ask:** a name per instance by default (for example `--ori-anchor` set from the bubble's id on the
   `.ori-tooltip` root), or `anchor-scope: --ori-tooltip-anchor` on `.ori-tooltip`.

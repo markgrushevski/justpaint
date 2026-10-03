@@ -43,7 +43,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string | null]; custom: 
 
 const group = ref<HTMLElement | null>(null)
 
-// Each tooltip gets its own anchor name, as in IconButton (docs/ISSUES-OUTER.md).
+// Each tooltip gets its own anchor name, as in IconButton (docs/ISSUES-OUTER.md JP-O-14).
 const uid = useId()
 const anchor = (key: string | number) => ({ '--ori-anchor': `--jp-tip-${uid}-${key}` })
 
