@@ -376,7 +376,7 @@ position. Check current support before building anchor-critical UI on it.
 
 It names the first patch release whose standard library has no known vulnerability our code reaches
 (`go run golang.org/x/vuln/cmd/govulncheck@latest ./...`). CI installs exactly that version
-(`setup-go` with `go-version-file`), and the Docker image's `golang:1.26` runs with `GOTOOLCHAIN=local`, so an
+(`setup-go` with `go-version-file`), and the Docker image's `golang:1.27` runs with `GOTOOLCHAIN=local`, so an
 older patch fails the build instead of shipping. Raise the line when govulncheck reports a standard-library
 issue that a newer patch fixes.
 
@@ -677,8 +677,11 @@ It is model prose steered by user input. Render it as text, never as HTML.
 
 A dependency pass (`npm outdated`, `npm audit`) leaves these, each until its condition changes:
 
-- **TypeScript stays on 6.** `typescript-eslint` accepts `typescript <6.1`; move to 7 once
-  `npm view typescript-eslint peerDependencies` allows it.
+- **TypeScript stays on 6.** TypeScript 7 (the native compiler) ships no classic compiler API: its package
+  exports only `version` and an `unstable/*` API. `vue-tsc` and `typescript-eslint` run on the classic one,
+  and `typescript-eslint` accepts `typescript <6.1`. Move when both support 7.
+- **Postgres stays on 17** in `docker-compose.yml` and CI. It mirrors the production database, so local and CI
+  runs cannot rely on a feature production lacks; move the three together.
 - **`npm audit` reports `braces` as high.** Every release up to the latest (3.0.3) is affected
   (GHSA-vfj7-8cjw-p6xm), and it reaches us only through stylelint's file globbing, a dev tool run on our own
   files. `npm audit --omit=dev` is the bar for what ships, and it is clean.
