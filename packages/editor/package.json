@@ -10,7 +10,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "konva": "^10.3.0",
+        "konva": "^10.7.0",
         "perfect-freehand": "^1.2.3"
     },
     "devDependencies": {
