@@ -20,11 +20,11 @@ jobs:
         name: TS workspaces (packages + web)
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v7
 
-            - uses: actions/setup-node@v5
+            - uses: actions/setup-node@v7
               with:
-                  node-version: 24
+                  node-version: 26
                   cache: npm
 
             # packages/render depends on node-canvas; the linux-x64 prebuild
@@ -80,7 +80,7 @@ jobs:
             DATABASE_URL: postgres://justpaint:justpaint@localhost:5432/justpaint?sslmode=disable
 
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v7
 
             - name: Build the image
               run: docker build -t justpaint:ci .
@@ -153,10 +153,10 @@ jobs:
                 working-directory: server
 
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v7
 
             # go.mod's `go` line is the minimum patch, raised when a release fixes the standard library.
-            - uses: actions/setup-go@v6
+            - uses: actions/setup-go@v7
               with:
                   go-version-file: server/go.mod
                   cache-dependency-path: server/go.sum

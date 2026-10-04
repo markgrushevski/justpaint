@@ -13,7 +13,7 @@
 # Render, Fly, a VPS or plain `docker run`.
 
 # ---- 1. Frontend + render worker -------------------------------------------
-FROM node:24-bookworm-slim AS web
+FROM node:26-trixie-slim AS web
 WORKDIR /app
 
 # Copy manifests first so `npm ci` caches across source-only changes.
@@ -30,7 +30,7 @@ COPY apps/ apps/
 RUN npm run build
 
 # ---- 2. Go service ----------------------------------------------------------
-FROM golang:1.26-bookworm AS server
+FROM golang:1.27-trixie AS server
 WORKDIR /src
 
 COPY server/go.mod server/go.sum ./
@@ -41,7 +41,7 @@ COPY server/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/justpaint-server ./cmd/server
 
 # ---- 3. Runtime -------------------------------------------------------------
-FROM node:24-bookworm-slim AS runtime
+FROM node:26-trixie-slim AS runtime
 
 # ca-certificates: outbound TLS (an external judge, an LLM API).
 # The rest are node-canvas's shared libraries. Its prebuilt binary usually

@@ -15,7 +15,7 @@ contract and its impls (`fake`, `http`, `gemini`), never the model.
 
 - **Frontend:** Vue 3, Vite, Pinia, TanStack Query; Konva + perfect-freehand; oriui
   (`@oriui/{vue,css,headless}`, pinned to one exact version, all three in lockstep).
-- **Backend:** Go 1.26 — stdlib `net/http`, pgx/v5, sqlc, golang-jwt/v5, bcrypt, slog, coder/websocket.
+- **Backend:** Go 1.27 — stdlib `net/http`, pgx/v5, sqlc, golang-jwt/v5, bcrypt, slog, coder/websocket.
   One Postgres; goose migrations are embedded and applied at boot.
 - **Render worker:** `packages/render`, Node, reusing the editor's `renderToStage`.
 
