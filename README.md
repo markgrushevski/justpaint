@@ -20,13 +20,13 @@ judged is rendered server-side from that document by the same code the browser e
 - **Frontend:** Vue 3, Vite, Pinia, TanStack Query; canvas on **Konva** with **perfect-freehand**;
   components from [oriui](https://github.com/markgrushevski/oriui), a library developed alongside this
   project.
-- **Backend:** Go 1.26 — stdlib `net/http`, `pgx/v5`, `sqlc`, `golang-jwt`, `bcrypt`, `slog`,
+- **Backend:** Go 1.27 — stdlib `net/http`, `pgx/v5`, `sqlc`, `golang-jwt`, `bcrypt`, `slog`,
   `coder/websocket`. One binary, one Postgres.
 - **Render worker:** Node, reusing the editor's Konva code through `node-canvas`.
 
 ## Quickstart
 
-Needs Node 24, Go 1.26 and Docker (plus the **sqlc** CLI if you change queries).
+Needs Node 24 or newer (the image and CI run 26), Go 1.27 and Docker (plus the **sqlc** CLI if you change queries).
 
 ```sh
 docker compose up -d                  # Postgres 17 on :5432
