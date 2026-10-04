@@ -197,7 +197,7 @@ const topBand = computed(() => band.value === BANDS[0])
     color: #444444;
 
     font-size: var(--ori-font-size_sm, 0.875rem);
-    opacity: var(--jp-dim, 0.6);
+    opacity: var(--jp-dim, 0.7);
 }
 
 /* The judge's card. The variant and colour props paint it; the turn and the

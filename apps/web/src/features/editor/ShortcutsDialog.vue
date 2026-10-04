@@ -88,7 +88,7 @@ function onOpenChange(open: boolean) {
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    opacity: var(--jp-dim, 0.6);
+    opacity: var(--jp-dim, 0.7);
 }
 
 .shortcuts__rows {

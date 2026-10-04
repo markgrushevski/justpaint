@@ -82,7 +82,8 @@ not an override.)
   themes to clear 4.5:1 (checked by `check-contrast.mjs`), points oriui's `--ori-color-outline` and
   `--ori-color-outline-strong` at it, and sets `--jp-dim: 1`. Dimmed secondary text is written
   `opacity: var(--jp-dim, 0.7)` with its own number as the fallback, so it comes back to full strength; a decorative
-  mark or a disabled state keeps a plain opacity. Islands take a hairline (§4, `IslandSurface`).
+  mark or a disabled state keeps a plain opacity. Text goes no lower than 0.7: at 0.6 the ink measures 4.1:1 on the
+  light surface, under the 4.5:1 text bar. Islands take a hairline (§4, `IslandSurface`).
 - **Forced colours** (Windows contrast themes) replace colours with system ones and drop shadows. oriui (rc.22) keeps
   its states and gives every surface an edge there. A colour swatch is its colour, so `SwatchPicker`'s dots and the
   toolbar's mobile colour dot set `forced-color-adjust: none` and draw their rings as outlines in system colours.

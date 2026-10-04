@@ -372,6 +372,14 @@ position. Check current support before building anchor-critical UI on it.
 
 ## Go backend
 
+### `go.mod`'s `go` line is the minimum patch, not the language floor
+
+It names the first patch release whose standard library has no known vulnerability our code reaches
+(`go run golang.org/x/vuln/cmd/govulncheck@latest ./...`). CI installs exactly that version
+(`setup-go` with `go-version-file`), and the Docker image's `golang:1.26` runs with `GOTOOLCHAIN=local`, so an
+older patch fails the build instead of shipping. Raise the line when govulncheck reports a standard-library
+issue that a newer patch fixes.
+
 ### Setup
 
 - The server does not load `.env`. `ENV`, `DATABASE_URL` and `JWT_SECRET` must be in the process
@@ -664,6 +672,16 @@ structured-output seam, ask of every field whether a degenerate continuation is 
 It is model prose steered by user input. Render it as text, never as HTML.
 
 ## Testing and local tooling
+
+### Dependencies held back on purpose
+
+A dependency pass (`npm outdated`, `npm audit`) leaves these, each until its condition changes:
+
+- **TypeScript stays on 6.** `typescript-eslint` accepts `typescript <6.1`; move to 7 once
+  `npm view typescript-eslint peerDependencies` allows it.
+- **`npm audit` reports `braces` as high.** Every release up to the latest (3.0.3) is affected
+  (GHSA-vfj7-8cjw-p6xm), and it reaches us only through stylelint's file globbing, a dev tool run on our own
+  files. `npm audit --omit=dev` is the bar for what ships, and it is clean.
 
 ### A Playwright route glob for the API also catches the app's modules
 

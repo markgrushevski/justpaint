@@ -265,7 +265,7 @@ const sides = computed<SideView[]>(() => [
     color: #444444;
 
     font-size: var(--ori-font-size_sm, 0.875rem);
-    opacity: var(--jp-dim, 0.6);
+    opacity: var(--jp-dim, 0.7);
 }
 
 .result__player {
