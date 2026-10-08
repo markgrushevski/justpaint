@@ -39,6 +39,7 @@ func (h *Handler) Routes(mux *http.ServeMux, protect func(http.Handler) http.Han
 	mux.Handle("POST /api/matches", protect(http.HandlerFunc(h.Create)))
 	mux.Handle("GET /api/matches/{id}", protect(http.HandlerFunc(h.Get)))
 	mux.Handle("POST /api/matches/{id}/submit", protect(http.HandlerFunc(h.Submit)))
+	mux.Handle("POST /api/matches/{id}/cancel", protect(http.HandlerFunc(h.Cancel)))
 	mux.Handle("GET /api/matches/{id}/result", protect(http.HandlerFunc(h.Result)))
 	mux.Handle("GET /api/matches/{id}/players/{userId}/drawing", protect(http.HandlerFunc(h.PlayerDrawing)))
 }
@@ -50,9 +51,10 @@ type createMatchRequest struct {
 }
 
 type promptDTO struct {
-	ID string `json:"id"`
-	// Text is null until the match leaves `open` — a player must not see the
-	// prompt while waiting alone, or they could pre-draw (docs/GAME.md §5).
+	// ID and Text are null until the match leaves `open` — a player must not learn
+	// the prompt while waiting alone, or they could pre-draw (docs/GAME.md §5). The
+	// id too: practice serves any prompt's text by id.
+	ID   *string `json:"id"`
 	Text *string `json:"text"`
 }
 
@@ -104,10 +106,10 @@ func formatDeadline(t *time.Time) *string {
 // rules (docs/GAME.md §4.2, §5): prompt text hidden until `open` ends, and a
 // player sees only their own drawingId until `done`. Pure — table-tested directly.
 func buildMatchDTO(v MatchView, viewerID string, now time.Time) matchDTO {
-	prompt := promptDTO{ID: v.PromptID}
+	var prompt promptDTO
 	if v.Status != statusOpen {
-		text := v.PromptText
-		prompt.Text = &text
+		id, text := v.PromptID, v.PromptText
+		prompt = promptDTO{ID: &id, Text: &text}
 	}
 
 	players := make([]playerDTO, len(v.Players))
@@ -207,6 +209,28 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	web.JSON(w, http.StatusOK, matchEnvelope{Match: buildMatchDTO(view, uid, time.Now())})
+}
+
+// Cancel: POST /api/matches/{id}/cancel — abandon the caller's own open match when
+// they leave the queue (auth: required). 204; 409 once the round has started.
+func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
+	uid, _ := auth.UserID(r.Context())
+	id := r.PathValue("id")
+	if _, err := uuid.Parse(id); err != nil {
+		web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
+		return
+	}
+	switch err := h.svc.Cancel(r.Context(), uid, id); {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, ErrNotFound):
+		web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
+	case errors.Is(err, ErrNotOpen):
+		web.Error(w, http.StatusConflict, web.CodeConflict, "the round has already started")
+	default:
+		h.logger.Error("cancel match", "err", err)
+		web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")
+	}
 }
 
 // --- submit ---
@@ -419,7 +443,7 @@ func buildResultDTO(v ResultView) any {
 			JudgedImageURL: nil, // no object storage — see resultPlayerDTO
 		}
 	}
-	text := v.PromptText
+	promptID, text := v.PromptID, v.PromptText
 	// Default nil (legacy pre-migration `done` rows) to 'judged' so the field is
 	// never empty on a completed match (docs/API.md §8, result).
 	resolution := resolutionJudged
@@ -428,7 +452,7 @@ func buildResultDTO(v ResultView) any {
 	}
 	return resultDone{
 		Status: v.Status, Ready: true,
-		Prompt:       promptDTO{ID: v.PromptID, Text: &text},
+		Prompt:       promptDTO{ID: &promptID, Text: &text},
 		WinnerUserID: v.WinnerUserID,
 		// A tie is a verdict with no winner; an aborted round has no winner either
 		// but produced no verdict at all, so it must not read as a drawn duel —

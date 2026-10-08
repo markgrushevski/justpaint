@@ -34,32 +34,49 @@ set status = $2, updated_at = now()
 where id = $1
 returning *;
 
+-- name: LockMatchmaking :exec
+-- One transaction-scoped lock for every matchmaking decision, so two players pressing
+-- play at once see each other's open match, and one player's parallel presses can't
+-- seat them twice (docs/GAME.md §4.1).
+select pg_advisory_xact_lock(7101);
+
 -- name: FindOpenMatchToJoin :one
--- The oldest open async match the caller is not already in — the auto-join
--- candidate (docs/GAME.md §4.1, docs/DECISIONS.md 2026-07-03). `for update skip
--- locked` lets concurrent joiners each grab a different match instead of
--- colliding on one; the loser skips the locked row and creates its own.
+-- The oldest open async match the caller is not already in, within the open TTL and
+-- with its creator seen within the pulse window (docs/GAME.md §4.1). Runs under
+-- LockMatchmaking; the row lock keeps the reaper and a cancel off it until commit.
 select * from matches
 where status = 'open'
   and mode = 'async'
+  and created_at > now() - make_interval(secs => sqlc.arg('ttl_secs')::int)
   and not exists (
     select 1 from match_players mp
-    where mp.match_id = matches.id and mp.user_id = $1
+    where mp.match_id = matches.id and mp.user_id = sqlc.arg('user_id')
+  )
+  and exists (
+    select 1 from match_players mp
+    where mp.match_id = matches.id
+      and mp.seen_at > now() - make_interval(secs => sqlc.arg('pulse_secs')::int)
   )
 order by created_at asc
 limit 1
 for update skip locked;
 
--- name: FindMyOpenMatch :one
--- The caller's own still-open match, if any — returned instead of stacking a
--- second open match when a waiting player taps "play" again.
+-- name: FindMyLiveMatch :one
+-- The caller's own match that is still in play — open (within the TTL), drawing or
+-- judging — so pressing play again, a reload or a second tab returns it instead of
+-- starting another.
 select m.* from matches m
 join match_players mp on mp.match_id = m.id
-where m.status = 'open'
-  and m.mode = 'async'
-  and mp.user_id = $1
-order by m.created_at asc
+where mp.user_id = sqlc.arg('user_id')
+  and (m.status in ('drawing', 'judging')
+       or (m.status = 'open' and m.created_at > now() - make_interval(secs => sqlc.arg('ttl_secs')::int)))
+order by m.created_at desc
 limit 1;
+
+-- name: TouchMatchPlayer :exec
+-- The pulse: a player's poll of their open match.
+update match_players set seen_at = now()
+where match_id = $1 and user_id = $2;
 
 -- name: AddMatchPlayer :exec
 -- The composite PK (match_id, user_id) makes a double join impossible.
@@ -95,9 +112,20 @@ set status = 'drawing',
 where id = sqlc.arg('id')
 returning *;
 
+-- name: SetMatchJudgingQueued :one
+-- Enter judging with no pass running yet: both drawings are in but no judging slot
+-- was free. Nothing is stamped or counted; the sweeper starts the pass when a slot
+-- frees (ListStuckJudgingMatches).
+update matches
+set status = 'judging',
+    judging_started_at = null,
+    updated_at = now()
+where id = $1
+returning *;
+
 -- name: SetMatchJudging :one
--- Enter (or, for the stuck-judging watchdog, re-enter) judging: stamp the start
--- of this attempt so staleness is measured per-attempt, and bump the retry counter.
+-- Start a judging pass (the first, or a re-fire): stamp the start of this attempt so
+-- staleness is measured per-attempt, and bump the retry counter.
 update matches
 set status = 'judging',
     judging_started_at = now(),
@@ -115,9 +143,9 @@ where id = $1
 returning *;
 
 -- name: ListExpiredDrawingMatches :many
--- The sweeper's work list: live rounds whose deadline has passed, oldest first.
--- FOR UPDATE SKIP LOCKED lets a sweep racing a real submit (or a second sweeper)
--- partition the set instead of colliding; each id is then resolved in its own tx.
+-- The sweeper's work list: live rounds whose deadline has passed, oldest first. The
+-- list runs outside a transaction, so SKIP LOCKED only passes over rows a submit holds
+-- right now; each id is re-checked under its own row lock (docs/NOTES.md).
 select id from matches
 where status = 'drawing' and drawing_deadline <= now()
 order by drawing_deadline
@@ -125,14 +153,16 @@ limit $1
 for update skip locked;
 
 -- name: ListStuckJudgingMatches :many
--- Judging rows wedged past the stale window with retries left, to re-fire
--- (docs/GAME.md §4.1). Staleness is measured against judging_started_at, the
--- current attempt, not updated_at. Exact complement: ListExhaustedJudgingMatches.
+-- Judging rows to start: queued ones (no pass ran yet, judging_started_at null) and
+-- ones wedged past the stale window with retries left (docs/GAME.md §4.1). Staleness
+-- is measured against the current attempt, not updated_at. Exact complement:
+-- ListExhaustedJudgingMatches, which a null start never matches.
 select id from matches
 where status = 'judging'
-  and judging_started_at <= now() - make_interval(secs => sqlc.arg('stale_secs')::int)
+  and (judging_started_at is null
+       or judging_started_at <= now() - make_interval(secs => sqlc.arg('stale_secs')::int))
   and judge_attempts < sqlc.arg('max_attempts')::int
-order by judging_started_at
+order by judging_started_at nulls first
 limit sqlc.arg('lim')::int
 for update skip locked;
 
@@ -150,10 +180,16 @@ limit sqlc.arg('lim')::int
 for update skip locked;
 
 -- name: ListStaleOpenMatches :many
--- Open matches nobody joined within the TTL — reaped to abandoned so a ghost can't
--- later ambush a fresh joiner (docs/GAME.md §4.1).
+-- Open matches past the TTL or whose creator stopped polling — reaped to abandoned
+-- (docs/GAME.md §4.1).
 select id from matches
-where status = 'open' and created_at <= now() - make_interval(secs => sqlc.arg('ttl_secs')::int)
+where status = 'open'
+  and (created_at <= now() - make_interval(secs => sqlc.arg('ttl_secs')::int)
+       or not exists (
+         select 1 from match_players mp
+         where mp.match_id = matches.id
+           and mp.seen_at > now() - make_interval(secs => sqlc.arg('pulse_secs')::int)
+       ))
 order by created_at
 limit sqlc.arg('lim')::int
 for update skip locked;

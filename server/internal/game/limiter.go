@@ -1,13 +1,10 @@
 package game
 
-// judgeLimiter bounds how many judging passes (render + judge call) run at once:
-// a plain counting semaphore, because under RENDER_MODE=node each pass spawns
-// two OS child processes and an unbounded `go judgeMatch(id)` is a fork bomb
-// under a boot drain or a burst of final submits.
+// judgeLimiter bounds how many judging passes (render + judge call) run at once: a
+// counting semaphore sized to what one instance's memory holds (JUDGE_CONCURRENCY).
 //
-// Non-blocking by design: a caller that can't get a slot is never parked or
-// queued — the match stays `judging` for the stuck-judging sweep to re-claim
-// (sweeper.go), so shutdown can never deadlock against an in-flight pass.
+// Non-blocking for callers: one that can't get a slot never waits — its match stays
+// queued in `judging` for the sweeper to start (sweeper.go).
 type judgeLimiter struct {
 	slots chan struct{}
 }
@@ -48,13 +45,10 @@ func (l *judgeLimiter) goHeld(fn func()) {
 	}()
 }
 
-// tryGo runs fn in its own goroutine if a slot is free, releasing it when fn
-// returns; it reports whether the pass started. False means saturated — the caller
-// leaves the match for the sweep instead of queueing.
-func (l *judgeLimiter) tryGo(fn func()) bool {
-	if !l.tryAcquire() {
-		return false
+// drain waits until every pass in flight has returned its slot, and keeps the slots
+// so no new pass starts. Shutdown calls it; the caller bounds the wait.
+func (l *judgeLimiter) drain() {
+	for range cap(l.slots) {
+		l.slots <- struct{}{}
 	}
-	l.goHeld(fn)
-	return true
 }

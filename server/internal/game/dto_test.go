@@ -51,11 +51,12 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 		return playerDTO{}
 	}
 
-	t.Run("open hides the prompt text (no pre-drawing)", func(t *testing.T) {
-		// A lone creator waiting in `open` must not see the prompt yet.
+	t.Run("open hides the prompt (no pre-drawing)", func(t *testing.T) {
+		// A lone creator waiting in `open` must not learn the prompt yet — not its
+		// text, nor its id, which practice would turn into the text.
 		m := buildMatchDTO(roster(statusOpen, nil, nil), me, fixedNow)
-		if m.Prompt.ID != promptID {
-			t.Errorf("prompt id = %q, want %q", m.Prompt.ID, promptID)
+		if m.Prompt.ID != nil {
+			t.Errorf("prompt id = %q, want nil (redacted while open)", *m.Prompt.ID)
 		}
 		if m.Prompt.Text != nil {
 			t.Errorf("prompt text = %q, want nil (redacted while open)", *m.Prompt.Text)
@@ -66,6 +67,9 @@ func TestBuildMatchDTO_Redaction(t *testing.T) {
 		m := buildMatchDTO(roster(statusDrawing, nil, nil), me, fixedNow)
 		if m.Prompt.Text == nil || *m.Prompt.Text != promptTx {
 			t.Errorf("prompt text = %v, want %q once drawing", m.Prompt.Text, promptTx)
+		}
+		if m.Prompt.ID == nil || *m.Prompt.ID != promptID {
+			t.Errorf("prompt id = %v, want %q once drawing", m.Prompt.ID, promptID)
 		}
 	})
 
