@@ -212,7 +212,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 // Cancel: POST /api/matches/{id}/cancel — abandon the caller's own open match when
-// they leave the queue (auth: required). 204; 409 once the round has started.
+// they leave the queue (auth: required). 204; 409 once it is no longer open.
 func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 	uid, _ := auth.UserID(r.Context())
 	id := r.PathValue("id")
@@ -226,7 +226,7 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, ErrNotFound):
 		web.Error(w, http.StatusNotFound, web.CodeNotFound, "not found")
 	case errors.Is(err, ErrNotOpen):
-		web.Error(w, http.StatusConflict, web.CodeConflict, "the round has already started")
+		web.Error(w, http.StatusConflict, web.CodeConflict, "the match is no longer open")
 	default:
 		h.logger.Error("cancel match", "err", err)
 		web.Error(w, http.StatusInternalServerError, web.CodeInternal, "internal error")

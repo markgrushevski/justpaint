@@ -432,7 +432,7 @@ Success `204 No Content`. The match becomes `abandoned` and the `abandoned` fram
 
 Errors:
 - `404 not_found` — the caller is not a player in the match, or no such match, or a non-UUID id (hidden like the reads; never `403`).
-- `409 conflict` — the match is not `open` (a second player joined and the round started, or it already ended). Message `"the round has already started"`. The round runs on.
+- `409 conflict` — the match is not `open` (a second player joined and the round started, or it already ended). Message `"the match is no longer open"`. The round runs on.
 - `401 unauthorized`.
 
 ## 9. Live match-room WebSocket
