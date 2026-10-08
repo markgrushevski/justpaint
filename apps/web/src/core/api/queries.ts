@@ -5,8 +5,6 @@ import type { Document } from '@justpaint/editor'
 import { isAuthError, toApiError } from './http'
 import { drawings } from './drawings'
 import type { DrawingFull, DrawingList, DrawingMeta } from './drawings'
-import { matches } from './matches'
-import type { Match, SubmitMatch } from './matches'
 import { practice } from './practice'
 import type { PracticePrompt, PracticeRun } from './practice'
 import { leaderboard } from './leaderboard'
@@ -17,10 +15,10 @@ import { guess } from './guess'
 import type { Guess } from './guess'
 
 /**
- * TanStack Query bindings for the drawings/matches/practice/leaderboard/assist
+ * TanStack Query bindings for the drawings/practice/leaderboard/assist/guess
  * APIs. TanStack Query owns server data; Pinia owns session/UI state; the
- * editor owns its own document/view state. Save/load and the imperative duel
- * and practice actions are mutations, giving the view standardized
+ * editor owns its own document/view state; the duel runs on its own loop
+ * (features/play/useDuel). Save/load and the imperative practice actions are mutations, giving the view standardized
  * `isPending`/`error` and cache invalidation for free; the saved-drawings reads
  * and the leaderboard are the cached queries. The typed fetch clients stay the
  * single source of the request shapes; these only wrap them.
@@ -162,29 +160,6 @@ export function useLeaderboard(limit = 20) {
         // the sign-in branch instead of burning the default 3 retries on a
         // request that will keep failing.
         retry: (count, err) => !isAuthError(err) && count < 3
-    })
-}
-
-/**
- * Match mutations for the imperative duel actions. The reads that drive the
- * flow — the roster poll (`matches.get`) and verdict poll (`matches.result`) —
- * are called directly from the /play phase machine, an ephemeral flow with no
- * shared cache to own. The live WS push (docs/API.md §9) carries those same
- * transitions, demoting the polling to a reconciliation fallback.
- */
-
-/** Create or auto-join an async match. */
-export function useCreateMatch() {
-    return useMutation({
-        mutationFn: (): Promise<Match> => matches.create()
-    })
-}
-
-/** Submit the caller's vector document for a match. */
-export function useSubmitMatch() {
-    return useMutation({
-        mutationFn: ({ id, document }: { id: string; document: Document }): Promise<SubmitMatch> =>
-            matches.submit(id, document)
     })
 }
 

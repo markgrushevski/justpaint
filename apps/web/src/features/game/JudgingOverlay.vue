@@ -5,14 +5,29 @@
  * authoritative rasters and awaits the judge (docs/GAME.md §4). `solo`
  * switches it to the single-player wait (one skeleton frame, no opponent
  * copy) since it's the same moment in both modes — the judge looking at a
- * drawing — so a second copy of the scrim would drift.
+ * drawing — so a second copy of the scrim would drift. `waitingFor` is the duel's
+ * moment before it: my drawing is in, the opponent's is not.
  */
+import { computed } from 'vue'
 import { OriSkeleton, OriSpinner } from '@oriui/vue'
 import IslandSurface from '../../components/ui/IslandSurface.vue'
 
-withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
+const props = withDefaults(defineProps<{ opponentName?: string; solo?: boolean; waitingFor?: string }>(), {
     opponentName: 'Player 2',
-    solo: false
+    solo: false,
+    waitingFor: undefined
+})
+
+const title = computed(() => {
+    if (props.solo) return 'The judge is looking…'
+    return props.waitingFor ? `Waiting for ${props.waitingFor}…` : 'Judging the duel…'
+})
+
+const sub = computed(() => {
+    if (props.solo) return 'Scoring your drawing against the prompt.'
+    return props.waitingFor
+        ? 'Your drawing is in. If theirs isn’t in by the end of the round, you win.'
+        : 'Scoring both drawings against the prompt.'
 })
 </script>
 
@@ -20,10 +35,8 @@ withDefaults(defineProps<{ opponentName?: string; solo?: boolean }>(), {
     <div class="judging">
         <IslandSurface class="judging__card" elevation="lg">
             <OriSpinner size="lg" color="primary" />
-            <h2 class="judging__title">{{ solo ? 'The judge is looking…' : 'Judging the duel…' }}</h2>
-            <p class="judging__sub">
-                {{ solo ? 'Scoring your drawing against the prompt.' : 'Scoring both drawings against the prompt.' }}
-            </p>
+            <h2 class="judging__title">{{ title }}</h2>
+            <p class="judging__sub">{{ sub }}</p>
 
             <!-- One frame solo, two in a duel: the grid narrows to a single column
                  so the lone skeleton doesn't sit beside an empty half. -->

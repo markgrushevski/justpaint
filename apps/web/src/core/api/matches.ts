@@ -18,10 +18,10 @@ import { request } from './http'
 /** Match lifecycle states (`matches.status`, docs/GAME.md §3). */
 export type MatchStatus = 'open' | 'drawing' | 'judging' | 'done' | 'abandoned'
 
-/** The pinned prompt. `text` is null until the match leaves `open` (reveal timing,
+/** The pinned prompt. Both fields are null until the match leaves `open` (reveal timing,
  *  docs/GAME.md §5) — a lone creator waiting must not pre-draw. */
 export interface MatchPrompt {
-    id: string
+    id: string | null
     text: string | null
 }
 
@@ -118,9 +118,10 @@ interface PlayerDrawingEnvelope {
 }
 
 export const matches = {
-    /** Create or auto-join an async match; the server pins one shared prompt. */
-    async create(mode: 'async' = 'async'): Promise<Match> {
-        return (await request<MatchEnvelope>('/matches', { method: 'POST', body: { mode } })).match
+    /** Create or auto-join a match; the server pins one shared prompt. A caller with a match
+     *  still in play gets that one back. */
+    async create(): Promise<Match> {
+        return (await request<MatchEnvelope>('/matches', { method: 'POST' })).match
     },
     /** Fetch (redacted) match state — the roster poll while waiting for the opponent. */
     async get(id: string): Promise<Match> {
@@ -134,6 +135,16 @@ export const matches = {
                 body: { document: roundDocument(doc) }
             })
         ).match
+    },
+    /** Abandon the caller's own open match on leaving the queue: 204, or 409 once the round
+     *  has started (it then runs on). */
+    async cancel(id: string): Promise<void> {
+        await request<void>('/matches/' + id + '/cancel', { method: 'POST' })
+    },
+    /** The same cancel from a page being unloaded, where a fetch may never leave. A beacon is
+     *  same-origin, so it carries the session cookie. */
+    cancelOnUnload(id: string): void {
+        navigator.sendBeacon('/api/matches/' + id + '/cancel')
     },
     /** The end-of-round verdict; poll until `ready`. The WS `result` frame carries the
      *  same body instantly, so this poll is the reconciliation fallback, not the path. */
@@ -197,19 +208,17 @@ export interface MatchSocketHandlers {
     /** Called for every frame that parses to a known {@link WsFrame}. */
     onFrame(frame: WsFrame): void
     onOpen?(): void
-    onClose?(code: number, reason: string): void
-    onError?(ev: Event): void
+    onClose?(code: number): void
 }
 
-/** A thin transport handle — reconnect/backoff policy and frame dispatch live in
- *  the caller (PlayView), not here. */
+/** A thin transport handle — reconnect/backoff policy lives in `useMatchSocket`, frame
+ *  dispatch in `useDuel`. */
 export interface MatchSocketHandle {
     /** Close the socket. Safe to call more than once. */
     close(): void
     /** Send the one client→server frame the wire protocol allows (heartbeat).
      *  A no-op if the socket isn't currently open. */
     ping(): void
-    readonly readyState: number
 }
 
 /**
@@ -219,7 +228,7 @@ export interface MatchSocketHandle {
  * always the relative `/api`.
  *
  * A thin wrapper over native `WebSocket`: parses each message into a
- * {@link WsFrame}, drops anything unparseable, and forwards open/close/error.
+ * {@link WsFrame}, drops anything unparseable, and forwards open/close.
  * No reconnect/backoff/dispatch policy — the caller owns that.
  */
 export function openMatchSocket(matchId: string, handlers: MatchSocketHandlers): MatchSocketHandle {
@@ -227,8 +236,7 @@ export function openMatchSocket(matchId: string, handlers: MatchSocketHandlers):
     const socket = new WebSocket(`${scheme}//${location.host}/api/matches/${matchId}/ws`)
 
     socket.addEventListener('open', () => handlers.onOpen?.())
-    socket.addEventListener('close', (ev) => handlers.onClose?.(ev.code, ev.reason))
-    socket.addEventListener('error', (ev) => handlers.onError?.(ev))
+    socket.addEventListener('close', (ev) => handlers.onClose?.(ev.code))
     socket.addEventListener('message', (ev) => {
         if (typeof ev.data !== 'string') return
         const frame = parseWsFrame(ev.data)
@@ -241,9 +249,6 @@ export function openMatchSocket(matchId: string, handlers: MatchSocketHandlers):
         },
         ping(): void {
             if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'ping' }))
-        },
-        get readyState(): number {
-            return socket.readyState
         }
     }
 }

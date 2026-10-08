@@ -1,6 +1,6 @@
 /**
  * The match socket (docs/API.md §9): opens, pings, and reconnects with backoff. It only
- * speeds the round up; the view's poll loop keeps the round moving while it is down.
+ * speeds the round up; the poll loop keeps the round moving while it is down.
  */
 import { ref } from 'vue'
 import { openMatchSocket } from '@core'
@@ -19,6 +19,8 @@ const CLOSE_SESSION_EXPIRED = 4001
 export interface MatchSocketOptions {
     onFrame: (frame: WsFrame) => void
     onSessionExpired: () => void
+    /** The socket dropped: the poll should not wait out its slow cadence. */
+    onDrop: () => void
     /** Checked before each reconnect: false once the round is over or the view is gone. */
     shouldReconnect: () => boolean
 }
@@ -26,8 +28,6 @@ export interface MatchSocketOptions {
 export function useMatchSocket(options: MatchSocketOptions) {
     /** The socket is open, so the poll can slow down. */
     const live = ref(false)
-    /** Degraded, not broken: the poll keeps the round moving; only presence stops. */
-    const reconnecting = ref(false)
 
     let socket: MatchSocketHandle | null = null
     // Marks callbacks from a replaced or closed socket as stale, so a late close is not
@@ -60,7 +60,6 @@ export function useMatchSocket(options: MatchSocketOptions) {
 
     function scheduleReconnect(id: string): void {
         if (!options.shouldReconnect()) return
-        reconnecting.value = true
         const step = Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)
         attempt += 1
         reconnectTimer = window.setTimeout(() => {
@@ -76,7 +75,6 @@ export function useMatchSocket(options: MatchSocketOptions) {
         socket = openMatchSocket(id, {
             onOpen: () => {
                 if (gen !== generation) return
-                reconnecting.value = false
                 attempt = 0
                 live.value = true
                 stopHeartbeat()
@@ -90,23 +88,20 @@ export function useMatchSocket(options: MatchSocketOptions) {
                     options.onSessionExpired()
                     return
                 }
+                options.onDrop()
                 scheduleReconnect(id)
             },
-            onError: () => {
-                if (gen !== generation) return
-                // No detail here; the close event that follows carries the code.
-                live.value = false
-            },
-            onFrame: options.onFrame
+            onFrame: (frame) => {
+                if (gen === generation) options.onFrame(frame)
+            }
         })
     }
 
     /** Close and forget the backoff, for a new match. */
     function reset(): void {
         close()
-        reconnecting.value = false
         attempt = 0
     }
 
-    return { live, reconnecting, open, close, reset }
+    return { live, open, close, reset }
 }
