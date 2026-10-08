@@ -159,7 +159,7 @@ func newAssist(cfg config.Config, model string, logger *slog.Logger) (assist.Ass
 // limiter bounds request rate, this bounds the scarce thing behind it — a
 // provider's per-day quota.
 func newBudget(cfg config.Config, queries *db.Queries, providers map[aibudget.Kind]aibudget.Provider, logger *slog.Logger) (*aibudget.Budget, error) {
-	policies, err := aibudget.Policies(providers, cfg.AIDailyPerUser)
+	policies, err := aibudget.Policies(providers, cfg.AIDailyPerUser, cfg.AIDailyGlobal)
 	if err != nil {
 		return nil, err
 	}
