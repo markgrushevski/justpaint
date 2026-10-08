@@ -462,12 +462,15 @@ often than the REST poll. It is tolerated because the client applies state monot
 frame or poll supersedes a stale one. Wrap `Get` in a read-only transaction (or one joined query) if
 that stops being true.
 
-### A user can still stack two open matches
+### Matchmaking decisions run under one advisory lock
 
-`CreateOrJoin` dedupes a user's own open match with a plain `SELECT` (`FindMyOpenMatch`) under Read
-Committed, so two truly concurrent creates by one user can both open a match. The composite primary key
-still prevents a double seat. The hard fix (advisory lock or partial unique index) is open in
-`IDEAS.md`; don't file it again as a separate bug.
+`CreateOrJoin` takes `LockMatchmaking` (`pg_advisory_xact_lock`) before it looks for a joinable match, so
+two simultaneous presses cannot both miss each other's open match, and one player's parallel presses
+cannot seat them twice: the second sees the first's seat once it gets the lock. Any new path that seats a
+player or creates an `open` match must take it too. The caller's own match in play is looked up once
+before the lock, so a reload doesn't queue behind other players, and again under it.
+`FindOpenMatchToJoin` keeps `FOR UPDATE SKIP LOCKED` so the reaper and a cancel stay off the chosen row
+until commit.
 
 ### Retire prompts, never delete them
 
@@ -506,11 +509,13 @@ inner join into a left join, silently rebinds the mapping.
 
 ### Judging runs out of band and is recovered by the sweeper
 
-The final submit starts `judgeMatch` after its transaction commits (`dispatchJudging` →
-`judging.tryGo`, bounded by `JUDGE_CONCURRENCY`) on a fresh background context. The pass is not tracked
-by the shutdown `WaitGroup`, so a crash or shutdown can cut it short; the stuck-judging sweep
-(`sweeper.go`) re-fires it up to `maxJudgeAttempts` and then closes the match as `done` / `aborted`
-without Elo (`GAME.md` §4.1). Start a pass through `dispatchJudging`, never a bare `go`.
+The final submit takes a judging slot (`JUDGE_CONCURRENCY`) before it flips the match, and starts
+`judgeMatch` after its transaction commits (`judging.goHeld`) on a fresh background context. With no
+slot free the match is flipped queued (`judging_started_at` null, nothing counted) and the sweeper starts
+it. On shutdown the sweeper waits for passes in flight, but only inside `main`'s 10s bound, so a crash or
+a slower pass can still be cut short; the stuck-judging sweep (`sweeper.go`) then re-fires it up to
+`maxJudgeAttempts` and closes the match as `done` / `aborted` without Elo (`GAME.md` §4.1). Start a pass
+only through `judging.goHeld` with a slot already held, never a bare `go`.
 
 ### `runJudging`'s status check is not a lock
 
@@ -524,15 +529,20 @@ sweeper re-fire safe alongside a live pass. Keep it when refactoring.
 A pass (two renders plus the judge call with retries) runs under `game.JudgePassBudget` (60s). The
 judge makes up to 3 attempts (`JUDGE.md` §7), so at `JUDGE_TIMEOUT=10s` it alone may need 30s; a
 tighter budget silently cancels the last retry. The server warns at boot (`cmd/server/ai.go`) when
-`3 × JUDGE_TIMEOUT` does not fit.
+`3 × JUDGE_TIMEOUT` does not fit. The sweeper's stale window (`judgeStaleSecs`, 75s) is derived from the
+same `judgePassSecs` plus 15s: it must stay above the budget, or a pass still running would be re-fired
+and billed twice.
 
 ### The sweeper's `SKIP LOCKED` lists are only candidates
 
-`ListExpiredDrawingMatches` and the other list queries run in autocommit, so their
-`FOR UPDATE SKIP LOCKED` lock ends when the SELECT returns. Exactly-once comes from each handler
+`ListExpiredDrawingMatches` and the other list queries run outside a transaction, so their
+`FOR UPDATE SKIP LOCKED` lock ends when the SELECT returns: it only passes over rows locked at that
+instant, and two sweepers can be handed the same id. Exactly-once comes from each handler
 (`resolveExpiredMatch`, `refireJudging`, `abortJudging`, `reapOpenMatch`) opening its own transaction,
-re-locking with `GetMatchForUpdate` and re-checking the status. `drain()` stops once a phase handles
-fewer than a full batch, so a batch that keeps failing does not hot-loop against an unhealthy database.
+re-locking with `GetMatchForUpdate` and re-checking the status; `refireJudging` re-checks the attempt cap
+and staleness too, so a racing sweeper finds the pass already started and does nothing. `drain()` stops
+once a phase handles fewer than a full batch, so a batch that keeps failing does not hot-loop against an
+unhealthy database.
 
 ### Ratings move by an atomic delta: the match lock is per match, not per user
 
@@ -626,8 +636,9 @@ This works only while the API is same-origin, because `Retry-After` is not CORS-
 ### Bill the ledger where the provider call happens
 
 A duel writes its player rows at round start but its provider row in `Service.enterJudging`, which wraps
-every `SetMatchJudging` call. Billing at round start over-counted forfeits (no judge call) and
-under-counted stuck-judging re-fires (one row for up to three passes). Route any new transition into
+every `SetMatchJudging` call (a pass starting, with a judging slot held). Billing at round start
+over-counted forfeits (no judge call) and under-counted stuck-judging re-fires (one row for up to three
+passes); billing a queued flip would over-count a pass that has not run. Route any new transition into
 `judging` through `enterJudging`.
 
 ### The per-user AI cap is enforced by the insert, and is still not exact
@@ -716,8 +727,9 @@ from the old code. Another local process can also bind `[::1]:8080`, which wins 
 ### Manual duel testing needs two players and a clean pool
 
 A duel reaches `judging` only with the Go backend up and two authenticated players. Matchmaking
-auto-joins the oldest waiting `open` match, and open matches are reaped only after 10 minutes, so
-leftovers from a previous run hijack new players. Between runs, on a local database:
+auto-joins the oldest joinable `open` match (its creator polled within 45s, created within 2 minutes),
+and pressing play returns a match the player is still in, so leftovers from a previous run can pair or
+resume new players for a couple of minutes. Between runs, on a local database:
 `delete from match_players; delete from drawings where match_id is not null; delete from matches;`
 
 ### Hidden tabs pause `requestAnimationFrame`

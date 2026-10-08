@@ -286,21 +286,21 @@ All under `/api/matches`. **Auth: required.** the async duel is **HTTP-complete*
 During a round each player sees **only their own canvas**; both are revealed on the **result** (§8.4) — so `GET /api/matches/{id}` redacts the opponent's drawing until the match is `done`.
 
 ### `POST /api/matches`
-Create (or auto-join) an async match. The server pins **one prompt** for both players. **Auth: required.**
+Create, join or resume an async match. The server pins **one prompt** for both players. **Auth: required.**
 
 Request (all optional):
 ```json
 { "mode": "async" }
 ```
 - `mode` — `"async"` only in v1 (`"live"` is later, §9). Absent ⇒ `"async"`.
-- (Matchmaking — how the second player is paired, open-match pool vs. invite — is a `GAME.md` concern. v1 may create an `open` match the next caller joins, or pair immediately; the route shape is stable either way.)
+- Matchmaking is owned by `GAME.md` §4.1. In order: a match the caller is **already in** and that is still in play (`open` within the TTL, `drawing` or `judging`) is returned as it is, so a reload or a second tab resumes it — before any budget check; otherwise the caller joins the oldest joinable `open` match (one whose creator is still polling, see `GET` below); otherwise a new `open` match is created. Pairing is serialized, so two simultaneous presses are paired.
 
-Success `201 Created` (the caller opened a new match and is waiting — or was returned their existing open one):
+Success `201 Created` — whichever of the three happened: the caller opened a match and is waiting (below), joined one (`status: "drawing"`), or got back the match they are already in:
 ```json
 {
   "match": {
     "id": "…", "mode": "async", "status": "open",
-    "prompt": { "id": "…", "text": null },
+    "prompt": { "id": null, "text": null },
     "canvas": { "width": 1080, "height": 1080 },
     "players": [ { "userId": "…", "displayName": "Ada", "submitted": false } ],
     "drawingDeadline": null,
@@ -309,11 +309,11 @@ Success `201 Created` (the caller opened a new match and is waiting — or was r
   }
 }
 ```
-> **Prompt text is `null` while `status` is `open`.** The `text` is redacted until the match enters `drawing`, so a creator waiting alone cannot pre-draw before the opponent joins (reveal timing owned by `GAME.md` §5). When this same `POST` **auto-joins** a waiting match instead of opening one, the response is `status: "drawing"` with `text` populated and both players listed.
+> **`prompt.id` and `prompt.text` are `null` while `status` is `open`.** Both are redacted until the match enters `drawing`, so a creator waiting alone cannot pre-draw before the opponent joins (reveal timing owned by `GAME.md` §5); the id goes too because a practice run takes any prompt id and answers with that prompt's text (§12). When this same `POST` **auto-joins** a waiting match instead of opening one, the response is `status: "drawing"` with `id` and `text` populated and both players listed.
 > `canvas` echoes the canonical **1080×1080** game canvas (owned by `GAME.md`) so the client configures the editor without guessing. The submitted document's `width`/`height` MUST match it (enforced at submit, §8.3).
 > `drawingDeadline` is `null` while `status: "open"`; once the roster fills and the match flips to `drawing` it becomes an absolute RFC3339Nano UTC instant (`now() + 90s`, the server's clock — `GAME.md` §4.1). `serverTime` is the response-build instant, always present, in the same format, so the client reconciles clock skew instead of trusting its own clock for the countdown.
 
-Errors: `400 validation_failed` (bad `mode`), `401 unauthorized`, `429 rate_limited` — two distinct causes, same code and status, checked in order: the caller's own daily **duel** allowance is spent (message `"you have used all 3 of your duels for today — new ones unlock as the day rolls over"` — the number is the caller's own configured `duel` cap, 3 by default), or — only once they've cleared that check — the whole daily budget of the provider backing the judge is spent (message `"the AI budget for today is spent — this feature resumes tomorrow"`). The **global** refusal discloses nothing about the budget's size; every per-kind refusal names the caller's own cap, from one template with the kind's noun substituted in (`GAME.md` §4.3). Unlike §3.1's tiers, neither carries a `Retry-After` header. This is also the **only** place the budget can refuse a duel: the ledger rows a duel writes — two player rows when the round starts, one provider row per judging pass — are unconditional, because by then the round is under way and refusing would strand it (`GAME.md` §4.3). Full rule: `GAME.md` §4.3; why: `DECISIONS.md` 2026-09-19, 2026-09-20.
+Errors: `400 validation_failed` (bad `mode`), `401 unauthorized`, `429 rate_limited` — two distinct causes, same code and status, checked in order: the caller's own daily **duel** allowance is spent (message `"you have used all 3 of your duels for today — new ones unlock as the day rolls over"` — the number is the caller's own configured `duel` cap, 3 by default), or — only once they've cleared that check — the whole daily budget of the provider backing the judge is spent (message `"the AI budget for today is spent — this feature resumes tomorrow"`). The **global** refusal discloses nothing about the budget's size; every per-kind refusal names the caller's own cap, from one template with the kind's noun substituted in (`GAME.md` §4.3). Unlike §3.1's tiers, neither carries a `Retry-After` header. This is also the **only** place the budget can refuse a duel: the ledger rows a duel writes — two player rows when the round starts, one provider row per judging pass that starts — are unconditional, because by then the round is under way and refusing would strand it (`GAME.md` §4.3). A match the caller is already in is returned before the budget is consulted, so a resume is never refused. Full rule: `GAME.md` §4.3; why: `DECISIONS.md` 2026-09-19, 2026-09-20.
 
 ### `GET /api/matches/{id}`
 Fetch match state. **Auth: required**; caller must be a player ⇒ otherwise `404 not_found` (hidden). **Opponent's drawing is redacted until `status: "done"`** (visibility rule, `GAME.md`).
@@ -336,7 +336,9 @@ Success `200 OK`:
 }
 ```
 - A player's own `drawingId` is visible once they've submitted; the opponent's `drawingId` (and any rendered raster) appears only on the `done` result (§8.4).
+- `prompt.id` and `prompt.text` are `null` while `status: "open"`, as in the create response.
 - `drawingDeadline` is `null` only while `status: "open"`; `serverTime` is always present (same clock-skew-correction pair as the create response above).
+- **A `GET` of an `open` match is the creator's pulse.** It refreshes the caller's `match_players.seen_at`, and an open match is joinable only while its creator's `seen_at` is under 45 s old. A waiting client keeps polling (the ~15 s socket-fallback cadence, §9.5, clears the window); a match whose creator stops polling is no longer offered to other players and is abandoned (`GAME.md` §4.1).
 - Errors: `404 not_found` (not a player / no such match), `401 unauthorized`.
 
 ### `POST /api/matches/{id}/submit`
@@ -423,6 +425,16 @@ Success `200 OK` — the raw vector document inline (the same shape §7 stores):
 ```
 - Errors: `404 not_found` (not a co-player, match not `done`, or no such match / player / submission — all indistinguishable), `401 unauthorized`.
 
+### `POST /api/matches/{id}/cancel`
+Abandon the caller's own **open** match — the creator leaving the queue, so nobody is paired with a player who is gone. **Auth: required**; no body. Sits in the **write** tier (§3.1).
+
+Success `204 No Content`. The match becomes `abandoned` and the `abandoned` frame is pushed to the room (§9.2).
+
+Errors:
+- `404 not_found` — the caller is not a player in the match, or no such match, or a non-UUID id (hidden like the reads; never `403`).
+- `409 conflict` — the match is not `open` (a second player joined and the round started, or it already ended). Message `"the round has already started"`. The round runs on.
+- `401 unauthorized`.
+
 ## 9. Live match-room WebSocket
 
 > The async duel (§8) still runs correctly on HTTP alone. This section owns the WS wire protocol — a *delivery upgrade* over §8, not a second backend: same match lifecycle, same DTOs, same visibility rule (`GAME.md` §4.2). **Postgres stays the source of truth**; the client's REST poll loop is never removed, only demoted to a slow fallback while a socket is live (§9.5).
@@ -448,7 +460,7 @@ Eight frame types, JSON `{ "type": …, … }`. `match_state` / `result` carry t
 | `opponent_submitted` | `{ userId }` | shared | any player's submit commits (room-broadcast — including back to the submitter's own other tabs; clients ignore a `userId` that is their own) |
 | `judging` | `{}` | shared | the last submit flips the match to `judging` |
 | `result` | `{ result: <MatchResultDone> }` | **per viewer** | the match reached `done` — `resolution: "judged"`, `"forfeit"`, **or** `"aborted"` (terminal with no verdict, §8.4) |
-| `abandoned` | `{}` | shared | the sweep resolves the match to `abandoned` |
+| `abandoned` | `{}` | shared | the sweep or a cancel (§8) resolves the match to `abandoned` |
 | `opponent_connected` | `{ userId }` | shared | that `userId`'s live-client set goes empty → non-empty (presence) |
 | `opponent_disconnected` | `{ userId }` | shared | that `userId`'s live-client set goes non-empty → empty |
 | `pong` | `{}` | shared | reply to a client `ping` |

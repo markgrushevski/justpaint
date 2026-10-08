@@ -30,7 +30,6 @@ AI features belong **inside** the product itself, not just as a dev tool — clo
 
 ## Drawings / API
 - **Server-generated `thumbnail_url` only** — store only a server-side object-storage URL, never a client-supplied one (avoids stored-SSRF/XSS via a poisoned URL). *When:* when thumbnails are implemented.
-- **One open match per user (concurrency hardening)** — `FindMyOpenMatch` dedupe (`DECISIONS.md` 2026-07-03) is best-effort under Read Committed: a truly concurrent double-tap can still open two `open` matches (never a double-seat — the composite PK guards that). Enforce with `pg_advisory_xact_lock(hashtext(userID))` or a partial unique index. *When:* next time matchmaking is touched.
 
 ## Game — judging & render
 - **Concede** — let a player leave a live match early (it resolves to `abandoned`). The deadline already resolves stranded rounds, so this is UX, not correctness.

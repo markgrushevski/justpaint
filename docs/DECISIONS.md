@@ -2,6 +2,14 @@
 
 Key decisions and the reasons behind them, newest first. Each entry states a decision that still stands. The mechanics live in the contract docs each entry points to.
 
+## 2026-10-08 — One matchmaking lock, a queue of present players, judging billed per pass that starts
+
+- **One advisory lock serializes matchmaking:** cheap at this scale, and without it simultaneous presses were never paired (measured, 0 of 20). A match the player is already in is returned instead of a new one, so a reload, a second tab or parallel presses cannot seat them twice.
+- **The queue keeps only present creators,** because a joiner was being seated against players who had left. An open match is joinable for 2 minutes and only while its creator's poll keeps `match_players.seen_at` under 45 s old; the sweeper abandons it otherwise, and leaving the queue cancels it.
+- **Judging is billed per pass that starts, with a queue instead of a refusal.** A final submit takes a judging slot before the flip, and without one the match waits, unbilled, for the sweeper (measured when the flip billed first: 38 provider rows for 20 judge calls).
+
+Mechanism: `docs/GAME.md` §4.1 and §4.3. HTTP shape: `docs/API.md` §8.
+
 ## 2026-10-08 — Per-player AI allowances sit below the global ceiling
 
 - **A per-player allowance must be below `AI_DAILY_GLOBAL` for every kind that calls a provider, and the server does not boot otherwise.** At or above it, one player (or two accounts) spends the day's quota for everyone; measured, 15 duels took 64 s. The defaults came down to duel 3, practice 3, guess 2, assist 5. Mechanism: `docs/GAME.md` §4.3.
@@ -116,7 +124,7 @@ Every AI feature spends against one table, `ai_calls` (migration `00007`, `serve
 
 - **Two row shapes, one table.** A provider row (`user_id` null) records that a request is about to be made. A player row (`provider` null) records that this player was granted a round. A duel costs the provider one request per judging pass but costs two players an allowance each, so a single combined row would either double-count or undercount. `kind` takes no check constraint or enum. It is a Go constant, so the compiler catches a typo, and a new AI feature needs no migration.
 - **Each fact is billed when it happens.**
-  - Duel: the two player rows are written in the matchmaking transaction at `open → drawing`. A provider row is written at every entry into `judging` (`game.Service.enterJudging`: the last submit, the deadline path, the stuck-judging re-fire). A forfeited or abandoned duel therefore bills no provider row, and each re-fire bills again. The judge's own retries inside one pass stay uncounted, because counting them would give the frozen `Judge` contract a database dependency.
+  - Duel: the two player rows are written in the matchmaking transaction at `open → drawing`. A provider row is written when a judging pass starts (`game.Service.enterJudging`: the last submit holding a judging slot, the sweeper starting a queued match or re-firing a stale pass). A forfeited or abandoned duel therefore bills no provider row, a queued match bills nothing until its pass starts, and each re-fire bills again. The judge's own retries inside one pass stay uncounted, because counting them would give the frozen `Judge` contract a database dependency.
   - Practice, guess and assist: billed outside any transaction, after the server-side render and before the provider call. The render spends nobody's quota. A provider call that failed still spent quota, and a rolled-back record would hide a broken provider draining it.
 - **The per-user cap is enforced by the INSERT.** The check before the work is two unlocked reads, so under a burst every caller passes: a cap of 2 was measured billing 24 of 25 concurrent requests. `RecordAICallUnderCap` writes the rows only while the count is under the cap, and writing none is the refusal. It is still not exact under `READ COMMITTED`, but the window shrinks to one statement. The global half stays advisory (read before the work, never gating a write), because refusing a write after the work is done would strand it, not prevent it.
 - **Per-user is per kind.** Defaults: duel 3, practice 3, guess 2, assist 5 (`aibudget.DefaultPerUser`). The features aren't substitutes for each other, so one shared allowance would be wrong for at least one of them. Each stays below the global ceiling (2026-10-08).
@@ -140,7 +148,7 @@ A `/draw` button asks the AI what the canvas depicts (`POST /api/guess`, `intern
 
 ## 2026-09-20 — Single-player practice: its own table, its own seam, the same budget
 
-A duel needs two people online at once. With no player base, a lone visitor sat out the 10-minute open-match TTL and got an abandoned match. Practice (`/practice`, `internal/practice`, migration `00006`) scores one drawing using the prompts, render worker and judge that already existed. Contract: `docs/API.md` §12, `docs/GAME.md` §10, `docs/JUDGE.md` §8.2.
+A duel needs two people online at once. With no player base, a lone visitor sat out the open-match TTL and got an abandoned match. Practice (`/practice`, `internal/practice`, migration `00006`) scores one drawing using the prompts, render worker and judge that already existed. Contract: `docs/API.md` §12, `docs/GAME.md` §10, `docs/JUDGE.md` §8.2.
 
 - **Not a `matches` row.** The duel lifecycle (matchmaking, a shared deadline, forfeit, abandonment, the judging watchdog) exists because two people wait on each other. Its deadline logic expects two submissions, and a single-seat round would wedge in `judging`. `practice_runs` is a flat table with no status, no sweeper and no deadline.
 - **A separate `Critic` seam.** Scoring one drawing inside the frozen, comparative `Judge` contract would mean sending the same image twice or widening the contract. `judge.Critic` is ours, has fake and Gemini impls, and is selected by the same `JUDGE_MODE`.
@@ -240,13 +248,13 @@ The rate limiter and the request log both need an honest answer to "what is the 
 
   `'aborted'` reuses the existing terminal path (`SetMatchResult` → `publisher.Resolved` → `result` frame, `ready: true`).
 - **Atomic, and it never overwrites a verdict.** `abortJudging` takes the same `GetMatchForUpdate` row lock as every lifecycle write and rechecks both status and attempt count inside it. It writes through `SetMatchResult`, not `writeFinalResult`, so no score and no rating are applied: the round is closed unscored.
-- **The abort sweep is the exact complement of the re-fire sweep.** `ListExhaustedJudgingMatches` and `ListStuckJudgingMatches` use `>=` and `<` against the same cap, with the same stale window and the same partial index, so a wedged row is always in exactly one list. Migration `00005` widens the `resolution` check constraint. It also backfills the `judging_started_at` that `00004` left null, because a null value matched neither query.
+- **The abort sweep is the exact complement of the re-fire sweep.** `ListExhaustedJudgingMatches` and `ListStuckJudgingMatches` use `>=` and `<` against the same cap, with the same stale window and the same partial index, so a wedged row is always in exactly one list. Migration `00005` widens the `resolution` check constraint. It also backfills the `judging_started_at` that `00004` left null, so no existing row is left without a start.
 - **Ladder.** An aborted match is excluded from `ListTopRatings`, like an abandoned one. The result DTO reports `isTie: false`, because having no verdict isn't a drawn duel.
 
 **2. Rendering was unbounded.** Every judging pass under `RENDER_MODE=node` spawns two node-canvas processes, and a boot drain could dispatch 256 passes at once. On a 512 MB instance that is a fork bomb.
 
 - **A counting semaphore bounds concurrent judging passes** on both dispatch paths (`JUDGE_CONCURRENCY`, default 2, `NewServiceWithConcurrency`).
-- **The pass semaphore never blocks.** A pass that can't get a slot stays in `judging`, and the stuck-judging sweep picks it up later. Nothing waits, so shutdown can't deadlock against a render.
+- **The pass semaphore never blocks.** A match that can't get a slot is queued in `judging`, and the stuck-judging sweep starts it when one frees. Nothing waits, so shutdown can't deadlock against a render.
 - **The sweeper takes its slot before `refireJudging`**, because re-firing increments `judge_attempts`. A retry spent on a pass that never ran would walk a healthy match toward the abort cap.
 - **The same number sizes a semaphore inside `NodeRenderer`.** `/api/practice` and `/api/guess` render inline on the request, so a burst in the write tier would otherwise start thirty processes at once. The renderer's bound blocks rather than refuses: every caller already passed a bound of its own, the wait ends with the caller's context, and a slower render beats a lost duel.
 
@@ -345,8 +353,7 @@ The judged raster is rendered off the client from the validated vector document 
 
 ## 2026-07-03 — Match creation & matchmaking
 
-- **Open-pool auto-join behind a single "play" button.** In one transaction, `POST /api/matches` joins the oldest waiting `open` match the caller isn't in (`open → drawing`). Failing that, it returns the caller's own open match. Otherwise it creates one, with a random active prompt pinned. There is no lobby or invite UI. `FOR UPDATE SKIP LOCKED` sends two simultaneous joiners to different matches, so a match is never double-seated.
-- **No duplicate open matches from one player, best-effort.** A sequential re-tap gets the existing match back. Two truly concurrent creates can still open two matches under Read Committed. That is harmless clutter and never a double seat (the `match_players` primary key guards that). The hard fix is open in `docs/IDEAS.md`.
+- **Open-pool auto-join behind a single "play" button.** `POST /api/matches` returns the match the caller is already in, else joins the oldest joinable `open` match (`open → drawing`), else creates one with a random active prompt pinned. There is no lobby or invite UI. A match is never double-seated (the `match_players` primary key guards that). What makes a match joinable and how simultaneous presses are paired: 2026-10-08.
 - **Prompt text is withheld until the match leaves `open`,** so a creator waiting alone can't draw early (`docs/GAME.md` §5).
 - **The opponent is shown as `userId` + optional `displayName`, never `login`,** which may be an email.
 
