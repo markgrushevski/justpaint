@@ -49,6 +49,7 @@ test.describe('/draw menu on a phone', () => {
     })
 
     test('Esc in the colour picker closes only the picker', async ({ page }) => {
+        test.fail(true, "JP-O-16: the focused trigger's tooltip takes the first Escape")
         const drawer = await openMenu(page)
         await page.getByRole('button', { name: 'Custom canvas colour' }).click()
         const picker = page.getByRole('dialog', { name: 'Custom canvas colour' })

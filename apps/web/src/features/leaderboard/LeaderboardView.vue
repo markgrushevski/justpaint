@@ -59,7 +59,7 @@ function goBack(): void {
                     color="surface"
                     radius="md"
                     :icon="icons.mdiArrowLeft"
-                    icon-position="left"
+                    icon-position="start"
                     @click="goBack"
                 />
             </header>
@@ -111,7 +111,7 @@ function goBack(): void {
                                         content="You"
                                         color="primary"
                                         variant="soft"
-                                        label="This is you"
+                                        aria-label="This is you"
                                     />
                                 </div>
                             </td>

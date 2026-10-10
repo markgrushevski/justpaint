@@ -8,7 +8,7 @@
 > `ARCHITECTURE.md` (boundaries), `REVIEW.md` (the per-change bar), `NOTES.md` (gotchas).
 >
 > **oriui is a separate library**, maintained alongside this project and consumed as a pinned dependency
-> (`@oriui/{vue,css,headless}`, currently `1.0.0-rc.22`, all three in lockstep).
+> (`@oriui/{vue,css,headless}`, currently `1.0.0-rc.23`, all three in lockstep).
 >
 > **Read the oriui source, not `dist`.** The authority is the oriui repo checked out alongside this one —
 > **`../vueinjar`** (`@oriui/{css,headless,vue}` under `packages/`, guides under `docs/content/guides/`) — and the
@@ -84,7 +84,7 @@ not an override.)
   `opacity: var(--jp-dim, 0.7)` with its own number as the fallback, so it comes back to full strength; a decorative
   mark or a disabled state keeps a plain opacity. Text goes no lower than 0.7: at 0.6 the ink measures 4.1:1 on the
   light surface, under the 4.5:1 text bar. Islands take a hairline (§4, `IslandSurface`).
-- **Forced colours** (Windows contrast themes) replace colours with system ones and drop shadows. oriui (rc.22) keeps
+- **Forced colours** (Windows contrast themes) replace colours with system ones and drop shadows. oriui keeps
   its states and gives every surface an edge there. A colour swatch is its colour, so `SwatchPicker`'s dots and the
   toolbar's mobile colour dot set `forced-color-adjust: none` and draw their rings as outlines in system colours.
 

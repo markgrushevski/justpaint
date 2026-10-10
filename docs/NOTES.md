@@ -317,7 +317,7 @@ inlined elsewhere (`.ori-spinner` ships in `button.css`).
 
 ### oriui packages move in lockstep
 
-`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.22`), and
+`@oriui/vue`, `@oriui/css` and `@oriui/headless` are pinned to one exact version (`1.0.0-rc.23`), and
 `@oriui/vue` pins the other two to its own, so bump all three together. `@oriui/css` must be imported
 for its side effects or components render unstyled.
 

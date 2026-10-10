@@ -17,5 +17,19 @@ note which, then bump and delete).
 
 ---
 
+## JP-O-16 — Escape goes to the trigger's tooltip before the popover open above it
 
-No open entries.
+`confirmed` · `mitigated` (the test only)
+
+- **Where:** 1.0.0-rc.23. Click a trigger that has a tooltip and opens a popover (the menu's **Custom canvas colour**
+  opens `OriColorPicker`): focus stays on the trigger, without `:focus-visible`, and its tooltip counts as open even
+  though no bubble shows. The first Escape is taken by the tooltip — its document listener calls `preventDefault()` in
+  the capture phase — so the browser's own popover dismissal never runs and the picker stays open; a second Escape
+  closes it. Measured in Playwright (`/draw`, phone drawer): with the trigger focused one Escape leaves the picker
+  `:popover-open`; after `blur()` one Escape closes it. Moving the pointer away changes nothing.
+- **Expected:** Escape closes the top layer first. A popover open above its own trigger is that layer, so the
+  trigger's tooltip should not take the key while the popover is open — and a tooltip that is not showing should
+  never take it.
+- **Workaround:** none in the app. `tests/flows/draw-menu.spec.ts` "Esc in the colour picker closes only the picker"
+  is marked `test.fail` until the fix ships.
+- **Remove when fixed:** that `test.fail` line (search `JP-O-16`); the test then passes as written.

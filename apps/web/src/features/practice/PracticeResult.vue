@@ -98,7 +98,7 @@ const topBand = computed(() => band.value === BANDS[0])
                 radius="md"
                 fluid
                 :icon="icons.target"
-                icon-position="left"
+                icon-position="start"
                 @click="emit('newPrompt')"
             />
         </div>
@@ -113,7 +113,7 @@ const topBand = computed(() => band.value === BANDS[0])
             radius="md"
             fluid
             :icon="icons.mdiSwordCross"
-            icon-position="left"
+            icon-position="start"
             @click="emit('playDuel')"
         />
     </IslandSurface>

@@ -272,7 +272,7 @@ const shell = computed(() =>
                         <OriListItem
                             :icon="icons.mdiContentSaveOutline"
                             label="Save"
-                            hint="Ctrl+S"
+                            meta="Ctrl+S"
                             :disabled="props.busy"
                             @click="run(() => emit('save'))"
                         />
@@ -304,7 +304,7 @@ const shell = computed(() =>
                         <OriListItem
                             :icon="icons.mdiAspectRatio"
                             label="Canvas size"
-                            :hint="`${props.canvasWidth} × ${props.canvasHeight}`"
+                            :meta="`${props.canvasWidth} × ${props.canvasHeight}`"
                             chevron
                             @click="show('size')"
                         />
@@ -347,7 +347,7 @@ const shell = computed(() =>
                         <OriListItem
                             :icon="icons.mdiKeyboard"
                             label="Keyboard shortcuts"
-                            hint="?"
+                            meta="?"
                             @click="run(() => emit('shortcuts'))"
                         />
                     </OriList>

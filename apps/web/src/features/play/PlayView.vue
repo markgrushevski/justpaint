@@ -334,7 +334,7 @@ onBeforeUnmount(() => {
                         content="reconnecting…"
                         color="warning"
                         variant="soft"
-                        label="Reconnecting to the match"
+                        aria-label="Reconnecting to the match"
                     />
                 </div>
             </div>
@@ -401,7 +401,7 @@ onBeforeUnmount(() => {
                             variant="outline"
                             radius="md"
                             :icon="icons.podium"
-                            icon-position="left"
+                            icon-position="start"
                             @click="viewLeaderboard"
                         />
                     </template>

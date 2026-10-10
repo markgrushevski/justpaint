@@ -363,7 +363,7 @@ onBeforeUnmount(() => {
                         radius="md"
                         fluid
                         :icon="icons.podium"
-                        icon-position="left"
+                        icon-position="start"
                         @click="viewLeaderboard"
                     />
                     <OriButton

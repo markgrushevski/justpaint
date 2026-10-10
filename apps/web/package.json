@@ -22,9 +22,9 @@
     },
     "dependencies": {
         "@justpaint/editor": "*",
-        "@oriui/css": "1.0.0-rc.22",
-        "@oriui/headless": "1.0.0-rc.22",
-        "@oriui/vue": "1.0.0-rc.22",
+        "@oriui/css": "1.0.0-rc.23",
+        "@oriui/headless": "1.0.0-rc.23",
+        "@oriui/vue": "1.0.0-rc.23",
         "@tanstack/vue-query": "^5.104.1",
         "@vue/devtools-api": "^8.2.1",
         "colord": "^2.10.0",

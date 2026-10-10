@@ -137,7 +137,7 @@ function confirmDelete(): void {
                     color="primary"
                     radius="md"
                     :icon="icons.mdiPlus"
-                    icon-position="left"
+                    icon-position="start"
                 />
             </header>
 

@@ -72,18 +72,15 @@ function applyAccent(accent: Accent, custom: string): void {
  * whether the dark theme inverts the free-drawing canvas.
  */
 export const useThemeStore = defineStore('theme', () => {
-    const { theme, resolvedTheme, cycleTheme, setTheme } = useTheme({
+    // `mode`: the setting (`auto` follows the OS live, or a pinned `light` / `dark`).
+    // Writable: an assignment applies and persists it.
+    const {
+        theme: mode,
+        resolvedTheme,
+        cycleTheme
+    } = useTheme({
         storageKey: STORAGE_KEY,
         default: 'auto'
-    })
-
-    /**
-     * The current setting (`auto` → follow the OS live, or a pinned `light` / `dark`).
-     * Writable: a direct assignment routes through the controller (apply + persist).
-     */
-    const mode = computed<ThemeMode>({
-        get: () => theme.value,
-        set: (next) => setTheme(next)
     })
 
     /** True when the resolved theme on the DOM is dark (tracks the OS scheme in `auto`). */

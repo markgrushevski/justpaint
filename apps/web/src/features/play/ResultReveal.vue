@@ -88,7 +88,7 @@ onMounted(() => headline.value?.focus())
                         v-if="view.side.letter"
                         class="result__letter"
                         :content="view.side.letter"
-                        :label="`drawing ${view.side.letter}`"
+                        :aria-label="`drawing ${view.side.letter}`"
                         color="surface"
                         variant="outline"
                     />
