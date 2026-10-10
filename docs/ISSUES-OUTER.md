@@ -33,3 +33,4 @@ note which, then bump and delete).
 - **Workaround:** none in the app. `tests/flows/draw-menu.spec.ts` "Esc in the colour picker closes only the picker"
   is marked `test.fail` until the fix ships.
 - **Remove when fixed:** that `test.fail` line (search `JP-O-16`); the test then passes as written.
+- **Upstream:** oriui PR #35 (`fix/tooltip-escape-layer`), due in rc.24.
