@@ -80,7 +80,7 @@ func forfeitResult(submitter, forfeiter db.GetMatchPlayersForResolveRow) finalRe
 // the match row already locked (ServerNow carries the DB clock). It
 // rechecks-then-acts, so it's idempotent: a submit that just committed, or a
 // second sweeper, sees a non-drawing status or an unexpired deadline and returns
-// outcomeNone. Commits nothing and fires no judging — the caller does both.
+// outcomeNone. Commits nothing; a judging outcome is only queued.
 func (s *Service) resolveExpiry(ctx context.Context, qtx *db.Queries, row db.GetMatchForUpdateRow) (resolveOutcome, error) {
 	if !isExpiredDrawing(row) {
 		return outcomeNone, nil
@@ -105,13 +105,10 @@ func (s *Service) resolveExpiry(ctx context.Context, qtx *db.Queries, row db.Get
 			return outcomeNone, err
 		}
 	case outcomeJudging:
-		s.logger.Warn("resolveExpiry: expired drawing round with both submitted — flipping to judging",
+		s.logger.Warn("resolveExpiry: expired drawing round with both submitted — queuing judging",
 			"matchID", row.ID)
-		// enterJudging, not a bare SetMatchJudging: this is one of the three sites
-		// that cause a judge request and so must bill the provider for it
-		// (docs/GAME.md §4.3). The two branches above reach no judge and bill
-		// nothing.
-		if err := s.enterJudging(ctx, qtx, row.ID); err != nil {
+		// Queued, not started: the sweeper's judging phase starts the pass with a slot.
+		if err := s.enterJudging(ctx, qtx, row.ID, false); err != nil {
 			return outcomeNone, err
 		}
 	}

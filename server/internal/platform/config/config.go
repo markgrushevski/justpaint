@@ -352,32 +352,34 @@ func firstRunes(s string, n int) string {
 	return string(r[:n])
 }
 
-// loadAIBudget reads the daily AI-call ceilings and their legacy aliases
-// (server/.env.example). A value below 1 is a boot error, never "off".
+// renamedAIBudgetEnv are names loadAIBudget no longer reads. Setting one is a
+// boot error: the deployment would otherwise run on the defaults, with the
+// ceiling the operator meant silently gone.
+var renamedAIBudgetEnv = []struct{ old, replacement string }{
+	{"JUDGE_DAILY_BUDGET", "AI_DAILY_GLOBAL"},
+	{"JUDGE_DAILY_PER_USER", "AI_DAILY_PER_USER=duel=N,practice=N"},
+}
+
+// loadAIBudget reads the daily AI-call ceilings (server/.env.example). A value
+// below 1 is a boot error, never "off". Whether a per-player allowance sits
+// below the global one is checked against the built impls, in aibudget.Policies.
 func loadAIBudget(cfg *Config) error {
-	global, from, err := getenvIntAliased("AI_DAILY_GLOBAL", "JUDGE_DAILY_BUDGET", DefaultAIDailyGlobal)
+	for _, r := range renamedAIBudgetEnv {
+		if strings.TrimSpace(os.Getenv(r.old)) != "" {
+			return fmt.Errorf("config: %s was renamed; set %s", r.old, r.replacement)
+		}
+	}
+
+	global, err := getenvInt("AI_DAILY_GLOBAL", DefaultAIDailyGlobal)
 	if err != nil {
 		return err
 	}
 	if global < 1 {
-		// Name the variable the operator actually set.
-		return fmt.Errorf("config: %s must be >= 1, got %d (0 would refuse every AI call; there is no unlimited setting — set a large number if you mean effectively none)", from, global)
+		return fmt.Errorf("config: AI_DAILY_GLOBAL must be >= 1, got %d (0 would refuse every AI call; there is no unlimited setting — set a large number if you mean effectively none)", global)
 	}
 
 	perUser := map[string]int{}
-	// The legacy single number first, so an explicit per-kind entry below wins.
-	if legacy := strings.TrimSpace(os.Getenv("JUDGE_DAILY_PER_USER")); legacy != "" {
-		v, err := strconv.Atoi(legacy)
-		if err != nil {
-			return fmt.Errorf("config: JUDGE_DAILY_PER_USER must be an integer, got %q: %w", legacy, err)
-		}
-		if v < 1 {
-			return fmt.Errorf("config: JUDGE_DAILY_PER_USER must be >= 1, got %d (0 would refuse every duel; there is no unlimited setting — set a large number if you mean effectively none)", v)
-		}
-		perUser["duel"] = v
-		perUser["practice"] = v
-	}
-	rawPerUser, err := parseKindList("AI_DAILY_PER_USER", "duel=20,guess=2")
+	rawPerUser, err := parseKindList("AI_DAILY_PER_USER", "duel=3,guess=2")
 	if err != nil {
 		return err
 	}
@@ -387,7 +389,7 @@ func loadAIBudget(cfg *Config) error {
 			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be of the form kind=number, got %q: %w", kind+"="+raw, raw, err)
 		}
 		if v < 1 {
-			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be >= 1, got %d (0 would refuse every call of that kind; there is no unlimited setting — set a large number if you mean effectively none)", kind+"="+raw, v)
+			return fmt.Errorf("config: AI_DAILY_PER_USER entry %q must be >= 1, got %d (0 would refuse every call of that kind; there is no unlimited setting)", kind+"="+raw, v)
 		}
 		perUser[kind] = v
 	}
@@ -422,37 +424,6 @@ func parseKindList(key, example string) (map[string]string, error) {
 		out[kind] = value
 	}
 	return out, nil
-}
-
-// getenvIntAliased reads an integer under a current and a legacy name. Different
-// values are a boot error; from names the variable that supplied the value.
-func getenvIntAliased(current, legacy string, fallback int) (value int, from string, err error) {
-	cur := strings.TrimSpace(os.Getenv(current))
-	old := strings.TrimSpace(os.Getenv(legacy))
-	switch {
-	case cur == "" && old == "":
-		return fallback, current, nil
-	case cur == "":
-		v, err := getenvInt(legacy, fallback)
-		return v, legacy, err
-	case old == "":
-		v, err := getenvInt(current, fallback)
-		return v, current, err
-	}
-
-	// Compare the parsed numbers: 100 and 0100 are the same bound.
-	curVal, err := getenvInt(current, fallback)
-	if err != nil {
-		return 0, current, err
-	}
-	oldVal, err := getenvInt(legacy, fallback)
-	if err != nil {
-		return 0, legacy, err
-	}
-	if curVal == oldVal {
-		return curVal, current, nil
-	}
-	return 0, current, fmt.Errorf("config: %s=%q and %s=%q disagree — %s is the current name and %s is kept only for already-deployed environments; set one, or set both to the same value", current, cur, legacy, old, current, legacy)
 }
 
 // loadWSLimits reads the WebSocket knobs and rejects combinations that disable what

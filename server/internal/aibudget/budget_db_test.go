@@ -180,15 +180,16 @@ func TestAIBudget_DB(t *testing.T) {
 		return m.ID
 	}
 
-	// joinableMatch seeds an open match and backdates it to the beginning of
-	// time, so a later CreateOrJoin provably lands on this row: the
-	// matchmaking query takes the oldest open match the caller is not in, and
-	// a shared dev database may well hold open matches this test must not touch.
+	// joinableMatch seeds an open match and backdates it, so a later
+	// CreateOrJoin provably lands on this row: the matchmaking query takes the
+	// oldest joinable open match the caller is not in, and a shared dev database
+	// may well hold open matches this test must not touch.
 	joinableMatch := func(host string) string {
 		mid := newMatch(host)
+		// The oldest joinable match: older than any other suite's, inside the open TTL.
 		if _, err := pool.Exec(ctx,
 			"update matches set created_at = now() - make_interval(secs => $2::int) where id = $1",
-			mid, int32(10*365*24*time.Hour/time.Second),
+			mid, int32(90),
 		); err != nil {
 			t.Fatalf("backdate match: %v", err)
 		}
@@ -287,6 +288,11 @@ func TestAIBudget_DB(t *testing.T) {
 		})
 		if view.Status != statusDrawing {
 			t.Fatalf("status = %q, want %q — no round, nothing granted", view.Status, statusDrawing)
+		}
+		// A player in a live match is handed that match, not a new one, so a
+		// subtest that plays the same player twice ends the round first.
+		if _, err := pool.Exec(ctx, "update matches set status = 'done' where id = $1", view.ID); err != nil {
+			t.Fatalf("end the round: %v", err)
 		}
 		return view
 	}

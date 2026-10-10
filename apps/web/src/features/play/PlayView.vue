@@ -1,27 +1,14 @@
 <script lang="ts" setup>
 /**
- * The AI-judged duel (`/play`) on the shared EditorShell, against the async-duel API
- * (docs/API.md §8). A WebSocket (docs/API.md §9) pushes the same transitions and only
- * demotes the poll loop, so the round still runs with the socket down.
+ * The AI-judged duel (`/play`) on the shared EditorShell. `useDuel` runs the round; this
+ * view owns the editor, the countdown, the draft and what the player reads.
  */
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { OriBadge, OriButton } from '@oriui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { blankDocument, renderToPNG } from '@justpaint/editor'
-import {
-    useSessionStore,
-    useAuthGate,
-    useCreateMatch,
-    useSubmitMatch,
-    matches,
-    icons,
-    isAuthError,
-    isBudgetExhausted,
-    toApiError,
-    leaderboardKeys
-} from '@core'
-import type { Match, MatchResultDone, WsFrame } from '@core'
+import { useSessionStore, matches, icons, leaderboardKeys } from '@core'
 import ConfirmDialog from '../../components/ConfirmDialog.vue'
 import ModeNav from '../../components/ModeNav.vue'
 import IslandSurface from '../../components/ui/IslandSurface.vue'
@@ -35,29 +22,30 @@ import { GAME_CANVAS } from '../game/canvas'
 import GamePromptBanner from '../game/GamePromptBanner.vue'
 import JudgingOverlay from '../game/JudgingOverlay.vue'
 import SubmitButton from '../game/SubmitButton.vue'
+import { clearDrafts, loadDraft, saveDraft } from './drafts'
+import { opponentChip, toDuelResult } from './duel'
+import type { DuelEnd, DuelPhase, DuelResult } from './duel'
 import OpponentStatusChip from './OpponentStatusChip.vue'
-import type { OpponentStatus } from './OpponentStatusChip.vue'
 import ResultReveal from './ResultReveal.vue'
-import type { DuelResult } from './ResultReveal.vue'
 import RoundTimerBar from './RoundTimerBar.vue'
-import { useMatchSocket } from './useMatchSocket'
+import { useDuel } from './useDuel'
 import { useRoundClock } from './useRoundClock'
 
-// The poll cadence without a socket, demoted while the socket is live (docs/API.md §9.5).
-const POLL_MS = 2000
-const WS_POLL_MS = 15000
+// Early enough to land before the server's deadline, where a submit is a 409.
+const AUTO_SUBMIT_MARGIN_MS = 1500
 
-// Early enough to land before the server's deadline: a late submit is a 409 and a forfeit.
-const AUTO_SUBMIT_MARGIN_MS = 3000
+// How long the canvas rests before the draft is written.
+const DRAFT_SAVE_MS = 1000
 
 const session = useSessionStore()
-const gate = useAuthGate()
-const createMatch = useCreateMatch()
-const submitMatch = useSubmitMatch()
 const router = useRouter()
 const queryClient = useQueryClient()
 
 const blankGameDocument = () => blankDocument(GAME_CANVAS, GAME_CANVAS)
+
+const duel = useDuel()
+const state = duel.state
+const phase = computed(() => state.value.phase)
 
 const {
     shell,
@@ -65,6 +53,7 @@ const {
     ui,
     canUndo,
     canRedo,
+    historyMark,
     zoomPercent,
     isEmpty,
     pickTool,
@@ -77,8 +66,7 @@ const {
     zoomIn,
     zoomOut,
     fitView,
-    load,
-    toPNG
+    load
 } = useEditorHost({
     initialDocument: blankGameDocument,
     commands: { enter: () => submit() },
@@ -87,421 +75,262 @@ const {
 })
 useBackdrop(editor, { judged: true })
 
-/**
- * A client view over GAME.md's match states: `connecting` (POST /matches), `waiting`
- * (roster filling, prompt redacted), `drawing`, `submitting` (transient), `judging`
- * (awaiting the opponent and the verdict), `done` and `error`.
- */
-type Phase = 'connecting' | 'waiting' | 'drawing' | 'submitting' | 'judging' | 'done' | 'error'
-const phase = ref<Phase>('connecting')
-
-// Leaving never cancels the match on the server: the round runs on, and an opponent
-// who submits alone wins by forfeit (docs/GAME.md §4.1).
+// The round runs on after a player leaves it (docs/GAME.md §4.1); leaving the queue
+// cancels the open match.
 const {
     pending: leavePending,
     leave,
     stay
 } = useLeaveGuard(() => {
-    if (phase.value === 'drawing')
+    if (phase.value === 'drawing' || phase.value === 'submitting')
         return {
             title: 'Leave the duel?',
-            message: 'The round keeps running without you. If your opponent submits and you don’t, they win.',
+            message:
+                'The round keeps running. Come back before time runs out to finish, or your opponent wins if they submit.',
             confirmText: 'Leave'
         }
     if (phase.value === 'waiting')
         return {
             title: 'Leave the queue?',
-            message: 'If someone joins, the round starts without you, and they win if they submit.',
+            message: 'You’ll stop looking for an opponent.',
             confirmText: 'Leave'
         }
     return null
 })
 
-// Set true on unmount; every async continuation checks it before touching state.
-let disposed = false
+function confirmLeave(): void {
+    duel.leaveQueue()
+    leave()
+}
 
-let matchId: string | null = null
-let myUserId = ''
+// The canvas takes strokes only while they can still be sent.
+const locked = computed(() => phase.value !== 'drawing')
 
-// Redacted by the server until `drawing`.
-const prompt = ref('')
-const REVEAL_PHASES = new Set<Phase>(['drawing', 'submitting', 'judging', 'done'])
-const promptRevealed = computed(() => prompt.value !== '' && REVEAL_PHASES.has(phase.value))
+const prompt = computed(() => state.value.prompt)
+const promptRevealed = computed(() => prompt.value !== '')
 // The prompt reads large until the first stroke.
 const promptLarge = computed(() => promptRevealed.value && phase.value === 'drawing' && isEmpty.value)
+// After a queue nobody joined there is no prompt to show and nobody to wait for.
+const showBanner = computed(() => phase.value !== 'ended' || promptRevealed.value)
 
-// A display label, never a login (docs/GAME.md §4.2).
-const opponent = reactive<{ name: string; status: OpponentStatus }>({
-    name: 'Player 2',
-    status: 'drawing'
-})
+const chip = computed(() => opponentChip(state.value))
+const opponentName = computed(() => chip.value?.name ?? state.value.opponent?.name ?? 'Player 2')
 
-// Best-effort presence; undefined until the first frame, and never load-bearing.
-const opponentOnline = ref<boolean | undefined>(undefined)
-
+// The clock runs while the round does, for both players, and is armed only while drawing.
+const TICKING = new Set<DuelPhase>(['drawing', 'submitting', 'submitted'])
 const clock = useRoundClock({
     marginMs: AUTO_SUBMIT_MARGIN_MS,
-    armed: () => phase.value === 'drawing',
-    // Near the server cutoff: auto-submit whatever is on the canvas.
+    // A failed auto-submit retries each tick while time remains.
+    armed: () => phase.value === 'drawing' && clock.remaining.value > 0 && !duel.signingIn.value,
     onDeadline: () => submit()
 })
 const { deadlineMs, totalSeconds: roundTotalSeconds, remaining } = clock
+const showTimer = computed(() => deadlineMs.value !== null && TICKING.has(phase.value))
 
-const socket = useMatchSocket({
-    onFrame: handleWsFrame,
-    onSessionExpired: () => recoverFromAuthError(),
-    shouldReconnect: () => !disposed && !isTerminalPhase() && matchId !== null
-})
-const wsReconnecting = socket.reconnecting
-const pollCadence = computed(() => (socket.live.value ? WS_POLL_MS : POLL_MS))
+watch(
+    () => state.value.clock,
+    (c) => (c ? clock.anchor(c.drawingDeadline, c.serverTime) : clock.reset())
+)
 
-const submitting = computed(() => phase.value === 'submitting')
 const canSubmit = computed(() => phase.value === 'drawing')
 
-const result = ref<DuelResult | null>(null)
-const errorMsg = ref('')
-
-// Object URLs for the rasters, revoked on reset and unmount.
-let youImageUrl: string | null = null
-let opponentImageUrl: string | null = null
-
-// The poll loop's timeouts, cleared on reset and unmount.
-const timeouts = new Set<number>()
-
-function later(fn: () => void, ms: number): void {
-    const id = window.setTimeout(() => {
-        timeouts.delete(id)
-        fn()
-    }, ms)
-    timeouts.add(id)
+function submit(): void {
+    const ed = editor.value
+    const id = state.value.matchId
+    if (!ed || id === null || phase.value !== 'drawing') return
+    // A stroke still under the pointer when time runs out belongs to the drawing.
+    ed.finishStroke()
+    const doc = ed.getDocument()
+    saveDraft(id, doc)
+    duel.submit(doc)
 }
 
-function clearTimers(): void {
-    clock.stop()
-    for (const id of timeouts) clearTimeout(id)
-    timeouts.clear()
+// --- the draft: kept while drawing, restored on a resume, dropped when the match is over
+
+let pendingDraft: { id: string; timer: number } | null = null
+
+function cancelDraft(): void {
+    if (pendingDraft) clearTimeout(pendingDraft.timer)
+    pendingDraft = null
 }
 
-// A spent daily budget: the card offers the ladder instead of a doomed "Try again".
-const exhausted = ref(false)
-
-function toError(msg: string, spent = false): void {
-    exhausted.value = spent
-    errorMsg.value = msg
-    phase.value = 'error'
-    clock.stop()
+function flushDraft(): void {
+    const pending = pendingDraft
+    cancelDraft()
+    if (pending && editor.value) saveDraft(pending.id, editor.value.getDocument())
 }
 
-// A poll tick and the socket's session-expired close can both notice one dead session;
-// this joins them into one recovery.
-let recovering = false
+watch(historyMark, () => {
+    const id = state.value.matchId
+    if (id === null || phase.value !== 'drawing') return
+    cancelDraft()
+    pendingDraft = { id, timer: window.setTimeout(flushDraft, DRAFT_SAVE_MS) }
+})
 
-// Signing back in restarts with a fresh match; declining leaves the retry card, whose
-// "Try again" raises the gate again on the next 401.
-async function recoverFromAuthError(): Promise<void> {
-    if (recovering) return
-    recovering = true
-    // Stop the clock first, or the auto-submit fires into the dead session, loops back
-    // here and parks the player in `submitting`.
-    clock.stop()
+// A new match id: a resume brings its draft back, anything else starts blank.
+watch(
+    () => state.value.matchId,
+    (id) => {
+        flushDraft()
+        if (id !== null) clearDrafts(id)
+        load((id !== null && loadDraft(id, GAME_CANVAS)) || blankGameDocument())
+    }
+)
+
+// Over for good, unlike a sign-in the player declined or a refusal "Try again" can resume.
+const MATCH_OVER = new Set<DuelEnd>(['queue-ended', 'nobody-submitted', 'left', 'gone'])
+
+watch(phase, (p) => {
+    if (TICKING.has(p)) clock.start()
+    else clock.stop()
+    if (p === 'done' || (p === 'ended' && state.value.end !== null && MATCH_OVER.has(state.value.end))) {
+        cancelDraft()
+        clearDrafts()
+    }
+})
+
+function onPageHide(): void {
+    const id = state.value.matchId
+    if (id !== null && phase.value === 'drawing' && editor.value) saveDraft(id, editor.value.getDocument())
+}
+
+// --- the result
+
+const result = shallowRef<DuelResult | null>(null)
+// Both drawings as the server holds them (docs/API.md §8), so a second tab shows what
+// was actually sent.
+const images = ref<{ you: string | null; opponent: string | null }>({ you: null, opponent: null })
+const imagesLoading = ref(false)
+let imageUrls: string[] = []
+let imageGeneration = 0
+
+function clearImages(): void {
+    imageGeneration += 1
+    for (const url of imageUrls) URL.revokeObjectURL(url)
+    imageUrls = []
+    images.value = { you: null, opponent: null }
+    imagesLoading.value = false
+}
+
+async function renderDrawing(matchId: string, userId: string | null): Promise<string | null> {
+    if (userId === null) return null
     try {
-        const signedIn = await gate.ensure('Sign in to play a duel.')
-        if (disposed) return
-        if (signedIn && session.user) {
-            // The visitor may have signed in as another account.
-            myUserId = session.user.id
-            startMatch()
-        } else {
-            toError('Sign in to play a duel.')
-        }
-    } finally {
-        recovering = false
-    }
-}
-
-function handleError(err: unknown): void {
-    if (isAuthError(err)) {
-        recoverFromAuthError()
-        return
-    }
-    // Not isRateLimited: the per-IP 429 clears in seconds (docs/API.md §3.1).
-    toError(toApiError(err)?.message ?? 'Something went wrong. Try again.', isBudgetExhausted(err))
-}
-
-// Keeps applyRoster, applyResult and frames monotonic: a slow response or a re-delivered
-// verdict cannot regress a terminal UI. startMatch resets it by moving to `connecting`.
-function isTerminalPhase(): boolean {
-    return phase.value === 'done' || phase.value === 'error'
-}
-
-function applyRoster(m: Match): void {
-    if (isTerminalPhase()) return
-    clock.anchor(m.drawingDeadline, m.serverTime)
-    if (m.prompt.text) prompt.value = m.prompt.text
-    const opp = m.players.find((p) => p.userId !== myUserId)
-    if (opp) {
-        opponent.name = opp.displayName ?? 'Player 2'
-        opponent.status = m.status === 'judging' ? 'judging' : opp.submitted ? 'submitted' : 'drawing'
-    }
-}
-
-// Callers run applyRoster first, which anchors the deadline.
-function beginDrawing(): void {
-    phase.value = 'drawing'
-    clock.start()
-}
-
-// The round's one poll loop (docs/NOTES.md "/play runs exactly one poll loop");
-// `submitting` falls through untouched.
-async function pollTick(): Promise<void> {
-    if (disposed || matchId === null) return
-    if (phase.value === 'done' || phase.value === 'error') return
-    try {
-        if (phase.value === 'waiting' || phase.value === 'drawing') {
-            const m = await matches.get(matchId)
-            if (disposed) return
-            applyRoster(m)
-            if (m.status === 'abandoned') {
-                toError('This match was abandoned.')
-                return
-            }
-            if (m.status === 'drawing' && phase.value === 'waiting') beginDrawing()
-        } else if (phase.value === 'judging') {
-            const r = await matches.result(matchId)
-            if (disposed) return
-            if (r.ready) {
-                applyResult(r)
-                return
-            }
-            if (r.status === 'abandoned') {
-                toError('This match was abandoned.')
-                return
-            }
-            opponent.status = r.status === 'judging' ? 'judging' : 'drawing'
-        }
-    } catch (err) {
-        if (disposed) return
-        handleError(err)
-        return
-    }
-    scheduleNextPoll()
-}
-
-function scheduleNextPoll(): void {
-    if (disposed) return
-    later(() => pollTick(), pollCadence.value)
-}
-
-// Dispatches into the poll loop's own handlers; no second state machine.
-function handleWsFrame(frame: WsFrame): void {
-    if (disposed || isTerminalPhase()) return
-    switch (frame.type) {
-        case 'match_state':
-            applyRoster(frame.match)
-            if (frame.match.status === 'abandoned') {
-                toError('This match was abandoned.')
-            } else if (frame.match.status === 'drawing' && phase.value === 'waiting') {
-                beginDrawing()
-            }
-            break
-        case 'opponent_submitted':
-            if (frame.userId !== myUserId) opponent.status = 'submitted'
-            break
-        case 'judging':
-            opponent.status = 'judging'
-            break
-        case 'result':
-            applyResult(frame.result)
-            break
-        case 'abandoned':
-            toError('This match was abandoned.')
-            break
-        case 'opponent_connected':
-            if (frame.userId !== myUserId) opponentOnline.value = true
-            break
-        case 'opponent_disconnected':
-            if (frame.userId !== myUserId) opponentOnline.value = false
-            break
-        case 'pong':
-            break
-    }
-}
-
-// Advisory only: the judged raster is rendered server-side (docs/GAME.md §6).
-async function captureYourRaster(): Promise<string | null> {
-    try {
-        const blob = await toPNG()
-        return blob && URL.createObjectURL(blob)
+        const doc = await matches.playerDrawing(matchId, userId)
+        const blob = await renderToPNG(doc, { outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
+        return URL.createObjectURL(blob)
     } catch {
         return null
     }
 }
 
-function revokeYourRaster(): void {
-    if (youImageUrl) {
-        URL.revokeObjectURL(youImageUrl)
-        youImageUrl = null
+async function loadImages(matchId: string, view: DuelResult): Promise<void> {
+    clearImages()
+    const gen = imageGeneration
+    imagesLoading.value = true
+    const [you, opponent] = await Promise.all([
+        view.you.drew ? renderDrawing(matchId, view.you.userId) : null,
+        view.opponent.drew ? renderDrawing(matchId, view.opponent.userId) : null
+    ])
+    const urls = [you, opponent].filter((url): url is string => url !== null)
+    if (gen !== imageGeneration) {
+        for (const url of urls) URL.revokeObjectURL(url)
+        return
     }
+    imageUrls = urls
+    images.value = { you, opponent }
+    imagesLoading.value = false
 }
 
-function revokeOpponentRaster(): void {
-    if (opponentImageUrl) {
-        URL.revokeObjectURL(opponentImageUrl)
-        opponentImageUrl = null
-    }
-}
-
-// Fetches the opponent's document through the membership-gated match route and renders
-// it client-side. Any failure keeps the "No preview" placeholder.
-async function renderOpponentRaster(id: string, userId: string): Promise<void> {
-    try {
-        const doc = await matches.playerDrawing(id, userId)
-        if (disposed) return
-        const blob = await renderToPNG(doc, { outWidth: doc.width, outHeight: doc.height, fit: 'contain' })
-        if (disposed) return
-        revokeOpponentRaster()
-        opponentImageUrl = URL.createObjectURL(blob)
-        if (result.value) result.value.opponent.image = opponentImageUrl
-    } catch {
-        // keep the placeholder
-    }
-}
-
-async function startMatch(): Promise<void> {
-    phase.value = 'connecting'
-    errorMsg.value = ''
-    prompt.value = ''
-    opponent.name = 'Player 2'
-    opponent.status = 'drawing'
-    opponentOnline.value = undefined
-    // "Try again" re-enters here directly too, so reset all socket and clock state.
-    socket.reset()
-    clock.reset()
-    try {
-        const m = await createMatch.mutateAsync()
-        if (disposed) return
-        matchId = m.id
-        applyRoster(m)
-        // Open now, so a waiting player hears the instant the opponent joins.
-        socket.open(matchId)
-        if (m.status === 'drawing') beginDrawing()
-        else phase.value = 'waiting'
-        scheduleNextPoll()
-    } catch (err) {
-        if (disposed) return
-        handleError(err)
-    }
-}
-
-async function submit(): Promise<void> {
-    if (phase.value !== 'drawing' || matchId === null || !editor.value) return
-    phase.value = 'submitting'
-    clock.stop()
-    revokeYourRaster()
-    youImageUrl = await captureYourRaster()
-    if (disposed || !editor.value) return
-    try {
-        const res = await submitMatch.mutateAsync({ id: matchId, document: editor.value.getDocument() })
-        if (disposed) return
-        clock.anchor(res.drawingDeadline, res.serverTime)
-        opponent.status = 'judging'
-        phase.value = 'judging'
-    } catch (err) {
-        if (disposed) return
-        // A 409 means the round already moved on, so poll the verdict (docs/API.md §8, submit).
-        if (toApiError(err)?.status === 409) {
-            phase.value = 'judging'
+watch(
+    () => state.value.result,
+    (r) => {
+        if (!r) {
+            result.value = null
+            clearImages()
             return
         }
-        handleError(err)
+        const view = toDuelResult(r, state.value.me, session.user?.rating ?? 1200)
+        result.value = view
+        // The session store only refreshes user.rating at login or restore.
+        if (session.user && view.rating) session.user.rating = view.rating.after
+        queryClient.invalidateQueries({ queryKey: leaderboardKeys.all })
+        if (state.value.matchId !== null) loadImages(state.value.matchId, view)
     }
+)
+
+// --- what the player reads
+
+const END_COPY: Record<DuelEnd, { title: string; message: string }> = {
+    'queue-ended': { title: 'Nobody joined', message: 'No one was free to duel just now.' },
+    left: { title: 'You left the queue', message: 'No one is waiting on you.' },
+    'nobody-submitted': {
+        title: 'Time ran out',
+        message: 'Neither drawing was sent in time, so the round doesn’t count.'
+    },
+    auth: { title: 'Sign in to play', message: 'Duels are for signed-in players.' },
+    budget: { title: 'That’s your duels for today', message: 'New ones unlock as the day rolls over.' },
+    gone: { title: 'This duel is over', message: 'It can’t be opened any more.' },
+    failed: { title: 'Something went wrong', message: 'The duel couldn’t go on.' }
 }
 
-// Monotonic, so a re-delivered verdict cannot clobber the opponent image patched in later.
-function applyResult(r: MatchResultDone): void {
-    if (isTerminalPhase()) return
-    const me = r.players.find((p) => p.userId === myUserId)
-    const opp = r.players.find((p) => p.userId !== myUserId)
-    const before = me?.ratingBefore ?? session.user?.rating ?? 1200
-    const after = me?.ratingAfter ?? before
-    result.value = {
-        // Scores are 0..1, the bar 0..100. Both are null when no judge ran, and
-        // `resolution` then hides the score row.
-        you: { score: (me?.score ?? 0) * 100, image: youImageUrl },
-        opponent: {
-            name: opp?.displayName ?? opponent.name,
-            score: (opp?.score ?? 0) * 100,
-            image: null
-        },
-        // The server's isTie, not a null winner: an aborted round has a null winner too.
-        winner: r.isTie
-            ? 'tie'
-            : r.resolution === 'aborted'
-              ? 'none'
-              : r.winnerUserId === myUserId
-                ? 'you'
-                : 'opponent',
-        reason: r.reason ?? '',
-        resolution: r.resolution,
-        eloDelta: after - before,
-        ratingBefore: before
+const ending = computed(() => (state.value.end ? END_COPY[state.value.end] : null))
+const endsInQueue = computed(() => state.value.end === 'queue-ended' || state.value.end === 'left')
+
+// Polite and always mounted, so a change of text is read out.
+const announcement = computed(() => {
+    const s = state.value
+    switch (s.phase) {
+        case 'done':
+            return result.value?.headline ?? ''
+        case 'judging':
+            return 'Both drawings are in. The judge is scoring them.'
+        case 'submitted':
+            return `Your drawing is in. Waiting for ${opponentName.value}.`
+        case 'drawing':
+            return s.opponent?.submitted ? `${opponentName.value} submitted their drawing.` : ''
+        default:
+            return ''
     }
-    // The session store only refreshes user.rating at login or restore.
-    if (session.user && me) session.user.rating = after
-    queryClient.invalidateQueries({ queryKey: leaderboardKeys.all })
-    phase.value = 'done'
-    clock.stop()
-    // Off the critical path; skipped for a forfeiter with no drawing.
-    if (matchId !== null && opp?.drawingId) renderOpponentRaster(matchId, opp.userId)
-}
+})
 
 function playAgain(): void {
-    clearTimers()
-    socket.close()
-    revokeYourRaster()
-    revokeOpponentRaster()
-    result.value = null
-    load(blankGameDocument())
-    startMatch()
+    duel.start()
+}
+
+function practiceInstead(): void {
+    duel.leaveQueue()
+    router.push('/practice')
 }
 
 function viewLeaderboard(): void {
     router.push('/leaderboard')
 }
 
-onMounted(async () => {
-    // `ensure` waits for the cookie restore, then raises the shared sign-in modal.
-    const signedIn = await gate.ensure('Sign in to play a duel.')
-    if (disposed) return
-    if (!signedIn) {
-        toError('Sign in to play a duel.')
-        return
-    }
-    if (!session.user) return // gate only resolves true once a session exists
-    myUserId = session.user.id
-    startMatch()
+onMounted(() => {
+    window.addEventListener('pagehide', onPageHide)
+    duel.begin()
 })
 
 onBeforeUnmount(() => {
-    disposed = true
-    clearTimers()
-    socket.close()
-    revokeYourRaster()
-    revokeOpponentRaster()
+    window.removeEventListener('pagehide', onPageHide)
+    if (phase.value === 'drawing') onPageHide()
+    cancelDraft()
+    clock.stop()
+    clearImages()
 })
 </script>
 
 <template>
-    <EditorShell ref="shell" mode="play">
+    <EditorShell ref="shell" mode="play" :class="{ 'play--locked': locked }">
         <template #top-left>
             <!-- Two rows, so the opponent never reaches the prompt centered on the first. -->
             <div class="play__top-left">
                 <ModeNav :collapse-below="1200" />
-                <div class="play__opponent">
+                <div v-if="chip || state.offline" class="play__opponent">
                     <!-- Display name or "Player 2", never a login. -->
-                    <OpponentStatusChip :name="opponent.name" :status="opponent.status" :online="opponentOnline" />
+                    <OpponentStatusChip v-if="chip" :name="chip.name" :status="chip.status" />
                     <OriBadge
-                        v-if="wsReconnecting"
+                        v-if="state.offline"
                         content="reconnecting…"
                         color="warning"
                         variant="soft"
@@ -513,16 +342,24 @@ onBeforeUnmount(() => {
 
         <template #top-center>
             <!-- Hidden until the deadline exists, rather than a misleading 0:00. -->
-            <RoundTimerBar v-if="deadlineMs !== null" :remaining="remaining" :total="roundTotalSeconds" />
-            <div class="play__prompt">
+            <RoundTimerBar v-if="showTimer" :remaining="remaining" :total="roundTotalSeconds" />
+            <div v-if="showBanner" class="play__prompt">
                 <GamePromptBanner :prompt="prompt" :revealed="promptRevealed" :large="promptLarge" />
             </div>
         </template>
 
-        <!-- No drawer: SideMenu is /draw-specific; leaving goes through ModeNav.
-             TODO(play-api): a play drawer (rematch/profile). -->
+        <!-- No drawer: SideMenu is /draw-specific; leaving goes through ModeNav. -->
         <template #top-right>
-            <SubmitButton :disabled="!canSubmit" :loading="submitting" @submit="submit" />
+            <div class="play__submit">
+                <SubmitButton :disabled="!canSubmit" :loading="phase === 'submitting'" @submit="submit" />
+                <OriBadge
+                    v-if="state.submitFailed && phase === 'drawing'"
+                    role="alert"
+                    content="Couldn’t send — retry"
+                    color="danger"
+                    variant="soft"
+                />
+            </div>
         </template>
 
         <template #bottom-center>
@@ -550,26 +387,51 @@ onBeforeUnmount(() => {
         </template>
 
         <template #overlay>
-            <IslandSurface v-if="phase === 'error'" class="play__notice" role="alert" elevation="lg">
-                <h2 class="play__notice-title">
-                    {{ exhausted ? 'That’s your duels for today' : 'Can’t start the duel' }}
-                </h2>
-                <p class="play__notice-msg">{{ errorMsg }}</p>
-                <OriButton
-                    v-if="exhausted"
-                    label="Leaderboard"
-                    variant="outline"
-                    radius="md"
-                    :icon="icons.podium"
-                    icon-position="left"
-                    @click="viewLeaderboard"
-                />
-                <OriButton v-else label="Try again" variant="solid" color="primary" radius="md" @click="startMatch" />
+            <IslandSurface v-if="phase === 'waiting'" class="play__notice" elevation="md">
+                <p class="play__notice-msg">The prompt appears when someone joins.</p>
+                <OriButton label="Practice instead" variant="outline" radius="md" @click="practiceInstead" />
             </IslandSurface>
-            <JudgingOverlay v-else-if="phase === 'judging' || phase === 'submitting'" :opponent-name="opponent.name" />
+            <IslandSurface v-else-if="phase === 'ended' && ending" class="play__notice" role="alert" elevation="lg">
+                <h2 class="play__notice-title">{{ ending.title }}</h2>
+                <p class="play__notice-msg">{{ ending.message }}</p>
+                <div class="play__notice-actions">
+                    <template v-if="state.end === 'budget'">
+                        <OriButton
+                            label="Leaderboard"
+                            variant="outline"
+                            radius="md"
+                            :icon="icons.podium"
+                            icon-position="left"
+                            @click="viewLeaderboard"
+                        />
+                    </template>
+                    <template v-else-if="state.end === 'auth'">
+                        <OriButton label="Sign in" variant="solid" color="primary" radius="md" @click="duel.begin()" />
+                    </template>
+                    <template v-else-if="endsInQueue">
+                        <OriButton label="Queue again" variant="solid" color="primary" radius="md" @click="playAgain" />
+                        <OriButton label="Practice instead" variant="outline" radius="md" @click="practiceInstead" />
+                    </template>
+                    <OriButton
+                        v-else
+                        :label="state.end === 'failed' ? 'Try again' : 'Play again'"
+                        variant="solid"
+                        color="primary"
+                        radius="md"
+                        @click="playAgain"
+                    />
+                </div>
+            </IslandSurface>
+            <JudgingOverlay
+                v-else-if="phase === 'submitted' || phase === 'judging'"
+                :opponent-name="opponentName"
+                :waiting-for="phase === 'submitted' ? opponentName : undefined"
+            />
             <ResultReveal
                 v-else-if="phase === 'done' && result"
                 :result="result"
+                :images="images"
+                :loading="imagesLoading"
                 @play-again="playAgain"
                 @view-leaderboard="viewLeaderboard"
             />
@@ -581,10 +443,12 @@ onBeforeUnmount(() => {
                 :confirm-text="leavePending?.confirmText"
                 cancel-text="Stay"
                 discard
-                @confirm="leave"
+                @confirm="confirmLeave"
                 @cancel="stay"
             />
         </template>
+
+        <p class="jp-sr-only" role="status">{{ announcement }}</p>
     </EditorShell>
 </template>
 
@@ -608,9 +472,26 @@ onBeforeUnmount(() => {
     pointer-events: none;
 }
 
+.play__submit {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--ori-size-gap_sm, 0.25rem);
+}
+
 /* The shell's strip is pointer-events:none; the toolbar opts back in. */
 .play__toolbar-item {
     pointer-events: auto;
+}
+
+/* Strokes outside a live round would be lost or, worse, sent; a drag there must not
+   select the notice text either. */
+.play--locked {
+    user-select: none;
+}
+
+.play--locked :deep(.shell__canvas) {
+    pointer-events: none;
 }
 
 /* Opts back into pointer events inside the shell's passive overlay. */
@@ -640,5 +521,12 @@ onBeforeUnmount(() => {
 
     font-size: var(--ori-font-size_sm, 0.9rem);
     opacity: var(--jp-dim, 0.8);
+}
+
+.play__notice-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--ori-size-gap_md, 0.5rem);
 }
 </style>

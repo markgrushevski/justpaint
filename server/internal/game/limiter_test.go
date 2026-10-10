@@ -49,9 +49,17 @@ func TestJudgeLimiterBound(t *testing.T) {
 		}
 	})
 
-	t.Run("tryGo never exceeds the bound and frees the slot when the pass returns", func(t *testing.T) {
+	t.Run("acquire-then-goHeld never exceeds the bound and frees the slot when the pass returns", func(t *testing.T) {
 		const limit = 2
 		l := newJudgeLimiter(limit)
+		// The callers' pattern: take a slot without blocking, then hand it to the pass.
+		tryGo := func(fn func()) bool {
+			if !l.tryAcquire() {
+				return false
+			}
+			l.goHeld(fn)
+			return true
+		}
 
 		var inFlight, peak atomic.Int32
 		entered := make(chan struct{}, limit)
@@ -61,7 +69,7 @@ func TestJudgeLimiterBound(t *testing.T) {
 		// Park `limit` passes inside the limiter so every slot is held.
 		for range limit {
 			wg.Add(1)
-			started := l.tryGo(func() {
+			started := tryGo(func() {
 				defer wg.Done()
 				n := inFlight.Add(1)
 				for {
@@ -94,7 +102,7 @@ func TestJudgeLimiterBound(t *testing.T) {
 		refusedAt := make(chan time.Duration, 1)
 		go func() {
 			start := time.Now()
-			started := l.tryGo(func() { t.Error("a refused pass must not run") })
+			started := tryGo(func() { t.Error("a refused pass must not run") })
 			if started {
 				t.Error("tryGo admitted a pass past the bound")
 			}

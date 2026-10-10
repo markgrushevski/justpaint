@@ -26,7 +26,7 @@ func (q *Queries) CountUnsubmitted(ctx context.Context, matchID string) (int64, 
 }
 
 const getMatchPlayer = `-- name: GetMatchPlayer :one
-select match_id, user_id, drawing_id, score, rating_before, rating_after, submitted_at from match_players
+select match_id, user_id, drawing_id, score, rating_before, rating_after, submitted_at, seen_at from match_players
 where match_id = $1 and user_id = $2
 `
 
@@ -48,6 +48,7 @@ func (q *Queries) GetMatchPlayer(ctx context.Context, arg GetMatchPlayerParams) 
 		&i.RatingBefore,
 		&i.RatingAfter,
 		&i.SubmittedAt,
+		&i.SeenAt,
 	)
 	return i, err
 }

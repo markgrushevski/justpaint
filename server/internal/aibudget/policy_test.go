@@ -7,8 +7,13 @@ import (
 	"testing"
 )
 
-// TestPolicies covers the deployments that exist, plus the three configs
-// that must not boot.
+// testGlobal stands in for AI_DAILY_GLOBAL; it is config.DefaultAIDailyGlobal, which
+// this package cannot import. cmd/server pins that the shipped defaults boot under
+// the real one.
+const testGlobal = 15
+
+// TestPolicies covers the deployments that exist, plus the configs that must not
+// boot.
 func TestPolicies(t *testing.T) {
 	// The four wirings the composition root can produce, named by the mode that
 	// produces them. Each is a map from kind to the provider of the impl that
@@ -27,6 +32,7 @@ func TestPolicies(t *testing.T) {
 		name      string
 		providers map[Kind]Provider
 		perUser   map[string]int
+		global    int // 0 means testGlobal
 		want      map[Kind]Policy
 		wantErr   string
 	}{
@@ -34,41 +40,42 @@ func TestPolicies(t *testing.T) {
 			name:      "every impl a fake: nothing is enforced and nothing is recorded",
 			providers: allFake,
 			want: map[Kind]Policy{
-				KindDuel:     {PerUser: 20, Noun: "duels"},
-				KindPractice: {PerUser: 20, Noun: "scored drawings"},
+				KindDuel:     {PerUser: 3, Noun: "duels"},
+				KindPractice: {PerUser: 3, Noun: "scored drawings"},
 				KindGuess:    {PerUser: 2, Noun: "AI guesses"},
-				KindAssist:   {PerUser: 40, Noun: "AI drawing requests"},
+				KindAssist:   {PerUser: 5, Noun: "AI drawing requests"},
 			},
 		},
 		{
 			name:      "gemini judge, critic and guesser: one provider, the defaults",
 			providers: gemini,
 			want: map[Kind]Policy{
-				KindDuel:     {Provider: ProviderGoogle, PerUser: 20, Noun: "duels"},
-				KindPractice: {Provider: ProviderGoogle, PerUser: 20, Noun: "scored drawings"},
+				KindDuel:     {Provider: ProviderGoogle, PerUser: 3, Noun: "duels"},
+				KindPractice: {Provider: ProviderGoogle, PerUser: 3, Noun: "scored drawings"},
 				KindGuess:    {Provider: ProviderGoogle, PerUser: 2, Noun: "AI guesses"},
-				KindAssist:   {PerUser: 40, Noun: "AI drawing requests"},
+				KindAssist:   {PerUser: 5, Noun: "AI drawing requests"},
 			},
 		},
 		{
 			name:      "the external ML judge serves duels only",
 			providers: collaborator,
 			want: map[Kind]Policy{
-				KindDuel:     {Provider: ProviderCollaborator, PerUser: 20, Noun: "duels"},
-				KindPractice: {PerUser: 20, Noun: "scored drawings"},
+				KindDuel:     {Provider: ProviderCollaborator, PerUser: 3, Noun: "duels"},
+				KindPractice: {PerUser: 3, Noun: "scored drawings"},
 				KindGuess:    {PerUser: 2, Noun: "AI guesses"},
-				KindAssist:   {PerUser: 40, Noun: "AI drawing requests"},
+				KindAssist:   {PerUser: 5, Noun: "AI drawing requests"},
 			},
 		},
 		{
 			// An impl that calls nobody must arrive here with no provider, and then
-			// it is unbudgeted no matter what ASSIST_MODE said.
-			name:      "an assist scaffold that calls nobody is unbudgeted",
+			// it is unbudgeted no matter what ASSIST_MODE said — and no quota is at
+			// stake, so its allowance may sit above the global ceiling.
+			name:      "a kind that calls nobody is unbudgeted, whatever its allowance",
 			providers: map[Kind]Provider{KindDuel: ProviderGoogle},
 			perUser:   map[string]int{"assist": 40},
 			want: map[Kind]Policy{
-				KindDuel:     {Provider: ProviderGoogle, PerUser: 20, Noun: "duels"},
-				KindPractice: {PerUser: 20, Noun: "scored drawings"},
+				KindDuel:     {Provider: ProviderGoogle, PerUser: 3, Noun: "duels"},
+				KindPractice: {PerUser: 3, Noun: "scored drawings"},
 				KindGuess:    {PerUser: 2, Noun: "AI guesses"},
 				KindAssist:   {PerUser: 40, Noun: "AI drawing requests"},
 			},
@@ -79,9 +86,9 @@ func TestPolicies(t *testing.T) {
 			perUser:   map[string]int{"duel": 5, "guess": 1},
 			want: map[Kind]Policy{
 				KindDuel:     {Provider: ProviderGoogle, PerUser: 5, Noun: "duels"},
-				KindPractice: {Provider: ProviderGoogle, PerUser: 20, Noun: "scored drawings"},
+				KindPractice: {Provider: ProviderGoogle, PerUser: 3, Noun: "scored drawings"},
 				KindGuess:    {Provider: ProviderGoogle, PerUser: 1, Noun: "AI guesses"},
-				KindAssist:   {PerUser: 40, Noun: "AI drawing requests"},
+				KindAssist:   {PerUser: 5, Noun: "AI drawing requests"},
 			},
 		},
 		{
@@ -105,11 +112,46 @@ func TestPolicies(t *testing.T) {
 			perUser:   map[string]int{"duel": 0},
 			wantErr:   "refuses every call",
 		},
+		{
+			name:      "an allowance one below the global ceiling boots",
+			providers: gemini,
+			perUser:   map[string]int{"duel": testGlobal - 1},
+			want: map[Kind]Policy{
+				KindDuel:     {Provider: ProviderGoogle, PerUser: testGlobal - 1, Noun: "duels"},
+				KindPractice: {Provider: ProviderGoogle, PerUser: 3, Noun: "scored drawings"},
+				KindGuess:    {Provider: ProviderGoogle, PerUser: 2, Noun: "AI guesses"},
+				KindAssist:   {PerUser: 5, Noun: "AI drawing requests"},
+			},
+		},
+		{
+			name:      "an allowance equal to the global ceiling must not boot",
+			providers: gemini,
+			perUser:   map[string]int{"duel": testGlobal},
+			wantErr:   "duel is served by google",
+		},
+		{
+			name:      "an allowance above the global ceiling must not boot",
+			providers: collaborator,
+			perUser:   map[string]int{"duel": 500},
+			wantErr:   "duel is served by collaborator",
+		},
+		{
+			// The defaults are checked like any other allowance: lowering the global
+			// ceiling under them is the operator's mistake to hear about at boot.
+			name:      "a global ceiling at or below a default allowance must not boot",
+			providers: gemini,
+			global:    3,
+			wantErr:   "per-player allowance is 3",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Policies(tt.providers, tt.perUser)
+			global := tt.global
+			if global == 0 {
+				global = testGlobal
+			}
+			got, err := Policies(tt.providers, tt.perUser, global)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("Policies = %+v, want an error containing %q", got, tt.wantErr)
@@ -132,11 +174,56 @@ func TestPolicies(t *testing.T) {
 	}
 }
 
+// TestPoliciesNamesWhatToChange pins that the allowance-versus-global boot error
+// carries everything an operator needs to fix it from the log line alone.
+func TestPoliciesNamesWhatToChange(t *testing.T) {
+	tests := []struct {
+		name      string
+		providers map[Kind]Provider
+		perUser   map[string]int
+		global    int
+		want      []string
+	}{
+		{
+			name:      "an explicit allowance above the global ceiling",
+			providers: map[Kind]Provider{KindPractice: ProviderGoogle.WithModel("gemini-3.6-flash")},
+			perUser:   map[string]int{"practice": 20},
+			global:    15,
+			want: []string{
+				"practice", "google:gemini-3.6-flash", "allowance is 20", "ceiling of 15",
+				"AI_DAILY_PER_USER=practice=<n>", "AI_DAILY_GLOBAL",
+			},
+		},
+		{
+			name:      "a default allowance caught by a lowered global ceiling",
+			providers: map[Kind]Provider{KindAssist: ProviderGoogle},
+			global:    DefaultPerUser[KindAssist],
+			want: []string{
+				"assist", "google", "allowance is 5", "ceiling of 5",
+				"AI_DAILY_PER_USER=assist=<n>", "AI_DAILY_GLOBAL",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Policies(tt.providers, tt.perUser, tt.global)
+			if err == nil {
+				t.Fatal("Policies booted, want an error")
+			}
+			for _, part := range tt.want {
+				if !strings.Contains(err.Error(), part) {
+					t.Errorf("error %q does not contain %q", err, part)
+				}
+			}
+		})
+	}
+}
+
 // TestPoliciesCoversEveryKind pins that a kind nobody wired still gets a
 // policy rather than being absent, so a new feature reads as off by default
 // rather than unbounded.
 func TestPoliciesCoversEveryKind(t *testing.T) {
-	got, err := Policies(nil, nil)
+	got, err := Policies(nil, nil, testGlobal)
 	if err != nil {
 		t.Fatalf("Policies: %v", err)
 	}
@@ -285,7 +372,7 @@ func TestModelScopedProviderIsABudgetedProvider(t *testing.T) {
 	flash := ProviderGoogle.WithModel("gemini-3.6-flash")
 	pro := ProviderGoogle.WithModel("gemini-3.6-pro")
 
-	policies, err := Policies(map[Kind]Provider{KindDuel: pro, KindGuess: flash}, nil)
+	policies, err := Policies(map[Kind]Provider{KindDuel: pro, KindGuess: flash}, nil, testGlobal)
 	if err != nil {
 		t.Fatalf("Policies: %v", err)
 	}
@@ -344,7 +431,7 @@ func TestInertAllowances(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policies, err := Policies(tt.providers, tt.perUser)
+			policies, err := Policies(tt.providers, tt.perUser, testGlobal)
 			if err != nil {
 				t.Fatalf("Policies: %v", err)
 			}

@@ -159,7 +159,7 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 	}
 
 	// startRound puts two fresh players through the real join: a seeded open match,
-	// backdated so matchmaking provably lands on this one, then a CreateOrJoin
+	// backdated within the open TTL so matchmaking provably lands on this one, then a CreateOrJoin
 	// that fills the roster — the one site that starts a round.
 	startRound := func(t *testing.T, tag string) (string, string, string) {
 		t.Helper()
@@ -175,9 +175,10 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 			if err := q.AddMatchPlayer(ctx, db.AddMatchPlayerParams{MatchID: m.ID, UserID: host}); err != nil {
 				t.Fatalf("seat host: %v", err)
 			}
+			// The oldest joinable match: older than any other suite's, inside the open TTL.
 			if _, err := pool.Exec(ctx,
 				"update matches set created_at = now() - make_interval(secs => $2::int) where id = $1",
-				m.ID, int32(10*365*24*time.Hour/time.Second)); err != nil {
+				m.ID, openTTLSecs-30); err != nil {
 				t.Fatalf("backdate match: %v", err)
 			}
 
@@ -327,11 +328,17 @@ func TestDuelBudgetBilling_DB(t *testing.T) {
 
 		// Enters judging through the shared helper directly, not via Submit, so no
 		// out-of-band pass resolves the match before the re-fire is tested.
-		if err := svc.enterJudging(ctx, q, mid); err != nil {
+		if err := svc.enterJudging(ctx, q, mid, true); err != nil {
 			t.Fatalf("enterJudging: %v", err)
 		}
 		if got := providerRows() - before; got != 1 {
 			t.Fatalf("the first pass wrote %d provider rows, want 1", got)
+		}
+		// refireJudging re-checks staleness under the lock, so age the first pass.
+		if _, err := pool.Exec(ctx,
+			"update matches set judging_started_at = now() - make_interval(secs => $2::int) where id = $1",
+			mid, judgeStaleSecs+60); err != nil {
+			t.Fatalf("backdate judging attempt: %v", err)
 		}
 
 		// refireJudging is the stuck-judging sweep's only caller; calling it directly

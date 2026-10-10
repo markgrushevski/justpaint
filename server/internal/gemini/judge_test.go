@@ -159,7 +159,7 @@ func geminiStr(t *testing.T, v any, what string) string {
 // TestJudge_Score_HappyPath pins BOTH directions: the exact judge.Result we
 // derive from a realistic envelope, and the exact request we put on the wire.
 func TestJudge_Score_HappyPath(t *testing.T) {
-	const output = `{"scoreA":0.82,"scoreB":0.41,"winner":"A","reason":"The first drawing shows a fox clearly astride a bicycle; the second reads as an animal beside two circles."}`
+	const output = `{"scoreA":0.82,"scoreB":0.41,"winner":"A","reason":"Drawing A shows a fox clearly astride a bicycle; drawing B reads as an animal beside two circles."}`
 	j, stub := newGeminiTestJudge(t, func(_ int, w http.ResponseWriter) {
 		geminiWrite(w, http.StatusOK, geminiEnvelope(output))
 	})
@@ -174,7 +174,7 @@ func TestJudge_Score_HappyPath(t *testing.T) {
 		ScoreA: 0.82,
 		ScoreB: 0.41,
 		Winner: judge.WinnerA,
-		Reason: "The first drawing shows a fox clearly astride a bicycle; the second reads as an animal beside two circles.",
+		Reason: "Drawing A shows a fox clearly astride a bicycle; drawing B reads as an animal beside two circles.",
 	}
 	if res != want {
 		t.Errorf("result = %+v, want %+v", res, want)
@@ -305,8 +305,8 @@ func TestJudge_Score_WinnerIsAuthoritative(t *testing.T) {
 		},
 		{
 			name:   "equal scores with a decisive winner are taken as given",
-			output: `{"scoreA":0.5,"scoreB":0.5,"winner":"B","reason":"The second drawing gets the bicycle across."}`,
-			want:   judge.Result{ScoreA: 0.5, ScoreB: 0.5, Winner: judge.WinnerB, Reason: "The second drawing gets the bicycle across."},
+			output: `{"scoreA":0.5,"scoreB":0.5,"winner":"B","reason":"Drawing B gets the bicycle across."}`,
+			want:   judge.Result{ScoreA: 0.5, ScoreB: 0.5, Winner: judge.WinnerB, Reason: "Drawing B gets the bicycle across."},
 		},
 		{
 			name:   "both may score high",
@@ -628,8 +628,8 @@ func TestJudge_Score_PerAttemptTimeout(t *testing.T) {
 // players; a rewrite that drops one should fail here.
 func TestGeminiSystemInstruction(t *testing.T) {
 	must := []string{
-		"the first drawing",
-		"the second drawing",
+		"drawing A",
+		"drawing B",
 		"scoreA",
 		"scoreB",
 		"winner",

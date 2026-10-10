@@ -54,20 +54,26 @@ func (q *Queries) CreateMatch(ctx context.Context, promptID string) (Match, erro
 	return i, err
 }
 
-const findMyOpenMatch = `-- name: FindMyOpenMatch :one
+const findMyLiveMatch = `-- name: FindMyLiveMatch :one
 select m.id, m.prompt_id, m.mode, m.status, m.winner_player_id, m.judge_reason, m.created_at, m.updated_at, m.drawing_deadline, m.resolution, m.judge_attempts, m.judging_started_at from matches m
 join match_players mp on mp.match_id = m.id
-where m.status = 'open'
-  and m.mode = 'async'
-  and mp.user_id = $1
-order by m.created_at asc
+where mp.user_id = $1
+  and (m.status in ('drawing', 'judging')
+       or (m.status = 'open' and m.created_at > now() - make_interval(secs => $2::int)))
+order by m.created_at desc
 limit 1
 `
 
-// The caller's own still-open match, if any — returned instead of stacking a
-// second open match when a waiting player taps "play" again.
-func (q *Queries) FindMyOpenMatch(ctx context.Context, userID string) (Match, error) {
-	row := q.db.QueryRow(ctx, findMyOpenMatch, userID)
+type FindMyLiveMatchParams struct {
+	UserID  string
+	TtlSecs int32
+}
+
+// The caller's own match that is still in play — open (within the TTL), drawing or
+// judging — so pressing play again, a reload or a second tab returns it instead of
+// starting another.
+func (q *Queries) FindMyLiveMatch(ctx context.Context, arg FindMyLiveMatchParams) (Match, error) {
+	row := q.db.QueryRow(ctx, findMyLiveMatch, arg.UserID, arg.TtlSecs)
 	var i Match
 	err := row.Scan(
 		&i.ID,
@@ -90,21 +96,32 @@ const findOpenMatchToJoin = `-- name: FindOpenMatchToJoin :one
 select id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at from matches
 where status = 'open'
   and mode = 'async'
+  and created_at > now() - make_interval(secs => $1::int)
   and not exists (
     select 1 from match_players mp
-    where mp.match_id = matches.id and mp.user_id = $1
+    where mp.match_id = matches.id and mp.user_id = $2
+  )
+  and exists (
+    select 1 from match_players mp
+    where mp.match_id = matches.id
+      and mp.seen_at > now() - make_interval(secs => $3::int)
   )
 order by created_at asc
 limit 1
 for update skip locked
 `
 
-// The oldest open async match the caller is not already in — the auto-join
-// candidate (docs/GAME.md §4.1, docs/DECISIONS.md 2026-07-03). `for update skip
-// locked` lets concurrent joiners each grab a different match instead of
-// colliding on one; the loser skips the locked row and creates its own.
-func (q *Queries) FindOpenMatchToJoin(ctx context.Context, userID string) (Match, error) {
-	row := q.db.QueryRow(ctx, findOpenMatchToJoin, userID)
+type FindOpenMatchToJoinParams struct {
+	TtlSecs   int32
+	UserID    string
+	PulseSecs int32
+}
+
+// The oldest open async match the caller is not already in, within the open TTL and
+// with its creator seen within the pulse window (docs/GAME.md §4.1). Runs under
+// LockMatchmaking; the row lock keeps the reaper and a cancel off it until commit.
+func (q *Queries) FindOpenMatchToJoin(ctx context.Context, arg FindOpenMatchToJoinParams) (Match, error) {
+	row := q.db.QueryRow(ctx, findOpenMatchToJoin, arg.TtlSecs, arg.UserID, arg.PulseSecs)
 	var i Match
 	err := row.Scan(
 		&i.ID,
@@ -244,9 +261,9 @@ limit $1
 for update skip locked
 `
 
-// The sweeper's work list: live rounds whose deadline has passed, oldest first.
-// FOR UPDATE SKIP LOCKED lets a sweep racing a real submit (or a second sweeper)
-// partition the set instead of colliding; each id is then resolved in its own tx.
+// The sweeper's work list: live rounds whose deadline has passed, oldest first. The
+// list runs outside a transaction, so SKIP LOCKED only passes over rows a submit holds
+// right now; each id is re-checked under its own row lock (docs/NOTES.md).
 func (q *Queries) ListExpiredDrawingMatches(ctx context.Context, limit int32) ([]string, error) {
 	rows, err := q.db.Query(ctx, listExpiredDrawingMatches, limit)
 	if err != nil {
@@ -328,21 +345,28 @@ func (q *Queries) ListMatchPlayers(ctx context.Context, matchID string) ([]ListM
 
 const listStaleOpenMatches = `-- name: ListStaleOpenMatches :many
 select id from matches
-where status = 'open' and created_at <= now() - make_interval(secs => $1::int)
+where status = 'open'
+  and (created_at <= now() - make_interval(secs => $1::int)
+       or not exists (
+         select 1 from match_players mp
+         where mp.match_id = matches.id
+           and mp.seen_at > now() - make_interval(secs => $2::int)
+       ))
 order by created_at
-limit $2::int
+limit $3::int
 for update skip locked
 `
 
 type ListStaleOpenMatchesParams struct {
-	TtlSecs int32
-	Lim     int32
+	TtlSecs   int32
+	PulseSecs int32
+	Lim       int32
 }
 
-// Open matches nobody joined within the TTL — reaped to abandoned so a ghost can't
-// later ambush a fresh joiner (docs/GAME.md §4.1).
+// Open matches past the TTL or whose creator stopped polling — reaped to abandoned
+// (docs/GAME.md §4.1).
 func (q *Queries) ListStaleOpenMatches(ctx context.Context, arg ListStaleOpenMatchesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listStaleOpenMatches, arg.TtlSecs, arg.Lim)
+	rows, err := q.db.Query(ctx, listStaleOpenMatches, arg.TtlSecs, arg.PulseSecs, arg.Lim)
 	if err != nil {
 		return nil, err
 	}
@@ -364,9 +388,10 @@ func (q *Queries) ListStaleOpenMatches(ctx context.Context, arg ListStaleOpenMat
 const listStuckJudgingMatches = `-- name: ListStuckJudgingMatches :many
 select id from matches
 where status = 'judging'
-  and judging_started_at <= now() - make_interval(secs => $1::int)
+  and (judging_started_at is null
+       or judging_started_at <= now() - make_interval(secs => $1::int))
   and judge_attempts < $2::int
-order by judging_started_at
+order by judging_started_at nulls first
 limit $3::int
 for update skip locked
 `
@@ -377,9 +402,10 @@ type ListStuckJudgingMatchesParams struct {
 	Lim         int32
 }
 
-// Judging rows wedged past the stale window with retries left, to re-fire
-// (docs/GAME.md §4.1). Staleness is measured against judging_started_at, the
-// current attempt, not updated_at. Exact complement: ListExhaustedJudgingMatches.
+// Judging rows to start: queued ones (no pass ran yet, judging_started_at null) and
+// ones wedged past the stale window with retries left (docs/GAME.md §4.1). Staleness
+// is measured against the current attempt, not updated_at. Exact complement:
+// ListExhaustedJudgingMatches, which a null start never matches.
 func (q *Queries) ListStuckJudgingMatches(ctx context.Context, arg ListStuckJudgingMatchesParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, listStuckJudgingMatches, arg.StaleSecs, arg.MaxAttempts, arg.Lim)
 	if err != nil {
@@ -398,6 +424,18 @@ func (q *Queries) ListStuckJudgingMatches(ctx context.Context, arg ListStuckJudg
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockMatchmaking = `-- name: LockMatchmaking :exec
+select pg_advisory_xact_lock(7101)
+`
+
+// One transaction-scoped lock for every matchmaking decision, so two players pressing
+// play at once see each other's open match, and one player's parallel presses can't
+// seat them twice (docs/GAME.md §4.1).
+func (q *Queries) LockMatchmaking(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockMatchmaking)
+	return err
 }
 
 const setMatchAbandoned = `-- name: SetMatchAbandoned :one
@@ -476,10 +514,42 @@ where id = $1
 returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
 `
 
-// Enter (or, for the stuck-judging watchdog, re-enter) judging: stamp the start
-// of this attempt so staleness is measured per-attempt, and bump the retry counter.
+// Start a judging pass (the first, or a re-fire): stamp the start of this attempt so
+// staleness is measured per-attempt, and bump the retry counter.
 func (q *Queries) SetMatchJudging(ctx context.Context, id string) (Match, error) {
 	row := q.db.QueryRow(ctx, setMatchJudging, id)
+	var i Match
+	err := row.Scan(
+		&i.ID,
+		&i.PromptID,
+		&i.Mode,
+		&i.Status,
+		&i.WinnerPlayerID,
+		&i.JudgeReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DrawingDeadline,
+		&i.Resolution,
+		&i.JudgeAttempts,
+		&i.JudgingStartedAt,
+	)
+	return i, err
+}
+
+const setMatchJudgingQueued = `-- name: SetMatchJudgingQueued :one
+update matches
+set status = 'judging',
+    judging_started_at = null,
+    updated_at = now()
+where id = $1
+returning id, prompt_id, mode, status, winner_player_id, judge_reason, created_at, updated_at, drawing_deadline, resolution, judge_attempts, judging_started_at
+`
+
+// Enter judging with no pass running yet: both drawings are in but no judging slot
+// was free. Nothing is stamped or counted; the sweeper starts the pass when a slot
+// frees (ListStuckJudgingMatches).
+func (q *Queries) SetMatchJudgingQueued(ctx context.Context, id string) (Match, error) {
+	row := q.db.QueryRow(ctx, setMatchJudgingQueued, id)
 	var i Match
 	err := row.Scan(
 		&i.ID,
@@ -538,6 +608,22 @@ func (q *Queries) SetMatchResult(ctx context.Context, arg SetMatchResultParams) 
 		&i.JudgingStartedAt,
 	)
 	return i, err
+}
+
+const touchMatchPlayer = `-- name: TouchMatchPlayer :exec
+update match_players set seen_at = now()
+where match_id = $1 and user_id = $2
+`
+
+type TouchMatchPlayerParams struct {
+	MatchID string
+	UserID  string
+}
+
+// The pulse: a player's poll of their open match.
+func (q *Queries) TouchMatchPlayer(ctx context.Context, arg TouchMatchPlayerParams) error {
+	_, err := q.db.Exec(ctx, touchMatchPlayer, arg.MatchID, arg.UserID)
+	return err
 }
 
 const updateMatchStatus = `-- name: UpdateMatchStatus :one

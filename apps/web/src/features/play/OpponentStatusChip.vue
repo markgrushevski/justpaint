@@ -1,56 +1,31 @@
-<script lang="ts">
-/**
- * The opponent's live state within a round. Deliberately coarse — the client
- * only learns that the opponent acted, never what they drew (docs/GAME.md
- * §4.2); the canvas is revealed only on the result screen.
- */
-export type OpponentStatus = 'drawing' | 'submitted' | 'judging'
-</script>
-
 <script lang="ts" setup>
 /**
- * OpponentStatusChip — a top-left readout of who you're dueling and where they
- * are in the round: an avatar, their display name, and a coloured status dot.
+ * OpponentStatusChip — who you're dueling and where they are in the round: an avatar,
+ * their display name, and a status dot with its word. Coarse on purpose: the client
+ * only learns that the opponent acted, never what they drew (docs/GAME.md §4.2).
  *
- * Identity rule (docs/GAME.md §4.2): show the display name, or the positional
- * "Player 2" — never the opponent's login. PlayView passes `name` already
- * resolved to a safe label; this component never sees a login.
+ * Identity rule (docs/GAME.md §4.2): a display name or the positional "Player 2",
+ * never a login; PlayView passes the label already resolved.
  */
-import { computed } from 'vue'
 import { OriAvatar } from '@oriui/vue'
 import IslandSurface from '../../components/ui/IslandSurface.vue'
+import type { OpponentStatus } from './duel'
 
-const props = defineProps<{
+defineProps<{
     /** A safe display label — a nickname or "Player 2", never a login. */
     name: string
-    /** Where the opponent is in the round (drives the status dot + text). */
     status: OpponentStatus
-    /**
-     * Best-effort live-socket presence (docs/API.md §9.2) — `false` dims the
-     * chip. Not load-bearing: `status` stays authoritative regardless, so a
-     * dropped socket never hides that the opponent already submitted.
-     */
-    online?: boolean
 }>()
-
-const STATUS_LABEL: Record<OpponentStatus, string> = {
-    drawing: 'drawing',
-    submitted: 'submitted',
-    judging: 'judging'
-}
-const label = computed(() => STATUS_LABEL[props.status])
-/** submitted is a settled state (solid dot); the others are in-progress (pulse + ellipsis). */
-const inProgress = computed(() => props.status !== 'submitted')
 </script>
 
 <template>
-    <IslandSurface class="opp" :class="{ 'opp--offline': online === false }" elevation="md">
+    <IslandSurface class="opp" elevation="md">
         <OriAvatar class="opp__avatar" :name="name" color="secondary" size="sm" />
         <div class="opp__who">
             <span class="opp__name">{{ name }}</span>
             <span class="opp__status" :class="`opp__status--${status}`">
-                <span class="opp__dot" :class="{ 'opp__dot--live': inProgress }" aria-hidden="true"></span>
-                <span class="opp__status-text">{{ label }}<template v-if="inProgress">…</template></span>
+                <span class="opp__dot" :class="{ 'opp__dot--live': status === 'drawing' }" aria-hidden="true"></span>
+                <span class="opp__status-text">{{ status }}<template v-if="status === 'drawing'">…</template></span>
             </span>
         </div>
     </IslandSurface>
@@ -68,13 +43,6 @@ const inProgress = computed(() => props.status !== 'submitted')
 
 .opp__avatar {
     flex: none;
-}
-
-/* Dims the chip for the "gone quiet" hint (see the `online` prop doc); the
-   pulse-stilling override sits alongside `.opp__dot--live` below, in
-   descending-specificity order. */
-.opp--offline {
-    opacity: 0.55;
 }
 
 .opp__who {
@@ -125,16 +93,8 @@ const inProgress = computed(() => props.status !== 'submitted')
     --dot-color: var(--ori-color-success);
 }
 
-.opp__status--judging {
-    --dot-color: var(--ori-color-info);
-}
-
 .opp__dot--live {
     animation: opp-pulse 1.1s ease-in-out infinite;
-}
-
-.opp--offline .opp__dot--live {
-    animation: none;
 }
 
 @keyframes opp-pulse {

@@ -134,6 +134,14 @@ export class Editor {
         this.syncContainerCursor()
     }
 
+    /**
+     * Commit the stroke being drawn, as a release would, so a host can read the document
+     * mid-gesture (a timed submit). The rest of that gesture is ignored.
+     */
+    finishStroke(): void {
+        this.finishGesture(null)
+    }
+
     setStyle(patch: Partial<ToolStyle>): void {
         this.style = { ...this.style, ...patch }
         this.syncCursorRing() // the ring's diameter follows the width

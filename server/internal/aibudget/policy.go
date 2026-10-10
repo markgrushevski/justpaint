@@ -55,14 +55,16 @@ func Models(defaultModel string, perKind map[string]string) (map[Kind]string, er
 // empty provider is how the budget says "never enforced, never recorded".
 //
 // perUser is the operator's AI_DAILY_PER_USER map, keyed by the kind's wire
-// name; a kind they did not name falls back to DefaultPerUser.
+// name; a kind they did not name falls back to DefaultPerUser. global is
+// AI_DAILY_GLOBAL.
 //
-// Three boot errors: an unknown kind name in perUser or in providers (the
-// valid set lives here, not in config, and grows with the code), and a kind
-// with a provider whose allowance is below 1, which would refuse every call
-// of that kind. An allowance for a kind with no provider is not an error —
-// see InertAllowances.
-func Policies(providers map[Kind]Provider, perUser map[string]int) (map[Kind]Policy, error) {
+// Four boot errors: an unknown kind name in perUser or in providers (the
+// valid set lives here, not in config, and grows with the code), and, for a
+// kind with a provider, an allowance below 1 (it would refuse every call of
+// that kind) or at or above global (one player could then spend the pool's
+// whole day for everyone). An allowance for a kind with no provider is checked
+// against neither — see InertAllowances.
+func Policies(providers map[Kind]Provider, perUser map[string]int, global int) (map[Kind]Policy, error) {
 	for name := range perUser {
 		if _, ok := ParseKind(name); !ok {
 			return nil, fmt.Errorf("config: AI_DAILY_PER_USER names an unknown kind %q; valid kinds are %v", name, AllKinds())
@@ -84,6 +86,10 @@ func Policies(providers map[Kind]Provider, perUser map[string]int) (map[Kind]Pol
 		if provider != "" && allowance < 1 {
 			return nil, fmt.Errorf("config: %s is served by %s but its per-user allowance is %d, which refuses every call; set AI_DAILY_PER_USER=%s=<n>",
 				kind, provider, allowance, kind)
+		}
+		if provider != "" && allowance >= global {
+			return nil, fmt.Errorf("config: %s is served by %s and its per-player allowance is %d, which is not below the global ceiling of %d, so one player could spend the day's quota for everyone; lower AI_DAILY_PER_USER=%s=<n> or raise AI_DAILY_GLOBAL",
+				kind, provider, allowance, global, kind)
 		}
 		policies[kind] = Policy{Provider: provider, PerUser: allowance, Noun: kind.Noun()}
 	}

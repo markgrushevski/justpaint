@@ -91,7 +91,7 @@ server/
     guess/       # "what did I draw?" on /draw: judge.Guesser, no row anywhere; docs/API.md §13        [done]
     aibudget/    # the daily AI-call ceiling, over ONE ledger table (ai_calls); docs/GAME.md §4.3      [done]
     ws/          # coder/websocket hub pushing match-room state to both duelists                       [done]
-  migrations/    # goose, embedded and applied at boot (00001_initial_schema … 00008_practice_run_document)
+  migrations/    # goose, embedded and applied at boot (00001_initial_schema … 00009_match_player_seen)
 ```
 
 Module rules:
@@ -178,6 +178,10 @@ matches (
   status text not null,                    -- 'open'|'drawing'|'judging'|'done'|'abandoned'
   winner_player_id uuid null,              -- resolved from judge's positional winner (§5); null for tie/undecided per GAME.md
   judge_reason text null,
+  drawing_deadline timestamptz null,       -- null while 'open'; stamped at open → drawing (GAME.md §4.1)
+  resolution text null,                    -- how a 'done' match ended: 'judged'|'forfeit'|'aborted'
+  judge_attempts int not null default 0,   -- judging passes started; capped by the stuck-judging sweep
+  judging_started_at timestamptz null,     -- start of the current pass; null while queued for a slot
   created_at, updated_at
 )
 
@@ -187,6 +191,7 @@ match_players (
   score double precision null,             -- from the judge
   rating_before int null, rating_after int null,
   submitted_at timestamptz null,
+  seen_at timestamptz not null default now(),  -- last sign the player is present (the open-match pulse, GAME.md §4.1)
   primary key (match_id, user_id)
 )
 ```

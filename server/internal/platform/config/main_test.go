@@ -14,7 +14,13 @@ var exampleKey = regexp.MustCompile(`^#?\s*([A-Z][A-Z0-9_]*)=`)
 // TestMain unsets every variable server/.env.example documents, so a developer's
 // own .env (`npx dotenv run -- go test ./...`) can't leak into the defaults
 // under test. Each test then sets what it needs with t.Setenv.
+//
+// The renamed budget names are no longer documented there, and a stale one in a
+// developer's .env would fail every Load.
 func TestMain(m *testing.M) {
+	for _, r := range renamedAIBudgetEnv {
+		_ = os.Unsetenv(r.old)
+	}
 	f, err := os.Open("../../../.env.example")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config tests: read .env.example:", err)

@@ -54,6 +54,7 @@ type MatchPlayer struct {
 	RatingBefore *int32
 	RatingAfter  *int32
 	SubmittedAt  *time.Time
+	SeenAt       time.Time
 }
 
 type PracticeRun struct {

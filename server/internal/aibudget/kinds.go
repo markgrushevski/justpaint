@@ -86,10 +86,10 @@ func (p Provider) WithModel(model string) Provider {
 // Read-only: a caller that needs to vary a value should build its own
 // map[Kind]Policy from it.
 var DefaultPerUser = map[Kind]int{
-	KindDuel:     20,
-	KindPractice: 20,
+	KindDuel:     3,
+	KindPractice: 3,
 	KindGuess:    2,
-	KindAssist:   40,
+	KindAssist:   5,
 }
 
 // AllKinds lists every kind, in declaration order so an error message built

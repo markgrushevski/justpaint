@@ -14,11 +14,14 @@ import (
 // Sweeper tunables (docs/GAME.md §4.1).
 const (
 	sweepBatch = 256 // rows per phase per tick
-	// judgeStaleSecs sits well above p99 judge latency, so only a crashed or hung
-	// pass is re-fired.
-	judgeStaleSecs   = 45
+	// judgeStaleSecs outlasts the longest pass JudgePassBudget allows, so a pass is
+	// re-fired only once it has certainly ended.
+	judgeStaleSecs   = judgePassSecs + 15
 	maxJudgeAttempts = 3 // then sweepExhaustedJudging aborts the match
-	openTTLSecs      = 600
+	openTTLSecs      = 120
+	// openPulseSecs is how long an open match stays joinable without its creator's
+	// poll; it must clear the client's slowest waiting poll (15 s with a live socket).
+	openPulseSecs = 45
 )
 
 // RunSweeper drains each phase's backlog, then runs one batch per phase every
@@ -26,7 +29,7 @@ const (
 //
 // sweepStuckJudging runs before sweepExhaustedJudging, so a row it just re-fired is
 // no longer stale and cannot be aborted in the same tick. It never waits on the
-// judging goroutines it dispatched, so shutdown cannot deadlock on a render.
+// judging goroutines it dispatched; on shutdown it waits for them to finish.
 func (s *Service) RunSweeper(ctx context.Context, interval time.Duration) {
 	s.drain(ctx, s.sweepExpiredDrawing)
 	s.drain(ctx, s.sweepStuckJudging)
@@ -38,6 +41,8 @@ func (s *Service) RunSweeper(ctx context.Context, interval time.Duration) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Let passes in flight commit their verdicts; main bounds the wait.
+			s.judging.drain()
 			return
 		case <-t.C:
 			s.sweepExpiredDrawing(ctx)
@@ -78,9 +83,6 @@ func (s *Service) sweepExpiredDrawing(ctx context.Context) int {
 			continue
 		}
 		handled++
-		if outcome == outcomeJudging {
-			s.dispatchJudging(id)
-		}
 		s.publishOutcome(id, outcome)
 	}
 	return handled
@@ -112,11 +114,12 @@ func (s *Service) resolveExpiredMatch(ctx context.Context, matchID string) (reso
 	return outcome, nil
 }
 
-// sweepStuckJudging re-fires judging for matches stale in 'judging' with retries left.
+// sweepStuckJudging starts judging for queued matches and re-fires stale ones with
+// retries left.
 //
-// The concurrency slot is taken before refireJudging: a re-fire bumps
-// judge_attempts, so one whose pass never ran would walk the match toward the abort
-// cap for nothing. With no slot free, the rest waits for the next tick.
+// The concurrency slot is taken before refireJudging: starting a pass bumps
+// judge_attempts, so one that never ran would walk the match toward the abort cap
+// for nothing. With no slot free, the rest waits for the next tick.
 func (s *Service) sweepStuckJudging(ctx context.Context) int {
 	ids, err := s.q.ListStuckJudgingMatches(ctx, db.ListStuckJudgingMatchesParams{
 		StaleSecs: judgeStaleSecs, MaxAttempts: maxJudgeAttempts, Lim: sweepBatch,
@@ -237,13 +240,17 @@ func (s *Service) refireJudging(ctx context.Context, matchID string) (bool, erro
 	if row.Status != statusJudging {
 		return false, nil // resolved (or moved on) between list and lock — don't revert
 	}
-	// The cap too: two sweeps on two instances could both pass the list query.
+	// The cap and the staleness too: a second sweeper may have started this pass
+	// between its list query and ours.
 	if row.JudgeAttempts >= maxJudgeAttempts {
 		return false, nil
 	}
-	// enterJudging bills the provider again for this second request; the players were
-	// billed once, for the round.
-	if err := s.enterJudging(ctx, qtx, matchID); err != nil {
+	if row.JudgingStartedAt != nil && row.JudgingStartedAt.After(row.ServerNow.Add(-judgeStaleSecs*time.Second)) {
+		return false, nil
+	}
+	// enterJudging bills the provider for this request; the players were billed once,
+	// for the round.
+	if err := s.enterJudging(ctx, qtx, matchID, true); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -252,11 +259,11 @@ func (s *Service) refireJudging(ctx context.Context, matchID string) (bool, erro
 	return true, nil
 }
 
-// sweepStaleOpen abandons open matches nobody joined within the TTL, so a fresh
-// player is never paired with a creator long gone.
+// sweepStaleOpen abandons open matches past the TTL or whose creator stopped polling,
+// so a fresh player is never paired with a creator who left.
 func (s *Service) sweepStaleOpen(ctx context.Context) int {
 	ids, err := s.q.ListStaleOpenMatches(ctx, db.ListStaleOpenMatchesParams{
-		TtlSecs: openTTLSecs, Lim: sweepBatch,
+		TtlSecs: openTTLSecs, PulseSecs: openPulseSecs, Lim: sweepBatch,
 	})
 	if err != nil {
 		s.logger.Error("sweep stale open: list", "err", err)

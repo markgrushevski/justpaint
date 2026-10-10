@@ -126,15 +126,15 @@ func TestWriteRefusal(t *testing.T) {
 		{
 			// Every kind names its own cap: one template, one noun per kind.
 			name:        "duel per-user names the cap",
-			err:         &KindSpentError{Kind: KindDuel, Cap: 20, Noun: KindDuel.Noun()},
+			err:         &KindSpentError{Kind: KindDuel, Cap: 3, Noun: KindDuel.Noun()},
 			wantHandled: true,
-			wantMsg:     "you have used all 20 of your duels for today — new ones unlock as the day rolls over",
+			wantMsg:     "you have used all 3 of your duels for today — new ones unlock as the day rolls over",
 		},
 		{
 			name:        "practice per-user names the cap",
-			err:         &KindSpentError{Kind: KindPractice, Cap: 20, Noun: KindPractice.Noun()},
+			err:         &KindSpentError{Kind: KindPractice, Cap: 3, Noun: KindPractice.Noun()},
 			wantHandled: true,
-			wantMsg:     "you have used all 20 of your scored drawings for today — new ones unlock as the day rolls over",
+			wantMsg:     "you have used all 3 of your scored drawings for today — new ones unlock as the day rolls over",
 		},
 		{
 			name:        "guess per-user names the cap",
@@ -144,9 +144,9 @@ func TestWriteRefusal(t *testing.T) {
 		},
 		{
 			name:        "assist per-user names the cap",
-			err:         &KindSpentError{Kind: KindAssist, Cap: 40, Noun: KindAssist.Noun()},
+			err:         &KindSpentError{Kind: KindAssist, Cap: 5, Noun: KindAssist.Noun()},
 			wantHandled: true,
-			wantMsg:     "you have used all 40 of your AI drawing requests for today — new ones unlock as the day rolls over",
+			wantMsg:     "you have used all 5 of your AI drawing requests for today — new ones unlock as the day rolls over",
 		},
 		{
 			// A hand-built Policy carries no noun; http.go falls back to Kind.Noun.
@@ -164,9 +164,9 @@ func TestWriteRefusal(t *testing.T) {
 		},
 		{
 			name:        "wrapped per-user refusal",
-			err:         fmt.Errorf("game: create: %w", &KindSpentError{Kind: KindDuel, Cap: 20, Noun: KindDuel.Noun()}),
+			err:         fmt.Errorf("game: create: %w", &KindSpentError{Kind: KindDuel, Cap: 3, Noun: KindDuel.Noun()}),
 			wantHandled: true,
-			wantMsg:     "you have used all 20 of your duels for today — new ones unlock as the day rolls over",
+			wantMsg:     "you have used all 3 of your duels for today — new ones unlock as the day rolls over",
 		},
 		{
 			name:        "bare per-user sentinel",

@@ -64,6 +64,7 @@ var (
 	ErrNotPlayer        = errors.New("game: not a player in this match")
 	ErrNotSubmittable   = errors.New("game: match not accepting submissions") // 409
 	ErrAlreadySubmitted = errors.New("game: already submitted")               // 409
+	ErrNotOpen          = errors.New("game: match is not open")               // 409, cancel
 	// ErrRoundExpired (409): the deadline passed first, so the submit is not stamped and
 	// the match resolves as a forfeit or abandoned instead.
 	ErrRoundExpired = errors.New("game: round deadline passed")
@@ -122,13 +123,22 @@ func NewServiceWithConcurrency(pool *pgxpool.Pool, q *db.Queries, renderer rende
 	}
 }
 
-// CreateOrJoin is the one "play" entry point (docs/API.md §8). In one transaction it
-// (1) joins the oldest open match the caller is not in, else (2) returns the caller's
-// own open match, else (3) creates one. An exhausted AI budget refuses first.
+// CreateOrJoin is the one "play" entry point (docs/API.md §8). A player who is
+// already in a match still in play gets it back; otherwise, in one transaction under
+// the matchmaking lock, they join the oldest joinable open match or create one. An
+// exhausted AI budget refuses a new match, never a resumed one.
 func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, error) {
-	// Before every branch, not just the join: a creator is billed only when someone
-	// joins, so a player over cap could otherwise queue a match and duel anyway.
-	// Outside the tx, since it is advisory and the tx holds row locks.
+	// Outside the tx: a reload or a second tab must not wait on the lock, and resuming
+	// spends nothing, so it comes before the budget check.
+	if m, err := s.q.FindMyLiveMatch(ctx, db.FindMyLiveMatchParams{UserID: userID, TtlSecs: openTTLSecs}); err == nil {
+		return s.resume(ctx, s.q, m, userID)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return MatchView{}, fmt.Errorf("game: find my live match: %w", err)
+	}
+
+	// Before every branch: a creator is billed only when someone joins, so a player
+	// over cap could otherwise queue a match and duel anyway. Outside the tx, since it
+	// is advisory and the tx holds the matchmaking lock.
 	if s.checkBudget != nil {
 		if err := s.checkBudget(ctx, userID); err != nil {
 			return MatchView{}, err // an aibudget refusal; the handler maps it
@@ -142,12 +152,30 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 	defer tx.Rollback(ctx) // no-op once committed
 
 	qtx := s.q.WithTx(tx)
+	if err := qtx.LockMatchmaking(ctx); err != nil {
+		return MatchView{}, fmt.Errorf("game: lock matchmaking: %w", err)
+	}
+	// Again under the lock: a parallel press by the same player may have just seated them.
+	if m, err := qtx.FindMyLiveMatch(ctx, db.FindMyLiveMatchParams{UserID: userID, TtlSecs: openTTLSecs}); err == nil {
+		view, err := s.resume(ctx, qtx, m, userID)
+		if err != nil {
+			return MatchView{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return MatchView{}, fmt.Errorf("game: commit tx: %w", err)
+		}
+		return view, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return MatchView{}, fmt.Errorf("game: find my live match: %w", err)
+	}
 
 	joined := false // true only on the join branch, which publishes match_state post-commit
-	m, err := qtx.FindOpenMatchToJoin(ctx, userID)
+	m, err := qtx.FindOpenMatchToJoin(ctx, db.FindOpenMatchToJoinParams{
+		UserID: userID, TtlSecs: openTTLSecs, PulseSecs: openPulseSecs,
+	})
 	switch {
 	case err == nil:
-		// (1) A waiting match exists → seat the caller and start the round.
+		// A waiting match exists → seat the caller and start the round.
 		if err := qtx.AddMatchPlayer(ctx, db.AddMatchPlayerParams{MatchID: m.ID, UserID: userID}); err != nil {
 			return MatchView{}, fmt.Errorf("game: seat joiner: %w", err)
 		}
@@ -157,15 +185,9 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 		}
 		joined = true
 	case errors.Is(err, pgx.ErrNoRows):
-		if m, err = qtx.FindMyOpenMatch(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
-			// (3) No waiting match of mine either → create one.
-			if m, err = s.createMatch(ctx, qtx, userID); err != nil {
-				return MatchView{}, err // already wrapped / a sentinel
-			}
-		} else if err != nil {
-			return MatchView{}, fmt.Errorf("game: find my open match: %w", err)
+		if m, err = s.createMatch(ctx, qtx, userID); err != nil {
+			return MatchView{}, err // already wrapped / a sentinel
 		}
-		// (2) else: reuse my own open match, m already set.
 	default:
 		return MatchView{}, fmt.Errorf("game: find open match: %w", err)
 	}
@@ -175,7 +197,7 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 		return MatchView{}, err // already wrapped by assemble
 	}
 	// Both seats are billed in the transaction that starts the round, so no round means
-	// no charge. The provider is billed later, at judging (enterJudging).
+	// no charge. The provider is billed later, when a judging pass starts.
 	if joined && s.billPlayers != nil {
 		ids := make([]string, 0, len(view.Players))
 		for _, p := range view.Players {
@@ -193,6 +215,53 @@ func (s *Service) CreateOrJoin(ctx context.Context, userID string) (MatchView, e
 		s.publisher.MatchChanged(m.ID)
 	}
 	return view, nil
+}
+
+// resume returns the caller's own match in play; pressing play again counts as a pulse.
+func (s *Service) resume(ctx context.Context, q *db.Queries, m db.Match, userID string) (MatchView, error) {
+	if m.Status == statusOpen {
+		if err := q.TouchMatchPlayer(ctx, db.TouchMatchPlayerParams{MatchID: m.ID, UserID: userID}); err != nil {
+			return MatchView{}, fmt.Errorf("game: touch player: %w", err)
+		}
+	}
+	return s.assemble(ctx, q, m)
+}
+
+// Cancel abandons the caller's own open match, so nobody is seated against a player
+// who left the queue. A match that already started is not cancelled: its round runs
+// on (docs/GAME.md §4.1).
+func (s *Service) Cancel(ctx context.Context, userID, matchID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("game: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.q.WithTx(tx)
+
+	m, err := qtx.GetMatchForUpdate(ctx, matchID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("game: lock match: %w", err)
+	}
+	if _, err := qtx.GetMatchPlayer(ctx, db.GetMatchPlayerParams{MatchID: matchID, UserID: userID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("game: get player: %w", err)
+	}
+	if m.Status != statusOpen {
+		return ErrNotOpen
+	}
+	if _, err := qtx.SetMatchAbandoned(ctx, matchID); err != nil {
+		return fmt.Errorf("game: cancel match: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("game: commit tx: %w", err)
+	}
+	s.publisher.Abandoned(matchID)
+	return nil
 }
 
 // createMatch pins one random active prompt and seats the creator.
@@ -229,6 +298,12 @@ func (s *Service) Get(ctx context.Context, userID, matchID string) (MatchView, e
 	}
 	if !isPlayer(view.Players, userID) {
 		return MatchView{}, ErrNotFound
+	}
+	// The pulse: a waiting player's poll keeps their match joinable.
+	if m.Status == statusOpen {
+		if err := s.q.TouchMatchPlayer(ctx, db.TouchMatchPlayerParams{MatchID: matchID, UserID: userID}); err != nil {
+			return MatchView{}, fmt.Errorf("game: touch player: %w", err)
+		}
 	}
 	return view, nil
 }
@@ -315,9 +390,6 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		if err := tx.Commit(ctx); err != nil {
 			return SubmitResult{}, fmt.Errorf("game: commit tx: %w", err)
 		}
-		if outcome == outcomeJudging {
-			s.dispatchJudging(matchID)
-		}
 		s.publishOutcome(matchID, outcome)
 		return SubmitResult{}, ErrRoundExpired
 	}
@@ -356,13 +428,20 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 		return SubmitResult{}, fmt.Errorf("game: count unsubmitted: %w", err)
 	}
 	status := statusDrawing
-	triggerJudging := false
+	// The slot is taken before the flip, so a pass is counted and billed only when it
+	// runs; without one the match is queued for the sweeper (docs/GAME.md §4.3).
+	slot := false
+	defer func() {
+		if slot {
+			s.judging.release()
+		}
+	}()
 	if remaining == 0 {
-		if err := s.enterJudging(ctx, qtx, matchID); err != nil {
+		slot = s.judging.tryAcquire()
+		if err := s.enterJudging(ctx, qtx, matchID, slot); err != nil {
 			return SubmitResult{}, err
 		}
 		status = statusJudging
-		triggerJudging = true
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -370,19 +449,32 @@ func (s *Service) Submit(ctx context.Context, userID, matchID string, doc docume
 	}
 
 	s.publisher.PlayerSubmitted(matchID, userID)
-	if triggerJudging {
+	if status == statusJudging {
 		s.publisher.Judging(matchID)
-		// A crash mid-judge or a refused dispatch is recovered by the sweeper.
-		s.dispatchJudging(matchID)
+		if slot {
+			slot = false // the pass releases it
+			s.judging.goHeld(func() { s.judgeMatch(matchID) })
+		} else {
+			s.logger.Warn("judging queued: concurrency limit reached — the sweeper starts it when a slot frees",
+				"matchID", matchID, "limit", s.judging.limit())
+		}
 	}
 	return SubmitResult{Status: status, DrawingID: d.ID, Deadline: m.DrawingDeadline}, nil
 }
 
-// enterJudging flips a locked match to judging and bills the provider, in the
-// caller's tx. Every path into judging goes through here, so each pass bills exactly
-// one provider row (docs/GAME.md §4.3). A ledger failure fails the flip: staying in
-// `drawing` beats a ceiling that silently stops counting.
-func (s *Service) enterJudging(ctx context.Context, qtx *db.Queries, matchID string) error {
+// enterJudging flips a locked match to judging in the caller's tx. With a judging slot
+// held it starts a pass: stamps it, counts the attempt and bills the provider for the
+// request it is about to make. Without one it only queues the match, billing nothing.
+// Every path into judging goes through here, so each pass bills exactly one provider
+// row (docs/GAME.md §4.3). A ledger failure fails the flip: staying put beats a
+// ceiling that silently stops counting.
+func (s *Service) enterJudging(ctx context.Context, qtx *db.Queries, matchID string, slotHeld bool) error {
+	if !slotHeld {
+		if _, err := qtx.SetMatchJudgingQueued(ctx, matchID); err != nil {
+			return fmt.Errorf("game: queue judging: %w", err)
+		}
+		return nil
+	}
 	if _, err := qtx.SetMatchJudging(ctx, matchID); err != nil {
 		return fmt.Errorf("game: to judging: %w", err)
 	}
@@ -395,24 +487,14 @@ func (s *Service) enterJudging(ctx context.Context, qtx *db.Queries, matchID str
 	return nil
 }
 
-// dispatchJudging starts a pass if a concurrency slot is free and reports whether it
-// did. It never blocks or queues: a refused pass stays in `judging` for the sweeper
-// to re-fire once stale.
-func (s *Service) dispatchJudging(matchID string) bool {
-	if s.judging.tryGo(func() { s.judgeMatch(matchID) }) {
-		return true
-	}
-	s.logger.Warn("judging deferred: concurrency limit reached — the stuck-judging sweep will re-fire it",
-		"matchID", matchID, "limit", s.judging.limit())
-	return false
-}
-
 // JudgePassBudget bounds one judging pass: two renders plus the judge call with all
 // its retries (docs/NOTES.md "JudgePassBudget must fit the judge's retry envelope").
-const JudgePassBudget = 60 * time.Second
+const JudgePassBudget = judgePassSecs * time.Second
+
+const judgePassSecs = 60
 
 // judgeMatch runs one pass on a background context, holding a judgeLimiter slot:
-// start it through dispatchJudging or judging.goHeld, never a bare `go`.
+// start it through judging.goHeld, never a bare `go`.
 func (s *Service) judgeMatch(matchID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), JudgePassBudget)
 	defer cancel()

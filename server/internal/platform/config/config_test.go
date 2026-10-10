@@ -502,7 +502,7 @@ func TestLoad_AIBudget(t *testing.T) {
 		}
 	})
 
-	t.Run("the new names set both halves", func(t *testing.T) {
+	t.Run("both halves are read", func(t *testing.T) {
 		requireBaseEnv(t)
 		t.Setenv("AI_DAILY_GLOBAL", "77")
 		t.Setenv("AI_DAILY_PER_USER", "duel=5, guess=2")
@@ -519,103 +519,73 @@ func TestLoad_AIBudget(t *testing.T) {
 		}
 	})
 
-	t.Run("the legacy names still work, and a per-user cap above the global one is allowed", func(t *testing.T) {
+	t.Run("an allowance above the global ceiling still loads", func(t *testing.T) {
 		requireBaseEnv(t)
-		t.Setenv("JUDGE_DAILY_BUDGET", "50")
-		// Above the global budget on purpose: an operator's way of saying "no
-		// per-player limit, the global budget is the only ceiling".
-		t.Setenv("JUDGE_DAILY_PER_USER", "500")
+		t.Setenv("AI_DAILY_GLOBAL", "10")
+		t.Setenv("AI_DAILY_PER_USER", "duel=50")
+		// Whether that is an error depends on which kinds have a provider, which
+		// config cannot know; aibudget.Policies decides it at boot.
 		cfg, err := Load()
 		if err != nil {
 			t.Fatalf("Load: %v", err)
 		}
-		if cfg.AIDailyGlobal != 50 {
-			t.Errorf("AIDailyGlobal = %d, want 50", cfg.AIDailyGlobal)
-		}
-		want := map[string]int{"duel": 500, "practice": 500}
-		if !maps.Equal(cfg.AIDailyPerUser, want) {
-			t.Errorf("AIDailyPerUser = %v, want %v", cfg.AIDailyPerUser, want)
+		if cfg.AIDailyGlobal != 10 || cfg.AIDailyPerUser["duel"] != 50 {
+			t.Errorf("AIDailyGlobal, AIDailyPerUser = %d, %v; want 10 and duel=50", cfg.AIDailyGlobal, cfg.AIDailyPerUser)
 		}
 	})
 
-	t.Run("the legacy per-user cap does not leak into kinds invented later", func(t *testing.T) {
-		requireBaseEnv(t)
-		t.Setenv("JUDGE_DAILY_PER_USER", "20")
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("Load: %v", err)
-		}
-		for _, kind := range []string{"guess", "assist"} {
-			if v, ok := cfg.AIDailyPerUser[kind]; ok {
-				t.Errorf("legacy JUDGE_DAILY_PER_USER seeded %q with %d; it must keep its own default", kind, v)
+	// A renamed name is refused whatever it holds and whether or not the new name
+	// is set too, so no environment runs on the defaults by accident.
+	renamed := []struct {
+		name    string
+		env     map[string]string
+		wantErr string
+	}{
+		{
+			name:    "JUDGE_DAILY_BUDGET",
+			env:     map[string]string{"JUDGE_DAILY_BUDGET": "10"},
+			wantErr: "config: JUDGE_DAILY_BUDGET was renamed; set AI_DAILY_GLOBAL",
+		},
+		{
+			name:    "JUDGE_DAILY_PER_USER",
+			env:     map[string]string{"JUDGE_DAILY_PER_USER": "20"},
+			wantErr: "config: JUDGE_DAILY_PER_USER was renamed; set AI_DAILY_PER_USER=duel=N,practice=N",
+		},
+		{
+			name:    "JUDGE_DAILY_BUDGET with a value that would not have parsed",
+			env:     map[string]string{"JUDGE_DAILY_BUDGET": "lots"},
+			wantErr: "JUDGE_DAILY_BUDGET was renamed",
+		},
+		{
+			name:    "JUDGE_DAILY_PER_USER beside the current name",
+			env:     map[string]string{"JUDGE_DAILY_PER_USER": "0", "AI_DAILY_PER_USER": "duel=3"},
+			wantErr: "JUDGE_DAILY_PER_USER was renamed",
+		},
+		{
+			name:    "JUDGE_DAILY_BUDGET beside the same number under the current name",
+			env:     map[string]string{"JUDGE_DAILY_BUDGET": "42", "AI_DAILY_GLOBAL": "42"},
+			wantErr: "JUDGE_DAILY_BUDGET was renamed",
+		},
+	}
+	for _, tc := range renamed {
+		t.Run(tc.name+" is a boot error", func(t *testing.T) {
+			requireBaseEnv(t)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
 			}
-		}
-	})
-
-	t.Run("a per-kind entry beats the legacy seed for that kind only", func(t *testing.T) {
-		requireBaseEnv(t)
-		t.Setenv("JUDGE_DAILY_PER_USER", "20")
-		t.Setenv("AI_DAILY_PER_USER", "duel=3")
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("Load: %v", err)
-		}
-		want := map[string]int{"duel": 3, "practice": 20}
-		if !maps.Equal(cfg.AIDailyPerUser, want) {
-			t.Errorf("AIDailyPerUser = %v, want %v", cfg.AIDailyPerUser, want)
-		}
-	})
-
-	t.Run("the global aliases may both be set to the same value", func(t *testing.T) {
-		requireBaseEnv(t)
-		t.Setenv("AI_DAILY_GLOBAL", "42")
-		t.Setenv("JUDGE_DAILY_BUDGET", "42")
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("Load: %v", err)
-		}
-		if cfg.AIDailyGlobal != 42 {
-			t.Errorf("AIDailyGlobal = %d, want 42", cfg.AIDailyGlobal)
-		}
-	})
-
-	t.Run("the global aliases agree when the numbers agree, however written", func(t *testing.T) {
-		for _, tt := range []struct {
-			name           string
-			current, alias string
-			want           int
-		}{
-			{name: "a leading zero", current: "100", alias: "0100", want: 100},
-			{name: "an explicit sign", current: "+7", alias: "7", want: 7},
-			{name: "surrounding space", current: "42", alias: "  42 ", want: 42},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				requireBaseEnv(t)
-				t.Setenv("AI_DAILY_GLOBAL", tt.current)
-				t.Setenv("JUDGE_DAILY_BUDGET", tt.alias)
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("Load: %v", err)
-				}
-				if cfg.AIDailyGlobal != tt.want {
-					t.Errorf("AIDailyGlobal = %d, want %d", cfg.AIDailyGlobal, tt.want)
-				}
-			})
-		}
-	})
-
-	t.Run("the global aliases disagreeing is a boot error naming both", func(t *testing.T) {
-		requireBaseEnv(t)
-		t.Setenv("AI_DAILY_GLOBAL", "42")
-		t.Setenv("JUDGE_DAILY_BUDGET", "50")
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected a boot error when the two names disagree")
-		}
-		for _, name := range []string{"AI_DAILY_GLOBAL", "JUDGE_DAILY_BUDGET"} {
-			if !strings.Contains(err.Error(), name) {
-				t.Errorf("error %q does not name %s", err, name)
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want one containing %q", err, tc.wantErr)
 			}
+		})
+	}
+
+	t.Run("a renamed name left empty is not set", func(t *testing.T) {
+		requireBaseEnv(t)
+		t.Setenv("JUDGE_DAILY_BUDGET", " ")
+		t.Setenv("JUDGE_DAILY_PER_USER", "")
+		if _, err := Load(); err != nil {
+			t.Fatalf("Load: %v", err)
 		}
 	})
 
@@ -627,11 +597,6 @@ func TestLoad_AIBudget(t *testing.T) {
 		{"a zero global budget", "AI_DAILY_GLOBAL", "0"},
 		{"a negative global budget", "AI_DAILY_GLOBAL", "-1"},
 		{"a non-integer global budget", "AI_DAILY_GLOBAL", "lots"},
-		{"a zero legacy global budget", "JUDGE_DAILY_BUDGET", "0"},
-		{"a non-integer legacy global budget", "JUDGE_DAILY_BUDGET", "lots"},
-		{"a zero legacy per-user cap", "JUDGE_DAILY_PER_USER", "0"},
-		{"a negative legacy per-user cap", "JUDGE_DAILY_PER_USER", "-5"},
-		{"a non-integer legacy per-user cap", "JUDGE_DAILY_PER_USER", "some"},
 		{"a per-kind entry with no number", "AI_DAILY_PER_USER", "duel"},
 		{"a per-kind entry naming no kind", "AI_DAILY_PER_USER", "=20"},
 		{"a per-kind entry with a non-integer", "AI_DAILY_PER_USER", "duel=plenty"},
