@@ -114,7 +114,6 @@ function onOpen(): void {
                             class="ori-button_icon"
                             :class="{ 'jp-ink-view': inkView && custom.active, swatches__dot: custom.active }"
                             :aria-label="custom.active ? `${custom.label}, ${custom.color}` : custom.label"
-                            :aria-pressed="custom.active"
                             :variant="custom.active ? 'solid' : 'outline'"
                             color="surface"
                             radius="full"
